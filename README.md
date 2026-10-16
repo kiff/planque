@@ -17,16 +17,21 @@ People who let AI agents work in their business tools and need to know:
 
 ## How it works
 
+planque is small on purpose. It doesn't keep a catalogue of vendors. It
+follows the standard that modern vendors' MCP servers already speak:
+OAuth 2.1 with discovery (RFC 9728, RFC 8414), dynamic client
+registration (RFC 7591) and PKCE. Stripe's MCP server, for one, does all of
+it.
+
 1. **Ask.** An agent sends a grant request that says exactly what it wants:
-   which tool, what access, what limits. It uses the OpenID CIBA flow with
-   Rich Authorization Requests (RFC 9396).
-2. **Approve.** The owner gets a push on their phone, reads the request in
-   plain words, and approves with Face ID. The phone signs that exact
-   request with its device key. Nothing is granted without the signature.
-3. **Connect.** The owner signs in on the vendor's own page (OAuth). If the
-   vendor has no OAuth, the owner pastes a restricted key into planque's own
-   page, never into a chat. The token lands in planque, encrypted with KMS,
-   bound to that vendor account, refreshed, and revocable.
+   which vendor, what access, for which agent.
+2. **Approve.** The owner approves in their own app, for example tafs, with
+   Face ID. The phone signs that exact request with its device key.
+   Nothing is granted without the signature.
+3. **Connect.** planque discovers the vendor's sign-in server, registers
+   itself, and sends the owner to the vendor's own sign-in page. The token
+   lands in planque, encrypted with KMS, bound to that vendor account,
+   refreshed safely, and revocable.
 4. **Call.** For each call, planque checks a permit for that exact call (for
    example from KIFF, RFC 046), then calls the vendor itself. The agent never
    receives a token.
@@ -42,7 +47,8 @@ It's the same code either way.
 
 ## Done when (the first end-to-end)
 
-- From kiff/tafs' setup chat, an owner connects **Stripe (test mode)**:
+- From kiff/tafs' setup chat, an owner connects **Stripe** through its MCP
+  server:
   1. the approval on the phone;
   2. Stripe's own sign-in;
   3. the token in planque;
