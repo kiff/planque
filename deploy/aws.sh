@@ -19,6 +19,7 @@
 # FAKEVENDOR=1 deploys the fake vendor (an MCP server behind its own OAuth,
 # which consents on its own) for the live check and kiff/agents' nightly
 # test, named $PLANQUE_NAME-fakevendor; FAKEVENDOR_TOKEN guards /fake/calls.
+# Its state is in its own table of that name, so any instance answers.
 set -euo pipefail
 
 REGION=${AWS_REGION:-eu-west-1}
@@ -36,7 +37,7 @@ FAKE=""
 if [[ "${FAKEKIFF:-}" == 1 ]]; then FAKE=kiff; fi
 if [[ "${FAKEVENDOR:-}" == 1 ]]; then FAKE=vendor; fi
 if [[ "$FAKE" == vendor ]]; then
-  FN=$NAME-fakevendor ROLE=$NAME-fakevendor-lambda PKG=./internal/fakes/cmd/fakevendor
+  FN=$NAME-fakevendor ROLE=$NAME-fakevendor-lambda PKG=./internal/fakes/cmd/fakevendor TABLE=$NAME-fakevendor
 fi
 if [[ "$FAKE" == kiff ]]; then
   FN=$NAME-fakekiff ROLE=$NAME-fakekiff-lambda PKG=./internal/fakes/cmd/fakekiff
@@ -57,6 +58,9 @@ role() {
   fi
   local logs="{\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\"],\"Resource\":\"arn:aws:logs:$REGION:$ACCOUNT:log-group:/aws/lambda/$FN:*\"}"
   local stmts="$logs"
+  if [[ "$FAKE" == vendor ]]; then
+    stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"}"
+  fi
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
@@ -86,7 +90,7 @@ kmskey() {
 
 function_env() {
   if [[ "$FAKE" == vendor ]]; then
-    python3 -c 'import json,os,sys; print(json.dumps({"Variables": {"FAKEVENDOR_BASE": sys.argv[1], "FAKEVENDOR_TOKEN": os.environ["FAKEVENDOR_TOKEN"]}}))' "$1"
+    python3 -c 'import json,os,sys; print(json.dumps({"Variables": {"FAKEVENDOR_BASE": sys.argv[1], "FAKEVENDOR_TOKEN": os.environ["FAKEVENDOR_TOKEN"], "FAKEVENDOR_TABLE": sys.argv[2]}}))' "$1" "$TABLE"
   elif [[ "$FAKE" == kiff ]]; then
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else
@@ -99,6 +103,7 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
 
 up() {
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
+  if [[ "$FAKE" == vendor ]]; then table; fi
   role
   local zip; zip=$(build)
   local role_arn; role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
@@ -114,9 +119,11 @@ up() {
     done
     aws lambda wait function-active-v2 --function-name "$FN"
   fi
-  if [[ -n "$FAKE" ]]; then
+  if [[ "$FAKE" == kiff ]]; then
     # Its state is in memory: one instance.
     aws lambda put-function-concurrency --function-name "$FN" --reserved-concurrent-executions 1 >/dev/null
+  elif [[ "$FAKE" == vendor ]]; then
+    aws lambda delete-function-concurrency --function-name "$FN" >/dev/null
   fi
   if ! aws lambda get-function-url-config --function-name "$FN" --query FunctionUrl >/dev/null 2>&1; then
     aws lambda create-function-url-config --function-name "$FN" --auth-type NONE --query FunctionUrl >/dev/null
@@ -138,8 +145,10 @@ down() {
   aws iam delete-role-policy --role-name "$ROLE" --policy-name "$ROLE" 2>/dev/null || true
   aws iam delete-role --role-name "$ROLE" 2>/dev/null || true
   command aws --region "$REGION" logs delete-log-group --log-group-name "/aws/lambda/$FN" 2>/dev/null || true
-  if [[ -z "$FAKE" ]]; then
+  if [[ -z "$FAKE" || "$FAKE" == vendor ]]; then
     aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 || true
+  fi
+  if [[ -z "$FAKE" ]]; then
     local id; id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)
     if [[ -n "$id" ]]; then
       aws kms delete-alias --alias-name "$ALIAS"
