@@ -24,6 +24,9 @@ type Vendor struct {
 	CallDelay    time.Duration // a slow tools/call
 	AdvertiseIss bool          // authorization_response_iss_parameter_supported
 	Account      string        // named in the token response
+	// Base is the vendor's public URL when it isn't served by the embedded
+	// test server (a deployed fake, cmd/fakevendor).
+	Base string
 
 	mu        sync.Mutex
 	clients   map[string]string // client_id → redirect
@@ -44,9 +47,17 @@ type VendorCall struct {
 	Args map[string]any
 }
 
-// NewVendor starts a vendor.
+// NewVendor starts a vendor on a local test server.
 func NewVendor() *Vendor {
-	v := &Vendor{Account: "acct_fake123", clients: map[string]string{}, codes: map[string]code{},
+	v, h := NewVendorAt("")
+	v.Server = httptest.NewServer(h)
+	return v
+}
+
+// NewVendorAt is a vendor served at base by the handler it returns: for a
+// deployed fake the live check and the nightly test sign in at.
+func NewVendorAt(base string) (*Vendor, http.Handler) {
+	v := &Vendor{Account: "acct_fake123", Base: strings.TrimRight(base, "/"), clients: map[string]string{}, codes: map[string]code{},
 		access: map[string]time.Time{}, refresh: map[string]bool{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", v.prm)
@@ -56,15 +67,22 @@ func NewVendor() *Vendor {
 	mux.HandleFunc("POST /as/token", v.token)
 	mux.HandleFunc("POST /as/revoke", v.revoke)
 	mux.HandleFunc("POST /mcp", v.mcp)
-	v.Server = httptest.NewServer(mux)
-	return v
+	return v, mux
+}
+
+// root is where the vendor is reached.
+func (v *Vendor) root() string {
+	if v.Base != "" {
+		return v.Base
+	}
+	return v.URL
 }
 
 // MCPURL is the vendor's MCP server.
-func (v *Vendor) MCPURL() string { return v.URL + "/mcp" }
+func (v *Vendor) MCPURL() string { return v.root() + "/mcp" }
 
 // Issuer is the vendor's authorization server.
-func (v *Vendor) Issuer() string { return v.URL + "/as" }
+func (v *Vendor) Issuer() string { return v.root() + "/as" }
 
 func (v *Vendor) next(prefix string) string {
 	v.n++
@@ -187,6 +205,13 @@ func (v *Vendor) Expire() {
 	}
 }
 
+// CallsSoFar is a copy of the tools/call the vendor ran.
+func (v *Vendor) CallsSoFar() []VendorCall {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]VendorCall(nil), v.Calls...)
+}
+
 // CallCount is how many tools/call the vendor ran.
 func (v *Vendor) CallCount() int {
 	v.mu.Lock()
@@ -224,7 +249,7 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	exp, ok := v.access[tok]
 	v.mu.Unlock()
 	if !ok || time.Now().After(exp) {
-		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+v.URL+`/.well-known/oauth-protected-resource/mcp"`)
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+v.root()+`/.well-known/oauth-protected-resource/mcp"`)
 		writeJSON(w, 401, map[string]string{"error": "invalid_token"})
 		return
 	}
