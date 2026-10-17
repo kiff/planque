@@ -76,6 +76,16 @@ type GrantedTool struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
+// CatalogTool is one tool the vendor's server lists: its own words and
+// arguments, never a value from the account.
+type CatalogTool struct {
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	ReadOnly    bool            `json:"read_only,omitempty"` // the server's readOnlyHint
+}
+
 // Event is one line of a grant's record.
 type Event struct {
 	At   time.Time `json:"at"`
@@ -84,10 +94,15 @@ type Event struct {
 
 // Grant statuses.
 const (
-	StatusPending      = "pending"      // waiting for the owner's signature
-	StatusApproved     = "approved"     // signed; waiting for the vendor sign-in
-	StatusSignedIn     = "signed_in"    // token held, unused; waiting for the approving phone to confirm
-	StatusConnected    = "connected"    // token held, tools registered in KIFF
+	StatusPending   = "pending"   // waiting for the owner's signature
+	StatusApproved  = "approved"  // signed; waiting for the vendor sign-in
+	StatusSignedIn  = "signed_in" // token held, unused; waiting for the approving phone to confirm
+	StatusConnected = "connected" // token held, tools registered in KIFF
+	// StatusListed: a grant asked for with no tools (connect first): the
+	// sign-in is confirmed and held, and the vendor's tools are listed in
+	// its catalog. Nothing is in KIFF until the asking agent sets the
+	// tools and the owner approves them.
+	StatusListed       = "listed"
 	StatusFailed       = "failed"       // see Reason
 	StatusDisconnected = "disconnected" // token deleted, tools removed
 )
@@ -105,6 +120,12 @@ type Grant struct {
 	Account  string         `json:"account,omitempty"` // the vendor account the token is bound to
 	Approval *Approval      `json:"approval,omitempty"`
 	Tools    []GrantedTool  `json:"tools,omitempty"`
+	// SignedIn: the owner's sign-in was confirmed on the phone and its
+	// token is held, so approving new tools needs no second sign-in.
+	SignedIn bool `json:"signed_in,omitempty"`
+	// Catalog is what the vendor's MCP server listed, once signed in, for
+	// a grant asked for with no tools: what the asking agent chooses from.
+	Catalog []CatalogTool `json:"catalog,omitempty"`
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
 	Transport string `json:"transport,omitempty"`
