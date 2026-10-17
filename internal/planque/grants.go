@@ -217,7 +217,22 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.expire(r.Context(), g)
 	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// expire ends a sign-in nobody confirmed in time: its token is revoked at
+// the vendor and the grant fails. A sign-in that is never confirmed would
+// otherwise keep a live token at the vendor, so every read of the grant
+// (status, list, export) checks, as confirm does.
+func (s *Server) expire(ctx context.Context, g *Grant) {
+	if g.Status != StatusSignedIn || !s.now().After(g.ConfirmBy) {
+		return
+	}
+	s.revoke(ctx, g)
+	g.ConfirmHash, g.ConfirmBy = "", time.Time{}
+	_ = s.failGrant(ctx, g, "the sign-in was not confirmed in time; its token was revoked")
+	s.log().InfoContext(ctx, "unconfirmed sign-in revoked", slog.String("grant", g.ID))
 }
 
 // approve is the owner's Face ID on the phone: it signs this request,
@@ -430,8 +445,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	if s.now().After(g.ConfirmBy) {
-		s.revoke(r.Context(), g)
-		s.failGrant(r.Context(), g, "the sign-in was not confirmed in time")
+		s.expire(r.Context(), g)
 		writeErr(w, http.StatusConflict, "the sign-in was not confirmed in time; it was revoked")
 		return
 	}
@@ -606,9 +620,12 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 	out := []grantView{}
 	for _, it := range items {
 		var g Grant
-		if json.Unmarshal(it.Doc, &g) == nil {
-			out = append(out, s.view(&g))
+		if json.Unmarshal(it.Doc, &g) != nil {
+			continue
 		}
+		g.ver = it.Ver
+		s.expire(ctx, &g)
+		out = append(out, s.view(&g))
 	}
 	return out, nil
 }

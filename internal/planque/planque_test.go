@@ -934,3 +934,43 @@ func TestUnboundWriteToolTextSaysSo(t *testing.T) {
 		t.Fatalf("text:\n%s", text)
 	}
 }
+
+// A sign-in nobody ever confirms does not keep a live token at the
+// vendor: the next read of the grant revokes it, whoever reads.
+func TestNobodyConfirms(t *testing.T) {
+	for _, read := range []string{"status", "list", "export"} {
+		t.Run(read, func(t *testing.T) {
+			e := newEnv(t)
+			e.enrol()
+			id, digest := e.request()
+			_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+			e.signIn(out["sign_in_url"].(string))
+			if a, _ := e.vendor.Live(); a != 1 {
+				t.Fatalf("live tokens after the sign-in: %d", a)
+			}
+			g, _ := e.s.loadGrant(context.Background(), tenant, id)
+			g.ConfirmBy = time.Now().Add(-time.Minute)
+			if err := e.s.saveGrant(context.Background(), g); err != nil {
+				t.Fatal(err)
+			}
+			switch read {
+			case "status":
+				e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+			case "list":
+				e.do("GET", "/v1/accounts/"+tenant+"/grants", nil, e.phone, "")
+			case "export":
+				e.do("GET", "/v1/accounts/"+tenant+"/export", nil, e.phone, "")
+			}
+			if a, r := e.vendor.Live(); a != 0 || r != 0 {
+				t.Fatalf("after a %s read the token still works: %d access, %d refresh", read, a, r)
+			}
+			g, _ = e.s.loadGrant(context.Background(), tenant, id)
+			if g.Status != StatusFailed || g.ConfirmHash != "" {
+				t.Fatalf("grant %s", g.Status)
+			}
+			if _, ok, _ := e.kv.Get(context.Background(), tenantPK(tenant), skToken(id)); ok {
+				t.Fatal("the token is still stored")
+			}
+		})
+	}
+}
