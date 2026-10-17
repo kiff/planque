@@ -16,6 +16,9 @@
 #
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
+# FAKEVENDOR=1 deploys the fake vendor (an MCP server behind its own OAuth,
+# which consents on its own) for the live check and kiff/agents' nightly
+# test, named $PLANQUE_NAME-fakevendor; FAKEVENDOR_TOKEN guards /fake/calls.
 set -euo pipefail
 
 REGION=${AWS_REGION:-eu-west-1}
@@ -29,7 +32,13 @@ ALIAS=alias/$NAME
 ROLE=$NAME-lambda
 FN=$NAME
 PKG=./cmd/planque
-if [[ "${FAKEKIFF:-}" == 1 ]]; then
+FAKE=""
+if [[ "${FAKEKIFF:-}" == 1 ]]; then FAKE=kiff; fi
+if [[ "${FAKEVENDOR:-}" == 1 ]]; then FAKE=vendor; fi
+if [[ "$FAKE" == vendor ]]; then
+  FN=$NAME-fakevendor ROLE=$NAME-fakevendor-lambda PKG=./internal/fakes/cmd/fakevendor
+fi
+if [[ "$FAKE" == kiff ]]; then
   FN=$NAME-fakekiff ROLE=$NAME-fakekiff-lambda PKG=./internal/fakes/cmd/fakekiff
 fi
 
@@ -48,7 +57,7 @@ role() {
   fi
   local logs="{\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\"],\"Resource\":\"arn:aws:logs:$REGION:$ACCOUNT:log-group:/aws/lambda/$FN:*\"}"
   local stmts="$logs"
-  if [[ "${FAKEKIFF:-}" != 1 ]]; then
+  if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
   fi
@@ -76,7 +85,9 @@ kmskey() {
 }
 
 function_env() {
-  if [[ "${FAKEKIFF:-}" == 1 ]]; then
+  if [[ "$FAKE" == vendor ]]; then
+    python3 -c 'import json,os,sys; print(json.dumps({"Variables": {"FAKEVENDOR_BASE": sys.argv[1], "FAKEVENDOR_TOKEN": os.environ["FAKEVENDOR_TOKEN"]}}))' "$1"
+  elif [[ "$FAKE" == kiff ]]; then
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
@@ -87,7 +98,7 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
 }
 
 up() {
-  if [[ "${FAKEKIFF:-}" != 1 ]]; then table; kmskey; fi
+  if [[ -z "$FAKE" ]]; then table; kmskey; fi
   role
   local zip; zip=$(build)
   local role_arn; role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
@@ -103,7 +114,7 @@ up() {
     done
     aws lambda wait function-active-v2 --function-name "$FN"
   fi
-  if [[ "${FAKEKIFF:-}" == 1 ]]; then
+  if [[ -n "$FAKE" ]]; then
     # Its state is in memory: one instance.
     aws lambda put-function-concurrency --function-name "$FN" --reserved-concurrent-executions 1 >/dev/null
   fi
@@ -127,7 +138,7 @@ down() {
   aws iam delete-role-policy --role-name "$ROLE" --policy-name "$ROLE" 2>/dev/null || true
   aws iam delete-role --role-name "$ROLE" 2>/dev/null || true
   command aws --region "$REGION" logs delete-log-group --log-group-name "/aws/lambda/$FN" 2>/dev/null || true
-  if [[ "${FAKEKIFF:-}" != 1 ]]; then
+  if [[ -z "$FAKE" ]]; then
     aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 || true
     local id; id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)
     if [[ -n "$id" ]]; then
