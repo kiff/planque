@@ -123,6 +123,10 @@ type Grant struct {
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
+	// HeldUntil is when a held sign-in that isn't connected (a listed
+	// grant, or its tools waiting for approval) is revoked if nothing
+	// connected it: planque keeps no live vendor token the taf doesn't use.
+	HeldUntil time.Time `json:"held_until,omitzero"`
 	// Catalog is what the vendor's MCP server listed, once signed in, for
 	// a grant asked for with no tools: what the asking agent chooses from.
 	Catalog []CatalogTool `json:"catalog,omitempty"`

@@ -989,6 +989,9 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id, digest := out["id"].(string), out["digest"].(string)
+	if strings.Contains(out["text"].(string), "agt_setup") {
+		t.Fatalf("the owner's text names the asking agent's id: %s", out["text"])
+	}
 	if st, out := e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_setup"); st != 409 {
 		t.Fatalf("a catalog before the sign-in: %d %v", st, out)
 	}
@@ -999,6 +1002,9 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatalf("a listed grant registered %d tools in KIFF", n)
 	}
 
+	if st, _ := e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_taf"); st != 403 {
+		t.Fatalf("another agent reading the catalog: %d", st)
+	}
 	st, out = e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_setup")
 	if st != 200 || out["account"] != "acct_fake123" {
 		t.Fatalf("catalog: %d %v", st, out)
@@ -1035,6 +1041,9 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatalf("set tools: %d %v", st, out)
 	}
 	toolsDigest := out["digest"].(string)
+	if out["signed_in"] != true {
+		t.Fatalf("a pending grant whose sign-in is held doesn't say so: %v", out)
+	}
 	if st, _ := e.do("POST", acct+"/"+id+"/approve", map[string]string{"digest": digest}, e.phone, ""); st != 409 {
 		t.Fatalf("approving the old digest: %d", st)
 	}
@@ -1074,5 +1083,68 @@ func TestDisconnectingAListedGrantRevokesItsSignIn(t *testing.T) {
 	}
 	if a, r := e.vendor.Live(); a != 0 || r != 0 {
 		t.Fatalf("tokens still live at the vendor: %d access, %d refresh", a, r)
+	}
+}
+
+// A request without a tools field is refused: connect first is an explicit [].
+func TestMissingToolsIsNotConnectFirst(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf"}, nil, "k_setup"); st != 400 {
+		t.Fatalf("no tools field: %d %v", st, out)
+	}
+}
+
+// listedGrant connects first and returns the listed grant's id.
+func (e *env) listedGrant() string {
+	e.t.Helper()
+	e.enrol()
+	_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
+	id := out["id"].(string)
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 || out["status"] != StatusListed {
+		e.t.Fatalf("confirm: %d %v", st, out)
+	}
+	return id
+}
+
+// A held sign-in that connects nothing is revoked after a day, whether the
+// grant is listed or its tools wait for approval.
+func TestAHeldSignInEndsAfterADay(t *testing.T) {
+	for _, withTools := range []bool{false, true} {
+		e := newEnv(t)
+		id := e.listedGrant()
+		if withTools {
+			if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools",
+				map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 {
+				t.Fatalf("set tools: %d %v", st, out)
+			}
+		}
+		if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup"); st != 200 || out["held_until"] == nil {
+			t.Fatalf("a held sign-in without its deadline: %d %v", st, out)
+		}
+		e.s.Now = func() time.Time { return time.Now().Add(holdTTL + time.Minute) }
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+		if st != 200 || out["status"] != StatusFailed || out["signed_in"] != nil {
+			t.Fatalf("after a day (tools set: %v): %d %v", withTools, st, out)
+		}
+		if a, r := e.vendor.Live(); a != 0 || r != 0 {
+			t.Fatalf("tokens still live at the vendor after a day (tools set: %v): %d, %d", withTools, a, r)
+		}
+	}
+}
+
+// A grant whose tools wait for approval, disconnected, revokes its held sign-in.
+func TestDisconnectingAGrantWaitingForItsToolsRevokesItsSignIn(t *testing.T) {
+	e := newEnv(t)
+	id := e.listedGrant()
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools",
+		map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 || out["status"] != StatusPending {
+		t.Fatalf("set tools: %d %v", st, out)
+	}
+	if st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, e.phone, ""); st != 200 || out["status"] != StatusDisconnected {
+		t.Fatalf("disconnect: %d %v", st, out)
+	}
+	if a, r := e.vendor.Live(); a != 0 || r != 0 {
+		t.Fatalf("tokens still live at the vendor: %d, %d", a, r)
 	}
 }
