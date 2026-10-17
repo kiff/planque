@@ -80,3 +80,17 @@ func TestVendorInstancesShareTheirState(t *testing.T) {
 		}
 	}
 }
+
+// A vendor that consents on its own registers only the redirects it is
+// given, or it would send anyone anywhere.
+func TestVendorRegistersOnlyItsRedirects(t *testing.T) {
+	v, h := NewVendorAt("https://vendor.test")
+	v.Redirects = []string{"https://planque.test/oauth/callback"}
+	for uri, want := range map[string]int{"https://planque.test/oauth/callback": 201, "https://elsewhere.test/": 400} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/as/register", strings.NewReader(`{"redirect_uris":["`+uri+`"]}`)))
+		if rec.Code != want {
+			t.Errorf("registering %s: %d, want %d", uri, rec.Code, want)
+		}
+	}
+}

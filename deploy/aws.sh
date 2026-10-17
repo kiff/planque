@@ -20,6 +20,8 @@
 # which consents on its own) for the live check and kiff/agents' nightly
 # test, named $PLANQUE_NAME-fakevendor; FAKEVENDOR_TOKEN guards /fake/calls.
 # Its state is in its own table of that name, so any instance answers.
+# FAKEVENDOR_REDIRECTS (default https://planque.kiff.dev/oauth/callback) is
+# the only redirect a client may register: it consents on its own.
 set -euo pipefail
 
 REGION=${AWS_REGION:-eu-west-1}
@@ -90,7 +92,7 @@ kmskey() {
 
 function_env() {
   if [[ "$FAKE" == vendor ]]; then
-    python3 -c 'import json,os,sys; print(json.dumps({"Variables": {"FAKEVENDOR_BASE": sys.argv[1], "FAKEVENDOR_TOKEN": os.environ["FAKEVENDOR_TOKEN"], "FAKEVENDOR_TABLE": sys.argv[2]}}))' "$1" "$TABLE"
+    python3 -c 'import json,os,sys; print(json.dumps({"Variables": {"FAKEVENDOR_BASE": sys.argv[1], "FAKEVENDOR_TOKEN": os.environ["FAKEVENDOR_TOKEN"], "FAKEVENDOR_TABLE": sys.argv[2], "FAKEVENDOR_REDIRECTS": os.environ.get("FAKEVENDOR_REDIRECTS") or "https://planque.kiff.dev/oauth/callback"}}))' "$1" "$TABLE"
   elif [[ "$FAKE" == kiff ]]; then
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else

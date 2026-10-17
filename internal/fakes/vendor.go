@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,10 @@ type Vendor struct {
 	// KV keeps its clients, codes, tokens and calls: in memory by default,
 	// a table for a deployed fake, so any of its instances answers.
 	KV store.KV
+	// Redirects, when set, are the only redirect URIs a client may
+	// register: a deployed fake consents on its own, so any other would
+	// make it an open redirector.
+	Redirects []string
 
 	mu        sync.Mutex
 	Calls     []VendorCall // this instance's
@@ -128,7 +133,7 @@ func (v *Vendor) register(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs []string `json:"redirect_uris"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if len(req.RedirectURIs) != 1 {
+	if len(req.RedirectURIs) != 1 || len(v.Redirects) > 0 && !slices.Contains(v.Redirects, req.RedirectURIs[0]) {
 		writeJSON(w, 400, map[string]string{"error": "invalid_redirect_uri"})
 		return
 	}
