@@ -1,0 +1,172 @@
+package planque
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+)
+
+const maxPathParts = 4
+
+var argTypes = []string{"string", "integer", "number", "boolean"}
+
+func pathParts(p string) ([]string, bool) {
+	parts := strings.Split(p, ".")
+	if len(parts) == 0 || len(parts) > maxPathParts {
+		return nil, false
+	}
+	for _, s := range parts {
+		if s == "" || len(s) > 64 || strings.ContainsAny(s, " \t\r\n") {
+			return nil, false
+		}
+	}
+	return parts, true
+}
+
+// checkNarrowing says what is wrong with a tool's fixed and lifted
+// arguments, or "".
+func checkNarrowing(t ToolRequest) string {
+	paths := map[string]bool{}
+	for p, v := range t.Fixed {
+		if _, ok := pathParts(p); !ok || !json.Valid(v) {
+			return "fixed argument " + p + " must be a dotted path with a JSON value"
+		}
+		paths[p] = true
+	}
+	if len(t.Fixed) > 0 && len(t.Arguments) == 0 {
+		return t.Tool + " has fixed arguments, so it must also name the arguments the agent may set"
+	}
+	for name, a := range t.Arguments {
+		switch {
+		case !toolName.MatchString(name) || name == IdempotencyArg:
+			return "argument " + name + " is not a valid name"
+		case !slices.Contains(argTypes, a.Type):
+			return "argument " + name + " must be a string, integer, number or boolean"
+		}
+		if _, ok := pathParts(a.Path); !ok {
+			return "argument " + name + " needs a dotted path in the vendor's arguments"
+		}
+		for p := range paths {
+			if p == a.Path || strings.HasPrefix(p, a.Path+".") || strings.HasPrefix(a.Path, p+".") {
+				return "argument " + name + " overlaps another argument at " + p
+			}
+		}
+		paths[a.Path] = true
+	}
+	if t.AmountArg != "" && len(t.Arguments) > 0 && t.Arguments[t.AmountArg].Type != "integer" {
+		return "amount_argument " + t.AmountArg + " must be one of the tool's integer arguments"
+	}
+	return ""
+}
+
+// narrowed reports whether the agent sees planque's own argument list.
+func (t ToolRequest) narrowed() bool { return len(t.Arguments) > 0 }
+
+// schema is the input schema of a narrowed tool: its arguments, nothing
+// else.
+func (t ToolRequest) schema() json.RawMessage {
+	props := map[string]any{}
+	required := []string{}
+	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+		a := t.Arguments[name]
+		p := map[string]any{"type": a.Type}
+		if a.Description != "" {
+			p["description"] = a.Description
+		}
+		props[name] = p
+		if a.Required {
+			required = append(required, name)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false})
+	return b
+}
+
+// vendorArgs builds what the vendor receives from the agent's arguments
+// (planque's operation argument already removed). It refuses an argument
+// the grant does not name, of the wrong type, or a missing required one.
+func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
+	out := map[string]any{}
+	if !t.narrowed() {
+		maps.Copy(out, args)
+	} else {
+		for name, v := range args {
+			a, ok := t.Arguments[name]
+			if !ok {
+				return nil, fmt.Errorf("argument %s is not part of this grant", name)
+			}
+			if !hasType(v, a.Type) {
+				return nil, fmt.Errorf("argument %s must be a %s", name, a.Type)
+			}
+			parts, _ := pathParts(a.Path)
+			set(out, parts, v)
+		}
+		for name, a := range t.Arguments {
+			if _, ok := args[name]; a.Required && !ok {
+				return nil, fmt.Errorf("argument %s is required", name)
+			}
+		}
+	}
+	for p, raw := range t.Fixed {
+		var v any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		_ = dec.Decode(&v)
+		parts, _ := pathParts(p)
+		set(out, parts, v)
+	}
+	return json.Marshal(out)
+}
+
+func set(m map[string]any, parts []string, v any) {
+	for _, k := range parts[:len(parts)-1] {
+		next, ok := m[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			m[k] = next
+		}
+		m = next
+	}
+	m[parts[len(parts)-1]] = v
+}
+
+func hasType(v any, typ string) bool {
+	switch typ {
+	case "string":
+		_, ok := v.(string)
+		return ok
+	case "boolean":
+		_, ok := v.(bool)
+		return ok
+	case "integer":
+		n, ok := v.(json.Number)
+		if !ok {
+			return false
+		}
+		_, err := n.Int64()
+		return err == nil
+	case "number":
+		_, ok := v.(json.Number)
+		return ok
+	}
+	return false
+}
+
+// narrowingText says, in the owner's words, how a tool is narrowed.
+func narrowingText(t ToolRequest) string {
+	if !t.narrowed() {
+		return ""
+	}
+	var fixed []string
+	for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
+		fixed = append(fixed, p+" = "+string(t.Fixed[p]))
+	}
+	s := " (" + t.Tool
+	if len(fixed) > 0 {
+		s += " with " + strings.Join(fixed, ", ")
+	}
+	return s + "; the taf sets only " + strings.Join(slices.Sorted(maps.Keys(t.Arguments)), ", ") + ")"
+}
