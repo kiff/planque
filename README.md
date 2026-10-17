@@ -66,11 +66,13 @@ It's the same code either way.
 | Call | Who | What |
 |---|---|---|
 | `POST /v1/accounts/{tenant}/enrolment` | the owner's phone, signed with the key it enrols | binds the phone's key and planque's KIFF **connector** key to the account; a key that can do more than connect tools is refused |
-| `POST /v1/accounts/{tenant}/grants` | an agent, with its KIFF key | asks for a vendor's MCP server, some of its tools, for a taf; returns the plain words and the digest the owner signs; grants nothing |
+| `POST /v1/accounts/{tenant}/grants` | an agent, with its KIFF key | asks for a vendor's MCP server, some of its tools, for a taf; returns the plain words and the digest the owner signs; grants nothing. With `tools: []` it connects first: once signed in, planque only lists the vendor's tools |
 | `GET /v1/accounts/{tenant}/grants/{id}` | an agent of the account | the grant's status |
-| `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link |
+| `GET /v1/accounts/{tenant}/grants/{id}/catalog` | an agent of the account | for a grant asked for with no tools, once signed in (`listed`): each tool the vendor lists, with its description and arguments, and the account the sign-in acts in |
+| `POST /v1/accounts/{tenant}/grants/{id}/tools` | the agent that asked, body `{"tools": […]}` | sets a listed grant's tools, from its catalog; new text and digest, `pending` again |
+| `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link. For tools set on a grant whose sign-in is held, it connects at once, with no link |
 | `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed with KMS, unused, and the browser goes on to the owner's app with a confirmation code |
-| `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode |
+| `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode; for a grant with no tools, the vendor's tools are listed instead (`listed`) |
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
 | `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |

@@ -26,6 +26,10 @@ import (
 // signInTTL is how long a sign-in link works.
 const signInTTL = 15 * time.Minute
 
+// holdTTL is how long planque keeps a confirmed sign-in that connects
+// nothing (connect first): the tools must be set and approved by then.
+const holdTTL = 24 * time.Hour
+
 var toolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
 // requestGrant is an agent asking for a vendor account for a taf. It
@@ -51,15 +55,19 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Server string        `json:"server"`
-		Agent  string        `json:"agent"`
-		Tools  []ToolRequest `json:"tools"`
+		Server string         `json:"server"`
+		Agent  string         `json:"agent"`
+		Tools  *[]ToolRequest `json:"tools"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if msg := checkTools(req.Agent, req.Tools); msg != "" {
+	if req.Tools == nil {
+		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
+		return
+	}
+	if msg := checkTools(req.Agent, *req.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -74,14 +82,15 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	if asked == "" {
 		asked = "an account key"
 	}
-	for i := range req.Tools {
-		if req.Tools[i].Name == "" {
-			req.Tools[i].Name = req.Tools[i].Tool
+	tools := *req.Tools
+	for i := range tools {
+		if tools[i].Name == "" {
+			tools[i].Name = tools[i].Tool
 		}
 	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
-			Agent: req.Agent, Tools: req.Tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
+			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	g.Text = grantText(g.Request)
 	g.Digest, err = digest(g.Request)
@@ -102,8 +111,8 @@ func checkTools(agent string, tools []ToolRequest) string {
 	if strings.TrimSpace(agent) == "" {
 		return "agent is required: the KIFF agent of the taf that will use the account"
 	}
-	if len(tools) == 0 || len(tools) > 20 {
-		return "tools must name 1 to 20 of the server's tools"
+	if len(tools) > 20 {
+		return "tools may name at most 20 of the server's tools"
 	}
 	seen := map[string]bool{}
 	for _, t := range tools {
@@ -131,6 +140,13 @@ func checkTools(agent string, tools []ToolRequest) string {
 
 // grantText is what the owner reads before approving.
 func grantText(q Request) string {
+	if len(q.Tools) == 0 {
+		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
+			"You will sign in at %s.\n\nplanque reads only the list of its tools: nothing is called and nothing is given to the taf. "+
+			"The tools the taf may use come next, and you approve them again. If they aren't approved within a day, the sign-in is revoked.\n\n"+
+			"planque keeps the sign-in; the taf never sees it. You can disconnect at any time.",
+			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Connect your account at %s to the taf %s.\n", hostOf(q.Server), q.Agent)
 	fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may use:\n", hostOf(q.SignInAt))
@@ -174,7 +190,11 @@ type grantView struct {
 	Audience string        `json:"audience"`
 	Reason   string        `json:"reason,omitempty"`
 	Approval *approvalView `json:"approval,omitempty"`
-	Events   []Event       `json:"events"`
+	// SignedIn: planque holds a confirmed sign-in for this grant, so
+	// approving its tools needs no second sign-in.
+	SignedIn  bool      `json:"signed_in,omitempty"`
+	HeldUntil time.Time `json:"held_until,omitzero"`
+	Events    []Event   `json:"events"`
 }
 
 type approvalView struct {
@@ -189,7 +209,8 @@ type approvalView struct {
 
 func (s *Server) view(g *Grant) grantView {
 	v := grantView{ID: g.ID, Status: g.Status, Text: g.Text, Digest: g.Digest, Request: g.Request,
-		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: g.Events}
+		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: g.Events,
+		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
 	}
@@ -221,11 +242,131 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(g))
 }
 
+// catalog is what the vendor's server lists, for the agent choosing the
+// tools of a grant asked for with no tools: each tool's own words and
+// arguments, and the account the sign-in acts in when the vendor names it.
+func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
+		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read its catalog")
+		return
+	}
+	s.expire(r.Context(), g)
+	if len(g.Catalog) == 0 || g.Status == StatusFailed || g.Status == StatusDisconnected {
+		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+}
+
+// setTools is the asking agent choosing, from the catalog, the tools a
+// listed grant gives the taf. The request, its text and its digest change,
+// and the owner approves them on the phone; the sign-in is already held.
+func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	body, err := readBody(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var req struct {
+		Tools []ToolRequest `json:"tools"`
+	}
+	if err := decodeStrict(body, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
+		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may set its tools")
+		return
+	}
+	s.expire(r.Context(), g)
+	// Listed, or tools set and not approved yet (the agent may revise them).
+	if !g.SignedIn || len(g.Catalog) == 0 || (g.Status != StatusListed && g.Status != StatusPending) {
+		writeErr(w, http.StatusConflict, "only a listed grant takes its tools; this one is "+g.Status)
+		return
+	}
+	if len(req.Tools) == 0 {
+		writeErr(w, http.StatusBadRequest, "tools must name 1 to 20 of the catalog's tools")
+		return
+	}
+	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	for i := range req.Tools {
+		if !slices.ContainsFunc(g.Catalog, func(c CatalogTool) bool { return c.Name == req.Tools[i].Tool }) {
+			writeErr(w, http.StatusBadRequest, hostOf(g.Request.Server)+" lists no tool named "+req.Tools[i].Tool)
+			return
+		}
+		if req.Tools[i].Name == "" {
+			req.Tools[i].Name = req.Tools[i].Tool
+		}
+	}
+	g.Request.Tools = req.Tools
+	g.Text = grantText(g.Request) + accountLine(g.Account)
+	if g.Digest, err = digest(g.Request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g.Status, g.Approval = StatusPending, nil
+	g.event(s.now(), "tools set by "+me.AgentID+"; waiting for the owner's approval")
+	if err := s.saveGrant(r.Context(), g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// accountLine names, under a grant's text, the account its sign-in acts in.
+func accountLine(account string) string {
+	if account == "" {
+		return ""
+	}
+	return "\n\nThe account you signed in to: " + account + "."
+}
+
 // expire ends a sign-in nobody confirmed in time: its token is revoked at
 // the vendor and the grant fails. A sign-in that is never confirmed would
 // otherwise keep a live token at the vendor, so every read of the grant
 // (status, list, export) checks, as confirm does.
 func (s *Server) expire(ctx context.Context, g *Grant) {
+	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
+	if held && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
+		s.revoke(ctx, g)
+		g.HeldUntil = time.Time{}
+		_ = s.failGrant(ctx, g, "its tools were not approved within a day; the sign-in was revoked")
+		s.log().InfoContext(ctx, "held sign-in revoked", slog.String("grant", g.ID))
+		return
+	}
 	if g.Status != StatusSignedIn || !s.now().After(g.ConfirmBy) {
 		return
 	}
@@ -259,8 +400,36 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
 	}
+	if g.Status == StatusListed {
+		writeErr(w, http.StatusConflict, "this grant has no tools to approve yet")
+		return
+	}
 	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn {
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
+		return
+	}
+	s.expire(r.Context(), g)
+	if g.Status == StatusFailed {
+		writeErr(w, http.StatusConflict, "this grant is failed: "+g.Reason)
+		return
+	}
+	if g.SignedIn && g.Status == StatusPending {
+		// Tools set on a grant whose sign-in is held: approving them
+		// connects at once, with no second sign-in.
+		a := sr.approval
+		g.Approval = &a
+		g.event(s.now(), "tools approved on the phone "+a.Fingerprint)
+		tok, _, err := s.openToken(r.Context(), g)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if err := s.connect(r.Context(), g, tok.Access); err != nil {
+			s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			writeErr(w, http.StatusBadGateway, g.Reason)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.view(g))
 		return
 	}
 	if g.Status == StatusSignedIn {
@@ -462,12 +631,45 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		s.fail(w, r, err)
 		return
 	}
+	g.SignedIn = true
+	if len(g.Request.Tools) == 0 {
+		// Connect first: the vendor's tools are listed for the asking agent
+		// to choose from, and nothing is registered in KIFF.
+		if err := s.list(r.Context(), g, tok.Access); err != nil {
+			writeErr(w, http.StatusBadGateway, g.Reason)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.view(g))
+		return
+	}
 	if err := s.connect(r.Context(), g, tok.Access); err != nil {
 		s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		writeErr(w, http.StatusBadGateway, g.Reason)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// list reads the vendor's tools into the grant's catalog, with the token
+// of a confirmed sign-in, and keeps the sign-in: the grant is listed.
+func (s *Server) list(ctx context.Context, g *Grant, access string) error {
+	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	if err != nil {
+		s.revoke(ctx, g)
+		return s.failGrant(ctx, g, "planque could not list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+	}
+	g.Catalog = nil
+	for _, t := range listed {
+		var hints struct {
+			ReadOnly bool `json:"readOnlyHint"`
+		}
+		_ = json.Unmarshal(t.Annotations, &hints)
+		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: t.Title, Description: t.Description,
+			InputSchema: t.InputSchema, ReadOnly: hints.ReadOnly})
+	}
+	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
+	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
+	return s.saveGrant(ctx, g)
 }
 
 // connect reads the granted tools from the vendor with the stored token,
@@ -502,7 +704,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	g.Transport = hex.EncodeToString(sum[:])
 	// The relay must answer KIFF's probe before the registration returns,
 	// so the grant is saved as connected first; a failure undoes it.
-	g.Status = StatusConnected
+	g.Status, g.HeldUntil = StatusConnected, time.Time{}
 	if err := s.saveGrant(ctx, g); err != nil {
 		s.revoke(ctx, g)
 		return err
