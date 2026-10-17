@@ -34,9 +34,10 @@ type KIFF struct {
 	// missing from a Card is refused.
 	Cards map[string]map[string]int64
 
-	mu    sync.Mutex
-	conns map[string]Connection // tenant/name → connection
-	HTTP  *http.Client
+	mu      sync.Mutex
+	conns   map[string]Connection // tenant/name → connection
+	appLast map[string]string
+	HTTP    *http.Client
 }
 
 // Connection is a tool registered in the fake gateway.
@@ -62,6 +63,10 @@ func (k *KIFF) Handler() http.Handler {
 	// Test-only: an agent's tools/call through the gateway.
 	mux.HandleFunc("POST /fake/call", k.callHTTP)
 	mux.HandleFunc("POST /fake/forward", k.forwardHTTP)
+	// Test-only: the owner's app, where a finished sign-in sends the
+	// browser with its confirmation code.
+	mux.HandleFunc("GET /fake/app", k.appOpened)
+	mux.HandleFunc("GET /fake/app/last", k.appLastHTTP)
 	return mux
 }
 
@@ -183,6 +188,25 @@ func (k *KIFF) Add(c Connection) {
 		k.conns = map[string]Connection{}
 	}
 	k.conns[c.Tenant+"/"+c.Name] = c
+}
+
+func (k *KIFF) appOpened(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	k.mu.Lock()
+	k.appLast = map[string]string{"tenant": q.Get("tenant"), "grant": q.Get("grant"), "confirm": q.Get("confirm")}
+	k.mu.Unlock()
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte("Signed in. Confirm in the app."))
+}
+
+func (k *KIFF) appLastHTTP(w http.ResponseWriter, r *http.Request) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.appLast == nil || k.appLast["grant"] != r.URL.Query().Get("grant") {
+		writeJSON(w, 404, map[string]string{"error": "not yet"})
+		return
+	}
+	writeJSON(w, 200, k.appLast)
 }
 
 // Connections lists a tenant's connected tools.

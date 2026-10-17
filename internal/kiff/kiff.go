@@ -37,11 +37,11 @@ type Me struct {
 // ErrUnauthorized: KIFF refused the key.
 var ErrUnauthorized = errors.New("KIFF did not accept the key")
 
-// connectorDenied are capabilities a connector key must not hold:
-// planque keeps it, so it may connect tools and nothing that issues
-// Cards, mints keys, answers holds or runs the account.
-var connectorDenied = []string{"cards.manage", "keys.manage", "holds.answer", "actions.propose",
-	"members.manage", "billing.manage", "governance.manage", "account.settings", "account.export", "account.delete"}
+// connectorAllowed are the only capabilities a connector key may hold:
+// planque keeps it, so it reads, connects tools and writes the gateway's
+// domain, nothing more. A capability KIFF adds later is refused until it
+// is added here.
+var connectorAllowed = []string{"read", "personal", "tools.connect", "domains.manage"}
 
 // ConnectorProblem says why a key is not a connector key for tenant, or "".
 func (m Me) ConnectorProblem(tenant string) string {
@@ -55,8 +55,8 @@ func (m Me) ConnectorProblem(tenant string) string {
 	case !slices.Contains(m.Capabilities, "tools.connect"):
 		return "the connector key cannot connect tools"
 	}
-	for _, c := range connectorDenied {
-		if slices.Contains(m.Capabilities, c) {
+	for _, c := range m.Capabilities {
+		if !slices.Contains(connectorAllowed, c) {
 			return "the connector key can do more than connect tools (" + c + "); planque keeps only a connector key"
 		}
 	}

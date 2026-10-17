@@ -69,16 +69,26 @@ It's the same code either way.
 | `POST /v1/accounts/{tenant}/grants` | an agent, with its KIFF key | asks for a vendor's MCP server, some of its tools, for a taf; returns the plain words and the digest the owner signs; grants nothing |
 | `GET /v1/accounts/{tenant}/grants/{id}` | an agent of the account | the grant's status |
 | `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link |
-| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked, code exchanged with PKCE and the exact redirect; the token is sealed with KMS and the tools are registered in KIFF's gateway in `relay` mode |
+| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed with KMS, unused, and the browser goes on to the owner's app with a confirmation code |
+| `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode |
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
 | `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |
 
 A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>`:
 the phone's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
-over SHA-256, the lines `planque.request.v1`, tenant, method, path, the
-body's SHA-256 and `signed_at`. A signed request is accepted once, within
-5 minutes.
+over SHA-256, the lines `planque.request.v1`, planque's base URL, tenant,
+method, path, the body's SHA-256 and `signed_at`. A signed request is
+accepted once, within 5 minutes, and only by the planque it names.
+
+**The sign-in is bound to the phone that approved.** The vendor sends the
+browser back to planque, which keeps the token unused and sends that
+browser on to the owner's app (`PLANQUE_APP_RETURN`, set by the operator)
+with a one-time code. The phone that approved signs
+`POST …/grants/{id}/confirm` with that code within 15 minutes; only then
+are the tools registered. A link someone else opens hands its code to
+their browser, never to the approver. Vendors are reached only at public
+addresses, checked when each connection is made.
 
 **Permits** follow kiff-cloud RFC 046: `typ` `kiff-permit+jwt`, `alg`
 `Ed25519`, a key from KIFF's JWKS (refetched every 5 minutes, an unknown

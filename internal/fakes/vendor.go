@@ -22,6 +22,7 @@ type Vendor struct {
 	TokenTTL     time.Duration // access token lifetime (default 1h)
 	RefreshDelay time.Duration // widens refresh races in tests
 	CallDelay    time.Duration // a slow tools/call
+	AdvertiseIss bool          // authorization_response_iss_parameter_supported
 	Account      string        // named in the token response
 
 	mu        sync.Mutex
@@ -80,6 +81,7 @@ func (v *Vendor) asMeta(w http.ResponseWriter, _ *http.Request) {
 		"registration_endpoint": v.Issuer() + "/register", "revocation_endpoint": v.Issuer() + "/revoke",
 		"code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"none"},
 		"grant_types_supported": []string{"authorization_code", "refresh_token"}, "response_types_supported": []string{"code"},
+		"authorization_response_iss_parameter_supported": v.AdvertiseIss,
 	})
 }
 

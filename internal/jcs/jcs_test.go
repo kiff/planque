@@ -37,3 +37,15 @@ func TestNumber(t *testing.T) {
 		}
 	}
 }
+
+// The same refusals as KIFF's: 2^53 and 2^53 + 1 would hash the same.
+func TestRefusesUnsafeIntegers(t *testing.T) {
+	for _, in := range []string{`{"id":9007199254740992}`, `{"id":9007199254740993}`, `{"a":[{"id":-9007199254740993}]}`} {
+		if _, err := Canonical([]byte(in)); err == nil {
+			t.Errorf("accepted %s", in)
+		}
+	}
+	if _, err := Canonical([]byte(`{"id":9007199254740991,"f":1e300}`)); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -12,12 +12,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/kiff/planque/internal/device"
+	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/fakes"
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
@@ -32,6 +34,7 @@ const tenant = "tnt_test"
 
 type env struct {
 	t      *testing.T
+	app    *app
 	vendor *fakes.Vendor
 	kiff   *fakes.KIFF
 	phone  *fakes.Phone
@@ -42,7 +45,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{t: t, vendor: fakes.NewVendor(), kiff: fakes.NewKIFF(), phone: fakes.NewPhone(), kv: &store.Memory{}}
+	e := &env{t: t, vendor: fakes.NewVendor(), kiff: fakes.NewKIFF(), phone: fakes.NewPhone(), kv: &store.Memory{}, app: newApp(t)}
 	t.Cleanup(e.vendor.Close)
 	ks := httptest.NewServer(e.kiff.Handler())
 	t.Cleanup(ks.Close)
@@ -50,9 +53,11 @@ func newEnv(t *testing.T) *env {
 	e.kiff.Keys = map[string]kiff.Me{
 		"k_connector": {APIKey: true, TenantID: tenant, Roles: []string{"connector"}, Capabilities: []string{"read", "tools.connect"}},
 		"k_admin":     {APIKey: true, TenantID: tenant, Roles: []string{"admin"}, Capabilities: []string{"read", "tools.connect", "keys.manage", "cards.manage"}},
-		"k_setup":     {APIKey: true, TenantID: tenant, AgentID: "agt_setup"},
-		"k_taf":       {APIKey: true, TenantID: tenant, AgentID: "agt_taf"},
-		"k_other":     {APIKey: true, TenantID: "tnt_other", AgentID: "agt_x"},
+		// A capability KIFF might add later, which planque has not vetted.
+		"k_future": {APIKey: true, TenantID: tenant, Roles: []string{"connector"}, Capabilities: []string{"read", "tools.connect", "webhooks.manage"}},
+		"k_setup":  {APIKey: true, TenantID: tenant, AgentID: "agt_setup"},
+		"k_taf":    {APIKey: true, TenantID: tenant, AgentID: "agt_taf"},
+		"k_other":  {APIKey: true, TenantID: "tnt_other", AgentID: "agt_x"},
 	}
 	// The taf's Card: refunds up to 500 a call; listing moves nothing.
 	e.kiff.Cards["k_taf"] = map[string]int64{"create_refund": 500, "list_charges": 0}
@@ -71,7 +76,7 @@ func (e *env) server() *Server {
 	for i := range key {
 		key[i] = byte(i)
 	}
-	return &Server{BaseURL: e.url, KV: e.kv, Sealer: &seal.Local{Key: key},
+	return &Server{BaseURL: e.url, AppReturn: e.app.URL + "/signed-in", KV: e.kv, Sealer: &seal.Local{Key: key},
 		KIFF:    &kiff.Client{API: e.kiff.Issuer, Gateway: e.kiff.Issuer},
 		Permits: &permit.Verifier{Issuer: e.kiff.Issuer, Keys: &permit.JWKS{URL: e.kiff.Issuer + "/.well-known/kiff-permit-keys.json"}},
 		OAuth:   &oauth.Client{AllowHTTP: true}, MCP: &mcp.Client{}}
@@ -121,23 +126,67 @@ func (e *env) request() (id, digest string) {
 	return out["id"].(string), out["digest"].(string)
 }
 
-// connect runs the whole connection and returns the grant.
-func (e *env) connect() *Grant {
+// app stands in for the owner's app (tafs): where the browser that
+// finished a vendor sign-in is sent, with the code that confirms it.
+type app struct {
+	*httptest.Server
+	mu   sync.Mutex
+	last map[string]string
+}
+
+func newApp(t *testing.T) *app {
+	a := &app{}
+	a.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.last = map[string]string{"grant": r.URL.Query().Get("grant"), "confirm": r.URL.Query().Get("confirm"), "tenant": r.URL.Query().Get("tenant")}
+		a.mu.Unlock()
+		w.Write([]byte("app opened"))
+	}))
+	t.Cleanup(a.Close)
+	return a
+}
+
+func (a *app) code() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.last["confirm"]
+}
+
+// signIn opens a sign-in link in a browser whose app is e.app, and
+// returns the confirmation code the app received.
+func (e *env) signIn(link string) string {
 	e.t.Helper()
-	e.enrol()
-	id, digest := e.request()
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
-	if st != 200 {
-		e.t.Fatalf("approve: %d %v", st, out)
-	}
-	resp, err := http.Get(out["sign_in_url"].(string)) // the owner signs in at the vendor
+	resp, err := http.Get(link)
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(page), "Connected") {
-		e.t.Fatalf("callback: %d %s", resp.StatusCode, page)
+	if resp.StatusCode != 200 || string(page) != "app opened" {
+		e.t.Fatalf("sign-in did not reach the app: %d %s", resp.StatusCode, page)
+	}
+	return e.app.code()
+}
+
+// approveAndSignIn approves grant id on e.phone, signs in at the vendor
+// and confirms on the phone. It returns the confirm answer.
+func (e *env) approveAndSignIn(id, digest string) (int, map[string]any) {
+	e.t.Helper()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	if st != 200 {
+		e.t.Fatalf("approve: %d %v", st, out)
+	}
+	code := e.signIn(out["sign_in_url"].(string))
+	return e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/confirm", map[string]string{"confirm": code}, e.phone, "")
+}
+
+// connect runs the whole connection and returns the grant.
+func (e *env) connect() *Grant {
+	e.t.Helper()
+	e.enrol()
+	id, digest := e.request()
+	if st, out := e.approveAndSignIn(id, digest); st != 200 || out["status"] != StatusConnected {
+		e.t.Fatalf("confirm: %d %v", st, out)
 	}
 	g, err := e.s.loadGrant(context.Background(), tenant, id)
 	if err != nil {
@@ -174,6 +223,9 @@ func TestEnrol(t *testing.T) {
 	}
 	if st, out := e.do("POST", path, body("k_admin"), e.phone, ""); st != 400 || !strings.Contains(out["error"].(string), "more than connect tools") {
 		t.Fatalf("admin key: %d %v, want 400 more than connect tools", st, out)
+	}
+	if st, out := e.do("POST", path, body("k_future"), e.phone, ""); st != 400 || !strings.Contains(out["error"].(string), "webhooks.manage") {
+		t.Fatalf("unvetted capability: %d %v, want 400", st, out)
 	}
 	if st, _ := e.do("POST", path, body("k_setup"), e.phone, ""); st != 400 {
 		t.Fatalf("agent key as connector: %d, want 400", st)
@@ -441,16 +493,17 @@ func TestPermitGatedCalls(t *testing.T) {
 	}
 }
 
-// barrierKV holds the first two reads of an operation's record until
-// both happened, so two presentations race to claim the same op.
+// barrierKV holds the first two reads that find no record under prefix
+// until both happened, so two requests race to write the same record.
 type barrierKV struct {
 	store.KV
-	wg *sync.WaitGroup
+	wg     *sync.WaitGroup
+	prefix string
 }
 
 func (b barrierKV) Get(ctx context.Context, pk, sk string) (store.Item, bool, error) {
 	it, ok, err := b.KV.Get(ctx, pk, sk)
-	if strings.HasPrefix(sk, "OP#") && !ok {
+	if strings.HasPrefix(sk, b.prefix) && !ok {
 		b.wg.Done()
 		b.wg.Wait()
 	}
@@ -463,7 +516,7 @@ func TestClaimIsExclusive(t *testing.T) {
 	g := e.connect()
 	var wg sync.WaitGroup
 	wg.Add(2)
-	e.s.KV = barrierKV{KV: e.kv, wg: &wg}
+	e.s.KV = barrierKV{KV: e.kv, wg: &wg, prefix: "OP#"}
 	args := map[string]any{"charge": "ch_9", "amount": 100, IdempotencyArg: "op_claim"}
 	p := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "create_refund", Op: "op_claim", Args: mustJSON(args)})
 	var done sync.WaitGroup
@@ -594,7 +647,7 @@ func TestDisconnectAndExport(t *testing.T) {
 		t.Fatal("the exported signature does not verify")
 	}
 	bodySum := sha256.Sum256([]byte(a.Body))
-	if lines := strings.Split(a.Message, "\n"); lines[4] != fmt.Sprintf("%x", bodySum) {
+	if lines := strings.Split(a.Message, "\n"); lines[1] != e.url || lines[5] != fmt.Sprintf("%x", bodySum) {
 		t.Fatal("the signed message does not cover the exported body")
 	}
 	rq, _ := json.Marshal(gv.Request)
@@ -635,10 +688,8 @@ func TestRegistrationFailureUndoes(t *testing.T) {
 	// second registration is refused after the first one succeeded.
 	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
 	id, digest := e.request()
-	_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
-	resp, _ := http.Get(out["sign_in_url"].(string))
-	if resp.StatusCode != 502 {
-		t.Fatalf("callback: %d", resp.StatusCode)
+	if st, out := e.approveAndSignIn(id, digest); st != 502 {
+		t.Fatalf("confirm: %d %v", st, out)
 	}
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
 	if g.Status != StatusFailed || !strings.Contains(g.Reason, "list_charges") {
@@ -678,9 +729,8 @@ func TestNarrowedTool(t *testing.T) {
 		t.Fatalf("text:\n%s", text)
 	}
 	id, digest := out["id"].(string), out["digest"].(string)
-	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
-	if resp, _ := http.Get(out["sign_in_url"].(string)); resp.StatusCode != 200 {
-		t.Fatalf("callback: %d", resp.StatusCode)
+	if st, out := e.approveAndSignIn(id, digest); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
 	}
 	if c, ok := e.kiff.Connection(tenant, "stripe_refund"); !ok || c.Tool != "stripe_refund" || c.AmountArg != "amount" {
 		t.Fatalf("registered: %+v %v", c.Connection, ok)
@@ -716,5 +766,171 @@ func TestNarrowedTool(t *testing.T) {
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
 		"tools": []any{refund}}, nil, "k_setup"); st != 400 {
 		t.Fatalf("overlapping narrowing: %d, want 400", st)
+	}
+}
+
+// Two phones enrolling at once: one is enrolled, the other is refused,
+// never silently replaced.
+func TestEnrolmentRace(t *testing.T) {
+	e := newEnv(t)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	e.s.KV = barrierKV{KV: e.kv, wg: &wg, prefix: skEnrolment}
+	phones := []*fakes.Phone{fakes.NewPhone(), fakes.NewPhone()}
+	statuses := make([]int, 2)
+	var done sync.WaitGroup
+	for i, p := range phones {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			statuses[i], _ = e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
+				map[string]string{"device_key": p.PublicKey(), "connector_key": "k_connector"}, p, "")
+		}()
+	}
+	done.Wait()
+	if statuses[0]+statuses[1] != 201+409 {
+		t.Fatalf("statuses %v, want one 201 and one 409", statuses)
+	}
+	var en Enrolment
+	_, _ = getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en)
+	winner := phones[0]
+	if statuses[1] == 201 {
+		winner = phones[1]
+	}
+	if base64.StdEncoding.EncodeToString(en.DeviceKey) != winner.PublicKey() {
+		t.Fatal("the enrolled phone is not the one that was told it enrolled")
+	}
+}
+
+// An agent cannot make planque reach its own network: with the client
+// planque runs with, a server on a local address is refused when the
+// connection is made, and nothing it would answer comes back.
+func TestGrantRefusesLocalServers(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	e.s.OAuth = &oauth.Client{HTTP: egress.Client(5 * time.Second), AllowHTTP: true}
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(401)
+		_, _ = w.Write([]byte("internal-secret"))
+	}))
+	defer internal.Close()
+	for _, server := range []string{e.vendor.MCPURL(), internal.URL, "http://localhost:" + strings.TrimPrefix(internal.URL, "http://127.0.0.1:")} {
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": server, "agent": "agt_taf",
+			"tools": []map[string]any{{"tool": "list_charges"}}}, nil, "k_setup")
+		msg, _ := out["error"].(string)
+		if st != 502 || !strings.Contains(msg, "public addresses") || strings.Contains(msg, "internal-secret") {
+			t.Errorf("%s: %d %s", server, st, msg)
+		}
+	}
+}
+
+// A sign-in link someone else opens connects nothing: the code goes to
+// their browser and app, and only the phone that approved may confirm.
+// It is the attack of sending "connect your Stripe" to a victim.
+func TestSignInBoundToApprover(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	link := out["sign_in_url"].(string)
+	// The victim opens the link: the vendor signs them in, and the code
+	// lands in their browser's app.
+	victimCode := e.signIn(link)
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusSignedIn || len(e.kiff.Connections(tenant)) != 0 {
+		t.Fatalf("after the sign-in, before any confirmation: %s, %d tools in KIFF", g.Status, len(e.kiff.Connections(tenant)))
+	}
+	confirm := "/v1/accounts/" + tenant + "/grants/" + id + "/confirm"
+	// The approver, without the code, cannot confirm.
+	for _, guess := range []string{"", "guess", strings.Repeat("A", len(victimCode))} {
+		if st, _ := e.do("POST", confirm, map[string]string{"confirm": guess}, e.phone, ""); st != 403 && st != 400 {
+			t.Fatalf("confirm with %q: %d", guess, st)
+		}
+	}
+	// The victim's own phone cannot confirm someone else's grant.
+	if st, _ := e.do("POST", confirm, map[string]string{"confirm": victimCode}, fakes.NewPhone(), ""); st != 401 {
+		t.Fatalf("another phone confirming: %d", st)
+	}
+	if len(e.kiff.Connections(tenant)) != 0 || e.vendor.CallCount() != 0 {
+		t.Fatal("something was connected without the approving phone's confirmation")
+	}
+	// Approving again revokes the unconfirmed sign-in's token. (A second
+	// later: the same signed request twice is refused as a replay.)
+	time.Sleep(1100 * time.Millisecond)
+	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	if out["sign_in_url"] == nil {
+		t.Fatalf("re-approve: %v", out)
+	}
+	if a, r := e.vendor.Live(); a != 0 || r != 0 {
+		t.Fatalf("the unconfirmed token still works: %d access, %d refresh", a, r)
+	}
+}
+
+// A sign-in not confirmed in time is revoked, not connected.
+func TestUnconfirmedSignInExpires(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	code := e.signIn(out["sign_in_url"].(string))
+	// Time has passed since the sign-in.
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	g.ConfirmBy = time.Now().Add(-time.Minute)
+	if err := e.s.saveGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 409 {
+		t.Fatalf("late confirm: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusFailed || len(e.kiff.Connections(tenant)) != 0 {
+		t.Fatalf("a late confirmation: %s, %d tools", g.Status, len(e.kiff.Connections(tenant)))
+	}
+	if a, r := e.vendor.Live(); a != 0 || r != 0 {
+		t.Fatalf("the late sign-in's token still works: %d access, %d refresh", a, r)
+	}
+}
+
+// RFC 9207: a server that says it names itself must have named itself.
+func TestCallbackRequiresIssWhenAdvertised(t *testing.T) {
+	e := newEnv(t)
+	e.vendor.AdvertiseIss = true
+	e.enrol()
+	id, digest := e.request()
+	_, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, _ := noFollow.Get(out["sign_in_url"].(string))
+	back, _ := url.Parse(resp.Header.Get("Location"))
+	q := back.Query()
+	q.Del("iss")
+	back.RawQuery = q.Encode()
+	if r, _ := http.Get(back.String()); r.StatusCode != 400 {
+		t.Fatalf("answer without iss: %d", r.StatusCode)
+	}
+}
+
+// A signature made for one planque is not valid at another.
+func TestSignatureNamesThePlanque(t *testing.T) {
+	e := newEnv(t)
+	b, _ := json.Marshal(map[string]string{"device_key": e.phone.PublicKey(), "connector_key": "k_connector"})
+	req, _ := http.NewRequest("POST", e.url+"/v1/accounts/"+tenant+"/enrolment", bytes.NewReader(b))
+	// Signed for https://other-planque.example, sent here.
+	other, _ := http.NewRequest("POST", "https://other-planque.example/v1/accounts/"+tenant+"/enrolment", nil)
+	e.phone.Sign(other, tenant, b)
+	req.Header.Set(device.Header, other.Header.Get(device.Header))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 401 {
+		t.Fatalf("a signature for another planque: %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestUnboundWriteToolTextSaysSo(t *testing.T) {
+	text := grantText(Request{Server: "https://mcp.example.com", SignInAt: "https://as.example.com", Agent: "a",
+		Tools: []ToolRequest{{Tool: "api_write", Name: "api_write"}}})
+	if strings.Contains(text, "only within") || !strings.Contains(text, "can make any change this tool allows") {
+		t.Fatalf("text:\n%s", text)
 	}
 }

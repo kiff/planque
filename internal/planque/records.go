@@ -86,6 +86,7 @@ type Event struct {
 const (
 	StatusPending      = "pending"      // waiting for the owner's signature
 	StatusApproved     = "approved"     // signed; waiting for the vendor sign-in
+	StatusSignedIn     = "signed_in"    // token held, unused; waiting for the approving phone to confirm
 	StatusConnected    = "connected"    // token held, tools registered in KIFF
 	StatusFailed       = "failed"       // see Reason
 	StatusDisconnected = "disconnected" // token deleted, tools removed
@@ -106,11 +107,16 @@ type Grant struct {
 	Tools    []GrantedTool  `json:"tools,omitempty"`
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
-	Transport string  `json:"transport,omitempty"`
-	Audience  string  `json:"audience"`
-	Reason    string  `json:"reason,omitempty"`
-	Events    []Event `json:"events"`
-	ver       int64
+	Transport string `json:"transport,omitempty"`
+	// ConfirmHash is the SHA-256 of the code the vendor sign-in handed to
+	// the browser that completed it; the approving phone presents it to
+	// confirm, by ConfirmBy.
+	ConfirmHash string    `json:"confirm_hash,omitempty"`
+	ConfirmBy   time.Time `json:"confirm_by,omitzero"`
+	Audience    string    `json:"audience"`
+	Reason      string    `json:"reason,omitempty"`
+	Events      []Event   `json:"events"`
+	ver         int64
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.

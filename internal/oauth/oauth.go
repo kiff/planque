@@ -31,6 +31,8 @@ type Metadata struct {
 	Registration  string   `json:"registration_endpoint"`
 	Revocation    string   `json:"revocation_endpoint,omitempty"`
 	Scopes        []string `json:"scopes,omitempty"`
+	// IssParameter: the server always names itself in its answer (RFC 9207).
+	IssParameter bool `json:"iss_parameter,omitempty"`
 }
 
 // Client speaks to authorization servers.
@@ -89,6 +91,7 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 		Challenge     []string `json:"code_challenge_methods_supported"`
 		AuthMethods   []string `json:"token_endpoint_auth_methods_supported"`
 		Grants        []string `json:"grant_types_supported"`
+		IssParameter  bool     `json:"authorization_response_iss_parameter_supported"`
 	}
 	if err := c.getJSON(ctx, wellKnown(issuer, "oauth-authorization-server"), &as); err != nil {
 		if err2 := c.getJSON(ctx, trim(issuer)+"/.well-known/openid-configuration", &as); err2 != nil {
@@ -120,7 +123,7 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 		}
 	}
 	return Metadata{Resource: prm.Resource, Issuer: as.Issuer, Authorization: as.Authorization, Token: as.Token,
-		Registration: as.Registration, Revocation: as.Revocation, Scopes: prm.Scopes}, nil
+		Registration: as.Registration, Revocation: as.Revocation, Scopes: prm.Scopes, IssParameter: as.IssParameter}, nil
 }
 
 // challenge makes an unauthenticated MCP request and reads the
@@ -213,7 +216,12 @@ func (c *Client) getJSON(ctx context.Context, u string, v any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s: status %d", u, resp.StatusCode)
 	}
-	return json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(v)
+	// What the server sent is never repeated back, only that it was not
+	// metadata.
+	if json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(v) != nil {
+		return fmt.Errorf("%s: not JSON metadata", u)
+	}
+	return nil
 }
 
 // Register registers planque as a public client with one exact redirect
@@ -245,7 +253,7 @@ func (c *Client) Register(ctx context.Context, m Metadata, name, redirect string
 	}
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&r)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK || r.ClientID == "" {
-		return "", fmt.Errorf("client registration failed (%d): %s %s", resp.StatusCode, r.Error, r.Description)
+		return "", fmt.Errorf("client registration failed (%d): %s", resp.StatusCode, short(r.Error))
 	}
 	// The server may not change where it sends the owner back.
 	if len(r.RedirectURIs) > 0 && !slices.Equal(r.RedirectURIs, []string{redirect}) {
@@ -356,7 +364,7 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 		return Token{}, ErrInvalidGrant
 	}
 	if resp.StatusCode != http.StatusOK || r.Access == "" {
-		return Token{}, fmt.Errorf("token endpoint (%d): %s %s", resp.StatusCode, r.Error, r.Description)
+		return Token{}, fmt.Errorf("token endpoint (%d): %s", resp.StatusCode, short(r.Error))
 	}
 	if r.Type != "" && !strings.EqualFold(r.Type, "bearer") {
 		return Token{}, fmt.Errorf("token type %q is not bearer", r.Type)
@@ -392,4 +400,13 @@ func (c *Client) Revoke(ctx context.Context, m Metadata, clientID, token, hint s
 		return fmt.Errorf("revocation endpoint: status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// short keeps an OAuth error code readable and bounded; descriptions are
+// not repeated.
+func short(code string) string {
+	if len(code) > 64 {
+		code = code[:64]
+	}
+	return code
 }

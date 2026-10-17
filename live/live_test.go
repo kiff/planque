@@ -8,7 +8,7 @@
 //
 //	LIVE_STATE=… go test -tags live -run TestLiveSetup ./live     # keys for fakekiff
 //	deploy/aws.sh up (twice: FAKEKIFF=1 first)                     # see docs/live.md
-//	LIVE_STATE=… go test -tags live -run TestLiveConnect ./live   # prints the sign-in link, waits
+//	LIVE_STATE=… go test -tags live -run TestLiveConnect ./live   # prints the sign-in link, waits, confirms
 //	LIVE_STATE=… go test -tags live -run TestLiveCalls ./live     # refunds, refusals, refresh, disconnect, export
 //
 // LIVE_STATE holds the phone's key and the stand-in's keys: keep it out of
@@ -205,17 +205,29 @@ func TestLiveConnect(t *testing.T) {
 	s.save(t)
 	_ = os.WriteFile(path(t)+".signin", []byte(s.SignIn+"\n"), 0o600)
 	t.Logf("sign in at Stripe (a sandbox): %s", s.SignIn)
+	// The browser that signs in lands in the owner's app (here the
+	// stand-in's /fake/app) with a code; the phone that approved confirms
+	// with it.
+	fk := env(t, "FAKEKIFF_URL")
 	deadline := time.Now().Add(30 * time.Minute)
 	for time.Now().Before(deadline) {
 		_, g := call(t, "GET", acct+"/grants/"+s.Grant, nil, nil, s.Setup)
 		switch g["status"] {
-		case "connected":
-			t.Logf("connected: account %v, tools %v", g["account"], g["tools"])
+		case "signed_in":
+			st, last := call(t, "GET", fk+"/fake/app/last?grant="+s.Grant, nil, nil, "")
+			if st != 200 {
+				t.Fatalf("signed in, but the app got no code: %d %v", st, last)
+			}
+			st, out := call(t, "POST", acct+"/grants/"+s.Grant+"/confirm", map[string]string{"confirm": last["confirm"].(string)}, sign, "")
+			if st != 200 || out["status"] != "connected" {
+				t.Fatalf("confirm: %d %v", st, out)
+			}
+			t.Logf("signed in, confirmed on the phone, connected: tools %v", out["tools"])
 			return
 		case "failed":
 			t.Fatalf("failed: %v", g["reason"])
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 	t.Fatal("nobody signed in within 30 minutes")
 }

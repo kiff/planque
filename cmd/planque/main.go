@@ -4,6 +4,9 @@
 // Configuration (environment):
 //
 //	PLANQUE_BASE_URL   planque's public URL, e.g. its function URL (required)
+//	PLANQUE_APP_RETURN where a finished vendor sign-in sends the owner's
+//	                   browser with its confirmation code: the owner's app,
+//	                   e.g. tafs://planque/signed-in (required)
 //	PLANQUE_TABLE      DynamoDB table; without it records stay in memory
 //	PLANQUE_KMS_KEY    KMS key id or alias for envelope encryption, or
 //	PLANQUE_LOCAL_KEY  a base64 32-byte AES key (self-hosted)
@@ -21,11 +24,13 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/kiff/planque/internal/awsapi"
+	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/lambda"
 	"github.com/kiff/planque/internal/mcp"
@@ -56,6 +61,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if base == "" {
 		return nil, errors.New("PLANQUE_BASE_URL is required")
 	}
+	appReturn := os.Getenv("PLANQUE_APP_RETURN")
+	if u, err := url.Parse(appReturn); appReturn == "" || err != nil || u.Scheme == "" {
+		return nil, errors.New("PLANQUE_APP_RETURN is required: the owner's app, which confirms each sign-in")
+	}
 	region := cmp.Or(os.Getenv("AWS_REGION"), "eu-west-1")
 	creds := awsapi.FromEnv
 	var kv store.KV = &store.Memory{}
@@ -79,16 +88,20 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	}
 	api := cmp.Or(os.Getenv("KIFF_API"), "https://api.kiff.dev")
 	issuer := cmp.Or(os.Getenv("KIFF_ISSUER"), api)
+	// KIFF is configured here; vendors are named by agents and servers, so
+	// they are reached only at public addresses.
 	hc := &http.Client{Timeout: 30 * time.Second}
+	vendors := egress.Client(30 * time.Second)
 	return &planque.Server{
-		BaseURL: base,
-		KV:      kv,
-		Sealer:  sealer,
-		KIFF:    &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
+		BaseURL:   base,
+		AppReturn: appReturn,
+		KV:        kv,
+		Sealer:    sealer,
+		KIFF:      &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
-		OAuth:  &oauth.Client{HTTP: hc},
-		MCP:    &mcp.Client{HTTP: hc},
+		OAuth:  &oauth.Client{HTTP: vendors},
+		MCP:    &mcp.Client{HTTP: vendors},
 		Logger: logger,
 	}, nil
 }

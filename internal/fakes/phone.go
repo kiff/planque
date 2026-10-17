@@ -36,9 +36,10 @@ func (p *Phone) SignBytes(msg []byte) string {
 	return base64.StdEncoding.EncodeToString(sig)
 }
 
-// Sign adds Planque-Device-Signature to req, whose body is body.
+// Sign adds Planque-Device-Signature to req, whose body is body, for the
+// planque req is sent to.
 func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
 	at := time.Now().UTC().Format(time.RFC3339)
-	msg := device.Message(tenant, req.Method, req.URL.RequestURI(), body, at)
+	msg := device.Message(req.URL.Scheme+"://"+req.URL.Host, tenant, req.Method, req.URL.RequestURI(), body, at)
 	req.Header.Set(device.Header, "t="+at+",v1="+p.SignBytes(msg))
 }

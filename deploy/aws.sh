@@ -7,7 +7,8 @@
 #                         for deletion after 7 days, AWS's minimum)
 #
 # Environment: AWS_REGION (default eu-west-1), PLANQUE_NAME (default
-# planque), and for the function: KIFF_API, KIFF_GATEWAY, KIFF_ISSUER.
+# planque), and for the function: PLANQUE_APP_RETURN (required: the owner's
+# app, which confirms each sign-in), KIFF_API, KIFF_GATEWAY, KIFF_ISSUER.
 #
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
@@ -75,7 +76,7 @@ function_env() {
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN"):
     if os.environ.get(k): v[k]=os.environ[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi

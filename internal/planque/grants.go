@@ -1,8 +1,10 @@
 package planque
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -139,6 +141,10 @@ func grantText(q Request) string {
 			how = "reads only"
 		case t.AmountArg != "":
 			how = "moves money (" + t.AmountArg + "), only within the taf's Card"
+		case !t.narrowed():
+			// Nothing narrows it and no amount bounds it: the Card can
+			// allow or refuse each call, not limit what it changes.
+			how = "can make any change this tool allows; the taf's Card can allow or refuse each call, not limit what it changes"
 		}
 		fmt.Fprintf(&b, "• %s%s: %s\n", t.Name, narrowingText(t), how)
 	}
@@ -238,9 +244,15 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
 	}
-	if g.Status != StatusPending && g.Status != StatusApproved {
+	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn {
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
+	}
+	if g.Status == StatusSignedIn {
+		// A new link replaces a sign-in nobody confirmed: its token goes.
+		s.revoke(r.Context(), g)
+		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
+		g.event(s.now(), "an unconfirmed sign-in was revoked")
 	}
 	clientID, err := s.client(r.Context(), g.Vendor)
 	if err != nil {
@@ -334,8 +346,9 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.page(w, http.StatusOK, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" was not completed. Nothing was granted.")
 		return
 	}
-	// RFC 9207: when the server names itself, it must be the one we used.
-	if iss := q.Get("iss"); iss != "" && iss != g.Vendor.Issuer {
+	// RFC 9207: when the server names itself, it must be the one we used,
+	// and a server that says it always does must have.
+	if iss := q.Get("iss"); (iss == "" && g.Vendor.IssParameter) || (iss != "" && iss != g.Vendor.Issuer) {
 		s.page(w, http.StatusBadRequest, "Not connected", "This answer came from another sign-in server. Nothing was granted.")
 		return
 	}
@@ -350,24 +363,104 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.page(w, http.StatusBadGateway, "Not connected", "planque could not finish the sign-in at "+hostOf(g.Vendor.Issuer)+".")
 		return
 	}
-	if err := s.connect(r.Context(), g, tok); err != nil {
-		s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
-		s.page(w, http.StatusBadGateway, "Not connected", g.Reason)
+	if s.AppReturn == "" {
+		s.failGrant(r.Context(), g, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)")
+		s.page(w, http.StatusInternalServerError, "Not connected", "planque is not set up to confirm sign-ins.")
 		return
 	}
-	s.page(w, http.StatusOK, "Connected", "Your "+hostOf(g.Request.Server)+" account is connected to "+g.Request.Agent+
-		". planque keeps the sign-in. You can close this page.")
+	// The token is kept but not used: nothing is connected until the phone
+	// that approved confirms with the code only this browser receives.
+	if err := s.storeToken(r.Context(), g, tok, nil); err != nil {
+		s.failGrant(r.Context(), g, "the token could not be stored")
+		s.page(w, http.StatusInternalServerError, "Not connected", "planque could not keep the sign-in.")
+		return
+	}
+	code := oauth.Random(24)
+	sum := sha256.Sum256([]byte(code))
+	g.Account, g.ConfirmHash, g.ConfirmBy = tok.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
+	g.Status = StatusSignedIn
+	g.event(s.now(), "signed in at "+hostOf(g.Vendor.Issuer)+accountNote(g.Account)+"; waiting for the phone to confirm")
+	if err := s.saveGrant(r.Context(), g); err != nil {
+		s.revoke(r.Context(), g)
+		s.fail(w, r, err)
+		return
+	}
+	u, err := url.Parse(s.AppReturn)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	rq := u.Query()
+	rq.Set("tenant", g.Tenant)
+	rq.Set("grant", g.ID)
+	rq.Set("confirm", code)
+	u.RawQuery = rq.Encode()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
-// connect stores the token, reads the granted tools from the vendor, and
-// registers them in KIFF's gateway with the connector key. If any step
-// fails, nothing stays connected.
-func (s *Server) connect(ctx context.Context, g *Grant, tok oauth.Token) error {
-	if err := s.storeToken(ctx, g, tok, nil); err != nil {
-		return s.failGrant(ctx, g, "the token could not be stored")
+// confirm is the approving phone finishing a sign-in: it signs the code
+// the vendor's sign-in handed to the owner's app. Only then are the tools
+// registered and the grant connected. A link someone else opened hands
+// its code to their browser, never to the phone that approved.
+func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	var req struct {
+		Confirm string `json:"confirm"`
 	}
-	g.Account = tok.Account
-	listed, err := s.MCP.ListTools(ctx, g.Request.Server, tok.Access)
+	if err := decodeStrict(sr.body, &req); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.loadGrant(r.Context(), sr.tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if g.Status != StatusSignedIn {
+		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
+		return
+	}
+	if g.Approval == nil || !bytes.Equal(sr.enrolment.DeviceKey, g.Approval.DeviceKey) {
+		writeErr(w, http.StatusForbidden, "only the phone that approved this grant may confirm it")
+		return
+	}
+	if s.now().After(g.ConfirmBy) {
+		s.revoke(r.Context(), g)
+		s.failGrant(r.Context(), g, "the sign-in was not confirmed in time")
+		writeErr(w, http.StatusConflict, "the sign-in was not confirmed in time; it was revoked")
+		return
+	}
+	sum := sha256.Sum256([]byte(req.Confirm))
+	want, _ := hex.DecodeString(g.ConfirmHash)
+	if req.Confirm == "" || subtle.ConstantTimeCompare(sum[:], want) != 1 {
+		writeErr(w, http.StatusForbidden, "this is not the code of this grant's sign-in")
+		return
+	}
+	g.ConfirmHash, g.ConfirmBy = "", time.Time{}
+	g.event(s.now(), "sign-in confirmed on the phone "+sr.approval.Fingerprint)
+	tok, _, err := s.openToken(r.Context(), g)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.connect(r.Context(), g, tok.Access); err != nil {
+		s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		writeErr(w, http.StatusBadGateway, g.Reason)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// connect reads the granted tools from the vendor with the stored token,
+// and registers them in KIFF's gateway with the connector key. If any
+// step fails, nothing stays connected and the token is revoked.
+func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
+	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "planque could not list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
@@ -396,7 +489,6 @@ func (s *Server) connect(ctx context.Context, g *Grant, tok oauth.Token) error {
 	// The relay must answer KIFF's probe before the registration returns,
 	// so the grant is saved as connected first; a failure undoes it.
 	g.Status = StatusConnected
-	g.event(s.now(), "signed in at "+hostOf(g.Vendor.Issuer)+accountNote(g.Account))
 	if err := s.saveGrant(ctx, g); err != nil {
 		s.revoke(ctx, g)
 		return err
@@ -545,7 +637,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest
 		"format":      "planque.oversight.v1",
 		"tenant":      sr.tenant,
 		"exported_at": s.now().UTC(),
-		"how_to_verify": "Each approval.message is the exact text the phone signed: its fifth line is the SHA-256 of approval.body, " +
+		"how_to_verify": "Each approval.message is the exact text the phone signed: its sixth line is the SHA-256 of approval.body, " +
 			"whose digest is the SHA-256 of the RFC 8785 form of request. approval.signature is a DER ECDSA P-256 signature " +
 			"over SHA-256(message), by approval.device_key (SPKI DER).",
 		"grants": gs,

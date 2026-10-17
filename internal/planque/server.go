@@ -47,6 +47,12 @@ type Server struct {
 	MCP     *mcp.Client
 	Logger  *slog.Logger
 	Now     func() time.Time
+	// AppReturn is where the browser that completed a vendor sign-in is
+	// sent, with the code that confirms it: the owner's app (tafs), for
+	// example tafs://planque/signed-in. The operator sets it; no request
+	// can, so a sign-in link someone else opens never hands its code back
+	// to whoever approved the grant.
+	AppReturn string
 	// RefreshWait bounds how long a call waits for another one's refresh.
 	RefreshWait time.Duration
 
@@ -77,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signed(s.export))
@@ -145,7 +152,7 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body, keyDER []byt
 	if err != nil {
 		return Approval{}, apiError{http.StatusUnauthorized, "this request needs the owner's signature from their phone (" + device.Header + ")"}
 	}
-	msg := device.Message(tenant, r.Method, r.URL.RequestURI(), body, signedAt)
+	msg := device.Message(s.BaseURL, tenant, r.Method, r.URL.RequestURI(), body, signedAt)
 	if err := device.Verify(keyDER, msg, signedAt, sig, s.now()); err != nil {
 		return Approval{}, apiError{http.StatusUnauthorized, err.Error()}
 	}
@@ -214,7 +221,13 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var prev Enrolment
-	_, err = getDoc(r.Context(), s.KV, tenantPK(tenant), skEnrolment, &prev)
+	prevItem, err := getDoc(r.Context(), s.KV, tenantPK(tenant), skEnrolment, &prev)
+	// The write below is conditional on what was read here, so two
+	// enrolments racing cannot both pass this check.
+	cond := store.Cond{NotExists: true}
+	if err == nil {
+		cond = store.Cond{Ver: &prevItem.Ver}
+	}
 	switch {
 	case err == nil && !bytes.Equal(prev.DeviceKey, der):
 		writeErr(w, http.StatusConflict, "another phone is enrolled for this account")
@@ -242,7 +255,12 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e := Enrolment{Tenant: tenant, DeviceKey: der, Connector: sealed, EnrolledAt: s.now().UTC()}
-	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(tenant), SK: skEnrolment}, e, store.Cond{}); err != nil {
+	err = putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(tenant), SK: skEnrolment, Ver: prevItem.Ver + 1}, e, cond)
+	if errors.Is(err, store.ErrCondition) {
+		writeErr(w, http.StatusConflict, "the enrolment changed while this one was checked; enrol again")
+		return
+	}
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}

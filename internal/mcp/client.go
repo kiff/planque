@@ -210,7 +210,11 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 			*into = m
 			return nil
 		}
-		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))}
+		msg := strings.TrimSpace(string(b))
+		if len(msg) > 300 {
+			msg = msg[:300] + "…"
+		}
+		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg)}
 	}
 	m, err := readMessage(resp, string(want))
 	if err != nil {

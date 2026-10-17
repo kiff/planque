@@ -10,11 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf16"
 )
+
+var maxSafeInteger = big.NewInt(1<<53 - 1)
 
 // Canonical returns the RFC 8785 form of the JSON value in b.
 func Canonical(b []byte) ([]byte, error) {
@@ -53,6 +56,12 @@ func write(out *bytes.Buffer, v any) error {
 	case string:
 		writeString(out, v)
 	case json.Number:
+		// Integers beyond 2^53 - 1 alias as doubles, so two different
+		// values could hash the same. Refused, as KIFF refuses them
+		// (kiff-cloud apps/api/internal/permit/jcs.go).
+		if i, ok := new(big.Int).SetString(string(v), 10); ok && new(big.Int).Abs(i).Cmp(maxSafeInteger) > 0 {
+			return fmt.Errorf("jcs: integer %s is beyond 2^53 - 1 and cannot be hashed without ambiguity", v)
+		}
 		f, err := strconv.ParseFloat(string(v), 64)
 		if err != nil {
 			return fmt.Errorf("jcs: number %s: %w", v, err)

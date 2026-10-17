@@ -5,9 +5,11 @@
 //
 // A signed call carries Planque-Device-Signature: t=<signed_at>,v1=<sig>
 // over the same shape as KIFF's kiff.request.v1, with planque's own prefix
-// so a signature for one service is never valid at the other:
+// so a signature for one service is never valid at the other, and the
+// planque it is for, so it is never valid at another planque either:
 //
 //	planque.request.v1
+//	<planque base URL>      e.g. https://planque.example.com, no trailing slash
 //	<tenant>
 //	<METHOD>
 //	<path and query>
@@ -71,10 +73,11 @@ func Fingerprint(der []byte) string {
 	return h[0:4] + " " + h[4:8] + " " + h[8:12] + " " + h[12:16]
 }
 
-// Message is the exact text a phone signs for a request.
-func Message(tenant, method, uri string, body []byte, signedAt string) []byte {
+// Message is the exact text a phone signs for a request to the planque at
+// base.
+func Message(base, tenant, method, uri string, body []byte, signedAt string) []byte {
 	sum := sha256.Sum256(body)
-	return []byte(strings.Join([]string{"planque.request.v1", tenant, method, uri,
+	return []byte(strings.Join([]string{"planque.request.v1", strings.TrimRight(base, "/"), tenant, method, uri,
 		hex.EncodeToString(sum[:]), signedAt}, "\n"))
 }
 
