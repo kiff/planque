@@ -10,6 +10,10 @@
 # planque), and for the function: PLANQUE_APP_RETURN (required: the owner's
 # app, which confirms each sign-in), KIFF_API, KIFF_GATEWAY, KIFF_ISSUER.
 #
+# PLANQUE_PUBLIC_URL is planque's public name when it has one in front of
+# the function URL (e.g. https://planque.kiff.dev through CloudFront); the
+# signatures, the relay audience and the vendor redirect all use it.
+#
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
 set -euo pipefail
@@ -75,7 +79,7 @@ function_env() {
   if [[ "${FAKEKIFF:-}" == 1 ]]; then
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else
-    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
+    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN"):
     if os.environ.get(k): v[k]=os.environ[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
