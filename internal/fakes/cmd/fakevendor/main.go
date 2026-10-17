@@ -7,6 +7,9 @@
 //	FAKEVENDOR_TOKEN  the bearer GET /fake/calls takes: what tools/call it ran
 //	FAKEVENDOR_TABLE  the DynamoDB table its state is in, so any of its
 //	                  instances answers (in memory without it)
+//	FAKEVENDOR_REDIRECTS  the redirect URIs a client may register, comma-
+//	                  separated: planque's callback. It consents on its own,
+//	                  so it never sends anyone anywhere else.
 package main
 
 import (
@@ -29,7 +32,17 @@ func main() {
 	if base == "" || len(token) < 16 {
 		log.Fatal("FAKEVENDOR_BASE and a FAKEVENDOR_TOKEN of 16 or more characters are required")
 	}
+	var redirects []string
+	for _, r := range strings.Split(os.Getenv("FAKEVENDOR_REDIRECTS"), ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			redirects = append(redirects, r)
+		}
+	}
+	if len(redirects) == 0 {
+		log.Fatal("FAKEVENDOR_REDIRECTS is required: the redirect URIs a client may register (planque's callback)")
+	}
 	v, h := fakes.NewVendorAt(base)
+	v.Redirects = redirects
 	if t := os.Getenv("FAKEVENDOR_TABLE"); t != "" {
 		v.KV = &store.Dynamo{Table: t, API: &awsapi.Client{Service: "dynamodb", Region: cmp.Or(os.Getenv("AWS_REGION"), "eu-west-1"),
 			Target: "DynamoDB_20120810", JSONType: "application/x-amz-json-1.0", Creds: awsapi.FromEnv}}
