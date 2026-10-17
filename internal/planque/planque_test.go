@@ -1037,6 +1037,7 @@ func TestConnectFirst(t *testing.T) {
 	}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	if st != 200 || out["status"] != StatusPending || out["digest"] == digest || !strings.Contains(out["text"].(string), "create_refund") ||
+		!strings.Contains(out["text"].(string), "already signed in") || strings.Contains(out["text"].(string), "You will sign in") ||
 		!strings.Contains(out["text"].(string), "acct_fake123") {
 		t.Fatalf("set tools: %d %v", st, out)
 	}
