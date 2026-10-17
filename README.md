@@ -61,6 +61,69 @@ It's the same code either way.
 - The signed approvals can be exported as evidence of human oversight
   (EU AI Act).
 
+## The API
+
+| Call | Who | What |
+|---|---|---|
+| `POST /v1/accounts/{tenant}/enrolment` | the owner's phone, signed with the key it enrols | binds the phone's key and planque's KIFF **connector** key to the account; a key that can do more than connect tools is refused |
+| `POST /v1/accounts/{tenant}/grants` | an agent, with its KIFF key | asks for a vendor's MCP server, some of its tools, for a taf; returns the plain words and the digest the owner signs; grants nothing |
+| `GET /v1/accounts/{tenant}/grants/{id}` | an agent of the account | the grant's status |
+| `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link |
+| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked, code exchanged with PKCE and the exact redirect; the token is sealed with KMS and the tools are registered in KIFF's gateway in `relay` mode |
+| `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
+| `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
+| `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |
+
+A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>`:
+the phone's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
+over SHA-256, the lines `planque.request.v1`, tenant, method, path, the
+body's SHA-256 and `signed_at`. A signed request is accepted once, within
+5 minutes.
+
+**Permits** follow kiff-cloud RFC 046: `typ` `kiff-permit+jwt`, `alg`
+`Ed25519`, a key from KIFF's JWKS (refetched every 5 minutes, an unknown
+`kid` at most once a minute, trusted at most an hour without a fresh
+fetch), the relay's audience, the account, the tool, the RFC 8785 hash of
+the arguments, and a lifetime of at most 60 seconds. Each operation runs
+at most once: a replay gets the first answer, and a call whose answer was
+lost is never sent again.
+
+**Narrowing a vendor tool.** Some vendors offer one broad tool: Stripe's
+MCP server writes to any endpoint through `stripe_api_write`. A grant
+narrows it with `fixed_arguments` (sent on every call, never set by the
+agent) and `arguments` (the only ones the agent sets, each placed at a path
+in the vendor's arguments, at the top level where KIFF's Card can govern
+them). The owner reads the narrowing in the text they sign:
+
+```json
+{"tool": "stripe_api_write", "name": "stripe_refund", "amount_argument": "amount",
+ "fixed_arguments": {"stripe_api_operation_id": "PostRefunds", "stripe_context": "acct_…", "livemode": false},
+ "arguments": {"payment_intent": {"path": "parameters.payment_intent", "type": "string", "required": true},
+               "amount": {"path": "parameters.amount", "type": "integer", "required": true}}}
+```
+
+## Run it
+
+```sh
+go test ./...                    # every step against a fake vendor and a fake KIFF
+deploy/aws.sh up                 # Lambda + function URL, DynamoDB, KMS in eu-west-1
+PLANQUE_BASE_URL=http://localhost:8080 PLANQUE_LOCAL_KEY=$(openssl rand -base64 32) \
+  go run ./cmd/planque           # self-hosted, records in memory
+```
+
+Configuration is in `cmd/planque/main.go`.
+
+**The live check** (`live/`) runs against Stripe's real MCP server in test
+mode and planque on AWS. Until KIFF ships the connector key role, KIFF is
+the stand-in in `internal/fakes`, deployed with `FAKEKIFF=1 deploy/aws.sh up`.
+It enrols a phone, asks for Stripe, approves, waits for the sign-in at
+Stripe, then: a refund inside the Card goes through, one outside it is
+never sent, permits for other arguments, another account, another audience,
+expired or missing send nothing, a replayed permit gets the first answer,
+parallel calls on several Lambda instances refresh the token once (the
+rotated refresh token is kept), disconnecting revokes the token at Stripe
+(Stripe then answers it with 401), and the export's signature verifies.
+
 ## Licence
 
 FSL-1.1-ALv2, like kiff/agents. You can read, run and self-host it; you
