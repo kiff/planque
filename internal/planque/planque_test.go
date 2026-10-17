@@ -388,7 +388,7 @@ func TestPermitGatedCalls(t *testing.T) {
 
 	// Inside the Card it goes through, without planque's argument.
 	res, err := e.kiff.Call(ctx, "k_taf", "create_refund", map[string]any{"charge": "ch_1", "amount": 300})
-	if err != nil || res.Decision != "allowed" || !strings.Contains(string(res.Result), "re_1") {
+	if err != nil || res.Decision != "allowed" || !strings.Contains(string(res.Result), `\"object\":\"refund\"`) {
 		t.Fatalf("refund inside the Card: %+v %v", res, err)
 	}
 	if e.vendor.CallCount() != 1 {

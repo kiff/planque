@@ -243,6 +243,10 @@ func (d *Dynamo) Query(ctx context.Context, pk, prefix string) ([]Item, error) {
 		in := av{"TableName": d.Table, "ConsistentRead": true,
 			"KeyConditionExpression":    "pk = :pk AND begins_with(sk, :p)",
 			"ExpressionAttributeValues": av{":pk": av{"S": pk}, ":p": av{"S": prefix}}}
+		if prefix == "" { // DynamoDB takes no empty key value, even to begin with
+			in["KeyConditionExpression"] = "pk = :pk"
+			in["ExpressionAttributeValues"] = av{":pk": av{"S": pk}}
+		}
 		if start != nil {
 			in["ExclusiveStartKey"] = start
 		}

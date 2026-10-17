@@ -4,8 +4,11 @@
 package fakes
 
 import (
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kiff/planque/internal/store"
 )
 
 // Vendor is an MCP server behind its own authorization server.
@@ -27,24 +32,38 @@ type Vendor struct {
 	// Base is the vendor's public URL when it isn't served by the embedded
 	// test server (a deployed fake, cmd/fakevendor).
 	Base string
+	// KV keeps its clients, codes, tokens and calls: in memory by default,
+	// a table for a deployed fake, so any of its instances answers.
+	KV store.KV
 
 	mu        sync.Mutex
-	clients   map[string]string // client_id → redirect
-	codes     map[string]code
-	access    map[string]time.Time // token → expiry
-	refresh   map[string]bool      // valid refresh tokens
-	n         int
-	Calls     []VendorCall
+	Calls     []VendorCall // this instance's
 	Refreshes int
 	Revoked   []string
 }
 
-type code struct{ client, redirect, challenge, resource string }
+type code struct {
+	Client, Redirect, Challenge, Resource string
+}
 
 // VendorCall is one tools/call the vendor ran.
 type VendorCall struct {
 	Tool string
 	Args map[string]any
+}
+
+// The vendor's records in KV, by kind.
+const (
+	kvClient  = "fakevendor#client"  // SK client_id, Doc its redirect
+	kvCode    = "fakevendor#code"    // SK the code, Doc a code
+	kvAccess  = "fakevendor#access"  // SK the token, Doc its expiry (RFC 3339)
+	kvRefresh = "fakevendor#refresh" // SK the token
+	kvCall    = "fakevendor#call"    // SK when (ns) and an id, Doc a VendorCall
+)
+
+// keep writes one record, kept for ttl.
+func (v *Vendor) keep(ctx context.Context, pk, sk string, doc []byte, ttl time.Duration) error {
+	return v.KV.Put(ctx, store.Item{PK: pk, SK: sk, Doc: doc, TTL: time.Now().Add(ttl).Unix()}, store.Cond{})
 }
 
 // NewVendor starts a vendor on a local test server.
@@ -57,8 +76,7 @@ func NewVendor() *Vendor {
 // NewVendorAt is a vendor served at base by the handler it returns: for a
 // deployed fake the live check and the nightly test sign in at.
 func NewVendorAt(base string) (*Vendor, http.Handler) {
-	v := &Vendor{Account: "acct_fake123", Base: strings.TrimRight(base, "/"), clients: map[string]string{}, codes: map[string]code{},
-		access: map[string]time.Time{}, refresh: map[string]bool{}}
+	v := &Vendor{Account: "acct_fake123", Base: strings.TrimRight(base, "/"), KV: &store.Memory{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", v.prm)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server/as", v.asMeta)
@@ -84,9 +102,11 @@ func (v *Vendor) MCPURL() string { return v.root() + "/mcp" }
 // Issuer is the vendor's authorization server.
 func (v *Vendor) Issuer() string { return v.root() + "/as" }
 
-func (v *Vendor) next(prefix string) string {
-	v.n++
-	return fmt.Sprintf("%s_%d", prefix, v.n)
+// next is a new id, unique across the vendor's instances.
+func next(prefix string) string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	return prefix + "_" + hex.EncodeToString(b)
 }
 
 func (v *Vendor) prm(w http.ResponseWriter, _ *http.Request) {
@@ -112,10 +132,11 @@ func (v *Vendor) register(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid_redirect_uri"})
 		return
 	}
-	v.mu.Lock()
-	id := v.next("client")
-	v.clients[id] = req.RedirectURIs[0]
-	v.mu.Unlock()
+	id := next("client")
+	if err := v.keep(r.Context(), kvClient, id, []byte(req.RedirectURIs[0]), 30*24*time.Hour); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server_error"})
+		return
+	}
 	writeJSON(w, 201, map[string]any{"client_id": id, "redirect_uris": req.RedirectURIs, "token_endpoint_auth_method": "none"})
 }
 
@@ -123,15 +144,18 @@ func (v *Vendor) register(w http.ResponseWriter, r *http.Request) {
 // redirects straight back with a code.
 func (v *Vendor) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	redirect, ok := v.clients[q.Get("client_id")]
-	if !ok || q.Get("redirect_uri") != redirect || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" {
+	it, ok, err := v.KV.Get(r.Context(), kvClient, q.Get("client_id"))
+	redirect := string(it.Doc)
+	if err != nil || !ok || q.Get("redirect_uri") != redirect || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" {
 		http.Error(w, "bad authorization request", 400)
 		return
 	}
-	c := v.next("code")
-	v.codes[c] = code{q.Get("client_id"), redirect, q.Get("code_challenge"), q.Get("resource")}
+	c := next("code")
+	doc, _ := json.Marshal(code{q.Get("client_id"), redirect, q.Get("code_challenge"), q.Get("resource")})
+	if err := v.keep(r.Context(), kvCode, c, doc, 10*time.Minute); err != nil {
+		http.Error(w, "server error", 500)
+		return
+	}
 	u, _ := url.Parse(redirect)
 	rq := u.Query()
 	rq.Set("code", c)
@@ -141,14 +165,18 @@ func (v *Vendor) authorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
-func (v *Vendor) issue(w http.ResponseWriter) {
+func (v *Vendor) issue(w http.ResponseWriter, r *http.Request) {
 	ttl := v.TokenTTL
 	if ttl == 0 {
 		ttl = time.Hour
 	}
-	a, rt := v.next("access"), v.next("refresh")
-	v.access[a] = time.Now().Add(ttl)
-	v.refresh[rt] = true
+	a, rt := next("access"), next("refresh")
+	exp := time.Now().Add(ttl)
+	if v.keep(r.Context(), kvAccess, a, []byte(exp.Format(time.RFC3339Nano)), ttl+time.Hour) != nil ||
+		v.keep(r.Context(), kvRefresh, rt, []byte("1"), 30*24*time.Hour) != nil {
+		writeJSON(w, 500, map[string]string{"error": "server_error"})
+		return
+	}
 	writeJSON(w, 200, map[string]any{"access_token": a, "token_type": "bearer", "expires_in": int(ttl.Seconds()),
 		"refresh_token": rt, "stripe_user_id": v.Account})
 }
@@ -157,29 +185,30 @@ func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
-		v.mu.Lock()
-		defer v.mu.Unlock()
-		c, ok := v.codes[r.PostForm.Get("code")]
-		delete(v.codes, r.PostForm.Get("code"))
+		// Deleting it is using it: a code works once.
+		it, ok, err := v.KV.Delete(r.Context(), kvCode, r.PostForm.Get("code"))
+		var c code
+		if ok {
+			_ = json.Unmarshal(it.Doc, &c)
+		}
 		sum := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
-		if !ok || c.client != r.PostForm.Get("client_id") || c.redirect != r.PostForm.Get("redirect_uri") ||
-			c.challenge != base64.RawURLEncoding.EncodeToString(sum[:]) || c.resource != v.MCPURL() {
+		if err != nil || !ok || c.Client != r.PostForm.Get("client_id") || c.Redirect != r.PostForm.Get("redirect_uri") ||
+			c.Challenge != base64.RawURLEncoding.EncodeToString(sum[:]) || c.Resource != v.MCPURL() {
 			writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 			return
 		}
-		v.issue(w)
+		v.issue(w, r)
 	case "refresh_token":
 		time.Sleep(v.RefreshDelay)
-		v.mu.Lock()
-		defer v.mu.Unlock()
-		rt := r.PostForm.Get("refresh_token")
-		if !v.refresh[rt] {
+		// Rotated: the old one stops working.
+		if _, ok, err := v.KV.Delete(r.Context(), kvRefresh, r.PostForm.Get("refresh_token")); err != nil || !ok {
 			writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 			return
 		}
-		delete(v.refresh, rt) // rotated: the old one stops working
+		v.mu.Lock()
 		v.Refreshes++
-		v.issue(w)
+		v.mu.Unlock()
+		v.issue(w, r)
 	default:
 		writeJSON(w, 400, map[string]string{"error": "unsupported_grant_type"})
 	}
@@ -188,9 +217,9 @@ func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
 func (v *Vendor) revoke(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	t := r.PostForm.Get("token")
+	_, _, _ = v.KV.Delete(r.Context(), kvAccess, t)
+	_, _, _ = v.KV.Delete(r.Context(), kvRefresh, t)
 	v.mu.Lock()
-	delete(v.access, t)
-	delete(v.refresh, t)
 	v.Revoked = append(v.Revoked, t)
 	v.mu.Unlock()
 	w.WriteHeader(200)
@@ -198,18 +227,29 @@ func (v *Vendor) revoke(w http.ResponseWriter, r *http.Request) {
 
 // Expire makes every access token expire now, as a vendor may.
 func (v *Vendor) Expire() {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	for t := range v.access {
-		v.access[t] = time.Now().Add(-time.Second)
+	ctx := context.Background()
+	its, _ := v.KV.Query(ctx, kvAccess, "")
+	for _, it := range its {
+		it.Doc = []byte(time.Now().Add(-time.Second).Format(time.RFC3339Nano))
+		_ = v.KV.Put(ctx, it, store.Cond{})
 	}
 }
 
-// CallsSoFar is a copy of the tools/call the vendor ran.
-func (v *Vendor) CallsSoFar() []VendorCall {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return append([]VendorCall(nil), v.Calls...)
+// CallsSoFar is every tools/call the vendor ran, from all its instances,
+// in order.
+func (v *Vendor) CallsSoFar(ctx context.Context) ([]VendorCall, error) {
+	its, err := v.KV.Query(ctx, kvCall, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VendorCall, 0, len(its))
+	for _, it := range its {
+		var c VendorCall
+		if json.Unmarshal(it.Doc, &c) == nil {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // CallCount is how many tools/call the vendor ran.
@@ -221,14 +261,15 @@ func (v *Vendor) CallCount() int {
 
 // Live reports how many access and refresh tokens still work.
 func (v *Vendor) Live() (access, refresh int) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	for _, exp := range v.access {
-		if time.Now().Before(exp) {
+	ctx := context.Background()
+	as, _ := v.KV.Query(ctx, kvAccess, "")
+	for _, it := range as {
+		if exp, err := time.Parse(time.RFC3339Nano, string(it.Doc)); err == nil && time.Now().Before(exp) {
 			access++
 		}
 	}
-	return access, len(v.refresh)
+	rs, _ := v.KV.Query(ctx, kvRefresh, "")
+	return access, len(rs)
 }
 
 var vendorTools = []map[string]any{
@@ -245,10 +286,9 @@ var vendorTools = []map[string]any{
 
 func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	v.mu.Lock()
-	exp, ok := v.access[tok]
-	v.mu.Unlock()
-	if !ok || time.Now().After(exp) {
+	it, ok, err := v.KV.Get(r.Context(), kvAccess, tok)
+	exp, perr := time.Parse(time.RFC3339Nano, string(it.Doc))
+	if err != nil || !ok || perr != nil || time.Now().After(exp) {
 		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+v.root()+`/.well-known/oauth-protected-resource/mcp"`)
 		writeJSON(w, 401, map[string]string{"error": "invalid_token"})
 		return
@@ -276,11 +316,17 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 		result(map[string]any{"tools": vendorTools})
 	case "tools/call":
 		time.Sleep(v.CallDelay)
+		call := VendorCall{Tool: req.Params.Name, Args: req.Params.Arguments}
+		id := next("re")
+		doc, _ := json.Marshal(call)
+		if err := v.keep(r.Context(), kvCall, fmt.Sprintf("%020d#%s", time.Now().UnixNano(), id), doc, 7*24*time.Hour); err != nil {
+			writeJSON(w, 200, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32603, "message": "not recorded"}})
+			return
+		}
 		v.mu.Lock()
-		v.Calls = append(v.Calls, VendorCall{Tool: req.Params.Name, Args: req.Params.Arguments})
-		n := len(v.Calls)
+		v.Calls = append(v.Calls, call)
 		v.mu.Unlock()
-		b, _ := json.Marshal(map[string]any{"id": fmt.Sprintf("re_%d", n), "object": "refund", "amount": req.Params.Arguments["amount"]})
+		b, _ := json.Marshal(map[string]any{"id": id, "object": "refund", "amount": req.Params.Arguments["amount"]})
 		result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}})
 	default:
 		writeJSON(w, 200, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32601, "message": "method not found"}})
