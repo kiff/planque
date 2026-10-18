@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -119,8 +120,8 @@ func (e *env) enrol() {
 func (e *env) request() (id, digest string) {
 	e.t.Helper()
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []map[string]any{{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2},
-			{"tool": "list_charges", "read_only": true}}}, nil, "k_setup")
+		"tools": []map[string]any{{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2},
+			{"tool": "list_charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
 	if st != 201 {
 		e.t.Fatalf("request: %d %v", st, out)
 	}
@@ -1023,7 +1024,7 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatal("listing called a tool")
 	}
 
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	// Only the agent that asked sets the tools, only tools the vendor lists, and the
 	// owner can't approve a listed grant before it has tools.
 	if st, _ := e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_taf"); st != 403 {
@@ -1168,11 +1169,42 @@ func TestAnAccountThatIsntOneStaysOutOfTheText(t *testing.T) {
 	if st, out := e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_setup"); st != 200 || out["account"] != "" {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	text, _ := out["text"].(string)
 	if st != 200 || !strings.Contains(text, "You are already signed in at ") || !strings.Contains(text, ": there is no second sign-in.") ||
 		strings.Contains(text, "acct_1") || strings.Contains(text, "nothing that moves money") {
 		t.Fatalf("set tools: %d %q", st, text)
+	}
+}
+
+// A tool the request doesn't name gets its own name in KIFF: the vendor's
+// name and four letters or digits of the grant's id. KIFF keeps one tool
+// per name on an account, so two tafs on one vendor must not both ask for
+// create_refund (kiff/tafs#78).
+func TestToolsGetAPerGrantName(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	acct := "/v1/accounts/" + tenant + "/grants"
+	key := regexp.MustCompile(`^create_refund_[a-z0-9]{4}$`)
+	var names []string
+	for range 2 {
+		st, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+			"tools": []map[string]any{{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}}}, nil, "k_setup")
+		if st != 201 {
+			t.Fatalf("request: %d %v", st, out)
+		}
+		tools := out["request"].(map[string]any)["tools"].([]any)
+		name, _ := tools[0].(map[string]any)["name"].(string)
+		if !key.MatchString(name) || name != toolKey("create_refund", out["id"].(string)) || tools[0].(map[string]any)["tool"] != "create_refund" {
+			t.Fatalf("the tool's name in KIFF: %q, for grant %s", name, out["id"])
+		}
+		names = append(names, name)
+	}
+	if names[0] == names[1] {
+		t.Fatalf("two grants, one name: %s", names[0])
+	}
+	if got := toolKey(strings.Repeat("t", 70), "grt_-_Ab9-xYz"); got != strings.Repeat("t", 59)+"_ab9x" || !toolName.MatchString(got) {
+		t.Fatalf("a long tool, an id with - and _: %q", got)
 	}
 }
