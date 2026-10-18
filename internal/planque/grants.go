@@ -139,7 +139,12 @@ func checkTools(agent string, tools []ToolRequest) string {
 }
 
 // grantText is what the owner reads before approving.
-func grantText(q Request) string {
+func grantText(q Request) string { return requestText(q, false, "") }
+
+// requestText is what the owner reads. held is for tools asked for on a
+// grant whose sign-in planque already holds: there is no second sign-in,
+// and the text names the account it acts in, when the vendor names it.
+func requestText(q Request, held bool, account string) string {
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
 			"You will sign in at %s.\n\nplanque reads only the list of its tools: nothing is called and nothing is given to the taf. "+
@@ -149,7 +154,14 @@ func grantText(q Request) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Connect your account at %s to the taf %s.\n", hostOf(q.Server), q.Agent)
-	fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may use:\n", hostOf(q.SignInAt))
+	switch {
+	case held && account != "":
+		fmt.Fprintf(&b, "You are already signed in at %s, to the account %s: there is no second sign-in.\n\nThe taf may use:\n", hostOf(q.SignInAt), account)
+	case held:
+		fmt.Fprintf(&b, "You are already signed in at %s: there is no second sign-in.\n\nThe taf may use:\n", hostOf(q.SignInAt))
+	default:
+		fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may use:\n", hostOf(q.SignInAt))
+	}
 	for _, t := range q.Tools {
 		how := "makes changes, only within the taf's Card"
 		switch {
@@ -332,7 +344,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	g.Request.Tools = req.Tools
-	g.Text = grantText(g.Request) + accountLine(g.Account)
+	g.Text = requestText(g.Request, true, g.Account)
 	if g.Digest, err = digest(g.Request); err != nil {
 		s.fail(w, r, err)
 		return
@@ -344,14 +356,6 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(g))
-}
-
-// accountLine names, under a grant's text, the account its sign-in acts in.
-func accountLine(account string) string {
-	if account == "" {
-		return ""
-	}
-	return "\n\nThe account you signed in to: " + account + "."
 }
 
 // expire ends a sign-in nobody confirmed in time: its token is revoked at

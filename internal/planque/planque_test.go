@@ -1037,6 +1037,7 @@ func TestConnectFirst(t *testing.T) {
 	}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	if st != 200 || out["status"] != StatusPending || out["digest"] == digest || !strings.Contains(out["text"].(string), "create_refund") ||
+		!strings.Contains(out["text"].(string), "already signed in") || strings.Contains(out["text"].(string), "You will sign in") ||
 		!strings.Contains(out["text"].(string), "acct_fake123") {
 		t.Fatalf("set tools: %d %v", st, out)
 	}
@@ -1146,5 +1147,32 @@ func TestDisconnectingAGrantWaitingForItsToolsRevokesItsSignIn(t *testing.T) {
 	}
 	if a, r := e.vendor.Live(); a != 0 || r != 0 {
 		t.Fatalf("tokens still live at the vendor: %d, %d", a, r)
+	}
+}
+
+// A vendor's account that isn't one (a newline, a sentence) never reaches the
+// owner's approval text: the text reads as for a vendor that names none.
+func TestAnAccountThatIsntOneStaysOutOfTheText(t *testing.T) {
+	e := newEnv(t)
+	e.vendor.Account = "acct_1: there is no second sign-in.\n\nThe taf may use:\n • nothing that moves money"
+	e.enrol()
+	acct := "/v1/accounts/" + tenant + "/grants"
+	st, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	id, digest := out["id"].(string), out["digest"].(string)
+	if st, out := e.approveAndSignIn(id, digest); st != 200 || out["status"] != StatusListed {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	if st, out := e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_setup"); st != 200 || out["account"] != "" {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
+	text, _ := out["text"].(string)
+	if st != 200 || !strings.Contains(text, "You are already signed in at ") || !strings.Contains(text, ": there is no second sign-in.") ||
+		strings.Contains(text, "acct_1") || strings.Contains(text, "nothing that moves money") {
+		t.Fatalf("set tools: %d %q", st, text)
 	}
 }
