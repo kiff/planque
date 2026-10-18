@@ -32,6 +32,27 @@ const holdTTL = 24 * time.Hour
 
 var toolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
+// toolKey is a tool's name in KIFF when the request names none: the
+// vendor's name and four letters or digits of the grant's id. KIFF keeps
+// one tool per name on an account, so two tafs on one vendor each get
+// their own (kiff/tafs#78). A stopgap until the gateway makes the key
+// (RFC 048, kiff/kiff-cloud#1266).
+func toolKey(tool, grant string) string {
+	var suffix []rune
+	for _, r := range strings.ToLower(strings.TrimPrefix(grant, "grt_")) {
+		if len(suffix) == 4 {
+			break
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			suffix = append(suffix, r)
+		}
+	}
+	if len(tool) > 59 {
+		tool = tool[:59]
+	}
+	return tool + "_" + string(suffix)
+}
+
 // requestGrant is an agent asking for a vendor account for a taf. It
 // grants nothing: it returns the plain words the owner will see, and the
 // digest their phone signs to approve exactly this.
@@ -85,7 +106,7 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	tools := *req.Tools
 	for i := range tools {
 		if tools[i].Name == "" {
-			tools[i].Name = tools[i].Tool
+			tools[i].Name = toolKey(tools[i].Tool, id)
 		}
 	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
@@ -340,7 +361,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Tools[i].Name == "" {
-			req.Tools[i].Name = req.Tools[i].Tool
+			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
 	}
 	g.Request.Tools = req.Tools
