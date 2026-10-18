@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -326,6 +327,9 @@ func (c *Client) Exchange(ctx context.Context, m Metadata, clientID, redirect, c
 	})
 }
 
+// accountPattern is what a vendor's account id may be: short, one word.
+var accountPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+-]{1,64}$`)
+
 // Refresh trades a refresh token for a new token.
 func (c *Client) Refresh(ctx context.Context, m Metadata, clientID, refresh string) (Token, error) {
 	return c.token(ctx, m, url.Values{
@@ -372,6 +376,11 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 	t := Token{Access: r.Access, Refresh: r.Refresh, Scope: r.Scope, Account: r.StripeUser}
 	if t.Account == "" {
 		t.Account = r.Account
+	}
+	// The owner reads the account in an approval's text: one that doesn't look
+	// like an account (a newline, a sentence) is left out, as when none is named.
+	if !accountPattern.MatchString(t.Account) {
+		t.Account = ""
 	}
 	if r.ExpiresIn > 0 {
 		t.Expiry = time.Now().Add(time.Duration(r.ExpiresIn) * time.Second)
