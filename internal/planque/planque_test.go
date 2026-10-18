@@ -986,7 +986,7 @@ func TestConnectFirst(t *testing.T) {
 	e.enrol()
 	acct := "/v1/accounts/" + tenant + "/grants"
 	st, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
-	if st != 201 || !strings.Contains(out["text"].(string), "reads only the list of its tools") {
+	if st != 201 || !strings.Contains(out["text"].(string), "Only the list of its tools is read") {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id, digest := out["id"].(string), out["digest"].(string)
@@ -1206,5 +1206,25 @@ func TestToolsGetAPerGrantName(t *testing.T) {
 	}
 	if got := toolKey(strings.Repeat("t", 70), "grt_-_Ab9-xYz"); got != strings.Repeat("t", 59)+"_ab9x" || !toolName.MatchString(got) {
 		t.Fatalf("a long tool, an id with - and _: %q", got)
+	}
+}
+
+// The owner never reads planque's name (kiff/tafs#82): not in what they
+// approve, and not as the app a vendor shows when asking to allow the
+// sign-in, which registers as tafs.
+func TestTheOwnerReadsNoPlanque(t *testing.T) {
+	for _, q := range []Request{
+		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34"},
+		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
+			Tools: []ToolRequest{{Tool: "create_refund", Name: "create_refund_ab12", AmountArg: "amount"}}},
+	} {
+		for _, text := range []string{grantText(q), requestText(q, true, "acct_1")} {
+			if strings.Contains(strings.ToLower(text), "planque") || !strings.Contains(text, "sealed vault") {
+				t.Fatalf("the owner reads: %s", text)
+			}
+		}
+	}
+	if ClientName != "tafs" || pkClient("https://as", "https://cb", "tafs") == pkClient("https://as", "https://cb", "planque") {
+		t.Fatal("the vendor shows tafs, and a new name registers again")
 	}
 }

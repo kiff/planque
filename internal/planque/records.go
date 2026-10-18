@@ -185,8 +185,8 @@ func skGrant(id string) string     { return "GRANT#" + id }
 func skToken(id string) string     { return "TOKEN#" + id }
 func skOp(id, op string) string    { return "OP#" + id + "#" + op }
 func pkSignIn(state string) string { return "SIGNIN#" + state }
-func pkClient(issuer, redirect string) string {
-	return "CLIENT#" + issuer + "#" + redirect
+func pkClient(issuer, redirect, name string) string {
+	return "CLIENT#" + issuer + "#" + redirect + "#" + name
 }
 func pkSigned(hash string) string { return "SIGNED#" + hash }
 

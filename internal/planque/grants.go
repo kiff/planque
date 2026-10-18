@@ -95,7 +95,7 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	server := strings.TrimSpace(req.Server)
 	meta, err := s.OAuth.Discover(r.Context(), server)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "planque could not find how to sign in to "+server+": "+err.Error())
+		writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
 		return
 	}
 	id := "grt_" + oauth.Random(12)
@@ -168,9 +168,9 @@ func grantText(q Request) string { return requestText(q, false, "") }
 func requestText(q Request, held bool, account string) string {
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
-			"You will sign in at %s.\n\nplanque reads only the list of its tools: nothing is called and nothing is given to the taf. "+
+			"You will sign in at %s.\n\nOnly the list of its tools is read: nothing is called and nothing is given to the taf. "+
 			"The tools the taf may use come next, and you approve them again. If they aren't approved within a day, the sign-in is revoked.\n\n"+
-			"planque keeps the sign-in; the taf never sees it. You can disconnect at any time.",
+			"Your sign-in is kept in a sealed vault; the taf never sees it. You can disconnect at any time.",
 			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
 	}
 	var b strings.Builder
@@ -197,7 +197,7 @@ func requestText(q Request, held bool, account string) string {
 		}
 		fmt.Fprintf(&b, "• %s%s: %s\n", t.Name, narrowingText(t), how)
 	}
-	b.WriteString("\nplanque keeps the sign-in; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
+	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
 }
 
@@ -465,7 +465,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 	}
 	clientID, err := s.client(r.Context(), g.Vendor)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "planque could not register with "+hostOf(g.Vendor.Issuer)+": "+err.Error())
+		writeErr(w, http.StatusBadGateway, "Couldn't register with "+hostOf(g.Vendor.Issuer)+": "+err.Error())
 		return
 	}
 	pkce := oauth.NewPKCE()
@@ -498,17 +498,23 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		"sign_in_url": oauth.AuthURL(g.Vendor, clientID, s.redirect(), state, pkce.Challenge), "expires_at": exp.UTC()})
 }
 
+// ClientName is the name a vendor shows the owner when it asks them to
+// allow the sign-in: the app they are connecting, tafs, not planque
+// (kiff/tafs#82).
+const ClientName = "tafs"
+
 // client returns planque's client_id at the vendor's authorization
-// server, registering once per server.
+// server, registering once per server and name: a new name registers
+// again, so the vendor shows it.
 func (s *Server) client(ctx context.Context, m oauth.Metadata) (string, error) {
 	var c struct {
 		ClientID string `json:"client_id"`
 	}
-	pk := pkClient(m.Issuer, s.redirect())
+	pk := pkClient(m.Issuer, s.redirect(), ClientName)
 	if _, err := getDoc(ctx, s.KV, pk, "-", &c); err == nil && c.ClientID != "" {
 		return c.ClientID, nil
 	}
-	id, err := s.OAuth.Register(ctx, m, "planque", s.redirect())
+	id, err := s.OAuth.Register(ctx, m, ClientName, s.redirect())
 	if err != nil {
 		return "", err
 	}
@@ -569,19 +575,19 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	tok, err := s.OAuth.Exchange(r.Context(), g.Vendor, g.ClientID, s.redirect(), q.Get("code"), string(verifier))
 	if err != nil {
 		s.failGrant(r.Context(), g, "the sign-in code was not accepted: "+err.Error())
-		s.page(w, http.StatusBadGateway, "Not connected", "planque could not finish the sign-in at "+hostOf(g.Vendor.Issuer)+".")
+		s.page(w, http.StatusBadGateway, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished.")
 		return
 	}
 	if s.AppReturn == "" {
 		s.failGrant(r.Context(), g, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)")
-		s.page(w, http.StatusInternalServerError, "Not connected", "planque is not set up to confirm sign-ins.")
+		s.page(w, http.StatusInternalServerError, "Not connected", "Sign-ins can't be confirmed right now.")
 		return
 	}
 	// The token is kept but not used: nothing is connected until the phone
 	// that approved confirms with the code only this browser receives.
 	if err := s.storeToken(r.Context(), g, tok, nil); err != nil {
 		s.failGrant(r.Context(), g, "the token could not be stored")
-		s.page(w, http.StatusInternalServerError, "Not connected", "planque could not keep the sign-in.")
+		s.page(w, http.StatusInternalServerError, "Not connected", "The sign-in couldn't be kept.")
 		return
 	}
 	code := oauth.Random(24)
@@ -681,7 +687,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
 	if err != nil {
 		s.revoke(ctx, g)
-		return s.failGrant(ctx, g, "planque could not list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	g.Catalog = nil
 	for _, t := range listed {
@@ -704,7 +710,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
 	if err != nil {
 		s.revoke(ctx, g)
-		return s.failGrant(ctx, g, "planque could not list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	g.Tools = nil
 	for _, t := range g.Request.Tools {
