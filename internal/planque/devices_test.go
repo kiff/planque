@@ -63,6 +63,16 @@ func TestKIFFDevicesConnectFromEither(t *testing.T) {
 	if g.Approval == nil || g.Approval.DeviceID != "dev_ipad" || g.Approval.Subject != "owner" || len(g.Approval.DeviceKey) != 0 {
 		t.Fatalf("the approval doesn't name the iPad: %+v", g.Approval)
 	}
+	// The record says who approved, and on which device.
+	var said []string
+	for _, ev := range g.Events {
+		said = append(said, ev.What)
+	}
+	for _, want := range []string{"approved by owner on device dev_ipad", "sign-in confirmed by owner on device dev_ipad"} {
+		if !strings.Contains(strings.Join(said, "\n"), want) {
+			t.Errorf("events lack %q: %v", want, said)
+		}
+	}
 }
 
 // KIFF decides which devices sign: one it doesn't know, a removed one,
