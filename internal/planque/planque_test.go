@@ -986,7 +986,7 @@ func TestConnectFirst(t *testing.T) {
 	e.enrol()
 	acct := "/v1/accounts/" + tenant + "/grants"
 	st, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
-	if st != 201 || !strings.Contains(out["text"].(string), "Only the list of its tools is read") {
+	if st != 201 || !strings.Contains(out["text"].(string), "Only what it offers is read: its list of tools, and what your sign-in covers") {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id, digest := out["id"].(string), out["digest"].(string)

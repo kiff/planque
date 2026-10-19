@@ -308,7 +308,8 @@ type Token struct {
 	Expiry  time.Time `json:"expiry,omitzero"`
 	Scope   string    `json:"scope,omitempty"`
 	// Account is the vendor account the token acts in, when the token
-	// response names it (Stripe: stripe_user_id or account).
+	// response names it as "account". No vendor's own field is read: what a
+	// sign-in covers comes from the vendor's tools (kiff/tafs#89).
 	Account string `json:"account,omitempty"`
 }
 
@@ -358,7 +359,6 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 		Refresh     string `json:"refresh_token"`
 		ExpiresIn   int64  `json:"expires_in"`
 		Scope       string `json:"scope"`
-		StripeUser  string `json:"stripe_user_id"`
 		Account     string `json:"account"`
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
@@ -373,10 +373,7 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 	if r.Type != "" && !strings.EqualFold(r.Type, "bearer") {
 		return Token{}, fmt.Errorf("token type %q is not bearer", r.Type)
 	}
-	t := Token{Access: r.Access, Refresh: r.Refresh, Scope: r.Scope, Account: r.StripeUser}
-	if t.Account == "" {
-		t.Account = r.Account
-	}
+	t := Token{Access: r.Access, Refresh: r.Refresh, Scope: r.Scope, Account: r.Account}
 	// The owner reads the account in an approval's text: one that doesn't look
 	// like an account (a newline, a sentence) is left out, as when none is named.
 	if !accountPattern.MatchString(t.Account) {
