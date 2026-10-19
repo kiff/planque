@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
@@ -215,7 +216,10 @@ func digest(q Request) (string, error) {
 
 // grantView is a grant as planque shows it: never a secret.
 type grantView struct {
-	ID       string        `json:"id"`
+	ID string `json:"id"`
+	// Vendor is the vendor's name for people: what its server calls itself,
+	// else its host. The app shows it as it is.
+	Vendor   string        `json:"vendor"`
 	Status   string        `json:"status"`
 	Text     string        `json:"text"`
 	Digest   string        `json:"digest"`
@@ -244,7 +248,7 @@ type approvalView struct {
 }
 
 func (s *Server) view(g *Grant) grantView {
-	v := grantView{ID: g.ID, Status: g.Status, Text: g.Text, Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, Text: g.Text, Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: g.Events,
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
 	for _, t := range g.Tools {
@@ -687,18 +691,19 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 // list reads the vendor's tools into the grant's catalog, with the token
 // of a confirmed sign-in, and keeps the sign-in: the grant is listed.
 func (s *Server) list(ctx context.Context, g *Grant, access string) error {
-	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	listed, server, err := s.MCP.ListTools(ctx, g.Request.Server, access)
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
+	g.VendorName = label(server.Label())
 	g.Catalog = nil
 	for _, t := range listed {
 		var hints struct {
 			ReadOnly bool `json:"readOnlyHint"`
 		}
 		_ = json.Unmarshal(t.Annotations, &hints)
-		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: t.Title, Description: t.Description,
+		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
 			InputSchema: t.InputSchema, ReadOnly: hints.ReadOnly})
 	}
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
@@ -710,10 +715,13 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 // and registers them in KIFF's gateway with the connector key. If any
 // step fails, nothing stays connected and the token is revoked.
 func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
-	listed, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	listed, server, err := s.MCP.ListTools(ctx, g.Request.Server, access)
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+	}
+	if n := label(server.Label()); n != "" {
+		g.VendorName = n
 	}
 	g.Tools = nil
 	for _, t := range g.Request.Tools {
@@ -726,7 +734,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 			s.revoke(ctx, g)
 			return s.failGrant(ctx, g, hostOf(g.Request.Server)+" has no tool named "+t.Tool+"; it lists: "+strings.Join(names, ", "))
 		}
-		gt := GrantedTool{ToolRequest: t, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+		gt := GrantedTool{ToolRequest: t, Title: label(listed[i].Label()), Description: listed[i].Description, InputSchema: listed[i].InputSchema}
 		if t.narrowed() {
 			gt.InputSchema = t.schema()
 			gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
@@ -749,7 +757,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	}
 	var done []string
 	for _, t := range g.Tools {
-		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, URL: g.Audience, Tool: t.Name,
+		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
 			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport})
 		if err != nil {
@@ -895,4 +903,26 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest
 			"over SHA-256(message), by approval.device_key (SPKI DER).",
 		"grants": gs,
 	})
+}
+
+// MaxLabel bounds a name for people that a vendor gives: a name, not a text.
+const MaxLabel = 100
+
+// label is a vendor-given name for people, on one line and bounded; "" when
+// it has a control character or is too long, so the caller's fallback shows.
+func label(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len([]rune(s)) > MaxLabel || strings.ContainsFunc(s, unicode.IsControl) {
+		return ""
+	}
+	return s
+}
+
+// vendorName is the vendor as the owner reads it: its own name, else the
+// host of its server.
+func vendorName(g *Grant) string {
+	if g.VendorName != "" {
+		return g.VendorName
+	}
+	return hostOf(g.Request.Server)
 }

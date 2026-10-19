@@ -113,6 +113,7 @@ func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string
 // Connection is a tool registered in KIFF's gateway, as planque sends it.
 type Connection struct {
 	Name           string `json:"name"`
+	Title          string `json:"title,omitempty"` // the vendor's name for it, for people
 	URL            string `json:"url"`
 	Tool           string `json:"tool"`
 	Description    string `json:"description,omitempty"`

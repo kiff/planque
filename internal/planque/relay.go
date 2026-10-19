@@ -135,7 +135,7 @@ func relayTools(g *Grant) []mcp.Tool {
 		req, _ := schema["required"].([]any)
 		schema["required"] = append(req, IdempotencyArg)
 		b, _ := json.Marshal(schema)
-		out = append(out, mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: b})
+		out = append(out, mcp.Tool{Name: t.Name, Title: t.Title, Description: t.Description, InputSchema: b})
 	}
 	return out
 }

@@ -102,6 +102,8 @@ func (a Approval) SameSigner(b Approval) bool {
 // GrantedTool is a vendor tool as planque relays it.
 type GrantedTool struct {
 	ToolRequest
+	// Title is the vendor's name for the tool, for people (its MCP title).
+	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
@@ -148,8 +150,11 @@ type Grant struct {
 	Vendor   oauth.Metadata `json:"vendor"`
 	ClientID string         `json:"client_id,omitempty"`
 	Account  string         `json:"account,omitempty"` // the vendor account the token is bound to
-	Approval *Approval      `json:"approval,omitempty"`
-	Tools    []GrantedTool  `json:"tools,omitempty"`
+	// VendorName is the vendor's name for people, as its MCP server names
+	// itself (serverInfo: title, else name), once listed or connected.
+	VendorName string        `json:"vendor_name,omitempty"`
+	Approval   *Approval     `json:"approval,omitempty"`
+	Tools      []GrantedTool `json:"tools,omitempty"`
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
