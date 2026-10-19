@@ -113,6 +113,8 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	g.Text = grantText(g.Request)
+	// Connect-first's text says the sign-in may be read (kiff/tafs#89).
+	g.Describable = len(tools) == 0
 	g.Digest, err = digest(g.Request)
 	if err != nil {
 		s.fail(w, r, err)

@@ -152,6 +152,11 @@ type Grant struct {
 	// Catalog is what the vendor's MCP server listed, once signed in, for
 	// a grant asked for with no tools: what the asking agent chooses from.
 	Catalog []CatalogTool `json:"catalog,omitempty"`
+	// Describable: the owner approved this grant on a text saying its
+	// sign-in may be read, through the vendor's tools that change nothing
+	// and take no input (kiff/tafs#89). A grant approved before that text,
+	// or on a text naming tools, can't be described.
+	Describable bool `json:"describable,omitempty"`
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
 	Transport string `json:"transport,omitempty"`

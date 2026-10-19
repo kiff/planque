@@ -82,6 +82,41 @@ func TestTheAgentReadsWhatTheSignInCovers(t *testing.T) {
 	if text := out["text"].(string); !strings.Contains(text, `mode = "test" (the vendor says: "Whether to act in live mode (real money) or test mode.")`) {
 		t.Fatalf("the approval doesn't give the vendor's words for the pinned mode:\n%s", text)
 	}
+	// Once the owner approved the tools, the approval named them, not reading
+	// the sign-in: a connected grant can't be described.
+	if st, out := e.do("POST", acct+"/"+id+"/approve", map[string]string{"digest": out["digest"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("approve the tools: %d %v", st, out)
+	}
+	if st, _ := describe("k_setup", "list_accounts"); st != 409 {
+		t.Fatalf("describing a connected grant: %d", st)
+	}
+}
+
+// A grant the owner approved on the older text ("nothing is called") can't
+// be described, though it's listed: the approval didn't say so.
+func TestAGrantApprovedOnTheOlderTextIsntDescribed(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	acct := "/v1/accounts/" + tenant + "/grants"
+	_, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
+	id := out["id"].(string)
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 || out["status"] != StatusListed {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(t.Context(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Describable = false // as every grant made before kiff/tafs#89
+	if err := e.s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := e.do("POST", acct+"/"+id+"/describe", map[string]string{"tool": "list_accounts"}, nil, "k_setup"); st != 409 {
+		t.Fatalf("describing a grant approved on the older text: %d", st)
+	}
+	if e.vendor.CallCount() != 0 {
+		t.Fatal("it reached the vendor")
+	}
 }
 
 // Enough reads: a grant reads what its sign-in covers a bounded number of times.

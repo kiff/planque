@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kiff/planque/internal/mcp"
+	"github.com/kiff/planque/internal/store"
 )
 
 // What a describe call may read, at most (kiff/tafs#89).
@@ -59,8 +60,15 @@ func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.expire(r.Context(), g)
-	if g.Status != StatusListed && g.Status != StatusConnected {
-		writeErr(w, http.StatusConflict, "this grant is "+g.Status+": only a signed-in grant (listed or connected) can be read")
+	// Only what the owner approved: a grant listed after connecting first,
+	// on the text that says its sign-in may be read. Not a connected grant,
+	// whose approval named its tools, nor one approved on an older text.
+	if g.Status != StatusListed {
+		writeErr(w, http.StatusConflict, "this grant is "+g.Status+": read what the sign-in covers while connecting first, before the tools")
+		return
+	}
+	if !g.Describable {
+		writeErr(w, http.StatusConflict, "this grant was approved on a text that didn't say its sign-in would be read; connect again to read it")
 		return
 	}
 	i := slices.IndexFunc(g.Catalog, func(t CatalogTool) bool { return t.Name == req.Tool })
@@ -83,6 +91,16 @@ func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Recorded first: a read the record doesn't show never happens, and two
+	// racing reads can't both pass the bound (the write is conditional).
+	g.event(s.now(), "read "+req.Tool+" at "+hostOf(g.Request.Server)+", to see what the sign-in covers")
+	if err := s.saveGrant(r.Context(), g); errors.Is(err, store.ErrCondition) {
+		writeErr(w, http.StatusConflict, "the grant changed while this read was checked; read again")
+		return
+	} else if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	access, ver, err := s.accessToken(r.Context(), g, 0)
 	if err != nil {
 		s.fail(w, r, err)
@@ -112,11 +130,6 @@ func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
 	truncated := len(res) > MaxDescribe
 	if truncated {
 		res = nil
-	}
-	g.event(s.now(), "read "+req.Tool+" at "+hostOf(g.Request.Server)+", to see what the sign-in covers")
-	if err := s.saveGrant(r.Context(), g); err != nil {
-		s.fail(w, r, err)
-		return
 	}
 	out := map[string]any{"grant": g.ID, "tool": req.Tool, "result": res}
 	if truncated {
