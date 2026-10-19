@@ -183,7 +183,7 @@ func (v *Vendor) issue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"access_token": a, "token_type": "bearer", "expires_in": int(ttl.Seconds()),
-		"refresh_token": rt, "stripe_user_id": v.Account})
+		"refresh_token": rt, "account": v.Account})
 }
 
 func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
@@ -279,9 +279,14 @@ func (v *Vendor) Live() (access, refresh int) {
 
 var vendorTools = []map[string]any{
 	{"name": "create_refund", "description": "Refund a charge.", "inputSchema": map[string]any{"type": "object",
-		"properties": map[string]any{"charge": map[string]any{"type": "string"}, "amount": map[string]any{"type": "integer"}},
-		"required":   []string{"charge"}}},
+		"properties": map[string]any{"charge": map[string]any{"type": "string"}, "amount": map[string]any{"type": "integer"},
+			"mode": map[string]any{"type": "string", "description": "Whether to act in live mode (real money) or test mode."}},
+		"required": []string{"charge"}}},
 	{"name": "list_charges", "description": "List charges.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+	// What the sign-in covers, as Stripe's list_available_accounts_or_orgs
+	// says it: read-only, and it takes nothing (kiff/tafs#89).
+	{"name": "list_accounts", "description": "Lists the accounts in this session, with their mode.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "annotations": map[string]any{"readOnlyHint": true}},
 	// Shaped like Stripe's: one tool for every write.
 	{"name": "stripe_api_write", "description": "Write via any API operation.", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
@@ -320,6 +325,12 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		result(map[string]any{"tools": vendorTools})
 	case "tools/call":
+		if req.Params.Name == "list_accounts" {
+			// It changes nothing, so it isn't one of the vendor's calls.
+			b, _ := json.Marshal(map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}})
+			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}})
+			return
+		}
 		time.Sleep(v.CallDelay)
 		call := VendorCall{Tool: req.Params.Name, Args: req.Params.Arguments}
 		id := next("re")

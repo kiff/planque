@@ -113,6 +113,8 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	g.Text = grantText(g.Request)
+	// Connect-first's text says the sign-in may be read (kiff/tafs#89).
+	g.Describable = len(tools) == 0
 	g.Digest, err = digest(g.Request)
 	if err != nil {
 		s.fail(w, r, err)
@@ -164,10 +166,11 @@ func grantText(q Request) string { return requestText(q, false, "") }
 // requestText is what the owner reads. held is for tools asked for on a
 // grant whose sign-in planque already holds: there is no second sign-in,
 // and the text names the account it acts in, when the vendor names it.
-func requestText(q Request, held bool, account string) string {
+func requestText(q Request, held bool, account string, catalog ...CatalogTool) string {
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
-			"You will sign in at %s.\n\nOnly the list of its tools is read: nothing is called and nothing is given to the taf. "+
+			"You will sign in at %s.\n\nOnly what it offers is read: its list of tools, and what your sign-in covers (such as which accounts, test or live), "+
+			"through its tools that change nothing and take no input. Nothing is changed and nothing is given to the taf. "+
 			"The tools the taf may use come next, and you approve them again. If they aren't approved within a day, the sign-in is revoked.\n\n"+
 			"Your sign-in is kept in a sealed vault; the taf never sees it. You can disconnect at any time.",
 			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
@@ -194,7 +197,7 @@ func requestText(q Request, held bool, account string) string {
 			// allow or refuse each call, not limit what it changes.
 			how = "can make any change this tool allows; the taf's Card can allow or refuse each call, not limit what it changes"
 		}
-		fmt.Fprintf(&b, "• %s%s: %s\n", t.Name, narrowingText(t), how)
+		fmt.Fprintf(&b, "• %s%s: %s\n", t.Name, narrowingText(t, catalog...), how)
 	}
 	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
@@ -365,7 +368,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	g.Request.Tools = req.Tools
-	g.Text = requestText(g.Request, true, g.Account)
+	g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
 	if g.Digest, err = digest(g.Request); err != nil {
 		s.fail(w, r, err)
 		return

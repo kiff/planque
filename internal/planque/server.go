@@ -83,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/describe", s.describe)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/tools", s.setTools)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))

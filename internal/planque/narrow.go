@@ -155,18 +155,60 @@ func hasType(v any, typ string) bool {
 	return false
 }
 
-// narrowingText says, in the owner's words, how a tool is narrowed.
-func narrowingText(t ToolRequest) string {
+// narrowingText says, in the owner's words, how a tool is narrowed. A
+// pinned argument the vendor's catalog describes comes with the vendor's own
+// words for it (kiff/tafs#89), so the owner reads what the value means
+// whatever the vendor calls it, and the words aren't the asking agent's.
+func narrowingText(t ToolRequest, catalog ...CatalogTool) string {
 	if !t.narrowed() {
 		return ""
 	}
+	var schema json.RawMessage
+	if i := slices.IndexFunc(catalog, func(c CatalogTool) bool { return c.Name == t.Tool }); i >= 0 {
+		schema = catalog[i].InputSchema
+	}
 	var fixed []string
 	for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
-		fixed = append(fixed, p+" = "+string(t.Fixed[p]))
+		f := p + " = " + string(t.Fixed[p])
+		if d := argDescription(schema, p); d != "" {
+			f += ` (the vendor says: "` + d + `")`
+		}
+		fixed = append(fixed, f)
 	}
 	s := " (" + t.Tool
 	if len(fixed) > 0 {
 		s += " with " + strings.Join(fixed, ", ")
 	}
 	return s + "; the taf sets only " + strings.Join(slices.Sorted(maps.Keys(t.Arguments)), ", ") + ")"
+}
+
+// argDescription is the vendor's description of the argument at a dotted
+// path in a tool's input schema, on one line and at most 200 characters; ""
+// when the schema doesn't describe it.
+func argDescription(schema json.RawMessage, path string) string {
+	for _, name := range strings.Split(path, ".") {
+		var s struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) != nil {
+			return ""
+		}
+		next, ok := s.Properties[name]
+		if !ok {
+			return ""
+		}
+		schema = next
+	}
+	var leaf struct {
+		Description string `json:"description"`
+	}
+	if json.Unmarshal(schema, &leaf) != nil {
+		return ""
+	}
+	d := strings.Join(strings.Fields(leaf.Description), " ")
+	d = strings.ReplaceAll(d, `"`, "'")
+	if r := []rune(d); len(r) > 200 {
+		d = strings.TrimSpace(string(r[:199])) + "…"
+	}
+	return d
 }
