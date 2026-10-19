@@ -122,6 +122,10 @@ type CatalogTool struct {
 type Event struct {
 	At   time.Time `json:"at"`
 	What string    `json:"what"`
+	// Recorded is the line as it was stored, when the view shows it in the
+	// owner's words instead (an event written before #16 named who signed
+	// by ids). The stored record itself is never rewritten.
+	Recorded string `json:"recorded,omitempty"`
 }
 
 // Grant statuses.
