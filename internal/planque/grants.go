@@ -249,7 +249,7 @@ type approvalView struct {
 
 func (s *Server) view(g *Grant) grantView {
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, Text: g.Text, Digest: g.Digest, Request: g.Request,
-		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: g.Events,
+		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
@@ -925,4 +925,35 @@ func vendorName(g *Grant) string {
 		return g.VendorName
 	}
 	return hostOf(g.Request.Server)
+}
+
+// Events written before #16 named who signed by ids: "by user_… on device
+// dev_…" (#11) or "on the phone ab12 cd34 ef56 7890". These match only
+// those old words; new events never carry them.
+var (
+	legacyDevice = regexp.MustCompile(` by \S+ on device (dev_[a-z0-9]+)`)
+	legacyPhone  = regexp.MustCompile(` on the phone [0-9a-f]{4}( [0-9a-f]{4}){3}`)
+)
+
+// ownerEvents is g's record as the owner reads it: an event written before
+// #16 says who signed in today's words (the device's name from the grant's
+// approval when it is that device, else the same fallbacks as Who), with the
+// stored line kept beside it as Recorded. Storage is never rewritten.
+func ownerEvents(g *Grant) []Event {
+	out := make([]Event, len(g.Events))
+	for i, e := range g.Events {
+		what := legacyDevice.ReplaceAllStringFunc(e.What, func(m string) string {
+			id := legacyDevice.FindStringSubmatch(m)[1]
+			if a := g.Approval; a != nil && a.DeviceID == id && a.DeviceName != "" {
+				return " on " + a.DeviceName
+			}
+			return " on a device signed in to KIFF"
+		})
+		what = legacyPhone.ReplaceAllString(what, " on the enrolled phone")
+		out[i] = e
+		if what != e.What {
+			out[i].What, out[i].Recorded = what, e.What
+		}
+	}
+	return out
 }
