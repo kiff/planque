@@ -278,7 +278,7 @@ func (v *Vendor) Live() (access, refresh int) {
 }
 
 var vendorTools = []map[string]any{
-	{"name": "create_refund", "description": "Refund a charge.", "inputSchema": map[string]any{"type": "object",
+	{"name": "create_refund", "title": "Refund a charge", "description": "Refund a charge.", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"charge": map[string]any{"type": "string"}, "amount": map[string]any{"type": "integer"},
 			"mode": map[string]any{"type": "string", "description": "Whether to act in live mode (real money) or test mode."}},
 		"required": []string{"charge"}}},
@@ -319,7 +319,7 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		w.Header().Set("Mcp-Session-Id", "s1")
 		result(map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{"tools": map[string]any{}},
-			"serverInfo": map[string]string{"name": "fake-vendor", "version": "1"}})
+			"serverInfo": map[string]string{"name": "fake-vendor", "title": "Fake Vendor", "version": "1"}})
 	case "notifications/initialized":
 		w.WriteHeader(202)
 	case "tools/list":

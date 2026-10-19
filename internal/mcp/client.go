@@ -27,6 +27,33 @@ type Tool struct {
 	Annotations json.RawMessage `json:"annotations,omitempty"`
 }
 
+// Server is how a server names itself at initialize (serverInfo).
+type Server struct {
+	Name  string `json:"name"`
+	Title string `json:"title,omitempty"`
+}
+
+// Label is the server's name for people: its title, else its name.
+func (s Server) Label() string {
+	if t := strings.TrimSpace(s.Title); t != "" {
+		return t
+	}
+	return strings.TrimSpace(s.Name)
+}
+
+// Label is the tool's name for people: its title, else its annotations'
+// title; "" when the server gives neither.
+func (t Tool) Label() string {
+	if s := strings.TrimSpace(t.Title); s != "" {
+		return s
+	}
+	var a struct {
+		Title string `json:"title"`
+	}
+	_ = json.Unmarshal(t.Annotations, &a)
+	return strings.TrimSpace(a.Title)
+}
+
 // RPCError is a JSON-RPC error from the server.
 type RPCError struct {
 	Code    int    `json:"code"`
@@ -55,11 +82,12 @@ type Client struct {
 	Name string // clientInfo.name
 }
 
-// ListTools lists the server's tools, following pagination.
-func (c *Client) ListTools(ctx context.Context, url, token string) ([]Tool, error) {
+// ListTools lists the server's tools, following pagination, with how the
+// server names itself.
+func (c *Client) ListTools(ctx context.Context, url, token string) ([]Tool, Server, error) {
 	s, err := c.open(ctx, url, token)
 	if err != nil {
-		return nil, err
+		return nil, Server{}, err
 	}
 	var out []Tool
 	cursor := ""
@@ -70,14 +98,14 @@ func (c *Client) ListTools(ctx context.Context, url, token string) ([]Tool, erro
 		}
 		raw, err := s.rpc(ctx, 2+page, "tools/list", params)
 		if err != nil {
-			return nil, err
+			return nil, Server{}, err
 		}
 		var r struct {
 			Tools      []Tool `json:"tools"`
 			NextCursor string `json:"nextCursor"`
 		}
 		if err := json.Unmarshal(raw, &r); err != nil {
-			return nil, err
+			return nil, Server{}, err
 		}
 		out = append(out, r.Tools...)
 		if r.NextCursor == "" {
@@ -85,7 +113,7 @@ func (c *Client) ListTools(ctx context.Context, url, token string) ([]Tool, erro
 		}
 		cursor = r.NextCursor
 	}
-	return out, nil
+	return out, s.server, nil
 }
 
 // CallTool calls one tool and returns its result. An error from the
@@ -117,6 +145,7 @@ type session struct {
 	token   string
 	id      string
 	version string // negotiated at initialize; sent on every later request
+	server  Server // how the server named itself at initialize
 }
 
 func (c *Client) open(ctx context.Context, url, token string) (*session, error) {
@@ -135,9 +164,10 @@ func (c *Client) open(ctx context.Context, url, token string) (*session, error) 
 	}
 	var init struct {
 		ProtocolVersion string `json:"protocolVersion"`
+		ServerInfo      Server `json:"serverInfo"`
 	}
 	_ = json.Unmarshal(raw, &init)
-	s.version = init.ProtocolVersion
+	s.version, s.server = init.ProtocolVersion, init.ServerInfo
 	if err := s.post(ctx, map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, nil); err != nil {
 		return nil, fmt.Errorf("initialized: %w", err)
 	}
