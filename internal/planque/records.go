@@ -67,8 +67,8 @@ type Approval struct {
 	DeviceID    string    `json:"device_id,omitempty"`
 	Subject     string    `json:"subject,omitempty"`
 	Fingerprint string    `json:"fingerprint"` // the key's fingerprint, or KIFF's device id
-	Message     string    `json:"message"` // the exact text signed
-	Body        string    `json:"body"`    // the request body its hash covers
+	Message     string    `json:"message"`     // the exact text signed
+	Body        string    `json:"body"`        // the request body its hash covers
 	Signature   string    `json:"signature"`
 	SignedAt    string    `json:"signed_at"`
 	ApprovedAt  time.Time `json:"approved_at"`
