@@ -15,7 +15,12 @@ import (
 
 // Phone signs as tafs' ApprovalSigner does: a P-256 key, base64 SPKI DER
 // public half, base64 DER ECDSA signatures over SHA-256.
-type Phone struct{ Key *ecdsa.PrivateKey }
+type Phone struct {
+	Key *ecdsa.PrivateKey
+	// DeviceID is KIFF's id for this device, sent as d= (kiff/planque#10);
+	// empty for a phone enrolled with its key before that.
+	DeviceID string
+}
 
 // NewPhone makes a phone with a fresh key.
 func NewPhone() *Phone {
@@ -41,5 +46,19 @@ func (p *Phone) SignBytes(msg []byte) string {
 func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
 	at := time.Now().UTC().Format(time.RFC3339)
 	msg := device.Message(req.URL.Scheme+"://"+req.URL.Host, tenant, req.Method, req.URL.RequestURI(), body, at)
-	req.Header.Set(device.Header, "t="+at+",v1="+p.SignBytes(msg))
+	h := "t=" + at + ",v1=" + p.SignBytes(msg)
+	if p.DeviceID != "" {
+		h += ",d=" + p.DeviceID
+	}
+	req.Header.Set(device.Header, h)
+}
+
+// Verifies says whether sigB64 is this phone's signature over msg.
+func (p *Phone) Verifies(msg []byte, sigB64 string) bool {
+	sig, err := base64.StdEncoding.DecodeString(sigB64)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(msg)
+	return ecdsa.VerifyASN1(&p.Key.PublicKey, sum[:], sig)
 }

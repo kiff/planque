@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,15 +59,27 @@ type Request struct {
 	CreatedAt string        `json:"created_at"`
 }
 
-// Approval is the owner's signature on a grant, kept as evidence.
+// Approval is the owner's signature on a grant, kept as evidence. A device
+// KIFF knows is named by KIFF's id and person (kiff/planque#10); a phone
+// enrolled with its key, by that key.
 type Approval struct {
-	DeviceKey   []byte    `json:"device_key"`
-	Fingerprint string    `json:"fingerprint"`
+	DeviceKey   []byte    `json:"device_key,omitempty"`
+	DeviceID    string    `json:"device_id,omitempty"`
+	Subject     string    `json:"subject,omitempty"`
+	Fingerprint string    `json:"fingerprint"` // the key's fingerprint, or KIFF's device id
 	Message     string    `json:"message"` // the exact text signed
 	Body        string    `json:"body"`    // the request body its hash covers
 	Signature   string    `json:"signature"`
 	SignedAt    string    `json:"signed_at"`
 	ApprovedAt  time.Time `json:"approved_at"`
+}
+
+// SameSigner says whether b was signed on the same device as a.
+func (a Approval) SameSigner(b Approval) bool {
+	if a.DeviceID != "" || b.DeviceID != "" {
+		return a.DeviceID == b.DeviceID
+	}
+	return len(a.DeviceKey) > 0 && bytes.Equal(a.DeviceKey, b.DeviceKey)
 }
 
 // GrantedTool is a vendor tool as planque relays it.
