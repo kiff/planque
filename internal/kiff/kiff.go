@@ -86,6 +86,9 @@ type Verified struct {
 	DeviceID string `json:"device_id"`
 	Subject  string `json:"subject"` // the person whose device it is
 	Platform string `json:"platform"`
+	// Name is what the device is called, as it signed in ("tafs on iPad"):
+	// what the owner reads (kiff-cloud#1271).
+	Name     string `json:"name"`
 	Attested bool   `json:"attested"`
 }
 

@@ -661,7 +661,7 @@ func TestDisconnectAndExport(t *testing.T) {
 	for _, ev := range gv.Events {
 		whats = append(whats, ev.What)
 	}
-	for _, want := range []string{"requested by agt_setup", "approved on the phone", "signed in at", "registered in KIFF", "disconnected on the phone"} {
+	for _, want := range []string{"requested by agt_setup", "approved on the enrolled phone", "signed in at", "registered in KIFF", "disconnected on the enrolled phone"} {
 		if !strings.Contains(strings.Join(whats, "\n"), want) {
 			t.Errorf("record lacks %q: %v", want, whats)
 		}

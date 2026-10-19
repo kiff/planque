@@ -180,7 +180,7 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body, keyDER []byt
 		if !v.Valid {
 			return Approval{}, deviceRefused(v.Reason)
 		}
-		a.DeviceID, a.Subject, a.Fingerprint = v.DeviceID, v.Subject, v.DeviceID
+		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID
 		signer = []byte("kiff-device\n" + v.DeviceID + "\n")
 	} else {
 		if len(keyDER) == 0 {

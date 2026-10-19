@@ -18,7 +18,7 @@ import (
 func (e *env) device(id string) *fakes.Phone {
 	p := fakes.NewPhone()
 	p.DeviceID = id
-	e.kiff.Devices[id] = fakes.Device{Tenant: tenant, Subject: "owner", Platform: "ios", Phone: p, Member: true,
+	e.kiff.Devices[id] = fakes.Device{Tenant: tenant, Subject: "owner", Platform: "ios", Name: "tafs on " + strings.TrimPrefix(id, "dev_"), Phone: p, Member: true,
 		Capabilities: []string{"holds.answer", "tools.connect"}}
 	return p
 }
@@ -63,12 +63,21 @@ func TestKIFFDevicesConnectFromEither(t *testing.T) {
 	if g.Approval == nil || g.Approval.DeviceID != "dev_ipad" || g.Approval.Subject != "owner" || len(g.Approval.DeviceKey) != 0 {
 		t.Fatalf("the approval doesn't name the iPad: %+v", g.Approval)
 	}
+	if g.Approval.DeviceName != "tafs on ipad" {
+		t.Fatalf("the approval keeps no device name: %+v", g.Approval)
+	}
 	// The record says who approved, and on which device.
 	var said []string
 	for _, ev := range g.Events {
 		said = append(said, ev.What)
 	}
-	for _, want := range []string{"approved by owner on device dev_ipad", "sign-in confirmed by owner on device dev_ipad"} {
+	// No id or fingerprint in what the owner reads (#15): those are the approval's fields.
+	for _, w := range said {
+		if strings.Contains(w, "dev_") || strings.Contains(w, "owner") {
+			t.Errorf("an event names an id: %q", w)
+		}
+	}
+	for _, want := range []string{"approved on tafs on ipad", "sign-in confirmed on tafs on ipad"} {
 		if !strings.Contains(strings.Join(said, "\n"), want) {
 			t.Errorf("events lack %q: %v", want, said)
 		}
@@ -209,5 +218,16 @@ func TestADeviceIDIsKIFFs(t *testing.T) {
 	}
 	if s, err := device.ParseHeader("t=2026-10-19T10:00:00Z,v1=c2ln,d=dev_abc234"); err != nil || s.Device != "dev_abc234" {
 		t.Fatalf("a good header: %+v %v", s, err)
+	}
+}
+
+// A device KIFF gives no name for reads neutrally, never its id (#15): it may be another member's.
+func TestAnUnnamedDeviceReadsWithoutItsID(t *testing.T) {
+	a := Approval{DeviceID: "dev_x7", Subject: "user_1"}
+	if got := a.Who(); got != "on a device signed in to KIFF" {
+		t.Fatalf("Who() = %q", got)
+	}
+	if got := (Approval{Fingerprint: "ab12 cd34 ef56 7890"}).Who(); got != "on the enrolled phone" {
+		t.Fatalf("a key-enrolled phone: %q", got)
 	}
 }
