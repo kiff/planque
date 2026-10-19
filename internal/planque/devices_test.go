@@ -221,10 +221,10 @@ func TestADeviceIDIsKIFFs(t *testing.T) {
 	}
 }
 
-// A device KIFF gives no name for reads as a device of the owner's, never its id (#15).
+// A device KIFF gives no name for reads neutrally, never its id (#15): it may be another member's.
 func TestAnUnnamedDeviceReadsWithoutItsID(t *testing.T) {
 	a := Approval{DeviceID: "dev_x7", Subject: "user_1"}
-	if got := a.Who(); got != "on a device of yours" {
+	if got := a.Who(); got != "on a device signed in to KIFF" {
 		t.Fatalf("Who() = %q", got)
 	}
 	if got := (Approval{Fingerprint: "ab12 cd34 ef56 7890"}).Who(); got != "on the enrolled phone" {

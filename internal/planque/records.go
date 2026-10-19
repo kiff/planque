@@ -86,7 +86,7 @@ func (a Approval) Who() string {
 	case a.DeviceName != "":
 		return "on " + a.DeviceName
 	case a.DeviceID != "":
-		return "on a device of yours"
+		return "on a device signed in to KIFF"
 	}
 	return "on the enrolled phone"
 }
