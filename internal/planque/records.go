@@ -66,9 +66,10 @@ type Approval struct {
 	DeviceKey   []byte    `json:"device_key,omitempty"`
 	DeviceID    string    `json:"device_id,omitempty"`
 	Subject     string    `json:"subject,omitempty"`
-	Fingerprint string    `json:"fingerprint"` // the key's fingerprint, or KIFF's device id
-	Message     string    `json:"message"`     // the exact text signed
-	Body        string    `json:"body"`        // the request body its hash covers
+	DeviceName  string    `json:"device_name,omitempty"` // as KIFF names it, for the owner to read
+	Fingerprint string    `json:"fingerprint"`           // the key's fingerprint, or KIFF's device id
+	Message     string    `json:"message"`               // the exact text signed
+	Body        string    `json:"body"`                  // the request body its hash covers
 	Signature   string    `json:"signature"`
 	SignedAt    string    `json:"signed_at"`
 	ApprovedAt  time.Time `json:"approved_at"`
@@ -76,11 +77,18 @@ type Approval struct {
 
 // Who names who signed, for the grant's events: the person and their
 // device KIFF knows, or the phone enrolled with its key.
+//
+// The words are for the owner, who reads a grant's last event in their app
+// (#15): the device's name as KIFF gives it, never an id or a fingerprint.
+// Those stay in the approval's own fields, as the evidence.
 func (a Approval) Who() string {
-	if a.DeviceID != "" {
-		return "by " + a.Subject + " on device " + a.DeviceID
+	switch {
+	case a.DeviceName != "":
+		return "on " + a.DeviceName
+	case a.DeviceID != "":
+		return "on a device of yours"
 	}
-	return "on the phone " + a.Fingerprint
+	return "on the enrolled phone"
 }
 
 // SameSigner says whether b was signed on the same device as a.

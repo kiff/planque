@@ -45,8 +45,8 @@ type KIFF struct {
 
 // Device is a person's device, as KIFF keeps it.
 type Device struct {
-	Tenant, Subject, Platform string
-	Phone                     *Phone
+	Tenant, Subject, Platform, Name string
+	Phone                           *Phone
 	// What the person's role allows; "tools.connect" to connect tools.
 	Capabilities []string
 	Member       bool // an active member of the account
@@ -138,7 +138,7 @@ func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 	case !slices.Contains(d.Capabilities, req.Capability):
 		no("not_allowed")
 	default:
-		writeJSON(w, 200, map[string]any{"valid": true, "device_id": req.Device, "subject": d.Subject, "platform": d.Platform, "attested": false})
+		writeJSON(w, 200, map[string]any{"valid": true, "device_id": req.Device, "subject": d.Subject, "platform": d.Platform, "name": d.Name, "attested": false})
 	}
 }
 

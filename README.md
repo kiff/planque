@@ -92,8 +92,10 @@ device `d` signed those bytes and whether its person may connect tools
 removed device, a person who left or one who can't connect tools is
 refused. **So any member who may connect tools on the account (an admin or
 an editor in KIFF) approves from any of their devices,** not only the
-first phone set up; each grant's record says who approved and on which
-device ("approved by <person> on device dev_…"). KIFF says nothing about when, so planque keeps the 5-minute window
+first phone set up. Each grant's record keeps who approved and on which
+device (KIFF's person and device ids), and its events say it in the owner's
+words, with the device's name from KIFF ("approved on tafs on iPad"), never an
+id. KIFF says nothing about when, so planque keeps the 5-minute window
 and the replay check. A phone enrolled with its own key before this signs
 without `d=` and is checked against that key, until it signs as a KIFF
 device.
