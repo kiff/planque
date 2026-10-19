@@ -74,6 +74,15 @@ type Approval struct {
 	ApprovedAt  time.Time `json:"approved_at"`
 }
 
+// Who names who signed, for the grant's events: the person and their
+// device KIFF knows, or the phone enrolled with its key.
+func (a Approval) Who() string {
+	if a.DeviceID != "" {
+		return "by " + a.Subject + " on device " + a.DeviceID
+	}
+	return "on the phone " + a.Fingerprint
+}
+
 // SameSigner says whether b was signed on the same device as a.
 func (a Approval) SameSigner(b Approval) bool {
 	if a.DeviceID != "" || b.DeviceID != "" {

@@ -443,7 +443,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		// connects at once, with no second sign-in.
 		a := sr.approval
 		g.Approval = &a
-		g.event(s.now(), "tools approved on the phone "+a.Fingerprint)
+		g.event(s.now(), "tools approved "+a.Who())
 		tok, _, err := s.openToken(r.Context(), g)
 		if err != nil {
 			s.fail(w, r, err)
@@ -485,9 +485,9 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 	a := sr.approval
 	if g.Status == StatusPending {
 		g.Approval = &a
-		g.event(s.now(), "approved on the phone "+a.Fingerprint)
+		g.event(s.now(), "approved "+a.Who())
 	} else {
-		g.event(s.now(), "a new sign-in link was signed for on the phone "+a.Fingerprint)
+		g.event(s.now(), "a new sign-in link was signed for "+a.Who())
 	}
 	g.Status, g.ClientID = StatusApproved, clientID
 	if err := s.saveGrant(r.Context(), g); err != nil {
@@ -656,7 +656,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	g.ConfirmHash, g.ConfirmBy = "", time.Time{}
-	g.event(s.now(), "sign-in confirmed on the phone "+sr.approval.Fingerprint)
+	g.event(s.now(), "sign-in confirmed "+sr.approval.Who())
 	tok, _, err := s.openToken(r.Context(), g)
 	if err != nil {
 		s.fail(w, r, err)
@@ -833,7 +833,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
 	g.Status, g.Transport = StatusDisconnected, ""
-	what := "disconnected on the phone " + sr.approval.Fingerprint + ": token deleted"
+	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	if len(problems) > 0 {
 		what += "; " + strings.Join(problems, "; ")
 	}
