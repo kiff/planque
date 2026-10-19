@@ -26,7 +26,8 @@ it.
 1. **Ask.** An agent sends a grant request that says exactly what it wants:
    which vendor, what access, for which agent.
 2. **Approve.** The owner approves in their own app, for example tafs, with
-   Face ID. The phone signs that exact request with its device key.
+   Face ID. Their device signs that exact request with its key, and KIFF,
+   which keeps the devices each person approves with, says whether it did.
    Nothing is granted without the signature.
 3. **Connect.** planque discovers the vendor's sign-in server, registers
    itself, and sends the owner to the vendor's own sign-in page. The token
@@ -65,7 +66,7 @@ It's the same code either way.
 
 | Call | Who | What |
 |---|---|---|
-| `POST /v1/accounts/{tenant}/enrolment` | the owner's phone, signed with the key it enrols | binds the phone's key and planque's KIFF **connector** key to the account; a key that can do more than connect tools is refused |
+| `POST /v1/accounts/{tenant}/enrolment` | a device of the owner's that KIFF knows, signed (`d=`) | hands planque the account's KIFF **connector** key; any of the person's devices may, and the latest key is kept. A key that can do more than connect tools is refused. A phone from before KIFF kept devices sends `device_key` and signs with it: one such phone per account |
 | `POST /v1/accounts/{tenant}/grants` | an agent, with its KIFF key | asks for a vendor's MCP server, some of its tools, for a taf; returns the plain words and the digest the owner signs; grants nothing. With `tools: []` it connects first: once signed in, planque only lists the vendor's tools |
 | `GET /v1/accounts/{tenant}/grants/{id}` | an agent of the account | the grant's status |
 | `GET /v1/accounts/{tenant}/grants/{id}/catalog` | an agent of the account | for a grant asked for with no tools, once signed in (`listed`): each tool the vendor lists, with its description and arguments, and the account the sign-in acts in |
@@ -77,16 +78,26 @@ It's the same code either way.
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
 | `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |
 
-A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>`:
-the phone's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
+A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>,d=<device id>`:
+the device's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
 over SHA-256, the lines `planque.request.v1`, planque's base URL, tenant,
 method, path, the body's SHA-256 and `signed_at`. A signed request is
 accepted once, within 5 minutes, and only by the planque it names.
 
-**The sign-in is bound to the phone that approved.** The vendor sends the
+**KIFF keeps the devices** (kiff-cloud #1267). planque keeps none: it asks
+KIFF's `POST /v1/devices/verify`, with the account's connector key, whether
+device `d` signed those bytes and whether its person may connect tools
+(`tools.connect`). KIFF answers for its own account's devices only, and a
+removed device, a person who left or one who can't connect tools is
+refused. KIFF says nothing about when, so planque keeps the 5-minute window
+and the replay check. A phone enrolled with its own key before this signs
+without `d=` and is checked against that key, until it signs as a KIFF
+device.
+
+**The sign-in is bound to the device that approved.** The vendor sends the
 browser back to planque, which keeps the token unused and sends that
 browser on to the owner's app (`PLANQUE_APP_RETURN`, set by the operator)
-with a one-time code. The phone that approved signs
+with a one-time code. The device that approved signs
 `POST …/grants/{id}/confirm` with that code within 15 minutes; only then
 are the tools registered. A link someone else opens hands its code to
 their browser, never to the approver. Vendors are reached only at public

@@ -33,11 +33,24 @@ type KIFF struct {
 	// Cards: agent key → action → the most one call may move. An action
 	// missing from a Card is refused.
 	Cards map[string]map[string]int64
+	// Devices: the devices people approve with, by KIFF's id
+	// (kiff-cloud #1267), checked at /v1/devices/verify.
+	Devices map[string]Device
 
 	mu      sync.Mutex
 	conns   map[string]Connection // tenant/name → connection
 	appLast map[string]string
 	HTTP    *http.Client
+}
+
+// Device is a person's device, as KIFF keeps it.
+type Device struct {
+	Tenant, Subject, Platform string
+	Phone                     *Phone
+	// What the person's role allows; "tools.connect" to connect tools.
+	Capabilities []string
+	Member       bool // an active member of the account
+	Revoked      bool
 }
 
 // Connection is a tool registered in the fake gateway.
@@ -49,13 +62,14 @@ type Connection struct {
 // NewKIFF makes a fake KIFF with a fresh signing key.
 func NewKIFF() *KIFF {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}}
+	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}}
 }
 
 // Handler serves the fake's routes.
 func (k *KIFF) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/me", k.me)
+	mux.HandleFunc("POST /v1/devices/verify", k.verifyDevice)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
 	mux.HandleFunc("POST /v1/connections", k.connect)
 	mux.HandleFunc("GET /v1/connections", k.list)
@@ -83,6 +97,49 @@ func (k *KIFF) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, me)
+}
+
+// verifyDevice answers as apps/api's /v1/devices/verify (kiff-cloud
+// #1267): a connector key asks about a device of its own account.
+func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if !me.APIKey || me.AgentID != "" || !slices.Contains(me.Roles, "connector") {
+		writeJSON(w, 403, map[string]string{"error": "connector_key_required"})
+		return
+	}
+	var req struct {
+		Device     string `json:"device_id"`
+		Message    string `json:"message"`
+		Signature  string `json:"signature"`
+		Capability string `json:"capability"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
+		return
+	}
+	msg, err := base64.StdEncoding.DecodeString(req.Message)
+	if err != nil || len(msg) == 0 || strings.HasPrefix(string(msg), "kiff.") || (req.Capability != "tools.connect" && req.Capability != "holds.answer") {
+		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
+		return
+	}
+	no := func(why string) { writeJSON(w, 200, map[string]any{"valid": false, "reason": why}) }
+	d, ok := k.Devices[req.Device]
+	switch {
+	case !ok || d.Tenant != me.TenantID || d.Revoked:
+		no("unknown_device")
+	case !d.Phone.Verifies(msg, req.Signature):
+		no("signature_invalid")
+	case !d.Member:
+		no("not_a_member")
+	case !slices.Contains(d.Capabilities, req.Capability):
+		no("not_allowed")
+	default:
+		writeJSON(w, 200, map[string]any{"valid": true, "device_id": req.Device, "subject": d.Subject, "platform": d.Platform, "attested": false})
+	}
 }
 
 func (k *KIFF) jwks(w http.ResponseWriter, _ *http.Request) {

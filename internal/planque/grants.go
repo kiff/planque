@@ -1,7 +1,6 @@
 package planque
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -232,7 +231,8 @@ type grantView struct {
 
 type approvalView struct {
 	Fingerprint string    `json:"device"`
-	DeviceKey   []byte    `json:"device_key"` // SPKI DER, base64
+	DeviceKey   []byte    `json:"device_key,omitempty"` // SPKI DER, base64
+	DeviceID    string    `json:"device_id,omitempty"`  // KIFF's, for a device KIFF knows
 	Message     string    `json:"message"`
 	Body        string    `json:"body"`
 	Signature   string    `json:"signature"`
@@ -248,7 +248,7 @@ func (s *Server) view(g *Grant) grantView {
 		v.Tools = append(v.Tools, t.Name)
 	}
 	if a := g.Approval; a != nil {
-		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, Message: a.Message,
+		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, DeviceID: a.DeviceID, Message: a.Message,
 			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt}
 	}
 	return v
@@ -640,8 +640,8 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
 	}
-	if g.Approval == nil || !bytes.Equal(sr.enrolment.DeviceKey, g.Approval.DeviceKey) {
-		writeErr(w, http.StatusForbidden, "only the phone that approved this grant may confirm it")
+	if g.Approval == nil || !g.Approval.SameSigner(sr.approval) {
+		writeErr(w, http.StatusForbidden, "only the device that approved this grant may confirm it")
 		return
 	}
 	if s.now().After(g.ConfirmBy) {

@@ -1,11 +1,13 @@
 // Package kiff is the part of KIFF planque calls: who a key speaks for
-// (apps/api /v1/me), and the gateway's connections, where planque
+// (apps/api /v1/me), whether a person's device signed an approval
+// (/v1/devices/verify), and the gateway's connections, where planque
 // registers a vendor's tools in relay mode (kiff-cloud RFC 046 D1, D6).
 package kiff
 
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,6 +76,35 @@ func (c *Client) Me(ctx context.Context, key string) (Me, error) {
 		return Me{}, err
 	}
 	return me, nil
+}
+
+// Verified is KIFF's answer on a device's signature (kiff-cloud #1267).
+type Verified struct {
+	Valid bool `json:"valid"`
+	// Why not: unknown_device, signature_invalid, not_a_member or not_allowed.
+	Reason   string `json:"reason"`
+	DeviceID string `json:"device_id"`
+	Subject  string `json:"subject"` // the person whose device it is
+	Platform string `json:"platform"`
+	Attested bool   `json:"attested"`
+}
+
+// VerifyDevice asks KIFF, with the account's connector key, whether its
+// device deviceID signed msg (sig: base64 DER ECDSA over its SHA-256), and
+// whether that device's person may do what capability names. KIFF keeps
+// the devices a person approves with, so planque keeps none
+// (kiff/planque#10).
+func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string, msg []byte, sig, capability string) (Verified, error) {
+	var v Verified
+	status, err := c.do(ctx, http.MethodPost, c.API+"/v1/devices/verify", connectorKey, map[string]string{
+		"device_id": deviceID, "message": base64.StdEncoding.EncodeToString(msg), "signature": sig, "capability": capability}, &v)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return Verified{}, ErrUnauthorized
+	}
+	if err != nil {
+		return Verified{}, err
+	}
+	return v, nil
 }
 
 // Connection is a tool registered in KIFF's gateway, as planque sends it.
