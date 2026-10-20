@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/kiff/planque/internal/awsapi"
@@ -23,7 +24,7 @@ func TestDynamoQueryWithAnEmptyPrefix(t *testing.T) {
 		}
 		_ = json.Unmarshal(b, &in)
 		conds = append(conds, in.KeyConditionExpression)
-		if _, ok := in.ExpressionAttributeValues[":p"]; ok != (in.KeyConditionExpression != "pk = :pk") {
+		if _, ok := in.ExpressionAttributeValues[":p"]; ok != strings.Contains(in.KeyConditionExpression, "begins_with") {
 			t.Errorf("%q with values %v", in.KeyConditionExpression, in.ExpressionAttributeValues)
 		}
 		_, _ = io.WriteString(w, `{"Items":[]}`)
@@ -39,7 +40,24 @@ func TestDynamoQueryWithAnEmptyPrefix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(conds) != 2 || conds[0] != "pk = :pk" || conds[1] != "pk = :pk AND begins_with(sk, :p)" {
+	if _, err := d.QueryTo(context.Background(), "DUE", "2026-10-20T10:00:00Z#~#~"); err != nil {
+		t.Fatal(err)
+	}
+	if len(conds) != 3 || conds[0] != "pk = :pk" || conds[1] != "pk = :pk AND begins_with(sk, :p)" || conds[2] != "pk = :pk AND sk <= :max" {
 		t.Fatalf("conditions: %q", conds)
+	}
+}
+
+// QueryTo reads a range up to its bound, in order, and nothing past it.
+func TestMemoryQueryToStopsAtItsBound(t *testing.T) {
+	m := &Memory{}
+	for _, sk := range []string{"2026-10-20T09:00:00Z#a#1", "2026-10-20T11:00:00Z#a#2", "2026-10-20T10:00:00Z#b#3"} {
+		if err := m.Put(context.Background(), Item{PK: "DUE", SK: sk, Doc: []byte("{}")}, Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := m.QueryTo(context.Background(), "DUE", "2026-10-20T10:00:00Z#~#~")
+	if err != nil || len(got) != 2 || got[0].SK != "2026-10-20T09:00:00Z#a#1" || got[1].SK != "2026-10-20T10:00:00Z#b#3" {
+		t.Fatalf("QueryTo = %+v %v", got, err)
 	}
 }

@@ -49,6 +49,9 @@ type KV interface {
 	Delete(ctx context.Context, pk, sk string) (Item, bool, error)
 	// Query lists the items under pk whose SK starts with prefix.
 	Query(ctx context.Context, pk, prefix string) ([]Item, error)
+	// QueryTo lists the items under pk whose SK is at most maxSK, in SK
+	// order: reading a range never costs more than the range.
+	QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error)
 }
 
 // Memory is KV in one process.
@@ -109,16 +112,24 @@ func (m *Memory) Delete(_ context.Context, pk, sk string) (Item, bool, error) {
 }
 
 func (m *Memory) Query(_ context.Context, pk, prefix string) ([]Item, error) {
+	return m.list(pk, func(sk string) bool { return strings.HasPrefix(sk, prefix) }), nil
+}
+
+func (m *Memory) QueryTo(_ context.Context, pk, maxSK string) ([]Item, error) {
+	return m.list(pk, func(sk string) bool { return sk <= maxSK }), nil
+}
+
+func (m *Memory) list(pk string, keep func(sk string) bool) []Item {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Item
 	for k, it := range m.items {
-		if k[0] == pk && strings.HasPrefix(k[1], prefix) && m.live(it) {
+		if k[0] == pk && keep(k[1]) && m.live(it) {
 			out = append(out, it)
 		}
 	}
 	slices.SortFunc(out, func(a, b Item) int { return strings.Compare(a.SK, b.SK) })
-	return out, nil
+	return out
 }
 
 // Dynamo is KV on one DynamoDB table with string keys pk and sk.
@@ -237,16 +248,23 @@ func (d *Dynamo) Delete(ctx context.Context, pk, sk string) (Item, bool, error) 
 }
 
 func (d *Dynamo) Query(ctx context.Context, pk, prefix string) ([]Item, error) {
+	if prefix == "" { // DynamoDB takes no empty key value, even to begin with
+		return d.query(ctx, "pk = :pk", av{":pk": av{"S": pk}})
+	}
+	return d.query(ctx, "pk = :pk AND begins_with(sk, :p)", av{":pk": av{"S": pk}, ":p": av{"S": prefix}})
+}
+
+func (d *Dynamo) QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error) {
+	return d.query(ctx, "pk = :pk AND sk <= :max", av{":pk": av{"S": pk}, ":max": av{"S": maxSK}})
+}
+
+// query reads every page of a key condition, in SK order.
+func (d *Dynamo) query(ctx context.Context, cond string, values av) ([]Item, error) {
 	var items []Item
 	var start json.RawMessage
 	for {
 		in := av{"TableName": d.Table, "ConsistentRead": true,
-			"KeyConditionExpression":    "pk = :pk AND begins_with(sk, :p)",
-			"ExpressionAttributeValues": av{":pk": av{"S": pk}, ":p": av{"S": prefix}}}
-		if prefix == "" { // DynamoDB takes no empty key value, even to begin with
-			in["KeyConditionExpression"] = "pk = :pk"
-			in["ExpressionAttributeValues"] = av{":pk": av{"S": pk}}
-		}
+			"KeyConditionExpression": cond, "ExpressionAttributeValues": values}
 		if start != nil {
 			in["ExclusiveStartKey"] = start
 		}
