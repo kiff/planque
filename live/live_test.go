@@ -42,8 +42,11 @@ import (
 )
 
 type state struct {
-	Tenant    string `json:"tenant"`
-	Phone     []byte `json:"phone"` // PKCS#8
+	Tenant string `json:"tenant"`
+	Phone  []byte `json:"phone"` // PKCS#8
+	// Device is the phone's id in KIFF: it signs in to KIFF as a device
+	// first, and every signature names it (d=), kiff/planque#12.
+	Device    string `json:"device"`
 	Seed      []byte `json:"seed"`
 	Connector string `json:"connector"`
 	Setup     string `json:"setup"`
@@ -84,7 +87,10 @@ func (s *state) phone(t *testing.T) *fakes.Phone {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fakes.Phone{Key: k.(*ecdsa.PrivateKey)}
+	if s.Device == "" {
+		t.Fatal("LIVE_STATE has no device: sign the phone in to KIFF as a device and save its id (kiff/planque#12)")
+	}
+	return &fakes.Phone{Key: k.(*ecdsa.PrivateKey), DeviceID: s.Device}
 }
 
 func env(t *testing.T, k string) string {
@@ -186,7 +192,7 @@ func TestLiveConnect(t *testing.T) {
 	sign := func(r *http.Request, b []byte) { phone.Sign(r, s.Tenant, b) }
 	acct := pq + "/v1/accounts/" + s.Tenant
 	account := stripe(t, "GET", "/v1/account", nil)["id"].(string) // the owner's Stripe account
-	if st, out := call(t, "POST", acct+"/enrolment", map[string]string{"device_key": phone.PublicKey(), "connector_key": s.Connector}, sign, ""); st != 201 {
+	if st, out := call(t, "POST", acct+"/enrolment", map[string]string{"connector_key": s.Connector}, sign, ""); st != 201 {
 		t.Fatalf("enrol: %d %v", st, out)
 	}
 	st, out := call(t, "POST", acct+"/grants", map[string]any{"server": "https://mcp.stripe.com", "agent": "agt_live_taf",
@@ -483,14 +489,10 @@ func TestLiveCalls(t *testing.T) {
 	writeFile(t, ".export.json", string(b))
 	grants := out["grants"].([]any)
 	a := grants[0].(map[string]any)["approval"].(map[string]any)
-	der, _ := base64.StdEncoding.DecodeString(a["device_key"].(string))
-	pub, _ := x509.ParsePKIXPublicKey(der)
-	sig, _ := base64.StdEncoding.DecodeString(a["signature"].(string))
-	sum := sha256.Sum256([]byte(a["message"].(string)))
-	if !ecdsa.VerifyASN1(pub.(*ecdsa.PublicKey), sum[:], sig) {
-		t.Fatal("the exported approval does not verify")
+	if a["device_id"] != s.Device || !phone.Verifies([]byte(a["message"].(string)), a["signature"].(string)) {
+		t.Fatal("the exported approval doesn't name the phone, or doesn't verify with its key")
 	}
-	t.Logf("export: %d grant(s); the approval signature verifies offline with the exported device key", len(grants))
+	t.Logf("export: %d grant(s); the approval names the phone's KIFF device and verifies with its key", len(grants))
 }
 
 func forwardTool(t *testing.T, fk string, s *state, name string, args map[string]any, permit string) string {

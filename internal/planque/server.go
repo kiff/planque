@@ -150,11 +150,12 @@ type signedRequest struct {
 }
 
 // verifySigned checks Planque-Device-Signature over r, and that this exact
-// signed request was never made before. A device KIFF knows (d=) is
+// signed request was never made before. The device is one KIFF knows (d=),
 // verified by KIFF, asked with the account's connector key, which opens
-// connector (kiff/planque#10). Without d=, the signature must be keyDER's:
-// a phone enrolled with its own key before that.
-func (s *Server) verifySigned(r *http.Request, tenant string, body, keyDER []byte, connector func() (string, error)) (Approval, error) {
+// connector (kiff/planque#10). A signature without d=, from a phone that
+// enrolled its own key before KIFF kept devices, is no longer taken
+// (kiff/planque#12).
+func (s *Server) verifySigned(r *http.Request, tenant string, body []byte, connector func() (string, error)) (Approval, error) {
 	sg, err := device.ParseHeader(r.Header.Get(device.Header))
 	if err != nil {
 		return Approval{}, apiError{http.StatusUnauthorized, "this request needs the owner's signature from their device (" + device.Header + ")"}
@@ -162,8 +163,11 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body, keyDER []byt
 	msg := device.Message(s.BaseURL, tenant, r.Method, r.URL.RequestURI(), body, sg.At)
 	a := Approval{Message: string(msg), Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
 	// What the replay record names as the signer, with the message.
+	if sg.Device == "" {
+		return Approval{}, apiError{http.StatusUnauthorized, "this device isn't known to KIFF: sign in to KIFF on it again"}
+	}
 	var signer []byte
-	if sg.Device != "" {
+	{
 		// planque keeps the window and the replay check: KIFF says only
 		// that the device signed these bytes, not when.
 		if err := device.CheckTime(sg.At, s.now()); err != nil {
@@ -183,15 +187,6 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body, keyDER []byt
 		}
 		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID
 		signer = []byte("kiff-device\n" + v.DeviceID + "\n")
-	} else {
-		if len(keyDER) == 0 {
-			return Approval{}, apiError{http.StatusUnauthorized, "this device isn't known here: sign in to KIFF on it again"}
-		}
-		if err := device.Verify(keyDER, msg, sg.At, sg.Signature, s.now()); err != nil {
-			return Approval{}, apiError{http.StatusUnauthorized, err.Error()}
-		}
-		a.DeviceKey, a.Fingerprint = keyDER, device.Fingerprint(keyDER)
-		signer = keyDER
 	}
 	sum := sha256.Sum256(append(append([]byte{}, signer...), msg...))
 	ttl := s.now().Add(2 * device.MaxSkew).Unix()
@@ -239,7 +234,7 @@ func (s *Server) signed(next func(http.ResponseWriter, *http.Request, signedRequ
 			s.fail(w, r, err)
 			return
 		}
-		a, err := s.verifySigned(r, tenant, body, e.DeviceKey, func() (string, error) { return s.openConnector(r.Context(), e) })
+		a, err := s.verifySigned(r, tenant, body, func() (string, error) { return s.openConnector(r.Context(), e) })
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -262,6 +257,9 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
+		// DeviceKey is what a phone sent before KIFF kept devices. It is
+		// still accepted, so apps that send it keep working, and ignored:
+		// the device is KIFF's (d=), kiff/planque#12.
 		DeviceKey    string `json:"device_key,omitempty"`
 		ConnectorKey string `json:"connector_key"`
 	}
@@ -270,7 +268,6 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connector := strings.TrimSpace(req.ConnectorKey)
-	sg, _ := device.ParseHeader(r.Header.Get(device.Header)) // verifySigned answers a bad header
 	var prev Enrolment
 	prevItem, err := getDoc(r.Context(), s.KV, tenantPK(tenant), skEnrolment, &prev)
 	// The write below is conditional on what was read here, so two
@@ -282,17 +279,6 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	var der []byte
-	if sg.Device == "" {
-		if der, err = device.ParseKey(req.DeviceKey); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if len(prev.DeviceKey) > 0 && !bytes.Equal(prev.DeviceKey, der) || prevItem.Ver > 0 && len(prev.DeviceKey) == 0 {
-			writeErr(w, http.StatusConflict, "another device is enrolled for this account")
-			return
-		}
-	}
 	// The connector key first: KIFF is asked with it whether the device signed.
 	me, err := s.KIFF.Me(r.Context(), connector)
 	if err != nil {
@@ -303,7 +289,7 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, p)
 		return
 	}
-	a, err := s.verifySigned(r, tenant, body, der, func() (string, error) { return connector, nil })
+	a, err := s.verifySigned(r, tenant, body, func() (string, error) { return connector, nil })
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -313,12 +299,7 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// A phone enrolled with its key keeps it until it signs as a KIFF device.
-	key := der
-	if sg.Device != "" {
-		key = prev.DeviceKey
-	}
-	e := Enrolment{Tenant: tenant, DeviceKey: key, Connector: sealed, EnrolledAt: s.now().UTC()}
+	e := Enrolment{Tenant: tenant, Connector: sealed, EnrolledAt: s.now().UTC()}
 	err = putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(tenant), SK: skEnrolment, Ver: prevItem.Ver + 1}, e, cond)
 	if errors.Is(err, store.ErrCondition) {
 		writeErr(w, http.StatusConflict, "the enrolment changed while this one was checked; enrol again")

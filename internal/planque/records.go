@@ -11,11 +11,12 @@ import (
 	"github.com/kiff/planque/internal/store"
 )
 
-// Enrolment is an owner's phone, enrolled for one KIFF account.
+// Enrolment is a KIFF account set up to connect tools: its connector key.
+// Items written before kiff/planque#12 also hold a phone's key
+// (device_key); it is ignored.
 type Enrolment struct {
 	Tenant     string    `json:"tenant"`
-	DeviceKey  []byte    `json:"device_key"` // P-256 SPKI DER
-	Connector  []byte    `json:"connector"`  // the KIFF connector key, sealed
+	Connector  []byte    `json:"connector"` // the KIFF connector key, sealed
 	EnrolledAt time.Time `json:"enrolled_at"`
 }
 
@@ -59,9 +60,10 @@ type Request struct {
 	CreatedAt string        `json:"created_at"`
 }
 
-// Approval is the owner's signature on a grant, kept as evidence. A device
-// KIFF knows is named by KIFF's id and person (kiff/planque#10); a phone
-// enrolled with its key, by that key.
+// Approval is the owner's signature on a grant, kept as evidence. The device
+// is named by KIFF's id and person (kiff/planque#10). Approvals made before
+// kiff/planque#12 by a phone enrolled with its key name that key, and are
+// kept as they were recorded.
 type Approval struct {
 	DeviceKey   []byte    `json:"device_key,omitempty"`
 	DeviceID    string    `json:"device_id,omitempty"`

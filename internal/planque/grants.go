@@ -900,7 +900,9 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest
 		"exported_at": s.now().UTC(),
 		"how_to_verify": "Each approval.message is the exact text the phone signed: its sixth line is the SHA-256 of approval.body, " +
 			"whose digest is the SHA-256 of the RFC 8785 form of request. approval.signature is a DER ECDSA P-256 signature " +
-			"over SHA-256(message), by approval.device_key (SPKI DER).",
+			"over SHA-256(message), by the key of the device approval.device_id names, which KIFF keeps: KIFF checked it " +
+			"when the approval was made, and checks it again on request (POST /v1/devices/verify). An approval made before " +
+			"kiff/planque#12 may instead carry approval.device_key (SPKI DER), the key itself.",
 		"grants": gs,
 	})
 }

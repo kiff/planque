@@ -11,6 +11,7 @@ import (
 
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/store"
 )
 
 // device adds a device of tenant's owner to KIFF and returns it, signing
@@ -40,9 +41,8 @@ func TestKIFFDevicesConnectFromEither(t *testing.T) {
 	if st, out := e.enrolAs(ipad); st != 201 {
 		t.Fatalf("enrol from the iPad, a second device: %d %v, want 201", st, out)
 	}
-	var en Enrolment
-	if _, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en); err != nil || len(en.DeviceKey) != 0 {
-		t.Fatalf("a KIFF device left a key in the enrolment: %v", err)
+	if it, ok, err := e.kv.Get(context.Background(), tenantPK(tenant), skEnrolment); err != nil || !ok || bytes.Contains(it.Doc, []byte("device_key")) {
+		t.Fatalf("a KIFF device left a key in the enrolment: %s %v", it.Doc, err)
 	}
 
 	id, digest := e.request()
@@ -164,33 +164,32 @@ func TestAKIFFDevicesSignatureIsFreshAndOnce(t *testing.T) {
 // The rollout: the phone enrolled with its key keeps signing as before
 // while another device signs as a KIFF device, and the account's
 // connector key is the latest one handed over.
-func TestAPhoneEnrolledWithItsKeyAndAKIFFDevice(t *testing.T) {
+// A phone that signs with its key alone, as apps did before KIFF kept
+// devices, is refused, whatever it sends (kiff/planque#12). An enrolment
+// stored then, with a phone's key in it, still serves KIFF devices.
+func TestAKeyOnlyPhoneIsRefused(t *testing.T) {
 	e := newEnv(t)
-	e.enrol() // e.phone, with its key, before kiff/planque#10
-	e.kiff.Keys["k_connector2"] = e.kiff.Keys["k_connector"]
-	ipad := e.device("dev_ipad")
-	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/enrolment", map[string]string{"connector_key": "k_connector2"}, ipad, ""); st != 201 {
-		t.Fatalf("the iPad, next to the enrolled phone: %d %v", st, out)
-	}
-	if k, _ := e.s.connectorKey(context.Background(), tenant); k != "k_connector2" {
-		t.Fatalf("connector key %q, want the latest", k)
+	e.enrol()
+	old := fakes.NewPhone() // no d=: its key alone
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
+		map[string]string{"device_key": old.PublicKey(), "connector_key": "k_connector"}, old, ""); st != 401 {
+		t.Fatalf("a key-only phone enrolling: %d, want 401", st)
 	}
 	id, digest := e.request()
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, old, ""); st != 401 {
+		t.Fatalf("a key-only phone approving: %d, want 401", st)
+	}
+	// An enrolment written before #12 still has a phone's key: it is ignored.
+	it, _, _ := e.kv.Get(context.Background(), tenantPK(tenant), skEnrolment)
+	var doc map[string]any
+	_ = json.Unmarshal(it.Doc, &doc)
+	doc["device_key"] = old.PublicKey()
+	it.Doc, _ = json.Marshal(doc)
+	if err := e.kv.Put(context.Background(), it, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
 	if st, out := e.approveAndSignIn(id, digest); st != 200 || out["status"] != StatusConnected {
-		t.Fatalf("the phone enrolled with its key: %d %v", st, out)
-	}
-	// An old app on yet another phone still can't enrol its own key.
-	other := fakes.NewPhone()
-	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
-		map[string]string{"device_key": other.PublicKey(), "connector_key": "k_connector"}, other, ""); st != 409 {
-		t.Fatalf("another phone's key: %d, want 409", st)
-	}
-	// Nor can the phone's key, if a KIFF device set the account up.
-	e2 := newEnv(t)
-	e2.enrolAs(e2.device("dev_iphone"))
-	if st, _ := e2.do("POST", "/v1/accounts/"+tenant+"/enrolment",
-		map[string]string{"device_key": e2.phone.PublicKey(), "connector_key": "k_connector"}, e2.phone, ""); st != 409 {
-		t.Fatalf("a key after a KIFF device: %d, want 409", st)
+		t.Fatalf("the KIFF device on an enrolment from before #12: %d %v", st, out)
 	}
 }
 
