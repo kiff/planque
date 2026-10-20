@@ -961,9 +961,10 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 }
 
 // namesInUse are the tool names the account's other grants hold, each with
-// its vendor's host: connected ones' tools as registered in KIFF, and the
-// tools a grant waiting for the owner asks for. A failed or disconnected
-// grant holds none.
+// its vendor's host: a connected one's tools as registered in KIFF, and
+// before that, at any step on the way (listed with tools set, pending,
+// approved, signed in), the tools it asks for, which it registers next. A
+// failed or disconnected grant holds none.
 func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[string]string, error) {
 	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
 	if err != nil {
@@ -976,11 +977,12 @@ func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[str
 			continue
 		}
 		switch g.Status {
+		case StatusFailed, StatusDisconnected:
 		case StatusConnected:
 			for _, t := range g.Tools {
 				out[t.Name] = hostOf(g.Request.Server)
 			}
-		case StatusPending:
+		default:
 			for _, t := range g.Request.Tools {
 				out[t.Name] = hostOf(g.Request.Server)
 			}

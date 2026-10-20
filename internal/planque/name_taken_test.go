@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,20 @@ func TestAToolNameAnotherConnectionHoldsIsRefusedFirst(t *testing.T) {
 	st, out = e.do("POST", at(second), read, nil, "k_setup")
 	if st != 409 || !strings.Contains(out["error"].(string), "read_payment is already connected") || !strings.Contains(out["error"].(string), "another name") {
 		t.Fatalf("the same name on another connection: %d %v", st, out)
+	}
+	// Approved and on its way to the vendor's sign-in, or signed in: it still holds its names.
+	for _, step := range []string{StatusApproved, StatusSignedIn} {
+		g, err := e.s.loadGrant(context.Background(), tenant, first)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.Status = step
+		if err := e.s.saveGrant(context.Background(), g); err != nil {
+			t.Fatal(err)
+		}
+		if st, out := e.do("POST", at(second), read, nil, "k_setup"); st != 409 {
+			t.Fatalf("the name while the first is %s: %d %v", step, st, out)
+		}
 	}
 	unnamed := map[string]any{"tools": []any{map[string]any{"tool": "retrieve_charge", "read_only": true}}}
 	if st, out := e.do("POST", at(second), unnamed, nil, "k_setup"); st != 200 {
