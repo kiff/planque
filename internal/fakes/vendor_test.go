@@ -94,3 +94,35 @@ func TestVendorRegistersOnlyItsRedirects(t *testing.T) {
 		}
 	}
 }
+
+// A taf finds and checks its work with the vendor's read-only tools before
+// it acts (kiff/tafs#107): they answer without being one of the vendor's
+// calls, and only the writes are recorded.
+func TestVendorReadsAreNotCalls(t *testing.T) {
+	v, _ := NewVendorAt("https://vendor.test")
+	readOnly := map[string]bool{}
+	for _, tool := range vendorTools {
+		a, _ := tool["annotations"].(map[string]any)
+		readOnly[tool["name"].(string)] = a["readOnlyHint"] == true
+	}
+	for _, name := range []string{"list_accounts", "list_charges", "retrieve_charge"} {
+		if !readOnly[name] {
+			t.Errorf("%s isn't marked read-only", name)
+		}
+		if _, ok := v.read(name, map[string]any{"charge": "ch_1"}); !ok {
+			t.Errorf("%s isn't answered as a read", name)
+		}
+	}
+	for _, name := range []string{"create_refund", "payout_balance", "stripe_api_write"} {
+		if readOnly[name] {
+			t.Errorf("%s is marked read-only", name)
+		}
+		if _, ok := v.read(name, nil); ok {
+			t.Errorf("%s was answered as a read, not recorded as a call", name)
+		}
+	}
+	out, _ := v.read("retrieve_charge", map[string]any{"charge": "ch_e2e_1"})
+	if c := out.(map[string]any); c["id"] != "ch_e2e_1" || c["amount_refunded"] != 0 {
+		t.Fatalf("retrieve_charge = %v", out)
+	}
+}

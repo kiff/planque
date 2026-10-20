@@ -47,7 +47,7 @@ func TestTheAgentReadsWhatTheSignInCovers(t *testing.T) {
 		"another agent":                    {"k_taf", "list_accounts", 403},
 		"a tool that changes things":       {"k_setup", "stripe_api_write", 403},
 		"a tool that takes arguments":      {"k_setup", "create_refund", 403},
-		"a no-argument tool not read-only": {"k_setup", "list_charges", 403},
+		"a no-argument tool not read-only": {"k_setup", "payout_balance", 403},
 		"a tool the vendor doesn't list":   {"k_setup", "delete_account", 404},
 	} {
 		if st, _ := describe(c.key, c.tool); st != c.want {
