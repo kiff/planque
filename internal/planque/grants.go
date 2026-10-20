@@ -278,7 +278,7 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.expire(r.Context(), g)
+	_, _ = s.expire(r.Context(), g)
 	writeJSON(w, http.StatusOK, s.view(g))
 }
 
@@ -305,7 +305,11 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read its catalog")
 		return
 	}
-	s.expire(r.Context(), g)
+	_, _ = s.expire(r.Context(), g)
+	if s.overdue(g) {
+		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
+		return
+	}
 	if len(g.Catalog) == 0 || g.Status == StatusFailed || g.Status == StatusDisconnected {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
@@ -348,7 +352,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may set its tools")
 		return
 	}
-	s.expire(r.Context(), g)
+	_, _ = s.expire(r.Context(), g)
+	if s.overdue(g) {
+		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
+		return
+	}
 	// Listed, or tools set and not approved yet (the agent may revise them).
 	if !g.SignedIn || len(g.Catalog) == 0 || (g.Status != StatusListed && g.Status != StatusPending) {
 		writeErr(w, http.StatusConflict, "only a listed grant takes its tools; this one is "+g.Status)
@@ -390,22 +398,60 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 // the vendor and the grant fails. A sign-in that is never confirmed would
 // otherwise keep a live token at the vendor, so every read of the grant
 // (status, list, export) checks, as confirm does.
-func (s *Server) expire(ctx context.Context, g *Grant) {
+// expire ends g if its deadline passed: its tokens revoked at the vendor
+// and dropped, then g saved as failed. ended says it did. An error leaves g
+// as stored, its tokens kept until the vendor confirms revoking them, for
+// the next sweep or read to try again (kiff/planque#23).
+func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
+	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
-	if held && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
-		s.revoke(ctx, g)
-		g.HeldUntil = time.Time{}
-		_ = s.failGrant(ctx, g, "its tools were not approved within a day; the sign-in was revoked")
-		s.log().InfoContext(ctx, "held sign-in revoked", slog.String("grant", g.ID))
-		return
+	switch {
+	case held && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil):
+		reason = "its tools were not approved within a day; the sign-in was revoked"
+	case g.Status == StatusSignedIn && s.now().After(g.ConfirmBy):
+		reason = "the sign-in was not confirmed in time; its token was revoked"
+	default:
+		return false, nil
 	}
-	if g.Status != StatusSignedIn || !s.now().After(g.ConfirmBy) {
-		return
+	if err := s.revokeNow(ctx, g); err != nil {
+		return false, err
 	}
-	s.revoke(ctx, g)
-	g.ConfirmHash, g.ConfirmBy = "", time.Time{}
-	_ = s.failGrant(ctx, g, "the sign-in was not confirmed in time; its token was revoked")
-	s.log().InfoContext(ctx, "unconfirmed sign-in revoked", slog.String("grant", g.ID))
+	was := *g
+	g.HeldUntil, g.ConfirmHash, g.ConfirmBy = time.Time{}, "", time.Time{}
+	g.Status, g.Reason = StatusFailed, reason
+	g.event(s.now(), "failed: "+reason)
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return false, err
+	}
+	s.log().InfoContext(ctx, "expired sign-in revoked", slog.String("grant", g.ID), slog.String("reason", reason))
+	return true, nil
+}
+
+// revokeNow revokes g's tokens at the vendor, then drops them. A token
+// planque can't open, or one the vendor didn't confirm revoking, is kept,
+// so revoking can be tried again: dropping it would leave it live at the
+// vendor with no way to revoke it.
+func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
+	tok, _, err := s.openToken(ctx, g)
+	if errors.Is(err, errNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open the sign-in's token to revoke it: %w", err)
+	}
+	for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
+		if t.tok == "" {
+			continue
+		}
+		if err := s.OAuth.Revoke(ctx, g.Vendor, g.ClientID, t.tok, t.hint); err != nil {
+			return fmt.Errorf("the vendor did not confirm revoking the %s: %w", t.hint, err)
+		}
+	}
+	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID)); err != nil {
+		return fmt.Errorf("drop the revoked token: %w", err)
+	}
+	return nil
 }
 
 // approve is the owner's Face ID on the phone: it signs this request,
@@ -440,11 +486,16 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
 	}
-	s.expire(r.Context(), g)
+	_, _ = s.expire(r.Context(), g)
 	if g.Status == StatusFailed {
 		writeErr(w, http.StatusConflict, "this grant is failed: "+g.Reason)
 		return
 	}
+	if s.overdue(g) {
+		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
+		return
+	}
+
 	if g.SignedIn && g.Status == StatusPending {
 		// Tools set on a grant whose sign-in is held: approving them
 		// connects at once, with no second sign-in.
@@ -652,7 +703,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	if s.now().After(g.ConfirmBy) {
-		s.expire(r.Context(), g)
+		_, _ = s.expire(r.Context(), g)
 		writeErr(w, http.StatusConflict, "the sign-in was not confirmed in time; it was revoked")
 		return
 	}
@@ -868,7 +919,7 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 			continue
 		}
 		g.ver = it.Ver
-		s.expire(ctx, &g)
+		_, _ = s.expire(ctx, &g)
 		out = append(out, s.view(&g))
 	}
 	return out, nil

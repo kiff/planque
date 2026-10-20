@@ -59,7 +59,11 @@ func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read what its sign-in covers")
 		return
 	}
-	s.expire(r.Context(), g)
+	_, _ = s.expire(r.Context(), g)
+	if s.overdue(g) {
+		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
+		return
+	}
 	// Only what the owner approved: a grant listed after connecting first,
 	// on the text that says its sign-in may be read. Not a connected grant,
 	// whose approval named its tools, nor one approved on an older text.
