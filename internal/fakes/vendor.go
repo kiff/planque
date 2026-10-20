@@ -282,11 +282,20 @@ var vendorTools = []map[string]any{
 		"properties": map[string]any{"charge": map[string]any{"type": "string"}, "amount": map[string]any{"type": "integer"},
 			"mode": map[string]any{"type": "string", "description": "Whether to act in live mode (real money) or test mode."}},
 		"required": []string{"charge"}}},
-	{"name": "list_charges", "description": "List charges.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+	// Finding and checking the work, as a vendor's own read tools do: read-only,
+	// so a taf can see what to refund before it acts (kiff/tafs#107).
+	{"name": "list_charges", "description": "List charges.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		"annotations": map[string]any{"readOnlyHint": true}},
+	{"name": "retrieve_charge", "description": "Retrieve one charge: its amount, and how much is refunded.", "inputSchema": map[string]any{"type": "object",
+		"properties": map[string]any{"charge": map[string]any{"type": "string"}}, "required": []string{"charge"}},
+		"annotations": map[string]any{"readOnlyHint": true}},
 	// What the sign-in covers, as Stripe's list_available_accounts_or_orgs
 	// says it: read-only, and it takes nothing (kiff/tafs#89).
 	{"name": "list_accounts", "description": "Lists the accounts in this session, with their mode.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}, "annotations": map[string]any{"readOnlyHint": true}},
+	// A write that takes nothing: never something to describe a sign-in with,
+	// and never a tool a refunds taf needs.
+	{"name": "payout_balance", "description": "Pay out the available balance to the bank account.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 	// Shaped like Stripe's: one tool for every write.
 	{"name": "stripe_api_write", "description": "Write via any API operation.", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
@@ -325,9 +334,9 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		result(map[string]any{"tools": vendorTools})
 	case "tools/call":
-		if req.Params.Name == "list_accounts" {
-			// It changes nothing, so it isn't one of the vendor's calls.
-			b, _ := json.Marshal(map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}})
+		// A read changes nothing, so it isn't one of the vendor's calls.
+		if out, ok := v.read(req.Params.Name, req.Params.Arguments); ok {
+			b, _ := json.Marshal(out)
 			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}})
 			return
 		}
@@ -347,6 +356,21 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, 200, map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32601, "message": "method not found"}})
 	}
+}
+
+// read answers the vendor's read-only tools: what the sign-in covers, the
+// charges, and one charge (an unrefunded test charge of 1,000.00, whatever its
+// id, so a taf can check any charge it's asked about).
+func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
+	switch tool {
+	case "list_accounts":
+		return map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}}, true
+	case "list_charges":
+		return map[string]any{"data": []any{}}, true
+	case "retrieve_charge":
+		return map[string]any{"id": args["charge"], "object": "charge", "amount": 100000, "amount_refunded": 0, "currency": "eur", "livemode": false}, true
+	}
+	return nil, false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
