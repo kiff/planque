@@ -1228,3 +1228,37 @@ func TestTheOwnerReadsNoPlanque(t *testing.T) {
 		t.Fatal("the vendor shows tafs, and a new name registers again")
 	}
 }
+
+// The hourly sweep revokes a held sign-in once its day is up, though nobody
+// reads the grant again (kiff/kiff-cloud#1244 promises it within a day). A
+// grant that moved on before its deadline is left as it is.
+func TestTheSweepEndsAHeldSignInNobodyReads(t *testing.T) {
+	e := newEnv(t)
+	id := e.listedGrant()
+	if n, err := e.s.Sweep(t.Context()); err != nil || n != 0 {
+		t.Fatalf("a sweep before the deadline ended %d, %v", n, err)
+	}
+	if st, out := e.do("POST", "/v1/sweep", nil, nil, ""); st != 200 || out["ended"] != float64(0) {
+		t.Fatalf("POST /v1/sweep before the deadline: %d %v", st, out)
+	}
+	e.s.Now = func() time.Time { return time.Now().Add(holdTTL + time.Minute) }
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("no live token before the sweep")
+	}
+	if n, err := e.s.Sweep(t.Context()); err != nil || n != 1 {
+		t.Fatalf("the sweep ended %d, %v; want 1", n, err)
+	}
+	if a, r := e.vendor.Live(); a != 0 || r != 0 {
+		t.Fatalf("tokens still live at the vendor after the sweep: %d, %d", a, r)
+	}
+	g, err := e.s.loadGrant(t.Context(), tenant, id)
+	if err != nil || g.Status != StatusFailed {
+		t.Fatalf("the grant after the sweep: %+v %v", g, err)
+	}
+	if n, _ := e.s.Sweep(t.Context()); n != 0 {
+		t.Fatalf("a second sweep ended %d", n)
+	}
+	if items, _ := e.s.KV.Query(t.Context(), pkDue, ""); len(items) != 0 {
+		t.Fatalf("the index kept %d entries", len(items))
+	}
+}

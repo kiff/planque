@@ -275,6 +275,7 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, c)
 	if err == nil {
 		g.ver++
+		s.markDue(ctx, g)
 	}
 	return err
 }

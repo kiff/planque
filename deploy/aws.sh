@@ -103,6 +103,31 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi
 }
 
+# schedule runs the sweep every hour (EventBridge Scheduler): a sign-in
+# nobody confirmed, or whose tools nobody approved, is revoked on time even if
+# nobody reads it again. The event is a function URL request, so the handler
+# needs nothing new.
+schedule() {
+  local srole=$NAME-scheduler
+  if ! aws iam get-role --role-name "$srole" --query Role.RoleName >/dev/null 2>&1; then
+    aws iam create-role --role-name "$srole" --query Role.RoleName --assume-role-policy-document \
+      '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"scheduler.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+    sleep 10 # IAM is eventually consistent
+  fi
+  local fn_arn; fn_arn=$(aws lambda get-function --function-name "$FN" --query Configuration.FunctionArn)
+  aws iam put-role-policy --role-name "$srole" --policy-name "$srole" --policy-document \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"$fn_arn\"}]}"
+  local target; target=$(python3 -c 'import json,sys; print(json.dumps({"Arn": sys.argv[1], "RoleArn": sys.argv[2], "Input": json.dumps({"rawPath": "/v1/sweep", "headers": {}, "body": "", "requestContext": {"domainName": "schedule.internal", "http": {"method": "POST", "sourceIp": "127.0.0.1"}}})}))' \
+    "$fn_arn" "$(aws iam get-role --role-name "$srole" --query Role.Arn)")
+  if aws scheduler get-schedule --name "$NAME-sweep" --query Name >/dev/null 2>&1; then
+    aws scheduler update-schedule --name "$NAME-sweep" --schedule-expression "rate(1 hour)" \
+      --flexible-time-window Mode=OFF --target "$target" --query ScheduleArn >/dev/null
+  else
+    aws scheduler create-schedule --name "$NAME-sweep" --schedule-expression "rate(1 hour)" \
+      --flexible-time-window Mode=OFF --target "$target" --query ScheduleArn >/dev/null
+  fi
+}
+
 up() {
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
   if [[ "$FAKE" == vendor ]]; then table; fi
@@ -139,10 +164,16 @@ up() {
   aws lambda update-function-configuration --function-name "$FN" --environment "$(function_env "$url")" \
     --query FunctionName >/dev/null
   aws lambda wait function-updated-v2 --function-name "$FN"
+  if [[ -z "$FAKE" ]]; then schedule; fi
   echo "$url"
 }
 
 down() {
+  if [[ -z "$FAKE" ]]; then
+    aws scheduler delete-schedule --name "$NAME-sweep" 2>/dev/null || true
+    aws iam delete-role-policy --role-name "$NAME-scheduler" --policy-name "$NAME-scheduler" 2>/dev/null || true
+    aws iam delete-role --role-name "$NAME-scheduler" 2>/dev/null || true
+  fi
   aws lambda delete-function --function-name "$FN" >/dev/null 2>&1 || true
   aws iam delete-role-policy --role-name "$ROLE" --policy-name "$ROLE" 2>/dev/null || true
   aws iam delete-role --role-name "$ROLE" 2>/dev/null || true
