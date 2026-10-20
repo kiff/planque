@@ -379,7 +379,9 @@ func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
 	case "list_accounts":
 		return map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}}, true
 	case "list_charges":
-		return map[string]any{"data": []any{}}, true
+		// Business data, so a test sees it if it's ever read where it mustn't be.
+		return map[string]any{"data": []any{map[string]any{"id": "ch_customer_1", "amount": 4200, "currency": "eur",
+			"billing_details": map[string]any{"email": "customer@example.com"}}}}, true
 	case "retrieve_charge":
 		return map[string]any{"id": args["charge"], "object": "charge", "amount": 100000, "amount_refunded": 0, "currency": "eur", "livemode": false}, true
 	}
