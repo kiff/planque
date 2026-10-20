@@ -2,6 +2,8 @@ package planque
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,8 +17,19 @@ import (
 // account. A grant missing from it is still expired on its next read.
 const pkDue = "DUE"
 
+// dueSK keys a deadline by its whole second, rounded up, so an entry is
+// never due before its deadline (kiff/planque#23 C). Entries written before
+// were rounded down; the sweep reads either.
 func dueSK(at time.Time, tenant, id string) string {
-	return at.UTC().Format(time.RFC3339) + "#" + tenant + "#" + id
+	return ceilSecond(at).Format(time.RFC3339) + "#" + tenant + "#" + id
+}
+
+func ceilSecond(at time.Time) time.Time {
+	at = at.UTC()
+	if t := at.Truncate(time.Second); t.Before(at) {
+		return t.Add(time.Second)
+	}
+	return at
 }
 
 func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
@@ -40,49 +53,105 @@ func (g *Grant) deadline() time.Time {
 	return time.Time{}
 }
 
-// markDue indexes g's deadline. It's kept a week past it, by which time the
-// sweep has long removed it.
-func (s *Server) markDue(ctx context.Context, g *Grant) {
+// overdue says g's deadline passed. Such a grant acts on nothing, whether
+// or not its expiry could be saved yet: the sweep or the next read finishes
+// revoking it.
+func (s *Server) overdue(g *Grant) bool {
+	d := g.deadline()
+	return !d.IsZero() && s.now().After(d)
+}
+
+// markDue indexes g's deadline, before g is saved with it: a grant is never
+// stored with a deadline the sweep can't find (kiff/planque#23 B). An entry
+// whose save then fails is harmless, since the sweep checks the grant
+// itself. It's kept a week past its deadline, by which time the sweep has
+// long removed it.
+func (s *Server) markDue(ctx context.Context, g *Grant) error {
 	at := g.deadline()
 	if at.IsZero() {
-		return
+		return nil
 	}
 	it := store.Item{PK: pkDue, SK: dueSK(at, g.Tenant, g.ID), Doc: []byte("{}"), TTL: at.Add(7 * 24 * time.Hour).Unix()}
 	if err := s.KV.Put(ctx, it, store.Cond{}); err != nil {
-		s.log().WarnContext(ctx, "grant deadline not indexed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return fmt.Errorf("index the grant's deadline: %w", err)
 	}
+	return nil
 }
 
 // Sweep expires every grant whose deadline has passed: a sign-in nobody
 // confirmed, and a sign-in whose tools nobody approved, are revoked on time
-// even if nobody reads them again. It returns how many it ended. Each entry
-// is done with once its deadline passes: a grant that moved on in the
-// meantime is left as it is.
+// even if nobody reads them again. It returns how many it ended, and the
+// first error. An entry goes only once its work is done (kiff/planque#23 A):
+// the grant is gone, it moved on to another deadline, or its expiry is
+// saved with its tokens revoked. Any failure keeps the entry for the next
+// sweep.
 func (s *Server) Sweep(ctx context.Context) (int, error) {
 	// Only what's due: anyone may call the sweep, so a call reads no
 	// further than its work ("~" sorts after any tenant or grant id).
 	now, ended := s.now(), 0
-	items, err := s.KV.QueryTo(ctx, pkDue, dueSK(now, "~", "~"))
+	items, err := s.KV.QueryTo(ctx, pkDue, now.UTC().Truncate(time.Second).Format(time.RFC3339)+"#~#~")
 	if err != nil {
 		return 0, err
 	}
+	var first error
 	for _, it := range items {
 		at, tenant, id, ok := parseDue(it.SK)
 		if ok && at.After(now) {
 			break // in order of deadline: the rest are later
 		}
 		if ok {
-			if g, err := s.loadGrant(ctx, tenant, id); err == nil {
-				before := g.Status
-				s.expire(ctx, g)
-				if g.Status != before {
-					ended++
-				}
+			done, n, err := s.settleDue(ctx, at, tenant, id)
+			ended += n
+			if err != nil {
+				s.log().WarnContext(ctx, "sweep: a grant's expiry waits for the next sweep", slog.String("grant", id), slog.String("err", err.Error()))
+				first = cmpErr(first, err)
+				continue
+			}
+			if !done {
+				continue
 			}
 		}
-		_, _, _ = s.KV.Delete(ctx, pkDue, it.SK)
+		if _, _, err := s.KV.Delete(ctx, pkDue, it.SK); err != nil {
+			first = cmpErr(first, err)
+		}
 	}
-	return ended, nil
+	return ended, first
+}
+
+func cmpErr(first, err error) error {
+	if first != nil {
+		return first
+	}
+	return err
+}
+
+// settleDue does what the due entry at `at` asks of grant id: done says the
+// entry can go, ended whether this ended the grant.
+func (s *Server) settleDue(ctx context.Context, at time.Time, tenant, id string) (done bool, ended int, err error) {
+	g, err := s.loadGrant(ctx, tenant, id)
+	if errors.Is(err, errNotFound) {
+		return true, 0, nil
+	}
+	if err != nil {
+		return false, 0, err
+	}
+	d := g.deadline()
+	// Moved on: no deadline now, or another one, which has its own entry.
+	// An entry is d's whole second, rounded up (or, written before, down).
+	if d.IsZero() || d.UTC().Truncate(time.Second).After(at) || ceilSecond(d).Before(at) {
+		return true, 0, nil
+	}
+	if !s.now().After(d) {
+		return false, 0, nil
+	}
+	ok, err := s.expire(ctx, g)
+	if err != nil {
+		return false, 0, err
+	}
+	if !ok {
+		return false, 0, nil
+	}
+	return true, 1, nil
 }
 
 // sweep is the scheduled call (EventBridge, hourly). Anyone may call it: it

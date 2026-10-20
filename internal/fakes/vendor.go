@@ -45,6 +45,9 @@ type Vendor struct {
 	Calls     []VendorCall // this instance's
 	Refreshes int
 	Revoked   []string
+	// RevokeFails is how many revocations to answer 503 first, as a
+	// vendor's revocation endpoint that is down.
+	RevokeFails int
 }
 
 type code struct {
@@ -220,6 +223,16 @@ func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
 }
 
 func (v *Vendor) revoke(w http.ResponseWriter, r *http.Request) {
+	v.mu.Lock()
+	fail := v.RevokeFails > 0
+	if fail {
+		v.RevokeFails--
+	}
+	v.mu.Unlock()
+	if fail {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	_ = r.ParseForm()
 	t := r.PostForm.Get("token")
 	_, _, _ = v.KV.Delete(r.Context(), kvAccess, t)
