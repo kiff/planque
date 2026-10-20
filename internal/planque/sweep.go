@@ -59,11 +59,13 @@ func (s *Server) markDue(ctx context.Context, g *Grant) {
 // is done with once its deadline passes: a grant that moved on in the
 // meantime is left as it is.
 func (s *Server) Sweep(ctx context.Context) (int, error) {
-	items, err := s.KV.Query(ctx, pkDue, "")
+	// Only what's due: anyone may call the sweep, so a call reads no
+	// further than its work ("~" sorts after any tenant or grant id).
+	now, ended := s.now(), 0
+	items, err := s.KV.QueryTo(ctx, pkDue, dueSK(now, "~", "~"))
 	if err != nil {
 		return 0, err
 	}
-	now, ended := s.now(), 0
 	for _, it := range items {
 		at, tenant, id, ok := parseDue(it.SK)
 		if ok && at.After(now) {
