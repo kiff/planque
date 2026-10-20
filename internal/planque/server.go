@@ -84,7 +84,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)
-	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/describe", s.describe)
+	// Reading what a sign-in covers, before its tools were approved, could
+	// read business data no approval named (kiff/planque#23): it's gone.
+	// Setup asks the owner which mode instead.
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/describe", func(w http.ResponseWriter, _ *http.Request) {
+		writeErr(w, http.StatusGone, "reading what a sign-in covers was removed: nothing is read through a vendor's tools before the owner approves them. Ask the owner which account and mode it is")
+	})
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/tools", s.setTools)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
