@@ -3,9 +3,7 @@ package planque
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -69,6 +67,9 @@ func newEnv(t *testing.T) *env {
 	e.url = ps.URL
 	e.s = e.server()
 	h = e.s.Handler()
+	// The owner's phone is a device KIFF knows, signing with its id (d=), as
+	// the tafs app does: planque takes no other signature (kiff/planque#12).
+	e.phone = e.device("dev_phone")
 	return e
 }
 
@@ -250,9 +251,9 @@ func TestEnrol(t *testing.T) {
 		bytes.Contains(en.Connector, []byte("k_connector")) {
 		t.Fatal("the connector key is stored in the clear")
 	}
-	// Another phone cannot replace the enrolled one.
-	if st, _ := e.do("POST", path, map[string]string{"device_key": other.PublicKey(), "connector_key": "k_connector"}, other, ""); st != 409 {
-		t.Fatalf("second phone: %d, want 409", st)
+	// A phone signing with its key alone can't enrol, even sending it (kiff/planque#12).
+	if st, _ := e.do("POST", path, map[string]string{"device_key": other.PublicKey(), "connector_key": "k_connector"}, other, ""); st != 401 {
+		t.Fatalf("a key-only phone: %d, want 401", st)
 	}
 }
 
@@ -639,14 +640,9 @@ func TestDisconnectAndExport(t *testing.T) {
 	}
 	gv := ex.Grants[0]
 	a := gv.Approval
-	pub, err := x509.ParsePKIXPublicKey(a.DeviceKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig, _ := base64.StdEncoding.DecodeString(a.Signature)
-	sum := sha256.Sum256([]byte(a.Message))
-	if !ecdsa.VerifyASN1(pub.(*ecdsa.PublicKey), sum[:], sig) {
-		t.Fatal("the exported signature does not verify")
+	// Signed by the device it names, whose key KIFF keeps.
+	if a.DeviceID != "dev_phone" || !e.phone.Verifies([]byte(a.Message), a.Signature) {
+		t.Fatal("the exported signature does not verify with the named device's key")
 	}
 	bodySum := sha256.Sum256([]byte(a.Body))
 	if lines := strings.Split(a.Message, "\n"); lines[1] != e.url || lines[5] != fmt.Sprintf("%x", bodySum) {
@@ -661,7 +657,7 @@ func TestDisconnectAndExport(t *testing.T) {
 	for _, ev := range gv.Events {
 		whats = append(whats, ev.What)
 	}
-	for _, want := range []string{"requested by agt_setup", "approved on the enrolled phone", "signed in at", "registered in KIFF", "disconnected on the enrolled phone"} {
+	for _, want := range []string{"requested by agt_setup", "approved on tafs on phone", "signed in at", "registered in KIFF", "disconnected on tafs on phone"} {
 		if !strings.Contains(strings.Join(whats, "\n"), want) {
 			t.Errorf("record lacks %q: %v", want, whats)
 		}
@@ -771,14 +767,14 @@ func TestNarrowedTool(t *testing.T) {
 	}
 }
 
-// Two phones enrolling at once: one is enrolled, the other is refused,
-// never silently replaced.
+// Two devices enrolling at once: one is enrolled, the other is told to try
+// again, never silently replaced.
 func TestEnrolmentRace(t *testing.T) {
 	e := newEnv(t)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	e.s.KV = barrierKV{KV: e.kv, wg: &wg, prefix: skEnrolment}
-	phones := []*fakes.Phone{fakes.NewPhone(), fakes.NewPhone()}
+	phones := []*fakes.Phone{e.device("dev_a"), e.device("dev_b")}
 	statuses := make([]int, 2)
 	var done sync.WaitGroup
 	for i, p := range phones {
@@ -786,7 +782,7 @@ func TestEnrolmentRace(t *testing.T) {
 		go func() {
 			defer done.Done()
 			statuses[i], _ = e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
-				map[string]string{"device_key": p.PublicKey(), "connector_key": "k_connector"}, p, "")
+				map[string]string{"connector_key": "k_connector"}, p, "")
 		}()
 	}
 	done.Wait()
@@ -794,13 +790,8 @@ func TestEnrolmentRace(t *testing.T) {
 		t.Fatalf("statuses %v, want one 201 and one 409", statuses)
 	}
 	var en Enrolment
-	_, _ = getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en)
-	winner := phones[0]
-	if statuses[1] == 201 {
-		winner = phones[1]
-	}
-	if base64.StdEncoding.EncodeToString(en.DeviceKey) != winner.PublicKey() {
-		t.Fatal("the enrolled phone is not the one that was told it enrolled")
+	if _, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en); err != nil || len(en.Connector) == 0 {
+		t.Fatalf("no enrolment after the race: %v", err)
 	}
 }
 
