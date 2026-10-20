@@ -371,8 +371,15 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range req.Tools {
-		if !slices.ContainsFunc(g.Catalog, func(c CatalogTool) bool { return c.Name == req.Tools[i].Tool }) {
+		j := slices.IndexFunc(g.Catalog, func(c CatalogTool) bool { return c.Name == req.Tools[i].Tool })
+		if j < 0 {
 			writeErr(w, http.StatusBadRequest, hostOf(g.Request.Server)+" lists no tool named "+req.Tools[i].Tool)
+			return
+		}
+		// Read-only is the vendor's word, never the asking agent's: the owner
+		// reads "reads only", and KIFF treats it as a read (kiff/agents#139).
+		if req.Tools[i].ReadOnly && !g.Catalog[j].ReadOnly {
+			writeErr(w, http.StatusBadRequest, notReadOnly(g, req.Tools[i].Tool))
 			return
 		}
 		if req.Tools[i].Name == "" {
@@ -739,6 +746,19 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 	writeJSON(w, http.StatusOK, s.view(g))
 }
 
+// readOnlyHint is whether the vendor marks t read-only (MCP's readOnlyHint).
+func readOnlyHint(t mcpTool) bool {
+	var hints struct {
+		ReadOnly bool `json:"readOnlyHint"`
+	}
+	_ = json.Unmarshal(t.Annotations, &hints)
+	return hints.ReadOnly
+}
+
+func notReadOnly(g *Grant, tool string) string {
+	return tool + " isn't read-only at " + hostOf(g.Request.Server) + ": the vendor doesn't mark it so, so it can't be granted as a read"
+}
+
 // list reads the vendor's tools into the grant's catalog, with the token
 // of a confirmed sign-in, and keeps the sign-in: the grant is listed.
 func (s *Server) list(ctx context.Context, g *Grant, access string) error {
@@ -750,12 +770,8 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 	g.VendorName = label(server.Label())
 	g.Catalog = nil
 	for _, t := range listed {
-		var hints struct {
-			ReadOnly bool `json:"readOnlyHint"`
-		}
-		_ = json.Unmarshal(t.Annotations, &hints)
 		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: hints.ReadOnly})
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t)})
 	}
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
@@ -784,6 +800,12 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 			}
 			s.revoke(ctx, g)
 			return s.failGrant(ctx, g, hostOf(g.Request.Server)+" has no tool named "+t.Tool+"; it lists: "+strings.Join(names, ", "))
+		}
+		// A tool asked for as read-only connects only if the vendor marks it
+		// so (kiff/agents#139); the owner approved "reads only".
+		if t.ReadOnly && !readOnlyHint(listed[i]) {
+			s.revoke(ctx, g)
+			return s.failGrant(ctx, g, notReadOnly(g, t.Tool))
 		}
 		gt := GrantedTool{ToolRequest: t, Title: label(listed[i].Label()), Description: listed[i].Description, InputSchema: listed[i].InputSchema}
 		if t.narrowed() {
