@@ -158,3 +158,15 @@ rotated refresh token is kept), disconnecting revokes the token at Stripe
 FSL-1.1-ALv2, like kiff/agents. You can read, run and self-host it; you
 can't offer it as a competing hosted service for two years, after which
 each version becomes Apache 2.0.
+
+## Contributing and project policies
+
+This public repository is source-available under [FSL-1.1-ALv2](LICENSE.md).
+The license contains its future Apache-2.0 grant.
+
+- [Contributing and checks](CONTRIBUTING.md)
+- [Report a security issue privately](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Community conduct](CODE_OF_CONDUCT.md)
+- [Instructions for coding agents](AGENTS.md)
+- [Maintainer and release checklist](docs/maintaining.md)

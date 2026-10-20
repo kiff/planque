@@ -1,0 +1,11 @@
+# Local credentials, review scratch files, and build output
+.env
+.env.local
+.env.*.local
+.tmp-*
+.DS_Store
+/bootstrap
+/planque
+*.test
+coverage.out
+coverage.html
