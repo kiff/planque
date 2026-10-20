@@ -384,6 +384,21 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
 	}
+	// A name another connection of the account already uses would be
+	// refused by KIFF only at connect, after the owner approved
+	// (kiff/tafs#138): said now, to the agent, so it names the tool anew.
+	taken, err := s.namesInUse(r.Context(), tenant, g.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	for _, t := range req.Tools {
+		if host, ok := taken[t.Name]; ok {
+			writeErr(w, http.StatusConflict, "a tool named "+t.Name+" is already connected for this account, at "+host+
+				": give this one another name, or leave name out and planque makes one")
+			return
+		}
+	}
 	g.Request.Tools = req.Tools
 	g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
 	if g.Digest, err = digest(g.Request); err != nil {
@@ -941,6 +956,35 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 		g.ver = it.Ver
 		_, _ = s.expire(ctx, &g)
 		out = append(out, s.view(&g))
+	}
+	return out, nil
+}
+
+// namesInUse are the tool names the account's other grants hold, each with
+// its vendor's host: connected ones' tools as registered in KIFF, and the
+// tools a grant waiting for the owner asks for. A failed or disconnected
+// grant holds none.
+func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[string]string, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.ID == except {
+			continue
+		}
+		switch g.Status {
+		case StatusConnected:
+			for _, t := range g.Tools {
+				out[t.Name] = hostOf(g.Request.Server)
+			}
+		case StatusPending:
+			for _, t := range g.Request.Tools {
+				out[t.Name] = hostOf(g.Request.Server)
+			}
+		}
 	}
 	return out, nil
 }
