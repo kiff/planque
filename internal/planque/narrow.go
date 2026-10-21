@@ -7,6 +7,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/kiff/planque/internal/kiff"
 )
 
 const maxPathParts = 4
@@ -59,7 +61,72 @@ func checkNarrowing(t ToolRequest) string {
 	if t.AmountArg != "" && len(t.Arguments) > 0 && t.Arguments[t.AmountArg].Type != "integer" {
 		return "amount_argument " + t.AmountArg + " must be one of the tool's integer arguments"
 	}
+	if r := t.ResourceArg; r != "" {
+		switch {
+		case !toolName.MatchString(r) || r == t.AmountArg || r == IdempotencyArg:
+			return "resource_argument " + r + " is not a valid name"
+		case len(t.Arguments) > 0 && t.Arguments[r].Type != "string":
+			return "resource_argument " + r + " must be one of the tool's string arguments"
+		}
+	}
 	return ""
+}
+
+// checkLookups says what is wrong with the tools' unit lookups, or "": each
+// names a read of the same request, by its name or its vendor tool, and the
+// read's string argument that takes the resource.
+func checkLookups(tools []ToolRequest) string {
+	for k, t := range tools {
+		l := t.UnitLookup
+		if l == nil {
+			continue
+		}
+		if t.AmountArg == "" || t.AmountUnit == "" || t.ResourceArg == "" {
+			return t.Tool + "'s unit_lookup needs its amount_argument, amount_unit and resource_argument"
+		}
+		i := lookupIndex(tools, l.Tool)
+		if i < 0 || i == k || !tools[i].ReadOnly {
+			return t.Tool + "'s unit_lookup must name a read-only tool of the same request"
+		}
+		read := tools[i]
+		if !toolName.MatchString(l.Argument) || (len(read.Arguments) > 0 && read.Arguments[l.Argument].Type != "string") {
+			return t.Tool + "'s unit_lookup.argument must be one of " + read.Tool + "'s string arguments"
+		}
+		if _, ok := pathParts(l.Path); !ok {
+			return t.Tool + "'s unit_lookup.path must be a dotted path in the read's answer, such as currency"
+		}
+	}
+	return ""
+}
+
+// lookupIndex is the tool a unit lookup names: by its name, else its
+// vendor tool. -1 when none, or the vendor tool is asked for twice.
+func lookupIndex(tools []ToolRequest, name string) int {
+	at := -1
+	for i, t := range tools {
+		if t.Name == name && name != "" {
+			return i
+		}
+		if t.Tool == name {
+			if at >= 0 {
+				return -1
+			}
+			at = i
+		}
+	}
+	return at
+}
+
+// resolveLookups points each unit lookup at its read's name in KIFF, once
+// every tool has one.
+func resolveLookups(tools []ToolRequest) {
+	for i := range tools {
+		if l := tools[i].UnitLookup; l != nil {
+			if j := lookupIndex(tools, l.Tool); j >= 0 {
+				tools[i].UnitLookup = &kiff.UnitLookup{Tool: tools[j].Name, Argument: l.Argument, Path: l.Path}
+			}
+		}
+	}
 }
 
 // narrowed reports whether the agent sees planque's own argument list.

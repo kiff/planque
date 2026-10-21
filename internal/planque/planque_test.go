@@ -1253,3 +1253,50 @@ func TestTheSweepEndsAHeldSignInNobodyReads(t *testing.T) {
 		t.Fatalf("the index kept %d entries", len(items))
 	}
 }
+
+// A money tool names what it acts on and the read that says its currency
+// (kiff/kiff-cloud#1299, kiff/tafs#167): both reach KIFF, the lookup by
+// the read's name in KIFF, so KIFF counts only calls in the Card's currency.
+func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+		"resource_argument": "charge", "unit_lookup": map[string]any{"tool": "retrieve_charge", "argument": "charge", "path": "currency"}}
+	read := map[string]any{"tool": "retrieve_charge", "read_only": true}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{refund, read}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	if st, out := e.approveAndSignIn(out["id"].(string), out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	var refundName, readName string
+	for _, c := range e.kiff.Connections(tenant) {
+		switch c.Tool[:strings.LastIndex(c.Tool, "_")] {
+		case "create_refund":
+			refundName = c.Name
+		case "retrieve_charge":
+			readName = c.Name
+		}
+	}
+	c, ok := e.kiff.Connection(tenant, refundName)
+	if !ok || c.ResourceArg != "charge" || c.UnitLookup == nil || *c.UnitLookup != (kiff.UnitLookup{Tool: readName, Argument: "charge", Path: "currency"}) || readName == "" {
+		t.Fatalf("registered: %+v (read %q)", c.Connection, readName)
+	}
+
+	for name, tools := range map[string][]any{
+		"no unit": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+			"unit_lookup": map[string]any{"tool": "retrieve_charge", "argument": "charge", "path": "currency"}}, read},
+		"not a read": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+			"unit_lookup": map[string]any{"tool": "list_charges", "argument": "charge", "path": "currency"}}, map[string]any{"tool": "list_charges"}},
+		"not in the request": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+			"unit_lookup": map[string]any{"tool": "retrieve_charge", "argument": "charge", "path": "currency"}}},
+		"a bad resource": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "amount"}},
+	} {
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+			"tools": tools}, nil, "k_setup"); st != 400 {
+			t.Errorf("%s: %d %v, want 400", name, st, out)
+		}
+	}
+}

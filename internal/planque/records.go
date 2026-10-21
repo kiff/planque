@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/store"
 )
@@ -37,6 +38,13 @@ type ToolRequest struct {
 	ReadOnly    bool                       `json:"read_only,omitempty"`
 	Fixed       map[string]json.RawMessage `json:"fixed_arguments,omitempty"` // path → value
 	Arguments   map[string]Argument        `json:"arguments,omitempty"`       // name → where it goes
+	// ResourceArg is the string argument saying what a call acts on (a
+	// payment): KIFF's Card can scope on it, and the owner's record names
+	// it (kiff/tafs#167).
+	ResourceArg string `json:"resource_argument,omitempty"`
+	// UnitLookup is the read of this grant that says which currency a call
+	// is in, so KIFF counts only calls in the Card's (kiff/kiff-cloud#1299).
+	UnitLookup *kiff.UnitLookup `json:"unit_lookup,omitempty"`
 }
 
 // Argument is one argument of a narrowed tool.

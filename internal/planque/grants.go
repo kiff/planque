@@ -109,6 +109,7 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			tools[i].Name = toolKey(tools[i].Tool, id)
 		}
 	}
+	resolveLookups(tools)
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
@@ -156,7 +157,7 @@ func checkTools(agent string, tools []ToolRequest) string {
 		}
 		seen[name] = true
 	}
-	return ""
+	return checkLookups(tools)
 }
 
 // grantText is what the owner reads before approving.
@@ -384,6 +385,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
 	}
+	resolveLookups(req.Tools)
 	// A name another connection of the account already uses would be
 	// refused by KIFF only at connect, after the owner approved
 	// (kiff/tafs#138): said now, to the agent, so it names the tool anew.
@@ -845,7 +847,8 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	for _, t := range g.Tools {
 		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
-			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport})
+			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
+			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup})
 		if err != nil {
 			return s.undo(ctx, g, done, "KIFF did not register "+t.Name+": "+err.Error())
 		}
