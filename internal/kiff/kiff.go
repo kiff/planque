@@ -125,6 +125,19 @@ type Connection struct {
 	Mode           string `json:"mode"`
 	Audience       string `json:"audience"`
 	Credential     string `json:"credential"` // the relay's transport credential
+	// ResourceArg names the string argument a call acts on, and UnitLookup
+	// the read that says a call's currency (kiff/kiff-cloud#1299).
+	ResourceArg string      `json:"resource_argument,omitempty"`
+	UnitLookup  *UnitLookup `json:"unit_lookup,omitempty"`
+}
+
+// UnitLookup is the read KIFF's gateway makes before deciding a call: Tool
+// (its name in KIFF), with the call's resource as Argument, and the unit at
+// Path in its answer.
+type UnitLookup struct {
+	Tool     string `json:"tool"`
+	Argument string `json:"argument"`
+	Path     string `json:"path"`
 }
 
 // Connect registers a tool. KIFF lists planque's relay before it accepts.
