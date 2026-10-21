@@ -299,8 +299,20 @@ var vendorTools = []map[string]any{
 	// so a taf can see what to refund before it acts (kiff/tafs#107).
 	{"name": "list_charges", "description": "List charges.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		"annotations": map[string]any{"readOnlyHint": true}},
-	{"name": "retrieve_charge", "description": "Retrieve one charge: its amount, and how much is refunded.", "inputSchema": map[string]any{"type": "object",
-		"properties": map[string]any{"charge": map[string]any{"type": "string"}}, "required": []string{"charge"}},
+	// Checking one thing, shaped like Stripe's: one read tool for every
+	// operation, whose fields aren't in the catalog and aren't named after
+	// the thing (one charge is parameters.id), and a tool that lists them.
+	// A Setup that guesses a field fails here as on the owner's iPad
+	// (kiff/tafs#174).
+	{"name": "stripe_api_read", "description": "Read via any API operation. Use stripe_api_details first to see an operation's parameters.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"}, "parameters": map[string]any{"type": "object"},
+				"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
+			"required": []string{"stripe_api_operation_id"}},
+		"annotations": map[string]any{"readOnlyHint": true}},
+	{"name": "stripe_api_details", "description": "Lists an API operation's parameters: their names, where they go, and which are required.",
+		"inputSchema": map[string]any{"type": "object",
+			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"}}, "required": []string{"stripe_api_operation_id"}},
 		"annotations": map[string]any{"readOnlyHint": true}},
 	// What the sign-in covers, as Stripe's list_available_accounts_or_orgs
 	// says it: read-only, and it takes nothing (kiff/tafs#89).
@@ -309,10 +321,12 @@ var vendorTools = []map[string]any{
 	// A write that takes nothing: never something to describe a sign-in with,
 	// and never a tool a refunds taf needs.
 	{"name": "payout_balance", "description": "Pay out the available balance to the bank account.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-	// Shaped like Stripe's: one tool for every write.
+	// Shaped like Stripe's: one tool for every write. Like the read, it takes
+	// the account it acts in, which Setup pins (kiff/tafs#138, item 58).
 	{"name": "stripe_api_write", "description": "Write via any API operation.", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
-			"parameters": map[string]any{"type": "object"}, "human_confirmation": map[string]any{"type": "object"}},
+			"parameters": map[string]any{"type": "object"}, "human_confirmation": map[string]any{"type": "object"},
+			"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
 		"required": []string{"stripe_api_operation_id"}}},
 }
 
@@ -349,8 +363,15 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		// A read changes nothing, so it isn't one of the vendor's calls.
 		if out, ok := v.read(req.Params.Name, req.Params.Arguments); ok {
+			// A vendor's own _meta key, as Stripe's answers carry one
+			// (kiff/kiff-cloud#1306).
+			meta := map[string]any{"com.example/session": next("sess")}
+			if e, isErr := out.(vendorError); isErr {
+				result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(e)}}, "isError": true, "_meta": meta})
+				return
+			}
 			b, _ := json.Marshal(out)
-			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}})
+			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}, "_meta": meta})
 			return
 		}
 		time.Sleep(v.CallDelay)
@@ -372,8 +393,9 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 }
 
 // read answers the vendor's read-only tools: what the sign-in covers, the
-// charges, and one charge (an unrefunded test charge of 1,000.00, whatever its
-// id, so a taf can check any charge it's asked about).
+// charges, one charge (an unrefunded test charge of 1,000.00, whatever its
+// id, so a taf can check any charge it's asked about), and an operation's
+// parameters. A read the vendor refuses is a vendorError.
 func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
 	switch tool {
 	case "list_accounts":
@@ -382,10 +404,39 @@ func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
 		// Business data, so a test sees it if it's ever read where it mustn't be.
 		return map[string]any{"data": []any{map[string]any{"id": "ch_customer_1", "amount": 4200, "currency": "eur",
 			"billing_details": map[string]any{"email": "customer@example.com"}}}}, true
-	case "retrieve_charge":
-		return map[string]any{"id": args["charge"], "object": "charge", "amount": 100000, "amount_refunded": 0, "currency": "eur", "livemode": false}, true
+	case "stripe_api_read":
+		op, _ := args["stripe_api_operation_id"].(string)
+		params, _ := args["parameters"].(map[string]any)
+		if _, known := operations[op]; !known || op == "PostRefunds" {
+			return vendorError(fmt.Sprintf("Unknown read operation %q. Use stripe_api_details to see an operation's parameters.", op)), true
+		}
+		if id, _ := params["id"].(string); id == "" {
+			return vendorError(fmt.Sprintf("Missing required path parameters: id\n\nUse stripe_api_details with stripe_api_operation_id: %q to see all required and optional parameters.", op)), true
+		}
+		return map[string]any{"id": params["id"], "object": "charge", "amount": 100000, "amount_refunded": 0, "currency": "eur", "livemode": false}, true
+	case "stripe_api_details":
+		op, _ := args["stripe_api_operation_id"].(string)
+		d, ok := operations[op]
+		if !ok {
+			return vendorError(fmt.Sprintf("Unknown operation %q.", op)), true
+		}
+		return d, true
 	}
 	return nil, false
+}
+
+// vendorError is a read the vendor refused: its text, answered with isError.
+type vendorError string
+
+// operations are what stripe_api_details says of each operation: its
+// parameters, all under the tool's parameters argument.
+var operations = map[string]map[string]any{
+	"GetChargesCharge": {"operation_id": "GetChargesCharge", "method": "GET", "path": "/v1/charges/{id}", "summary": "Retrieve a charge",
+		"parameters": []map[string]any{{"name": "id", "in": "path", "required": true, "type": "string", "description": "The charge's id."}}},
+	"PostRefunds": {"operation_id": "PostRefunds", "method": "POST", "path": "/v1/refunds", "summary": "Create a refund",
+		"parameters": []map[string]any{
+			{"name": "charge", "in": "body", "type": "string", "description": "The charge to refund."},
+			{"name": "amount", "in": "body", "type": "integer", "description": "In the charge currency's smallest unit."}}},
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

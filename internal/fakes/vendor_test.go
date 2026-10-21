@@ -105,11 +105,11 @@ func TestVendorReadsAreNotCalls(t *testing.T) {
 		a, _ := tool["annotations"].(map[string]any)
 		readOnly[tool["name"].(string)] = a["readOnlyHint"] == true
 	}
-	for _, name := range []string{"list_accounts", "list_charges", "retrieve_charge"} {
+	for _, name := range []string{"list_accounts", "list_charges", "stripe_api_read", "stripe_api_details"} {
 		if !readOnly[name] {
 			t.Errorf("%s isn't marked read-only", name)
 		}
-		if _, ok := v.read(name, map[string]any{"charge": "ch_1"}); !ok {
+		if _, ok := v.read(name, map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": map[string]any{"id": "ch_1"}}); !ok {
 			t.Errorf("%s isn't answered as a read", name)
 		}
 	}
@@ -121,8 +121,31 @@ func TestVendorReadsAreNotCalls(t *testing.T) {
 			t.Errorf("%s was answered as a read, not recorded as a call", name)
 		}
 	}
-	out, _ := v.read("retrieve_charge", map[string]any{"charge": "ch_e2e_1"})
-	if c := out.(map[string]any); c["id"] != "ch_e2e_1" || c["amount_refunded"] != 0 {
-		t.Fatalf("retrieve_charge = %v", out)
+}
+
+// One charge is read as Stripe reads it (kiff/tafs#174): the operation, and
+// the charge at parameters.id, which stripe_api_details names. A read that
+// names the field after the thing is refused, as Stripe refused it.
+func TestVendorReadsAChargeByTheOperationsOwnField(t *testing.T) {
+	v, _ := NewVendorAt("https://vendor.test")
+	read := func(params map[string]any) any {
+		out, _ := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": params})
+		return out
+	}
+	if c, ok := read(map[string]any{"id": "ch_e2e_1"}).(map[string]any); !ok || c["id"] != "ch_e2e_1" || c["currency"] != "eur" || c["amount_refunded"] != 0 {
+		t.Fatalf("by id: %v", c)
+	}
+	if e, ok := read(map[string]any{"charge": "ch_e2e_1"}).(vendorError); !ok || !strings.Contains(string(e), "Missing required path parameters: id") {
+		t.Fatalf("by charge: %v", e)
+	}
+	d, _ := v.read("stripe_api_details", map[string]any{"stripe_api_operation_id": "GetChargesCharge"})
+	b, _ := json.Marshal(d)
+	if !strings.Contains(string(b), `"name":"id","required":true`) {
+		t.Fatalf("details = %s", b)
+	}
+	if _, ok := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds", "parameters": map[string]any{"id": "x"}}); !ok {
+		t.Fatal("a write operation through the read tool isn't refused as a read")
+	} else if out, _ := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds"}); func() bool { _, isErr := out.(vendorError); return !isErr }() {
+		t.Fatalf("a write operation was read: %v", out)
 	}
 }
