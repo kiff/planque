@@ -137,6 +137,9 @@ func checkTools(agent string, tools []ToolRequest) string {
 		return "tools may name at most 20 of the server's tools"
 	}
 	seen := map[string]bool{}
+	// A title names its tool on the owner's approval and Card: two alike
+	// would read as one (kiff/tafs#138).
+	titled := map[string]string{}
 	for _, t := range tools {
 		name := t.Name
 		if name == "" {
@@ -153,6 +156,11 @@ func checkTools(agent string, tools []ToolRequest) string {
 			return IdempotencyArg + " is planque's own argument"
 		case t.Title != "" && label(t.Title) != t.Title:
 			return "a tool's title is what it does in the owner's words, on one line, at most 100 characters: " + name
+		case t.Title != "" && titled[strings.ToLower(t.Title)] != "":
+			return "tool " + name + " has the same title as " + titled[strings.ToLower(t.Title)] + ": give each tool its own"
+		}
+		if t.Title != "" {
+			titled[strings.ToLower(t.Title)] = name
 		}
 		if msg := checkNarrowing(t); msg != "" {
 			return msg

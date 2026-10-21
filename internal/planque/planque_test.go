@@ -718,6 +718,12 @@ func TestTitledTool(t *testing.T) {
 			"payment_intent": map[string]any{"path": "parameters.payment_intent", "type": "string", "required": true},
 			"amount":         map[string]any{"path": "parameters.amount", "type": "integer", "required": true},
 		}}
+	// Two tools with one title would read as one on the owner's approval and Card.
+	twin := map[string]any{"tool": "list_charges", "title": "refund a payment", "read_only": true}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{refund, twin}}, nil, "k_setup"); st != 400 || !strings.Contains(fmt.Sprint(out), "same title as bxkwf7vi_refund_payment") {
+		t.Fatalf("two tools with one title: %d %v", st, out)
+	}
 	for _, bad := range []string{"Refund\na payment", strings.Repeat("x", 101), " Refund"} {
 		r := maps.Clone(refund)
 		r["title"] = bad
