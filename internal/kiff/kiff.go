@@ -146,6 +146,24 @@ func (c *Client) Connect(ctx context.Context, key string, conn Connection) error
 	return err
 }
 
+// Connections are the names of every tool connected in KIFF's gateway for
+// the key's account, by planque or not.
+func (c *Client) Connections(ctx context.Context, key string) ([]string, error) {
+	var out struct {
+		Connections []struct {
+			Name string `json:"name"`
+		} `json:"connections"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, c.Gateway+"/v1/connections", key, nil, &out); err != nil {
+		return nil, err
+	}
+	names := make([]string, len(out.Connections))
+	for i, conn := range out.Connections {
+		names[i] = conn.Name
+	}
+	return names, nil
+}
+
 // Disconnect removes a tool. A tool already gone is not an error.
 func (c *Client) Disconnect(ctx context.Context, key, name string) error {
 	status, err := c.do(ctx, http.MethodDelete, c.Gateway+"/v1/connections/"+url.PathEscape(name), key, nil, nil)

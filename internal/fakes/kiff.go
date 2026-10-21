@@ -213,11 +213,12 @@ func (k *KIFF) list(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
 		return
 	}
-	var names []string
+	// As the gateway lists them: each connection with its name.
+	var conns []map[string]string
 	for _, c := range k.Connections(me.TenantID) {
-		names = append(names, c.Name)
+		conns = append(conns, map[string]string{"name": c.Name})
 	}
-	writeJSON(w, 200, map[string]any{"connections": names})
+	writeJSON(w, 200, map[string]any{"connections": conns})
 }
 
 func (k *KIFF) remove(w http.ResponseWriter, r *http.Request) {
