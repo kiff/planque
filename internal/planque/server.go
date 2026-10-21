@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 		writeErr(w, http.StatusGone, "reading what a sign-in covers was removed: nothing is read through a vendor's tools before the owner approves them. Ask the owner which account and mode it is")
 	})
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/tools", s.setTools)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/read", s.setupRead)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))

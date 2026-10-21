@@ -705,6 +705,76 @@ func TestRegistrationFailureUndoes(t *testing.T) {
 	}
 }
 
+// Setup names an operation's fields from the vendor, never by guess
+// (kiff/tafs#174): the owner approves, by name, a read-only tool Setup itself
+// may read through planque. Only the asking agent, only that tool, only once
+// connected, only within its narrowing; every read is recorded.
+func TestSetupReads(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	details := map[string]any{"tool": "stripe_api_details", "title": "Look up an operation's fields", "read_only": true, "setup_reads": true}
+	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "read_only": true, "setup_reads": true,
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"},
+		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.id", "type": "string", "required": true}}}
+	grants := "/v1/accounts/" + tenant + "/grants"
+	// Only a read-only tool.
+	if st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{map[string]any{"tool": "create_refund", "setup_reads": true}}}, nil, "k_setup"); st != 400 {
+		t.Fatalf("setup_reads on a write: %d %v", st, out)
+	}
+	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details, read}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	id := out["id"].(string)
+	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields. It only reads, through planque, without KIFF's permit") {
+		t.Fatalf("text:\n%s", text)
+	}
+	at := grants + "/" + id + "/read"
+	if st, _ := e.do("POST", at, map[string]any{"tool": "stripe_api_details", "arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"}}, nil, "k_setup"); st != 409 {
+		t.Fatalf("before approval: %d, want 409", st)
+	}
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	// An unnamed tool is read by the name the grant gave it, as listed.
+	_, g := e.do("GET", grants+"/"+id, nil, nil, "k_setup")
+	detailsName := ""
+	for _, n := range g["tools"].([]any) {
+		if strings.HasPrefix(n.(string), "stripe_api_details") {
+			detailsName = n.(string)
+		}
+	}
+	st, out = e.do("POST", at, map[string]any{"tool": detailsName, "arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"}}, nil, "k_setup")
+	if b, _ := json.Marshal(out); st != 200 || !strings.Contains(string(b), `\"name\":\"id\"`) {
+		t.Fatalf("read: %d %s", st, b)
+	}
+	for name, c := range map[string]struct {
+		key  string
+		body map[string]any
+		want int
+	}{
+		"another agent's key":  {"k_taf", map[string]any{"tool": detailsName}, 403},
+		"a tool not for Setup": {"k_setup", map[string]any{"tool": "list_charges"}, 403},
+		"outside its narrowing": {"k_setup", map[string]any{"tool": "get_charge",
+			"arguments": map[string]any{"charge": "ch_1", "stripe_api_operation_id": "PostRefunds"}}, 400},
+	} {
+		if st, out := e.do("POST", at, c.body, nil, c.key); st != c.want {
+			t.Errorf("%s: %d %v, want %d", name, st, out, c.want)
+		}
+	}
+	if st, out := e.do("POST", at, map[string]any{"tool": "get_charge", "arguments": map[string]any{"charge": "ch_9"}}, nil, "k_setup"); st != 200 {
+		t.Fatalf("the narrowed read: %d %v", st, out)
+	}
+	_, out = e.do("GET", grants+"/"+id, nil, nil, "k_setup")
+	if b, _ := json.Marshal(out["events"]); !strings.Contains(string(b), "Setup read Look up an operation's fields") {
+		t.Fatalf("events: %s", b)
+	}
+	if terms, _ := out["terms"].([]any); len(terms) != 2 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") {
+		t.Fatalf("terms: %v", out["terms"])
+	}
+}
+
 // A tool the asking agent titles is named by that title in the approval,
 // KIFF's Card and the record: never by its name or a grant prefix. Its exact
 // terms are in Details (kiff/tafs#138, items 52, 53).

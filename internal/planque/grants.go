@@ -158,6 +158,8 @@ func checkTools(agent string, tools []ToolRequest) string {
 			return "a tool's title is what it does in the owner's words, on one line, at most 100 characters: " + name
 		case t.Title != "" && titled[strings.ToLower(t.Title)] != "":
 			return "tool " + name + " has the same title as " + titled[strings.ToLower(t.Title)] + ": give each tool its own"
+		case t.SetupReads && !t.ReadOnly:
+			return "setup_reads is only for a read-only tool: " + name
 		}
 		if t.Title != "" {
 			titled[strings.ToLower(t.Title)] = name
@@ -209,6 +211,12 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 		// In words: the exact terms are in Details (requestTerms), signed all the same.
 		fmt.Fprintf(&b, "• %s: %s\n", toolTitle(t, catalog...), how)
 	}
+	for _, t := range q.Tools {
+		if t.SetupReads {
+			// Setup's own reads go through planque, not KIFF: said in so many words.
+			fmt.Fprintf(&b, "\nSetup reads, to set this up: %s. It only reads, through planque, without KIFF's permit; each read is in this connection's record.\n", toolTitle(t, catalog...))
+		}
+	}
 	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
 }
@@ -225,6 +233,9 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 			line += narrowingText(t, catalog...)
 		} else {
 			line += " (" + t.Tool + ")"
+		}
+		if t.SetupReads {
+			line += "; Setup reads it too"
 		}
 		out = append(out, line)
 	}
@@ -1128,4 +1139,77 @@ func ownerEvents(g *Grant) []Event {
 		}
 	}
 	return out
+}
+
+// setupRead is the asking agent reading one of a connected grant's
+// setup_reads tools through planque (kiff/tafs#174): the owner approved
+// that read by name, so Setup can name an operation's fields from the
+// vendor's own list. The tool's narrowing applies as for the taf's calls
+// (vendorArgs), so a narrowed read reads only what it was narrowed to.
+// Nothing else is readable this way, and each read is recorded.
+func (s *Server) setupRead(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var body struct {
+		Tool      string         `json:"tool"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.UseNumber()
+	if dec.Decode(&body) != nil || body.Tool == "" {
+		writeErr(w, http.StatusBadRequest, "the body is {tool, arguments}: a setup_reads tool of this grant, by its name")
+		return
+	}
+	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
+		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read through it")
+		return
+	}
+	if g.Status != StatusConnected {
+		writeErr(w, http.StatusConflict, "this grant is "+g.Status+": only a connected grant's tools, approved by the owner, can be read")
+		return
+	}
+	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == body.Tool })
+	if i < 0 || !g.Tools[i].SetupReads || !g.Tools[i].ReadOnly {
+		writeErr(w, http.StatusForbidden, body.Tool+" isn't a tool the owner approved for Setup to read (setup_reads)")
+		return
+	}
+	tool := g.Tools[i]
+	if body.Arguments == nil {
+		body.Arguments = map[string]any{}
+	}
+	args, err := tool.vendorArgs(body.Arguments)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	access, _, err := s.accessToken(r.Context(), g, 0)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "not read: "+err.Error())
+		return
+	}
+	res, err := s.MCP.CallTool(r.Context(), g.Request.Server, access, tool.Tool, args)
+	g.event(s.now(), "Setup read "+toolTitle(tool.ToolRequest, CatalogTool{Name: tool.Tool, Title: tool.Title}))
+	if serr := s.saveGrant(r.Context(), g); serr != nil {
+		s.fail(w, r, serr)
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, hostOf(g.Request.Server)+" didn't answer the read: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(res)
 }

@@ -35,7 +35,13 @@ type ToolRequest struct {
 	// Title is what the tool does, in the owner's words, as the asking agent
 	// puts it ("Refund a payment"): the approval, KIFF's Card and the record
 	// name the tool by it, never by its name (kiff/tafs#138, items 52, 53).
-	Title       string                     `json:"title,omitempty"`
+	Title string `json:"title,omitempty"`
+	// SetupReads lets the asking agent itself read this tool, through
+	// planque, once the owner approved it: for a vendor's tool that lists an
+	// operation's fields, so Setup names them from the vendor, never by
+	// guess (kiff/tafs#174). Only a read-only tool; the owner's text says
+	// so, and every read is in the grant's record.
+	SetupReads  bool                       `json:"setup_reads,omitempty"`
 	AmountArg   string                     `json:"amount_argument,omitempty"`
 	AmountUnit  string                     `json:"amount_unit,omitempty"`
 	AmountScale *int                       `json:"amount_scale,omitempty"`
