@@ -30,8 +30,12 @@ type Enrolment struct {
 // set, each placed at a path in the vendor's arguments. Arguments sit at
 // the top level, where KIFF's Card can govern them.
 type ToolRequest struct {
-	Tool        string                     `json:"tool"`           // the vendor's tool name
-	Name        string                     `json:"name,omitempty"` // its name in KIFF and at the relay: the Card's action
+	Tool string `json:"tool"`           // the vendor's tool name
+	Name string `json:"name,omitempty"` // its name in KIFF and at the relay: the Card's action
+	// Title is what the tool does, in the owner's words, as the asking agent
+	// puts it ("Refund a payment"): the approval, KIFF's Card and the record
+	// name the tool by it, never by its name (kiff/tafs#138, items 52, 53).
+	Title       string                     `json:"title,omitempty"`
 	AmountArg   string                     `json:"amount_argument,omitempty"`
 	AmountUnit  string                     `json:"amount_unit,omitempty"`
 	AmountScale *int                       `json:"amount_scale,omitempty"`
