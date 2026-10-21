@@ -122,10 +122,13 @@ MCP server writes to any endpoint through `stripe_api_write`. A grant
 narrows it with `fixed_arguments` (sent on every call, never set by the
 agent) and `arguments` (the only ones the agent sets, each placed at a path
 in the vendor's arguments, at the top level where KIFF's Card can govern
-them). The owner reads the narrowing in the text they sign:
+them). A `title` says what the tool does in the owner's words: the approval
+text, KIFF's Card and the record name the tool by it. The exact terms, the
+narrowing included, are in the grant's `terms`, which the app shows under
+Details. The phone signs the whole request either way:
 
 ```json
-{"tool": "stripe_api_write", "name": "stripe_refund", "amount_argument": "amount",
+{"tool": "stripe_api_write", "name": "stripe_refund", "title": "Refund a payment", "amount_argument": "amount",
  "fixed_arguments": {"stripe_api_operation_id": "PostRefunds", "stripe_context": "acct_…", "livemode": false},
  "arguments": {"payment_intent": {"path": "parameters.payment_intent", "type": "string", "required": true},
                "amount": {"path": "parameters.amount", "type": "integer", "required": true}}}

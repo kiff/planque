@@ -151,6 +151,8 @@ func checkTools(agent string, tools []ToolRequest) string {
 			return "a tool that moves an amount is not read-only: " + t.Tool
 		case t.AmountArg == IdempotencyArg:
 			return IdempotencyArg + " is planque's own argument"
+		case t.Title != "" && label(t.Title) != t.Title:
+			return "a tool's title is what it does in the owner's words, on one line, at most 100 characters: " + name
 		}
 		if msg := checkNarrowing(t); msg != "" {
 			return msg
@@ -176,14 +178,13 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Connect your account at %s to the taf %s.\n", hostOf(q.Server), q.Agent)
 	switch {
 	case held && account != "":
-		fmt.Fprintf(&b, "You are already signed in at %s, to the account %s: there is no second sign-in.\n\nThe taf may use:\n", hostOf(q.SignInAt), account)
+		fmt.Fprintf(&b, "You're already signed in, to the account %s: no second sign-in.\n\nThe taf may:\n", account)
 	case held:
-		fmt.Fprintf(&b, "You are already signed in at %s: there is no second sign-in.\n\nThe taf may use:\n", hostOf(q.SignInAt))
+		b.WriteString("You're already signed in: no second sign-in.\n\nThe taf may:\n")
 	default:
-		fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may use:\n", hostOf(q.SignInAt))
+		fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may:\n", hostOf(q.SignInAt))
 	}
 	for _, t := range q.Tools {
 		how := "makes changes, only within the taf's Card"
@@ -197,10 +198,42 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 			// allow or refuse each call, not limit what it changes.
 			how = "can make any change this tool allows; the taf's Card can allow or refuse each call, not limit what it changes"
 		}
-		fmt.Fprintf(&b, "• %s%s: %s\n", t.Name, narrowingText(t, catalog...), how)
+		// In words: the exact terms are in Details (requestTerms), signed all the same.
+		fmt.Fprintf(&b, "• %s: %s\n", toolTitle(t, catalog...), how)
 	}
 	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
+}
+
+// requestTerms are the exact terms of each tool asked for, one line each,
+// for the owner who opens Details: its name, the vendor's tool, what is
+// pinned (with the vendor's words for it) and what the taf sets. What the
+// phone signs is the request itself, these terms included.
+func requestTerms(q Request, catalog ...CatalogTool) []string {
+	out := make([]string, 0, len(q.Tools))
+	for _, t := range q.Tools {
+		line := t.Name
+		if t.narrowed() {
+			line += narrowingText(t, catalog...)
+		} else {
+			line += " (" + t.Tool + ")"
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// toolTitle names a tool for the owner: the title the asking agent gave it,
+// else the vendor's own label, else its vendor tool's name, never the name
+// planque or the agent gave it (a grant prefix the owner can't read).
+func toolTitle(t ToolRequest, catalog ...CatalogTool) string {
+	if t.Title != "" {
+		return t.Title
+	}
+	if i := slices.IndexFunc(catalog, func(c CatalogTool) bool { return c.Name == t.Tool }); i >= 0 && catalog[i].Title != "" {
+		return catalog[i].Title
+	}
+	return t.Tool
 }
 
 // digest is the SHA-256 of the request's canonical JSON: what the phone
@@ -218,9 +251,12 @@ type grantView struct {
 	ID string `json:"id"`
 	// Vendor is the vendor's name for people: what its server calls itself,
 	// else its host. The app shows it as it is.
-	Vendor   string        `json:"vendor"`
-	Status   string        `json:"status"`
-	Text     string        `json:"text"`
+	Vendor string `json:"vendor"`
+	Status string `json:"status"`
+	Text   string `json:"text"`
+	// Terms are each tool's exact terms, for the owner who opens Details:
+	// the text names the tools in words (kiff/tafs#138, item 52).
+	Terms    []string      `json:"terms,omitempty"`
 	Digest   string        `json:"digest"`
 	Request  Request       `json:"request"`
 	Account  string        `json:"account,omitempty"`
@@ -247,7 +283,7 @@ type approvalView struct {
 }
 
 func (s *Server) view(g *Grant) grantView {
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, Text: g.Text, Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
 	for _, t := range g.Tools {
@@ -674,7 +710,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(code))
 	g.Account, g.ConfirmHash, g.ConfirmBy = tok.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
 	g.Status = StatusSignedIn
-	g.event(s.now(), "signed in at "+hostOf(g.Vendor.Issuer)+accountNote(g.Account)+"; waiting for the phone to confirm")
+	g.event(s.now(), "Signed in to "+vendorName(g)+accountNote(g.Account)+"; waiting for the phone to confirm")
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.revoke(r.Context(), g)
 		s.fail(w, r, err)
@@ -822,7 +858,12 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 			s.revoke(ctx, g)
 			return s.failGrant(ctx, g, notReadOnly(g, t.Tool))
 		}
-		gt := GrantedTool{ToolRequest: t, Title: label(listed[i].Label()), Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+		// KIFF's Card and record name it by the asking agent's title, else the vendor's label.
+		title := t.Title
+		if title == "" {
+			title = label(listed[i].Label())
+		}
+		gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
 		if t.narrowed() {
 			gt.InputSchema = t.schema()
 			gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
@@ -843,7 +884,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	if err != nil {
 		return s.undo(ctx, g, nil, "the KIFF connector key could not be opened")
 	}
-	var done []string
+	var done, titles []string
 	for _, t := range g.Tools {
 		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
@@ -853,8 +894,9 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 			return s.undo(ctx, g, done, "KIFF did not register "+t.Name+": "+err.Error())
 		}
 		done = append(done, t.Name)
+		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
 	}
-	g.event(s.now(), "registered in KIFF in relay mode: "+strings.Join(done, ", "))
+	g.event(s.now(), "Connected in KIFF: "+strings.Join(titles, ", "))
 	return s.saveGrant(ctx, g)
 }
 
