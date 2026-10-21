@@ -306,8 +306,9 @@ var vendorTools = []map[string]any{
 	// (kiff/tafs#174).
 	{"name": "stripe_api_read", "description": "Read via any API operation. Use stripe_api_details first to see an operation's parameters.",
 		"inputSchema": map[string]any{"type": "object",
-			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"}, "parameters": map[string]any{"type": "object"}},
-			"required":   []string{"stripe_api_operation_id"}},
+			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"}, "parameters": map[string]any{"type": "object"},
+				"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
+			"required": []string{"stripe_api_operation_id"}},
 		"annotations": map[string]any{"readOnlyHint": true}},
 	{"name": "stripe_api_details", "description": "Lists an API operation's parameters: their names, where they go, and which are required.",
 		"inputSchema": map[string]any{"type": "object",
@@ -320,10 +321,12 @@ var vendorTools = []map[string]any{
 	// A write that takes nothing: never something to describe a sign-in with,
 	// and never a tool a refunds taf needs.
 	{"name": "payout_balance", "description": "Pay out the available balance to the bank account.", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-	// Shaped like Stripe's: one tool for every write.
+	// Shaped like Stripe's: one tool for every write. Like the read, it takes
+	// the account it acts in, which Setup pins (kiff/tafs#138, item 58).
 	{"name": "stripe_api_write", "description": "Write via any API operation.", "inputSchema": map[string]any{"type": "object",
 		"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
-			"parameters": map[string]any{"type": "object"}, "human_confirmation": map[string]any{"type": "object"}},
+			"parameters": map[string]any{"type": "object"}, "human_confirmation": map[string]any{"type": "object"},
+			"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
 		"required": []string{"stripe_api_operation_id"}}},
 }
 
