@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -273,7 +274,7 @@ func TestRequestAndApprove(t *testing.T) {
 	id, digest := e.request()
 	_, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
 	text := out["text"].(string)
-	for _, want := range []string{"taf agt_taf", "create_refund: moves money (amount), only within the taf's Card", "list_charges: reads only", "sign in at 127.0.0.1"} {
+	for _, want := range []string{"create_refund: moves money (amount), only within the taf's Card", "list_charges: reads only", "sign in at 127.0.0.1"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
 		}
@@ -657,7 +658,7 @@ func TestDisconnectAndExport(t *testing.T) {
 	for _, ev := range gv.Events {
 		whats = append(whats, ev.What)
 	}
-	for _, want := range []string{"requested by agt_setup", "approved on tafs on phone", "signed in at", "registered in KIFF", "disconnected on tafs on phone"} {
+	for _, want := range []string{"requested by agt_setup", "approved on tafs on phone", "Signed in to ", "Connected in KIFF: Refund a charge", "disconnected on tafs on phone"} {
 		if !strings.Contains(strings.Join(whats, "\n"), want) {
 			t.Errorf("record lacks %q: %v", want, whats)
 		}
@@ -704,6 +705,57 @@ func TestRegistrationFailureUndoes(t *testing.T) {
 	}
 }
 
+// A tool the asking agent titles is named by that title in the approval,
+// KIFF's Card and the record: never by its name or a grant prefix. Its exact
+// terms are in Details (kiff/tafs#138, items 52, 53).
+func TestTitledTool(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	e.kiff.Cards["k_taf"] = map[string]int64{"bxkwf7vi_refund_payment": 500}
+	refund := map[string]any{"tool": "stripe_api_write", "name": "bxkwf7vi_refund_payment", "title": "Refund a payment", "amount_argument": "amount",
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "PostRefunds"},
+		"arguments": map[string]any{
+			"payment_intent": map[string]any{"path": "parameters.payment_intent", "type": "string", "required": true},
+			"amount":         map[string]any{"path": "parameters.amount", "type": "integer", "required": true},
+		}}
+	for _, bad := range []string{"Refund\na payment", strings.Repeat("x", 101), " Refund"} {
+		r := maps.Clone(refund)
+		r["title"] = bad
+		if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+			"tools": []any{r}}, nil, "k_setup"); st != 400 {
+			t.Fatalf("title %q: %d, want 400", bad, st)
+		}
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{refund}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	text := out["text"].(string)
+	if !strings.Contains(text, "• Refund a payment: moves money (amount), only within the taf's Card") {
+		t.Fatalf("text:\n%s", text)
+	}
+	for _, raw := range []string{"bxkwf7vi", "stripe_api_write", "PostRefunds", "agt_taf"} {
+		if strings.Contains(text, raw) {
+			t.Errorf("text shows %q:\n%s", raw, text)
+		}
+	}
+	if terms, _ := out["terms"].([]any); len(terms) != 1 || !strings.HasPrefix(terms[0].(string), `bxkwf7vi_refund_payment (stripe_api_write with stripe_api_operation_id = "PostRefunds"`) {
+		t.Fatalf("terms: %v", out["terms"])
+	}
+	id, digest := out["id"].(string), out["digest"].(string)
+	if st, out := e.approveAndSignIn(id, digest); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	if c, ok := e.kiff.Connection(tenant, "bxkwf7vi_refund_payment"); !ok || c.Title != "Refund a payment" {
+		t.Fatalf("registered: %+v %v", c.Connection, ok)
+	}
+	_, out = e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+	if b, _ := json.Marshal(out["events"]); !strings.Contains(string(b), "Connected in KIFF: Refund a payment") || strings.Contains(string(b), "bxkwf7vi") {
+		t.Fatalf("events: %s", b)
+	}
+}
+
 // A broad vendor tool narrowed to one operation: KIFF governs the lifted
 // amount, the vendor receives the pinned operation, and the agent can set
 // nothing else.
@@ -723,8 +775,12 @@ func TestNarrowedTool(t *testing.T) {
 	if st != 201 {
 		t.Fatalf("request: %d %v", st, out)
 	}
-	if text := out["text"].(string); !strings.Contains(text, `stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent): moves money (amount)`) {
+	// The text names the tool in words; its exact terms are in Details.
+	if text := out["text"].(string); !strings.Contains(text, "• stripe_api_write: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
 		t.Fatalf("text:\n%s", text)
+	}
+	if terms, _ := out["terms"].([]any); len(terms) != 1 || terms[0] != `stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent)` {
+		t.Fatalf("terms: %v", out["terms"])
 	}
 	id, digest := out["id"].(string), out["digest"].(string)
 	if st, out := e.approveAndSignIn(id, digest); st != 200 {
@@ -1028,7 +1084,7 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatalf("approving a listed grant: %d", st)
 	}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
-	if st != 200 || out["status"] != StatusPending || out["digest"] == digest || !strings.Contains(out["text"].(string), "create_refund") ||
+	if st != 200 || out["status"] != StatusPending || out["digest"] == digest || !strings.Contains(out["text"].(string), "• Refund a charge: moves money") ||
 		!strings.Contains(out["text"].(string), "already signed in") || strings.Contains(out["text"].(string), "You will sign in") ||
 		!strings.Contains(out["text"].(string), "acct_fake123") {
 		t.Fatalf("set tools: %d %v", st, out)
@@ -1163,7 +1219,7 @@ func TestAnAccountThatIsntOneStaysOutOfTheText(t *testing.T) {
 	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	text, _ := out["text"].(string)
-	if st != 200 || !strings.Contains(text, "You are already signed in at ") || !strings.Contains(text, ": there is no second sign-in.") ||
+	if st != 200 || !strings.Contains(text, "You're already signed in: no second sign-in.") ||
 		strings.Contains(text, "acct_1") || strings.Contains(text, "nothing that moves money") {
 		t.Fatalf("set tools: %d %q", st, text)
 	}
