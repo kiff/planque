@@ -107,4 +107,25 @@ func TestRenameTakenPicksAFreeName(t *testing.T) {
 	if tools[0].Name != "read_ab122" || tools[1].Name != "read_ab12_ab12" {
 		t.Fatalf("renamed: %+v", tools)
 	}
+	// Long names stay within 64 characters, and valid, however many numbers
+	// it takes (review on #39): two 60-character names that share their first
+	// 59, and enough taken names to need a two-digit number.
+	a, b := strings.Repeat("x", 59)+"a", strings.Repeat("x", 59)+"b"
+	long := []ToolRequest{{Tool: "a", Name: a}, {Tool: "b", Name: b}}
+	taken := map[string]string{a: "", b: ""}
+	for n := 2; n <= 11; n++ {
+		taken[numberedKey(b, "grt_ab12cd", n)] = ""
+	}
+	renameTaken(long, "grt_ab12cd", taken)
+	if long[0].Name == long[1].Name {
+		t.Fatalf("the same name twice: %s", long[0].Name)
+	}
+	for _, tool := range long {
+		if len(tool.Name) > 64 || checkTools("agt", []ToolRequest{{Tool: "t", Name: tool.Name}}) != "" {
+			t.Fatalf("an invalid name: %s (%d)", tool.Name, len(tool.Name))
+		}
+	}
+	if !strings.HasSuffix(long[1].Name, "12") {
+		t.Fatalf("the second name: %s, want the 12th", long[1].Name)
+	}
 }

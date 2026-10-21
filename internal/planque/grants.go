@@ -94,7 +94,7 @@ func renameTaken(tools []ToolRequest, grant string, taken map[string]string) {
 			if _, ok := taken[fresh]; !ok && !inRequest(fresh) {
 				break
 			}
-			fresh = toolKey(tools[i].Name, grant) + strconv.Itoa(n)
+			fresh = numberedKey(tools[i].Name, grant, n)
 		}
 		renamed[tools[i].Name], tools[i].Name = fresh, fresh
 		taken[fresh] = ""
@@ -108,6 +108,16 @@ func renameTaken(tools []ToolRequest, grant string, taken map[string]string) {
 			}
 		}
 	}
+}
+
+// numberedKey is toolKey with n after it, its stem cut so the whole stays
+// within the 64 characters a name may have, however many digits n takes.
+func numberedKey(name, grant string, n int) string {
+	num := strconv.Itoa(n)
+	if max := 59 - len(num); len(name) > max {
+		name = name[:max]
+	}
+	return toolKey(name, grant) + num
 }
 
 // namesInKIFF are the names of the tools connected in KIFF for the account,
