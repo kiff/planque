@@ -1293,10 +1293,46 @@ func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 		"not in the request": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "retrieve_charge", "argument": "charge", "path": "currency"}}},
 		"a bad resource": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "amount"}},
+		// Two reads of one vendor tool: the lookup must name its read by
+		// name, as Stripe's narrowed reads share stripe_api_read.
+		"a vendor tool asked twice": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+			"unit_lookup": map[string]any{"tool": "retrieve_charge", "argument": "charge", "path": "currency"}},
+			map[string]any{"tool": "retrieve_charge", "name": "get_charge", "read_only": true},
+			map[string]any{"tool": "retrieve_charge", "name": "get_charge_again", "read_only": true}},
 	} {
 		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
 			"tools": tools}, nil, "k_setup"); st != 400 {
 			t.Errorf("%s: %d %v, want 400", name, st, out)
 		}
+	}
+}
+
+// The lookup names its read by name when two reads share a vendor tool.
+func TestUnitLookupByTheReadsName(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+		"resource_argument": "charge", "unit_lookup": map[string]any{"tool": "get_charge", "argument": "charge", "path": "currency"}}
+	reads := []any{map[string]any{"tool": "retrieve_charge", "name": "get_charge", "read_only": true},
+		map[string]any{"tool": "retrieve_charge", "name": "get_charge_again", "read_only": true}}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": append([]any{refund}, reads...)}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	if st, out := e.approveAndSignIn(out["id"].(string), out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	lookups := 0
+	for _, c := range e.kiff.Connections(tenant) {
+		if c.UnitLookup != nil {
+			lookups++
+			if c.UnitLookup.Tool != "get_charge" {
+				t.Fatalf("lookup: %+v", c.UnitLookup)
+			}
+		}
+	}
+	if lookups != 1 {
+		t.Fatalf("lookups = %d, want 1", lookups)
 	}
 }
