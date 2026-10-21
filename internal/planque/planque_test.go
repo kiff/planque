@@ -683,10 +683,11 @@ func (e *env) relayCallRaw(g *Grant) int {
 func TestRegistrationFailureUndoes(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
-	// Another tool already holds the name list_charges in KIFF, so the
-	// second registration is refused after the first one succeeded.
-	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
+	// Another tool takes the name list_charges in KIFF after the request
+	// was made (a name taken before is renamed when the tools are named),
+	// so the second registration is refused after the first one succeeded.
 	id, digest := e.request()
+	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
 	if st, out := e.approveAndSignIn(id, digest); st != 502 {
 		t.Fatalf("confirm: %d %v", st, out)
 	}
@@ -727,7 +728,7 @@ func TestSetupReads(t *testing.T) {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id := out["id"].(string)
-	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields. It only reads, through planque, without KIFF's permit") {
+	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields and stripe_api_read. It only reads them, without KIFF's permit") {
 		t.Fatalf("text:\n%s", text)
 	}
 	at := grants + "/" + id + "/read"
@@ -1340,6 +1341,9 @@ func TestTheOwnerReadsNoPlanque(t *testing.T) {
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34"},
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
 			Tools: []ToolRequest{{Tool: "create_refund", Name: "create_refund_ab12", AmountArg: "amount"}}},
+		// Setup's own reads are said without naming planque either.
+		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
+			Tools: []ToolRequest{{Tool: "stripe_api_details", Name: "fields_ab12", ReadOnly: true, SetupReads: true}}},
 	} {
 		for _, text := range []string{grantText(q), requestText(q, true, "acct_1")} {
 			if strings.Contains(strings.ToLower(text), "planque") || !strings.Contains(text, "sealed vault") {
@@ -1349,6 +1353,21 @@ func TestTheOwnerReadsNoPlanque(t *testing.T) {
 	}
 	if ClientName != "tafs" || pkClient("https://as", "https://cb", "tafs") == pkClient("https://as", "https://cb", "planque") {
 		t.Fatal("the vendor shows tafs, and a new name registers again")
+	}
+}
+
+// Setup's reads are said once, naming each tool (the owner's iPad, 21 Oct:
+// one paragraph per tool read as two separate asks).
+func TestSetupReadsAreSaidOnce(t *testing.T) {
+	q := Request{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
+		Tools: []ToolRequest{
+			{Tool: "stripe_api_details", Name: "fields_ab12", Title: "Look up a request's fields", ReadOnly: true, SetupReads: true},
+			{Tool: "list_available_accounts_or_orgs", Name: "accounts_ab12", Title: "List your accounts", ReadOnly: true, SetupReads: true},
+		}}
+	text := requestText(q, true, "acct_1")
+	if strings.Count(text, "Setup reads") != 1 ||
+		!strings.Contains(text, "Setup reads, to set this up: Look up a request's fields and List your accounts. It only reads them") {
+		t.Fatalf("the owner reads: %s", text)
 	}
 }
 

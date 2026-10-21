@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -51,6 +52,88 @@ func toolKey(tool, grant string) string {
 		tool = tool[:59]
 	}
 	return tool + "_" + string(suffix)
+}
+
+// freeNames gives each of a grant's tools a name nothing else holds, then
+// resolves their unit lookups. A name taken already, by another of the
+// account's connections or by any tool in KIFF, would be refused by KIFF
+// only at connect, after the owner approved and signed in (kiff/tafs#138,
+// the owner's iPad, 21 Oct). A tool's name is KIFF's, not the owner's (they
+// read its title), so planque gives it a free one instead, for any vendor;
+// the asking agent reads the names back from the grant. own are the grant's
+// tools already in KIFF, whose names stay its own. Both ways of naming tools
+// come here: a request with its tools, and tools set after the listing.
+func (s *Server) freeNames(ctx context.Context, tenant, grant string, own []GrantedTool, tools []ToolRequest) error {
+	taken, err := s.namesInUse(ctx, tenant, grant)
+	if err != nil {
+		return err
+	}
+	for _, name := range s.namesInKIFF(ctx, tenant) {
+		if !slices.ContainsFunc(own, func(t GrantedTool) bool { return t.Name == name }) {
+			taken[name] = "KIFF"
+		}
+	}
+	renameTaken(tools, grant, taken)
+	resolveLookups(tools)
+	return nil
+}
+
+// renameTaken gives each tool whose name is taken a free one, made from it
+// and the grant (toolKey), and points the unit lookups that named it there.
+func renameTaken(tools []ToolRequest, grant string, taken map[string]string) {
+	renamed := map[string]string{}
+	inRequest := func(name string) bool {
+		return slices.ContainsFunc(tools, func(t ToolRequest) bool { return t.Name == name })
+	}
+	for i := range tools {
+		if _, ok := taken[tools[i].Name]; !ok {
+			continue
+		}
+		fresh := toolKey(tools[i].Name, grant)
+		for n := 2; ; n++ {
+			if _, ok := taken[fresh]; !ok && !inRequest(fresh) {
+				break
+			}
+			fresh = numberedKey(tools[i].Name, grant, n)
+		}
+		renamed[tools[i].Name], tools[i].Name = fresh, fresh
+		taken[fresh] = ""
+	}
+	for i := range tools {
+		if l := tools[i].UnitLookup; l != nil {
+			if to, ok := renamed[l.Tool]; ok {
+				c := *l
+				c.Tool = to
+				tools[i].UnitLookup = &c
+			}
+		}
+	}
+}
+
+// numberedKey is toolKey with n after it, its stem cut so the whole stays
+// within the 64 characters a name may have, however many digits n takes.
+func numberedKey(name, grant string, n int) string {
+	num := strconv.Itoa(n)
+	if max := 59 - len(num); len(name) > max {
+		name = name[:max]
+	}
+	return toolKey(name, grant) + num
+}
+
+// namesInKIFF are the names of the tools connected in KIFF for the account,
+// whoever connected them. Best effort: without them, only planque's own
+// connections are known, and KIFF still refuses a taken name at connect.
+func (s *Server) namesInKIFF(ctx context.Context, tenant string) []string {
+	key, err := s.connectorKey(ctx, tenant)
+	if err != nil {
+		return nil
+	}
+	names, err := s.KIFF.Connections(ctx, key)
+	if err != nil {
+		s.log().WarnContext(ctx, "KIFF's connected tools couldn't be read", "tenant", tenant, "err", err.Error())
+		return nil
+	}
+	return names
 }
 
 // requestGrant is an agent asking for a vendor account for a taf. It
@@ -109,7 +192,10 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			tools[i].Name = toolKey(tools[i].Tool, id)
 		}
 	}
-	resolveLookups(tools)
+	if err := s.freeNames(r.Context(), tenant, id, nil, tools); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
@@ -211,11 +297,21 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 		// In words: the exact terms are in Details (requestTerms), signed all the same.
 		fmt.Fprintf(&b, "• %s: %s\n", toolTitle(t, catalog...), how)
 	}
+	// Setup's own reads go through this connection, not KIFF: said in so
+	// many words, once for all of them, and never naming planque (#82).
+	var reads []string
 	for _, t := range q.Tools {
 		if t.SetupReads {
-			// Setup's own reads go through planque, not KIFF: said in so many words.
-			fmt.Fprintf(&b, "\nSetup reads, to set this up: %s. It only reads, through planque, without KIFF's permit; each read is in this connection's record.\n", toolTitle(t, catalog...))
+			reads = append(reads, toolTitle(t, catalog...))
 		}
+	}
+	switch len(reads) {
+	case 0:
+	case 1:
+		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s. It only reads it, without KIFF's permit; each read is kept in this connection's record.\n", reads[0])
+	default:
+		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s and %s. It only reads them, without KIFF's permit; each read is kept in this connection's record.\n",
+			strings.Join(reads[:len(reads)-1], ", "), reads[len(reads)-1])
 	}
 	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
@@ -440,21 +536,9 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
 	}
-	resolveLookups(req.Tools)
-	// A name another connection of the account already uses would be
-	// refused by KIFF only at connect, after the owner approved
-	// (kiff/tafs#138): said now, to the agent, so it names the tool anew.
-	taken, err := s.namesInUse(r.Context(), tenant, g.ID)
-	if err != nil {
+	if err := s.freeNames(r.Context(), tenant, g.ID, g.Tools, req.Tools); err != nil {
 		s.fail(w, r, err)
 		return
-	}
-	for _, t := range req.Tools {
-		if host, ok := taken[t.Name]; ok {
-			writeErr(w, http.StatusConflict, "a tool named "+t.Name+" is already connected for this account, at "+host+
-				": give this one another name, or leave name out and planque makes one")
-			return
-		}
 	}
 	g.Request.Tools = req.Tools
 	g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
