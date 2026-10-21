@@ -683,10 +683,11 @@ func (e *env) relayCallRaw(g *Grant) int {
 func TestRegistrationFailureUndoes(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
-	// Another tool already holds the name list_charges in KIFF, so the
-	// second registration is refused after the first one succeeded.
-	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
+	// Another tool takes the name list_charges in KIFF after the request
+	// was made (a name taken before is renamed when the tools are named),
+	// so the second registration is refused after the first one succeeded.
 	id, digest := e.request()
+	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
 	if st, out := e.approveAndSignIn(id, digest); st != 502 {
 		t.Fatalf("confirm: %d %v", st, out)
 	}

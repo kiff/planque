@@ -47,6 +47,27 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 	if st != 200 || names(out)[0] == "read_payment" || !strings.HasPrefix(names(out)[0], "read_payment_") {
 		t.Fatalf("the same name on another connection: %d %v", st, out)
 	}
+	// Approved and on its way to the vendor's sign-in, or signed in: the
+	// first still holds its names, and the second gets another.
+	for _, step := range []string{StatusApproved, StatusSignedIn} {
+		g, err := e.s.loadGrant(context.Background(), tenant, first)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.Status = step
+		if err := e.s.saveGrant(context.Background(), g); err != nil {
+			t.Fatal(err)
+		}
+		if st, out := e.do("POST", at(second), read, nil, "k_setup"); st != 200 || !strings.HasPrefix(names(out)[0], "read_payment_") {
+			t.Fatalf("the name while the first is %s: %d %v", step, st, out)
+		}
+	}
+	// A request that names its tools at once is renamed the same way.
+	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{map[string]any{"tool": "list_charges", "name": "read_payment", "read_only": true}}}, nil, "k_setup")
+	if n := names(out); len(n) != 1 || !strings.HasPrefix(n[0], "read_payment_") {
+		t.Fatalf("a request naming a taken tool: %v", out)
+	}
 	// A tool connected in KIFF outside planque holds its name too, and a
 	// lookup that named the taken tool follows it to its new name.
 	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_stripe_accounts"}, Tenant: tenant})
@@ -69,6 +90,12 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 	}
 	if l := g.Request.Tools[1].UnitLookup; l == nil || l.Tool != got[0] {
 		t.Fatalf("the lookup names %+v, want %s", l, got[0])
+	}
+	// So is a request naming it at once.
+	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{map[string]any{"tool": "list_charges", "name": "list_stripe_accounts", "read_only": true}}}, nil, "k_setup")
+	if n := names(out); len(n) != 1 || !strings.HasPrefix(n[0], "list_stripe_accounts_") {
+		t.Fatalf("a request naming a tool KIFF holds: %v", out)
 	}
 }
 

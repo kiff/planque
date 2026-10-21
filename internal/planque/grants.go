@@ -54,6 +54,30 @@ func toolKey(tool, grant string) string {
 	return tool + "_" + string(suffix)
 }
 
+// freeNames gives each of a grant's tools a name nothing else holds, then
+// resolves their unit lookups. A name taken already, by another of the
+// account's connections or by any tool in KIFF, would be refused by KIFF
+// only at connect, after the owner approved and signed in (kiff/tafs#138,
+// the owner's iPad, 21 Oct). A tool's name is KIFF's, not the owner's (they
+// read its title), so planque gives it a free one instead, for any vendor;
+// the asking agent reads the names back from the grant. own are the grant's
+// tools already in KIFF, whose names stay its own. Both ways of naming tools
+// come here: a request with its tools, and tools set after the listing.
+func (s *Server) freeNames(ctx context.Context, tenant, grant string, own []GrantedTool, tools []ToolRequest) error {
+	taken, err := s.namesInUse(ctx, tenant, grant)
+	if err != nil {
+		return err
+	}
+	for _, name := range s.namesInKIFF(ctx, tenant) {
+		if !slices.ContainsFunc(own, func(t GrantedTool) bool { return t.Name == name }) {
+			taken[name] = "KIFF"
+		}
+	}
+	renameTaken(tools, grant, taken)
+	resolveLookups(tools)
+	return nil
+}
+
 // renameTaken gives each tool whose name is taken a free one, made from it
 // and the grant (toolKey), and points the unit lookups that named it there.
 func renameTaken(tools []ToolRequest, grant string, taken map[string]string) {
@@ -96,7 +120,7 @@ func (s *Server) namesInKIFF(ctx context.Context, tenant string) []string {
 	}
 	names, err := s.KIFF.Connections(ctx, key)
 	if err != nil {
-		s.log().WarnContext(ctx, "KIFF's connected tools couldn't be read", "err", err.Error())
+		s.log().WarnContext(ctx, "KIFF's connected tools couldn't be read", "tenant", tenant, "err", err.Error())
 		return nil
 	}
 	return names
@@ -158,7 +182,10 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			tools[i].Name = toolKey(tools[i].Tool, id)
 		}
 	}
-	resolveLookups(tools)
+	if err := s.freeNames(r.Context(), tenant, id, nil, tools); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
@@ -499,24 +526,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
 	}
-	// A name taken already, by another of the account's connections or by
-	// any tool in KIFF, would be refused by KIFF only at connect, after the
-	// owner approved and signed in (kiff/tafs#138, the owner's iPad, 21 Oct).
-	// A tool's name is KIFF's, not the owner's (they read its title), so
-	// planque gives it a free one instead, for any vendor; the asking agent
-	// reads the names back from the grant.
-	taken, err := s.namesInUse(r.Context(), tenant, g.ID)
-	if err != nil {
+	if err := s.freeNames(r.Context(), tenant, g.ID, g.Tools, req.Tools); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	for _, name := range s.namesInKIFF(r.Context(), tenant) {
-		if !slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name }) {
-			taken[name] = "KIFF"
-		}
-	}
-	renameTaken(req.Tools, g.ID, taken)
-	resolveLookups(req.Tools)
 	g.Request.Tools = req.Tools
 	g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
 	if g.Digest, err = digest(g.Request); err != nil {
