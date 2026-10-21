@@ -20,7 +20,7 @@ func TestAToolNameAnotherConnectionHoldsIsRefusedFirst(t *testing.T) {
 		t.Fatalf("the second connection: %d %v", st, out)
 	}
 	at := func(id string) string { return "/v1/accounts/" + tenant + "/grants/" + id + "/tools" }
-	read := map[string]any{"tools": []any{map[string]any{"tool": "retrieve_charge", "name": "read_payment", "read_only": true}}}
+	read := map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "name": "read_payment", "read_only": true}}}
 	st, out := e.do("POST", at(first), read, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("the first connection's read: %d %v", st, out)
@@ -46,7 +46,7 @@ func TestAToolNameAnotherConnectionHoldsIsRefusedFirst(t *testing.T) {
 			t.Fatalf("the name while the first is %s: %d %v", step, st, out)
 		}
 	}
-	unnamed := map[string]any{"tools": []any{map[string]any{"tool": "retrieve_charge", "read_only": true}}}
+	unnamed := map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}
 	if st, out := e.do("POST", at(second), unnamed, nil, "k_setup"); st != 200 {
 		t.Fatalf("left unnamed: %d %v", st, out)
 	}
