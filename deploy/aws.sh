@@ -164,6 +164,10 @@ up() {
   aws lambda update-function-configuration --function-name "$FN" --environment "$(function_env "$url")" \
     --query FunctionName >/dev/null
   aws lambda wait function-updated-v2 --function-name "$FN"
+  # Its logs are kept 30 days, as KIFF's privacy page and DPA (Annex 4) say
+  # (kiff-cloud#169); a log group has no limit unless it is given one.
+  aws logs create-log-group --log-group-name "/aws/lambda/$FN" >/dev/null 2>&1 || true
+  aws logs put-retention-policy --log-group-name "/aws/lambda/$FN" --retention-in-days 30
   if [[ -z "$FAKE" ]]; then schedule; fi
   echo "$url"
 }
