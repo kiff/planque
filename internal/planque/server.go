@@ -98,7 +98,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/agents/{agent}/grants", s.agentGrants)
-	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signed(s.export))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedFor(capExport, s.export))
+	// Deleting the account (kiff/tafs#185): everything planque keeps for it.
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}", s.eraseAccount)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux
@@ -163,7 +165,19 @@ type signedRequest struct {
 // connector (kiff/planque#10). A signature without d=, from a phone that
 // enrolled its own key before KIFF kept devices, is no longer taken
 // (kiff/planque#12).
-func (s *Server) verifySigned(r *http.Request, tenant string, body []byte, connector func() (string, error)) (Approval, error) {
+// What KIFF is asked a signer may do, as KIFF's own roles say: connect a
+// vendor, or, only for those who may in KIFF too, export or delete the
+// account (kiff/tafs#185, kiff/planque#46).
+const (
+	capConnect = "tools.connect"
+	capExport  = "account.export"
+	capDelete  = "account.delete"
+)
+
+// capWords says what a capability lets the signer do, for a refusal.
+var capWords = map[string]string{capConnect: "connect tools", capExport: "export the account", capDelete: "delete the account"}
+
+func (s *Server) verifySigned(r *http.Request, tenant, capability string, body []byte, connector func() (string, error)) (Approval, error) {
 	sg, err := device.ParseHeader(r.Header.Get(device.Header))
 	if err != nil {
 		return Approval{}, apiError{http.StatusUnauthorized, "this request needs the owner's signature from their device (" + device.Header + ")"}
@@ -185,13 +199,13 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body []byte, conne
 		if err != nil {
 			return Approval{}, err
 		}
-		v, err := s.KIFF.VerifyDevice(r.Context(), key, sg.Device, msg, sg.Signature, "tools.connect")
+		v, err := s.KIFF.VerifyDevice(r.Context(), key, sg.Device, msg, sg.Signature, capability)
 		if err != nil {
 			s.log().ErrorContext(r.Context(), "device check failed", slog.String("tenant", tenant), slog.String("err", err.Error()))
 			return Approval{}, apiError{http.StatusBadGateway, "KIFF could not check the device that signed"}
 		}
 		if !v.Valid {
-			return Approval{}, deviceRefused(v.Reason)
+			return Approval{}, deviceRefused(v.Reason, capability)
 		}
 		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID
 		signer = []byte("kiff-device\n" + v.DeviceID + "\n")
@@ -210,7 +224,7 @@ func (s *Server) verifySigned(r *http.Request, tenant string, body []byte, conne
 }
 
 // deviceRefused says why KIFF didn't vouch for a device's signature.
-func deviceRefused(reason string) apiError {
+func deviceRefused(reason, capability string) apiError {
 	switch reason {
 	case "unknown_device":
 		return apiError{http.StatusUnauthorized, "KIFF doesn't know the device that signed, or it was removed"}
@@ -219,14 +233,19 @@ func deviceRefused(reason string) apiError {
 	case "not_a_member":
 		return apiError{http.StatusForbidden, "the person whose device signed isn't a member of this account"}
 	case "not_allowed":
-		return apiError{http.StatusForbidden, "the person whose device signed can't connect tools on this account"}
+		return apiError{http.StatusForbidden, "the person whose device signed can't " + capWords[capability] + " on this account"}
 	}
 	return apiError{http.StatusUnauthorized, "KIFF didn't vouch for the device that signed"}
 }
 
 // signed admits a request only with the owner's signature: from a device
-// KIFF knows, or from the phone enrolled with its key.
+// KIFF knows, of a person who may connect tools.
 func (s *Server) signed(next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
+	return s.signedFor(capConnect, next)
+}
+
+// signedFor is signed, for a person KIFF says holds capability.
+func (s *Server) signedFor(capability string, next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenant := r.PathValue("tenant")
 		body, err := readBody(r)
@@ -242,7 +261,7 @@ func (s *Server) signed(next func(http.ResponseWriter, *http.Request, signedRequ
 			s.fail(w, r, err)
 			return
 		}
-		a, err := s.verifySigned(r, tenant, body, func() (string, error) { return s.openConnector(r.Context(), e) })
+		a, err := s.verifySigned(r, tenant, capability, body, func() (string, error) { return s.openConnector(r.Context(), e) })
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -297,7 +316,7 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, p)
 		return
 	}
-	a, err := s.verifySigned(r, tenant, body, func() (string, error) { return connector, nil })
+	a, err := s.verifySigned(r, tenant, capConnect, body, func() (string, error) { return connector, nil })
 	if err != nil {
 		s.fail(w, r, err)
 		return
