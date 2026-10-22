@@ -774,6 +774,19 @@ func TestSetupReads(t *testing.T) {
 	if terms, _ := out["terms"].([]any); len(terms) != 2 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") {
 		t.Fatalf("terms: %v", out["terms"])
 	}
+	// A Setup read reaches the vendor too: not while the owner has halted
+	// Setup, or the account (kiff-cloud#1061).
+	reads := e.vendor.CallCount()
+	for _, agent := range []string{"agt_setup", ""} {
+		e.kiff.Halt(tenant, agent, time.Now())
+		if st, out := e.do("POST", at, map[string]any{"tool": "get_charge", "arguments": map[string]any{"charge": "ch_9"}}, nil, "k_setup"); st != 403 || !strings.Contains(out["error"].(string), "the owner halted this agent") {
+			t.Fatalf("a Setup read while %q is halted: %d %v", agent, st, out)
+		}
+		e.kiff.Resume(tenant, agent)
+	}
+	if e.vendor.CallCount() != reads {
+		t.Fatal("a Setup read reached the vendor while halted")
+	}
 }
 
 // A tool the asking agent titles is named by that title in the approval,

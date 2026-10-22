@@ -38,6 +38,8 @@ type KIFF struct {
 	Devices map[string]Device
 
 	mu      sync.Mutex
+	halts   map[string]halt       // tenant/agent ("" the account) → its halt
+	down    bool                  // the halt routes don't answer
 	conns   map[string]Connection // tenant/name → connection
 	appLast map[string]string
 	HTTP    *http.Client
@@ -65,12 +67,79 @@ func NewKIFF() *KIFF {
 	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}}
 }
 
+// halt is an agent's halt, or its account's.
+type halt struct {
+	on bool
+	at time.Time
+}
+
+// Halt halts agent of tenant ("" the account) at at, as the owner does.
+func (k *KIFF) Halt(tenant, agent string, at time.Time) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.halts == nil {
+		k.halts = map[string]halt{}
+	}
+	k.halts[tenant+"/"+agent] = halt{on: true, at: at}
+}
+
+// Resume resumes it, keeping the halt's time.
+func (k *KIFF) Resume(tenant, agent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	h := k.halts[tenant+"/"+agent]
+	h.on = false
+	k.halts[tenant+"/"+agent] = h
+}
+
+// HaltsDown makes the halt routes fail, as KIFF unreachable.
+func (k *KIFF) HaltsDown(down bool) {
+	k.mu.Lock()
+	k.down = down
+	k.mu.Unlock()
+}
+
+// haltHTTP answers as apps/api's GET /v1/agents/{id}/halt and GET /v1/halt,
+// to a key of the account that isn't an agent's: the agent's halt over its
+// account's.
+func (k *KIFF) haltHTTP(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok || me.AgentID != "" {
+		writeJSON(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.down {
+		writeJSON(w, 503, map[string]string{"error": "the halt could not be read"})
+		return
+	}
+	own, all := k.halts[me.TenantID+"/"+r.PathValue("id")], k.halts[me.TenantID+"/"]
+	if r.PathValue("id") == "" {
+		own = halt{}
+	}
+	at := own.at
+	if all.at.After(at) {
+		at = all.at
+	}
+	out := map[string]any{"state": "running", "halted": false}
+	if own.on || all.on {
+		out["state"], out["halted"] = "halted", true
+	}
+	if !at.IsZero() {
+		out["halted_at"] = at
+	}
+	writeJSON(w, 200, out)
+}
+
 // Handler serves the fake's routes.
 func (k *KIFF) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/me", k.me)
 	mux.HandleFunc("POST /v1/devices/verify", k.verifyDevice)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
+	mux.HandleFunc("GET /v1/agents/{id}/halt", k.haltHTTP)
+	mux.HandleFunc("GET /v1/halt", k.haltHTTP)
 	mux.HandleFunc("POST /v1/connections", k.connect)
 	mux.HandleFunc("GET /v1/connections", k.list)
 	mux.HandleFunc("DELETE /v1/connections/{name}", k.remove)
