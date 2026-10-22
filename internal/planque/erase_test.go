@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -25,8 +26,24 @@ func TestDeletingTheAccountErasesEverything(t *testing.T) {
 	if st, _ := e.do("DELETE", acct, nil, nil, "k_setup"); st != 401 {
 		t.Fatalf("an agent deleting the account: %d, want 401", st)
 	}
+	// Nor with an editor's: they connect tools, but only an admin may delete
+	// the account, in KIFF as here (review on #45).
+	editor := e.device("dev_editor")
+	ed := e.kiff.Devices["dev_editor"]
+	ed.Capabilities = []string{"holds.answer", "tools.connect"}
+	e.kiff.Devices["dev_editor"] = ed
+	if st, out := e.do("DELETE", acct, nil, editor, ""); st != 403 || !strings.Contains(out["error"].(string), "can't delete the account") {
+		t.Fatalf("an editor deleting the account: %d %v", st, out)
+	}
+	// Or export it (kiff/planque#46).
+	if st, out := e.do("GET", acct+"/export", nil, editor, ""); st != 403 || !strings.Contains(out["error"].(string), "can't export the account") {
+		t.Fatalf("an editor exporting the account: %d %v", st, out)
+	}
 	if n := len(e.kiff.Connections(tenant)); n != 2 {
 		t.Fatalf("KIFF lists %d tools after a refused delete, want 2", n)
+	}
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("a refused delete revoked the vendor's tokens")
 	}
 
 	st, out := e.do("DELETE", acct, nil, e.phone, "")

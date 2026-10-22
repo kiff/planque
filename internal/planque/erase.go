@@ -14,8 +14,9 @@ import (
 
 // eraseAccount deletes everything planque keeps for the account. Asked
 // again once it's done, there is no enrolment left to check a signature
-// with and nothing kept, so it answers 204; anything else needs the owner's
-// signature.
+// with and nothing kept, so it answers 204; anything else needs the
+// signature of someone KIFF says may delete the account (account.delete,
+// admins only), as KIFF's own deletion does.
 func (s *Server) eraseAccount(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
 	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "")
@@ -27,7 +28,7 @@ func (s *Server) eraseAccount(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	s.signed(s.erase)(w, r)
+	s.signedFor(capDelete, s.erase)(w, r)
 }
 
 // erase disconnects each grant (its tools leave KIFF's gateway, and its
