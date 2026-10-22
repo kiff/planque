@@ -192,6 +192,15 @@ type Grant struct {
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
 	Transport string `json:"transport,omitempty"`
+	// Transports are the SHA-256s of the credentials of tools added to the
+	// grant once connected: each addition registers its tools in KIFF with
+	// a credential of its own, since KIFF keeps the first one's (kiff/tafs#138).
+	Transports []string `json:"transports,omitempty"`
+	// Connected are the tools a connected grant had when the asking agent
+	// added more: set while the addition waits for the owner's approval,
+	// during which those tools keep working. Approved, the grant is
+	// connected with both; not approved within a day, with these alone.
+	Connected []ToolRequest `json:"connected,omitempty"`
 	// ConfirmHash is the SHA-256 of the code the vendor sign-in handed to
 	// the browser that completed it; the approving phone presents it to
 	// confirm, by ConfirmBy.

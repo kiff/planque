@@ -340,6 +340,19 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 
 // toolTitle names a tool for the owner: the title the asking agent gave it,
 // else the vendor's own label, else its vendor tool's name, never the name
+
+// additionText is what the owner reads first when tools are added to a
+// connection the taf already has: what's new, and that what it does today
+// keeps working while they decide.
+func additionText(added []ToolRequest, catalog []CatalogTool) string {
+	names := make([]string, 0, len(added))
+	for _, t := range added {
+		names = append(names, toolTitle(t, catalog...))
+	}
+	return "This adds to a connection the taf already has: " + strings.Join(names, ", ") +
+		". What it does today keeps working while you decide.\n\n"
+}
+
 // planque or the agent gave it (a grant prefix the owner can't read).
 func toolTitle(t ToolRequest, catalog ...CatalogTool) string {
 	if t.Title != "" {
@@ -507,15 +520,33 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
 		return
 	}
-	// Listed, or tools set and not approved yet (the agent may revise them).
-	if !g.SignedIn || len(g.Catalog) == 0 || (g.Status != StatusListed && g.Status != StatusPending) {
-		writeErr(w, http.StatusConflict, "only a listed grant takes its tools; this one is "+g.Status)
+	// Listed, or tools set and not approved yet (the agent may revise them),
+	// or connected: then the tools are added to those it has, so a taf
+	// keeps one connection per vendor, and the owner approves the addition
+	// once, with no second sign-in (kiff/tafs#138, the owner's retest).
+	adding := g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil)
+	if !g.SignedIn || (g.Status != StatusListed && g.Status != StatusPending && g.Status != StatusConnected) {
+		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
-	if len(req.Tools) == 0 {
-		writeErr(w, http.StatusBadRequest, "tools must name 1 to 20 of the catalog's tools")
+	if len(g.Catalog) == 0 {
+		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it has no catalog to choose from; connect first (request with no tools)")
 		return
 	}
+	// What it has: on a connected grant, its tools; while an addition waits,
+	// the tools it had before it (the addition is revised).
+	var has []ToolRequest
+	switch {
+	case g.Status == StatusConnected:
+		has = g.Request.Tools
+	case adding:
+		has = g.Connected
+	}
+	if len(req.Tools) == 0 || len(has)+len(req.Tools) > 20 {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("tools must name 1 to %d of the catalog's tools", 20-len(has)))
+		return
+	}
+
 	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
@@ -535,19 +566,36 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		if req.Tools[i].Name == "" {
 			req.Tools[i].Name = toolKey(req.Tools[i].Tool, g.ID)
 		}
+		if n := req.Tools[i].Name; slices.ContainsFunc(has, func(h ToolRequest) bool { return h.Name == n }) {
+			writeErr(w, http.StatusConflict, "this grant already has "+n+": send only the tools to add; what it has stays as it is")
+			return
+		}
 	}
 	if err := s.freeNames(r.Context(), tenant, g.ID, g.Tools, req.Tools); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	g.Request.Tools = req.Tools
-	g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
+	if !adding {
+		g.Request.Tools = req.Tools
+		g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
+		g.Status, g.Approval = StatusPending, nil
+		g.event(s.now(), "tools set by "+me.AgentID+"; waiting for the owner's approval")
+	} else {
+		if g.Status == StatusConnected {
+			g.Connected = slices.Clone(g.Request.Tools)
+		}
+		g.Request.Tools = append(slices.Clone(g.Connected), req.Tools...)
+		// The owner reads what's added first, then the whole connection, as
+		// it will be: the approval signs all of it. The earlier approval
+		// stays on the grant until this one replaces it.
+		g.Text = additionText(req.Tools, g.Catalog) + requestText(g.Request, true, g.Account, g.Catalog...)
+		g.Status, g.HeldUntil = StatusPending, s.now().Add(holdTTL).UTC()
+		g.event(s.now(), fmt.Sprintf("%d tools added by %s; waiting for the owner's approval; its %d tools keep working meanwhile", len(req.Tools), me.AgentID, len(g.Connected)))
+	}
 	if g.Digest, err = digest(g.Request); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	g.Status, g.Approval = StatusPending, nil
-	g.event(s.now(), "tools set by "+me.AgentID+"; waiting for the owner's approval")
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.fail(w, r, err)
 		return
@@ -564,6 +612,24 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 // as stored, its tokens kept until the vendor confirms revoking them, for
 // the next sweep or read to try again (kiff/planque#23).
 func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
+	if g.Status == StatusPending && g.Connected != nil && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
+		// Tools added to a connected grant and never approved: they go, and
+		// the grant stays connected with what it had. Its sign-in is in use.
+		was := *g
+		g.Request.Tools, g.Connected = g.Connected, nil
+		g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
+		if g.Digest, err = digest(g.Request); err != nil {
+			*g = was
+			return false, err
+		}
+		g.Status, g.HeldUntil = StatusConnected, time.Time{}
+		g.event(s.now(), "the added tools were not approved within a day; what it had stays connected")
+		if err := s.saveGrant(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		return false, nil
+	}
 	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
 	switch {
@@ -666,6 +732,15 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		tok, _, err := s.openToken(r.Context(), g)
 		if err != nil {
 			s.fail(w, r, err)
+			return
+		}
+		if g.Connected != nil {
+			if err := s.addTools(r.Context(), g, tok.Access); err != nil {
+				s.log().WarnContext(r.Context(), "adding tools failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				writeErr(w, http.StatusBadGateway, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, s.view(g))
 			return
 		}
 		if err := s.connect(r.Context(), g, tok.Access); err != nil {
@@ -946,30 +1021,10 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	}
 	g.Tools = nil
 	for _, t := range g.Request.Tools {
-		i := slices.IndexFunc(listed, func(l mcpTool) bool { return l.Name == t.Tool })
-		if i < 0 {
-			names := make([]string, 0, len(listed))
-			for _, l := range listed {
-				names = append(names, l.Name)
-			}
+		gt, why := granted(g, t, listed)
+		if why != "" {
 			s.revoke(ctx, g)
-			return s.failGrant(ctx, g, hostOf(g.Request.Server)+" has no tool named "+t.Tool+"; it lists: "+strings.Join(names, ", "))
-		}
-		// A tool asked for as read-only connects only if the vendor marks it
-		// so (kiff/agents#139); the owner approved "reads only".
-		if t.ReadOnly && !readOnlyHint(listed[i]) {
-			s.revoke(ctx, g)
-			return s.failGrant(ctx, g, notReadOnly(g, t.Tool))
-		}
-		// KIFF's Card and record name it by the asking agent's title, else the vendor's label.
-		title := t.Title
-		if title == "" {
-			title = label(listed[i].Label())
-		}
-		gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
-		if t.narrowed() {
-			gt.InputSchema = t.schema()
-			gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
+			return s.failGrant(ctx, g, why)
 		}
 		g.Tools = append(g.Tools, gt)
 	}
@@ -1000,6 +1055,104 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
 	}
 	g.event(s.now(), "Connected in KIFF: "+strings.Join(titles, ", "))
+	s.setupReads(ctx, key, g)
+	return s.saveGrant(ctx, g)
+}
+
+// granted is t as the vendor lists it, to register in KIFF; why says why it
+// can't be.
+func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
+	i := slices.IndexFunc(listed, func(l mcpTool) bool { return l.Name == t.Tool })
+	if i < 0 {
+		names := make([]string, 0, len(listed))
+		for _, l := range listed {
+			names = append(names, l.Name)
+		}
+		return GrantedTool{}, hostOf(g.Request.Server) + " has no tool named " + t.Tool + "; it lists: " + strings.Join(names, ", ")
+	}
+	// A tool asked for as read-only connects only if the vendor marks it
+	// so (kiff/agents#139); the owner approved "reads only".
+	if t.ReadOnly && !readOnlyHint(listed[i]) {
+		return GrantedTool{}, notReadOnly(g, t.Tool)
+	}
+	// KIFF's Card and record name it by the asking agent's title, else the vendor's label.
+	title := t.Title
+	if title == "" {
+		title = label(listed[i].Label())
+	}
+	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+	if t.narrowed() {
+		gt.InputSchema = t.schema()
+		gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
+	}
+	return gt, ""
+}
+
+// addTools connects the tools added to a connected grant, once the owner
+// approved them: only those are registered in KIFF, with a transport
+// credential of their own, and the tools it had stay as they were. If
+// anything fails, the grant goes back to connected with those alone, and
+// its sign-in stays: an addition never takes a taf's tools away.
+func (s *Server) addTools(ctx context.Context, g *Grant, access string) error {
+	had, hadTools, hadTransports := g.Connected, g.Tools, g.Transports
+	back := func(registered []string, reason string) error {
+		if key, err := s.connectorKey(ctx, g.Tenant); err == nil {
+			for _, name := range registered {
+				_ = s.KIFF.Disconnect(ctx, key, name)
+			}
+		}
+		g.Request.Tools, g.Connected, g.Tools, g.Transports = had, nil, hadTools, hadTransports
+		g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
+		if d, err := digest(g.Request); err == nil {
+			g.Digest = d
+		}
+		g.Status, g.HeldUntil = StatusConnected, time.Time{}
+		g.event(s.now(), "the added tools weren't connected: "+reason+"; what it had stays connected")
+		if err := s.saveGrant(ctx, g); err != nil {
+			return err
+		}
+		return errors.New(reason)
+	}
+	listed, _, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	if err != nil {
+		return back(nil, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+	}
+	var added []GrantedTool
+	for _, t := range g.Request.Tools[len(had):] {
+		gt, why := granted(g, t, listed)
+		if why != "" {
+			return back(nil, why)
+		}
+		added = append(added, gt)
+	}
+	transport := oauth.Random(32)
+	sum := sha256.Sum256([]byte(transport))
+	// As in connect: saved as connected with the new tools and credential
+	// first, so the relay answers KIFF's probe while they're registered.
+	g.Tools = append(slices.Clone(hadTools), added...)
+	g.Transports = append(slices.Clone(hadTransports), hex.EncodeToString(sum[:]))
+	g.Connected, g.Status, g.HeldUntil = nil, StatusConnected, time.Time{}
+	if err := s.saveGrant(ctx, g); err != nil {
+		g.Connected, g.Tools, g.Transports = had, hadTools, hadTransports
+		return err
+	}
+	key, err := s.connectorKey(ctx, g.Tenant)
+	if err != nil {
+		return back(nil, "the KIFF connector key could not be opened")
+	}
+	var done, titles []string
+	for _, t := range added {
+		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
+			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
+			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
+			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup})
+		if err != nil {
+			return back(done, "KIFF did not register "+t.Name+": "+err.Error())
+		}
+		done = append(done, t.Name)
+		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
+	}
+	g.event(s.now(), "Added in KIFF: "+strings.Join(titles, ", "))
 	s.setupReads(ctx, key, g)
 	return s.saveGrant(ctx, g)
 }
@@ -1071,7 +1224,7 @@ func (s *Server) undo(ctx context.Context, g *Grant, registered []string, reason
 		}
 	}
 	s.revoke(ctx, g)
-	g.Transport = ""
+	g.Transport, g.Transports, g.Connected = "", nil, nil
 	return s.failGrant(ctx, g, reason)
 }
 
@@ -1111,7 +1264,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		}
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
-	g.Status, g.Transport = StatusDisconnected, ""
+	g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	if len(problems) > 0 {
 		what += "; " + strings.Join(problems, "; ")
@@ -1171,6 +1324,56 @@ func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[str
 		}
 	}
 	return out, nil
+}
+
+// agentGrants are the grants the asking agent asked for a taf's agent, by
+// its key: so Setup, improving a taf, finds the connection it already has
+// to a vendor and adds to it, instead of asking for another (kiff/tafs#138).
+// Only what Setup needs: no approval, no text.
+func (s *Server) agentGrants(w http.ResponseWriter, r *http.Request) {
+	tenant, agent := r.PathValue("tenant"), r.PathValue("agent")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "GRANT#")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	type tool struct {
+		Name     string `json:"name"`
+		Tool     string `json:"tool"`
+		Title    string `json:"title,omitempty"`
+		ReadOnly bool   `json:"read_only,omitempty"`
+	}
+	type grant struct {
+		ID      string `json:"id"`
+		Vendor  string `json:"vendor"`
+		Server  string `json:"server"`
+		Status  string `json:"status"`
+		Account string `json:"account,omitempty"`
+		Tools   []tool `json:"tools"`
+	}
+	out := []grant{}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.Request.Agent != agent || g.Request.AskedBy != me.AgentID {
+			continue
+		}
+		g.ver = it.Ver
+		_, _ = s.expire(r.Context(), &g)
+		if g.Status == StatusFailed || g.Status == StatusDisconnected {
+			continue
+		}
+		v := grant{ID: g.ID, Vendor: vendorName(&g), Server: g.Request.Server, Status: g.Status, Account: g.Account, Tools: []tool{}}
+		for _, t := range g.Request.Tools {
+			v.Tools = append(v.Tools, tool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grants": out})
 }
 
 // listGrants is every grant and its signed approval, for the owner.

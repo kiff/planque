@@ -51,7 +51,7 @@ func toolResult(text string, isError bool) map[string]any {
 func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 	tenant, id := r.PathValue("tenant"), r.PathValue("id")
 	g, err := s.loadGrant(r.Context(), tenant, id)
-	if errors.Is(err, errNotFound) || (err == nil && g.Status != StatusConnected) {
+	if errors.Is(err, errNotFound) || (err == nil && !g.serves()) {
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 		writeErr(w, http.StatusUnauthorized, "no connected grant here")
 		return
@@ -64,8 +64,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 	// grant. Alone it executes nothing: each call also needs a permit.
 	cred, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	sum := sha256.Sum256([]byte(strings.TrimSpace(cred)))
-	want, _ := hex.DecodeString(g.Transport)
-	if cred == "" || len(want) != len(sum) || subtle.ConstantTimeCompare(sum[:], want) != 1 {
+	if cred == "" || !g.transportIs(sum[:]) {
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 		writeErr(w, http.StatusUnauthorized, "the relay's transport credential is required")
 		return
@@ -276,4 +275,22 @@ func (s *Server) recorded(ctx context.Context, g *Grant, it store.Item, op opera
 	next.Ver, next.Lease = ver+1, 0
 	_ = putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver})
 	return res
+}
+
+// serves says the relay forwards g's calls: connected, or connected with
+// tools added that wait for the owner's approval, while its own keep
+// working. A tool is served only once it is in g.Tools.
+func (g *Grant) serves() bool {
+	return g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil)
+}
+
+// transportIs says sum is the SHA-256 of one of g's transport credentials.
+func (g *Grant) transportIs(sum []byte) bool {
+	for _, h := range append([]string{g.Transport}, g.Transports...) {
+		want, _ := hex.DecodeString(h)
+		if len(want) == len(sum) && subtle.ConstantTimeCompare(sum, want) == 1 {
+			return true
+		}
+	}
+	return false
 }
