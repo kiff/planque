@@ -37,6 +37,11 @@ type KIFF struct {
 	// (kiff-cloud #1267), checked at /v1/devices/verify.
 	Devices map[string]Device
 
+	// SetupReads are the read Cards asked for (kiff/tafs#138), in order;
+	// SetupReadsRefused makes KIFF refuse them.
+	SetupReads        []kiff.SetupReads
+	SetupReadsRefused bool
+
 	mu      sync.Mutex
 	halts   map[string]halt       // tenant/agent ("" the account) → its halt
 	down    bool                  // the halt routes don't answer
@@ -99,6 +104,31 @@ func (k *KIFF) HaltsDown(down bool) {
 	k.mu.Unlock()
 }
 
+// setupReads answers as apps/api's POST /v1/me/setup-reads: a connector key
+// asks for Setup's read Card with the owner's approval, kept here as asked.
+func (k *KIFF) setupReads(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok || !slices.Contains(me.Roles, "connector") {
+		writeJSON(w, 403, map[string]string{"error": "connector_key_required"})
+		return
+	}
+	var req kiff.SetupReads
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if dec.Decode(&req) != nil {
+		writeJSON(w, 400, map[string]string{"error": "bad body"})
+		return
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.SetupReadsRefused {
+		writeJSON(w, 403, map[string]string{"error": "the owner's approval doesn't check"})
+		return
+	}
+	k.SetupReads = append(k.SetupReads, req)
+	writeJSON(w, 201, map[string]string{"id": "setup-reads-" + req.Grant})
+}
+
 // haltHTTP answers as apps/api's GET /v1/agents/{id}/halt and GET /v1/halt,
 // to a key of the account that isn't an agent's: the agent's halt over its
 // account's.
@@ -140,6 +170,7 @@ func (k *KIFF) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/me", k.me)
 	mux.HandleFunc("POST /v1/devices/verify", k.verifyDevice)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
+	mux.HandleFunc("POST /v1/me/setup-reads", k.setupReads)
 	mux.HandleFunc("GET /v1/agents/{id}/halt", k.haltHTTP)
 	mux.HandleFunc("GET /v1/halt", k.haltHTTP)
 	mux.HandleFunc("POST /v1/connections", k.connect)
