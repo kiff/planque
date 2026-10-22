@@ -1514,3 +1514,30 @@ func TestUnitLookupByTheReadsName(t *testing.T) {
 		t.Fatalf("lookups = %d, want 1", lookups)
 	}
 }
+
+// An account's grants are its own (kiff-cloud#1061, gate C case 4): another
+// account's key reads none of them, by the account's path or its own, and
+// changes none. Nothing about the grant leaks in the refusal.
+func TestAnotherAccountCantReachAGrant(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, _ := e.request()
+	at := "/v1/accounts/" + tenant + "/grants/" + id
+	for _, c := range []struct{ method, path string }{
+		{"GET", at}, {"GET", at + "/catalog"}, {"POST", at + "/tools"}, {"DELETE", at},
+		{"GET", "/v1/accounts/" + tenant + "/grants"},
+		{"GET", "/v1/accounts/tnt_other/grants/" + id},
+	} {
+		st, out := e.do(c.method, c.path, map[string]any{"tools": []any{map[string]any{"tool": "list_charges"}}}, nil, "k_other")
+		// 401: the route takes only the owner's device signature.
+		if st != 401 && st != 403 && st != 404 {
+			t.Errorf("another account's %s %s: %d %v", c.method, c.path, st, out)
+		}
+		if b, _ := json.Marshal(out); strings.Contains(string(b), "create_refund") || strings.Contains(string(b), e.vendor.MCPURL()) {
+			t.Errorf("another account's %s %s learned about the grant: %s", c.method, c.path, b)
+		}
+	}
+	if st, out := e.do("GET", at, nil, nil, "k_setup"); st != 200 || out["status"] == "revoked" {
+		t.Fatalf("the grant after another account's attempts: %d %v", st, out)
+	}
+}
