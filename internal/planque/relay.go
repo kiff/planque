@@ -159,6 +159,10 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err != nil {
 		return refused(err.Error())
 	}
+	// The owner's halt, asked of KIFF before anything is sent (kiff-cloud#1061).
+	if why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
+		return refused(why)
+	}
 	var args map[string]any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()

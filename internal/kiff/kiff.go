@@ -217,3 +217,31 @@ func (c *Client) do(ctx context.Context, method, u, key string, in, out any) (in
 	}
 	return resp.StatusCode, nil
 }
+
+// Halt is where an agent, or the whole account, stands in KIFF: halted by
+// its owner or running (kiff-cloud#1061). HaltedAt is the latest halt's
+// start, kept after a resume: a permit issued at or before it was asked
+// before the halt.
+type Halt struct {
+	State    string     `json:"state"`
+	Halted   bool       `json:"halted"`
+	HaltedAt *time.Time `json:"halted_at"`
+}
+
+// HaltOf asks KIFF, with the account's connector key, where agent stands
+// ("" for the account): its own halt and its account's, as one.
+func (c *Client) HaltOf(ctx context.Context, key, agent string) (Halt, error) {
+	u := c.API + "/v1/halt"
+	if agent != "" {
+		u = c.API + "/v1/agents/" + url.PathEscape(agent) + "/halt"
+	}
+	var h Halt
+	status, err := c.do(ctx, http.MethodGet, u, key, nil, &h)
+	if err != nil {
+		return Halt{}, err
+	}
+	if status != http.StatusOK || (h.State != "running" && h.State != "halting" && h.State != "halted") {
+		return Halt{}, fmt.Errorf("KIFF answered %d about the halt", status)
+	}
+	return h, nil
+}

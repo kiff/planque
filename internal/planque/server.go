@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)

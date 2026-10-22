@@ -1271,6 +1271,12 @@ func (s *Server) setupRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tool := g.Tools[i]
+	// A Setup read reaches the vendor too: not while the owner has halted
+	// Setup, or the account (kiff-cloud#1061).
+	if why := s.haltRefusal(r.Context(), tenant, me.AgentID, time.Time{}); why != "" {
+		writeErr(w, http.StatusForbidden, why+". Nothing was sent.")
+		return
+	}
 	if body.Arguments == nil {
 		body.Arguments = map[string]any{}
 	}
