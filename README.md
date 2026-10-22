@@ -77,7 +77,8 @@ It's the same code either way.
 | `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode; for a grant with no tools, the vendor's tools are listed instead (`listed`) |
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
-| `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |
+| `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed (the export, by someone KIFF says may export the account: `account.export`, admins) | every grant with what the owner read and their signature, checkable without planque |
+| `DELETE /v1/accounts/{tenant}` | the phone, signed by someone KIFF says may delete the account (`account.delete`, admins), as KIFF's own deletion requires; tafs cloud forwards it, before KIFF's own deletion | deletes the account (kiff/tafs#185): each grant's tools leave KIFF's gateway, its vendor tokens are revoked where the vendor allows and deleted, and every record goes, the enrolment with the connector key last. Answers what KIFF or a vendor didn't confirm in `problems`. Asked again once nothing is kept, **204** |
 
 A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>,d=<device id>`:
 the device's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA

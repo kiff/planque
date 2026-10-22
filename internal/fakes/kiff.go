@@ -54,7 +54,9 @@ type KIFF struct {
 type Device struct {
 	Tenant, Subject, Platform, Name string
 	Phone                           *Phone
-	// What the person's role allows; "tools.connect" to connect tools.
+	// What the person's role allows: "tools.connect" to connect tools;
+	// "account.export" and "account.delete", an admin's, to export or
+	// delete the account.
 	Capabilities []string
 	Member       bool // an active member of the account
 	Revoked      bool
@@ -224,7 +226,7 @@ func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg, err := base64.StdEncoding.DecodeString(req.Message)
-	if err != nil || len(msg) == 0 || strings.HasPrefix(string(msg), "kiff.") || (req.Capability != "tools.connect" && req.Capability != "holds.answer") {
+	if err != nil || len(msg) == 0 || strings.HasPrefix(string(msg), "kiff.") || !slices.Contains([]string{"tools.connect", "holds.answer", "account.export", "account.delete"}, req.Capability) {
 		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
 		return
 	}

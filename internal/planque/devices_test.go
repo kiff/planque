@@ -20,7 +20,7 @@ func (e *env) device(id string) *fakes.Phone {
 	p := fakes.NewPhone()
 	p.DeviceID = id
 	e.kiff.Devices[id] = fakes.Device{Tenant: tenant, Subject: "owner", Platform: "ios", Name: "tafs on " + strings.TrimPrefix(id, "dev_"), Phone: p, Member: true,
-		Capabilities: []string{"holds.answer", "tools.connect"}}
+		Capabilities: []string{"holds.answer", "tools.connect", "account.export", "account.delete"}}
 	return p
 }
 
