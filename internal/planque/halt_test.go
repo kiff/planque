@@ -18,7 +18,9 @@ func TestAHaltStopsTheRelayAtDispatch(t *testing.T) {
 	e := newEnv(t)
 	g := e.connect()
 	ctx := context.Background()
-	args := func(op string) map[string]any { return map[string]any{"charge": "ch_9", "amount": 100, IdempotencyArg: op} }
+	args := func(op string) map[string]any {
+		return map[string]any{"charge": "ch_9", "amount": 100, IdempotencyArg: op}
+	}
 	mint := func(op string, at time.Time) string {
 		b, _ := json.Marshal(args(op))
 		return e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "create_refund", Sub: "agt_taf", Op: op, Args: b, IssuedAt: at})
