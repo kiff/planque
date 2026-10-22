@@ -352,7 +352,6 @@ func additionText(added []ToolRequest, catalog []CatalogTool) string {
 
 // toolTitle names a tool for the owner: the title the asking agent gave it,
 // else the vendor's own label, else its vendor tool's name, never the name
-
 // planque or the agent gave it (a grant prefix the owner can't read).
 func toolTitle(t ToolRequest, catalog ...CatalogTool) string {
 	if t.Title != "" {
