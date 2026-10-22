@@ -110,6 +110,28 @@ func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string
 	return v, nil
 }
 
+// SetupReads asks KIFF for the Card Setup reads a grant's setup_reads tools
+// on (kiff/tafs#138), with the account's connector key and the owner's
+// signed approval of the grant, which KIFF checks itself. Each read is then
+// a call KIFF decides, and planque's relay sends it only with KIFF's permit.
+type SetupReads struct {
+	Agent    string   `json:"agent"`
+	Grant    string   `json:"grant"`
+	Tools    []string `json:"tools"`
+	Approval struct {
+		DeviceID  string `json:"device_id"`
+		Message   string `json:"message"`   // the exact text the device signed
+		Body      string `json:"body"`      // the approve request's body, whose SHA-256 the message names
+		Signature string `json:"signature"` // base64 DER ECDSA over its SHA-256
+	} `json:"approval"`
+}
+
+// IssueSetupReads asks KIFF for Setup's read Card for req's grant.
+func (c *Client) IssueSetupReads(ctx context.Context, connectorKey string, req SetupReads) error {
+	_, err := c.do(ctx, http.MethodPost, c.API+"/v1/me/setup-reads", connectorKey, req, nil)
+	return err
+}
+
 // Connection is a tool registered in KIFF's gateway, as planque sends it.
 type Connection struct {
 	Name           string `json:"name"`

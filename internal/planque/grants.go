@@ -308,10 +308,10 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 	switch len(reads) {
 	case 0:
 	case 1:
-		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s. It only reads it, without KIFF's permit; each read is kept in this connection's record.\n", reads[0])
+		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s. It only reads it, through KIFF with its own Card, at most %d reads a day; each read has KIFF's permit and is kept in KIFF's record.\n", reads[0], SetupReadsPerDay)
 	default:
-		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s and %s. It only reads them, without KIFF's permit; each read is kept in this connection's record.\n",
-			strings.Join(reads[:len(reads)-1], ", "), reads[len(reads)-1])
+		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s and %s. It only reads them, through KIFF with its own Card, at most %d reads a day; each read has KIFF's permit and is kept in KIFF's record.\n",
+			strings.Join(reads[:len(reads)-1], ", "), reads[len(reads)-1], SetupReadsPerDay)
 	}
 	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
 	return b.String()
@@ -1000,8 +1000,42 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
 	}
 	g.event(s.now(), "Connected in KIFF: "+strings.Join(titles, ", "))
+	s.setupReads(ctx, key, g)
 	return s.saveGrant(ctx, g)
 }
+
+// setupReads asks KIFF for the Card the asking agent (Setup) reads g's
+// setup_reads tools on, with the owner's signed approval of g, which KIFF
+// checks itself (kiff/tafs#138). Its reads then go through KIFF's gateway
+// like any call. Without that Card each read is refused, so a failure is
+// on the grant's record; the connection itself stands.
+func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
+	var tools []string
+	for _, t := range g.Tools {
+		if t.SetupReads && t.ReadOnly {
+			tools = append(tools, t.Name)
+		}
+	}
+	if len(tools) == 0 {
+		return
+	}
+	if g.Approval == nil || g.Approval.DeviceID == "" {
+		g.event(s.now(), "Setup's reads weren't set up in KIFF: no approval from a device KIFF knows")
+		return
+	}
+	req := kiff.SetupReads{Agent: g.Request.AskedBy, Grant: g.ID, Tools: tools}
+	req.Approval.DeviceID, req.Approval.Message, req.Approval.Body, req.Approval.Signature = g.Approval.DeviceID, g.Approval.Message, g.Approval.Body, g.Approval.Signature
+	if err := s.KIFF.IssueSetupReads(ctx, key, req); err != nil {
+		s.log().WarnContext(ctx, "setup reads not issued", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		g.event(s.now(), "Setup's reads weren't set up in KIFF: "+err.Error())
+		return
+	}
+	g.event(s.now(), fmt.Sprintf("Setup reads through KIFF, on its own Card: at most %d reads a day", SetupReadsPerDay))
+}
+
+// SetupReadsPerDay is what KIFF's Card for Setup's reads allows
+// (kiff-cloud SetupReadsPerDay), for the owner's text.
+const SetupReadsPerDay = 50
 
 func accountNote(a string) string {
 	if a == "" {
@@ -1225,81 +1259,12 @@ func ownerEvents(g *Grant) []Event {
 	return out
 }
 
-// setupRead is the asking agent reading one of a connected grant's
-// setup_reads tools through planque (kiff/tafs#174): the owner approved
-// that read by name, so Setup can name an operation's fields from the
-// vendor's own list. The tool's narrowing applies as for the taf's calls
-// (vendorArgs), so a narrowed read reads only what it was narrowed to.
-// Nothing else is readable this way, and each read is recorded.
+// setupRead was the asking agent reading a setup_reads tool through
+// planque itself (kiff/tafs#174), with no permit. Those reads go through
+// KIFF's gateway now, on Setup's own read Card (kiff/tafs#138), so this
+// answers 410.
 func (s *Server) setupRead(w http.ResponseWriter, r *http.Request) {
-	tenant := r.PathValue("tenant")
-	me, err := s.agentKey(r, tenant)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	var body struct {
-		Tool      string         `json:"tool"`
-		Arguments map[string]any `json:"arguments"`
-	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	dec.UseNumber()
-	if dec.Decode(&body) != nil || body.Tool == "" {
-		writeErr(w, http.StatusBadRequest, "the body is {tool, arguments}: a setup_reads tool of this grant, by its name")
-		return
-	}
-	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
-	if errors.Is(err, errNotFound) {
-		writeErr(w, http.StatusNotFound, "no such grant")
-		return
-	}
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
-		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read through it")
-		return
-	}
-	if g.Status != StatusConnected {
-		writeErr(w, http.StatusConflict, "this grant is "+g.Status+": only a connected grant's tools, approved by the owner, can be read")
-		return
-	}
-	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == body.Tool })
-	if i < 0 || !g.Tools[i].SetupReads || !g.Tools[i].ReadOnly {
-		writeErr(w, http.StatusForbidden, body.Tool+" isn't a tool the owner approved for Setup to read (setup_reads)")
-		return
-	}
-	tool := g.Tools[i]
-	// A Setup read reaches the vendor too: not while the owner has halted
-	// Setup, or the account (kiff-cloud#1061).
-	if why := s.haltRefusal(r.Context(), tenant, me.AgentID, time.Time{}); why != "" {
-		writeErr(w, http.StatusForbidden, why+". Nothing was sent.")
-		return
-	}
-	if body.Arguments == nil {
-		body.Arguments = map[string]any{}
-	}
-	args, err := tool.vendorArgs(body.Arguments)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	access, _, err := s.accessToken(r.Context(), g, 0)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "not read: "+err.Error())
-		return
-	}
-	res, err := s.MCP.CallTool(r.Context(), g.Request.Server, access, tool.Tool, args)
-	g.event(s.now(), "Setup read "+toolTitle(tool.ToolRequest, CatalogTool{Name: tool.Tool, Title: tool.Title}))
-	if serr := s.saveGrant(r.Context(), g); serr != nil {
-		s.fail(w, r, serr)
-		return
-	}
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, hostOf(g.Request.Server)+" didn't answer the read: "+err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(res)
+	// Setup's reads go through KIFF's gateway now, decided on its own read
+	// Card, and the relay sends them only with KIFF's permit (kiff/tafs#138).
+	writeErr(w, http.StatusGone, "Setup reads through KIFF's gateway now: call the tool there, by the name the grant lists")
 }

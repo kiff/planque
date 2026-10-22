@@ -708,8 +708,9 @@ func TestRegistrationFailureUndoes(t *testing.T) {
 
 // Setup names an operation's fields from the vendor, never by guess
 // (kiff/tafs#174): the owner approves, by name, a read-only tool Setup itself
-// may read through planque. Only the asking agent, only that tool, only once
-// connected, only within its narrowing; every read is recorded.
+// may read. The read goes through KIFF like any call (kiff/tafs#138): when
+// the grant connects, planque asks KIFF for Setup's own read Card with the
+// owner's signed approval, and planque's own read is gone.
 func TestSetupReads(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
@@ -717,75 +718,75 @@ func TestSetupReads(t *testing.T) {
 	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "read_only": true, "setup_reads": true,
 		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"},
 		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.id", "type": "string", "required": true}}}
+	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount"}
 	grants := "/v1/accounts/" + tenant + "/grants"
 	// Only a read-only tool.
 	if st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
 		"tools": []any{map[string]any{"tool": "create_refund", "setup_reads": true}}}, nil, "k_setup"); st != 400 {
 		t.Fatalf("setup_reads on a write: %d %v", st, out)
 	}
-	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details, read}}, nil, "k_setup")
+	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details, read, refund}}, nil, "k_setup")
 	if st != 201 {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id := out["id"].(string)
-	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields and stripe_api_read. It only reads them, without KIFF's permit") {
+	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields and stripe_api_read. It only reads them, through KIFF with its own Card, at most 50 reads a day; each read has KIFF's permit") ||
+		strings.Contains(text, "without KIFF's permit") {
 		t.Fatalf("text:\n%s", text)
-	}
-	at := grants + "/" + id + "/read"
-	if st, _ := e.do("POST", at, map[string]any{"tool": "stripe_api_details", "arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"}}, nil, "k_setup"); st != 409 {
-		t.Fatalf("before approval: %d, want 409", st)
 	}
 	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 {
 		t.Fatalf("confirm: %d %v", st, out)
 	}
-	// An unnamed tool is read by the name the grant gave it, as listed.
+	// KIFF was asked for Setup's read Card: the asking agent, the two reads
+	// by the names the grant gave them, and the owner's signed approval.
 	_, g := e.do("GET", grants+"/"+id, nil, nil, "k_setup")
-	detailsName := ""
+	var names []string
 	for _, n := range g["tools"].([]any) {
-		if strings.HasPrefix(n.(string), "stripe_api_details") {
-			detailsName = n.(string)
+		if !strings.HasPrefix(n.(string), "create_refund") {
+			names = append(names, n.(string))
 		}
 	}
-	st, out = e.do("POST", at, map[string]any{"tool": detailsName, "arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"}}, nil, "k_setup")
-	if b, _ := json.Marshal(out); st != 200 || !strings.Contains(string(b), `\"name\":\"id\"`) {
-		t.Fatalf("read: %d %s", st, b)
+	if len(e.kiff.SetupReads) != 1 {
+		t.Fatalf("read Cards asked: %+v", e.kiff.SetupReads)
 	}
-	for name, c := range map[string]struct {
-		key  string
-		body map[string]any
-		want int
-	}{
-		"another agent's key":  {"k_taf", map[string]any{"tool": detailsName}, 403},
-		"a tool not for Setup": {"k_setup", map[string]any{"tool": "list_charges"}, 403},
-		"outside its narrowing": {"k_setup", map[string]any{"tool": "get_charge",
-			"arguments": map[string]any{"charge": "ch_1", "stripe_api_operation_id": "PostRefunds"}}, 400},
-	} {
-		if st, out := e.do("POST", at, c.body, nil, c.key); st != c.want {
-			t.Errorf("%s: %d %v, want %d", name, st, out, c.want)
-		}
+	asked := e.kiff.SetupReads[0]
+	if asked.Agent != "agt_setup" || asked.Grant != id || !slices.Equal(asked.Tools, names) || asked.Approval.DeviceID == "" ||
+		!strings.Contains(asked.Approval.Message, "/grants/"+id+"/approve") || !strings.Contains(asked.Approval.Body, "digest") || asked.Approval.Signature == "" {
+		t.Fatalf("the read Card asked for: %+v (tools %v)", asked, names)
 	}
-	if st, out := e.do("POST", at, map[string]any{"tool": "get_charge", "arguments": map[string]any{"charge": "ch_9"}}, nil, "k_setup"); st != 200 {
-		t.Fatalf("the narrowed read: %d %v", st, out)
-	}
-	_, out = e.do("GET", grants+"/"+id, nil, nil, "k_setup")
-	if b, _ := json.Marshal(out["events"]); !strings.Contains(string(b), "Setup read Look up an operation's fields") {
+	if b, _ := json.Marshal(g["events"]); !strings.Contains(string(b), "Setup reads through KIFF, on its own Card: at most 50 reads a day") {
 		t.Fatalf("events: %s", b)
 	}
-	if terms, _ := out["terms"].([]any); len(terms) != 2 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") {
-		t.Fatalf("terms: %v", out["terms"])
+	if terms, _ := g["terms"].([]any); len(terms) != 3 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") {
+		t.Fatalf("terms: %v", g["terms"])
 	}
-	// A Setup read reaches the vendor too: not while the owner has halted
-	// Setup, or the account (kiff-cloud#1061).
-	reads := e.vendor.CallCount()
-	for _, agent := range []string{"agt_setup", ""} {
-		e.kiff.Halt(tenant, agent, time.Now())
-		if st, out := e.do("POST", at, map[string]any{"tool": "get_charge", "arguments": map[string]any{"charge": "ch_9"}}, nil, "k_setup"); st != 403 || !strings.Contains(out["error"].(string), "the owner halted this agent") {
-			t.Fatalf("a Setup read while %q is halted: %d %v", agent, st, out)
-		}
-		e.kiff.Resume(tenant, agent)
+	// planque's own read is gone: nothing reaches the vendor that way.
+	calls := e.vendor.CallCount()
+	if st, out := e.do("POST", grants+"/"+id+"/read", map[string]any{"tool": names[0], "arguments": map[string]any{}}, nil, "k_setup"); st != 410 ||
+		!strings.Contains(out["error"].(string), "through KIFF's gateway") || e.vendor.CallCount() != calls {
+		t.Fatalf("planque's read: %d %v", st, out)
 	}
-	if e.vendor.CallCount() != reads {
-		t.Fatal("a Setup read reached the vendor while halted")
+}
+
+// When KIFF refuses Setup's read Card, the connection still stands, and its
+// record says Setup's reads weren't set up.
+func TestSetupReadsRefusedByKIFF(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	e.kiff.SetupReadsRefused = true
+	details := map[string]any{"tool": "stripe_api_details", "read_only": true, "setup_reads": true}
+	grants := "/v1/accounts/" + tenant + "/grants"
+	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	id := out["id"].(string)
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	_, g := e.do("GET", grants+"/"+id, nil, nil, "k_setup")
+	if b, _ := json.Marshal(g["events"]); g["status"] != "connected" || !strings.Contains(string(b), "Setup's reads weren't set up in KIFF") {
+		t.Fatalf("grant: %v, events: %s", g["status"], b)
 	}
 }
 
