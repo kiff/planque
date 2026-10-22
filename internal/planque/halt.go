@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/kiff/planque/internal/permit"
 )
 
 // The owner's halt (kiff-cloud#1061): before planque sends anything to a
@@ -40,7 +42,8 @@ func (s *Server) haltRefusal(ctx context.Context, tenant, agent string, issued t
 // confirmHalt is KIFF asking planque to confirm a halt: planque reads it back
 // from KIFF the way its dispatch does, and answers seen only if KIFF says the
 // agent (or the account) is halted from at least that time. An account with
-// no enrolment here has nothing planque could send for it.
+// no enrolment here has nothing planque could send for it. Only KIFF asks:
+// the ask is signed with its permit key, for this halt, for 60 seconds.
 func (s *Server) confirmHalt(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
 	var body struct {
@@ -49,6 +52,11 @@ func (s *Server) confirmHalt(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body) != nil || body.HaltedAt.IsZero() {
 		writeErr(w, http.StatusBadRequest, "the body is {agent, halted_at}")
+		return
+	}
+	ask := permit.HaltAsk{Tenant: tenant, Agent: body.Agent, HaltedAt: body.HaltedAt}
+	if s.Permits == nil || s.Permits.VerifyHaltAsk(r.Context(), r.Header.Get(permit.HaltConfirmHeader), ask) != nil {
+		writeErr(w, http.StatusUnauthorized, permit.ErrHaltAsk.Error())
 		return
 	}
 	key, err := s.connectorKey(r.Context(), tenant)

@@ -114,7 +114,9 @@ func (k *KIFF) haltHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 503, map[string]string{"error": "the halt could not be read"})
 		return
 	}
-	own, all := k.halts[me.TenantID+"/"+r.PathValue("id")], k.halts[me.TenantID+"/"]
+	// A trial (agent~trial) is its agent, as in apps/api.
+	agent, _ := strings.CutSuffix(r.PathValue("id"), "~trial")
+	own, all := k.halts[me.TenantID+"/"+agent], k.halts[me.TenantID+"/"]
 	if r.PathValue("id") == "" {
 		own = halt{}
 	}
@@ -364,6 +366,21 @@ type Permit struct {
 	Args                            json.RawMessage
 	IssuedAt                        time.Time
 	Lifetime                        time.Duration
+}
+
+// AskHaltConfirm signs KIFF's ask that planque confirm agent's halt of
+// tenant at at, as apps/api's halts.Planques does; life 0 is 60 seconds.
+func (k *KIFF) AskHaltConfirm(tenant, agent string, at time.Time, life time.Duration) string {
+	if life == 0 {
+		life = 60 * time.Second
+	}
+	now := time.Now()
+	claims := map[string]any{"iss": k.Issuer, "iat": now.Unix(), "exp": now.Add(life).Unix(), "jti": "pmt_" + randHex(8),
+		"tenant": tenant, "agent": agent, "halted_at": at.UTC().Format(time.RFC3339Nano)}
+	h, _ := json.Marshal(map[string]string{"alg": "Ed25519", "typ": "kiff-halt-confirm+jwt", "kid": k.KID})
+	c, _ := json.Marshal(claims)
+	in := b64(h) + "." + b64(c)
+	return in + "." + b64(ed25519.Sign(k.Key, []byte(in)))
 }
 
 // Mint signs a permit as apps/api does (kiff-cloud apps/api/internal/permit).
