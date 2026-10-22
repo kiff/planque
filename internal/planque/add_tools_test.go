@@ -141,6 +141,11 @@ func TestAFailedAdditionKeepsTheTools(t *testing.T) {
 	if g.Status != StatusConnected || len(g.Tools) != 1 || len(g.Request.Tools) != 1 || g.Connected != nil || len(g.Transports) != 0 {
 		t.Fatalf("after a failed addition: %s, tools %d, asked %d, connected %v, transports %v", g.Status, len(g.Tools), len(g.Request.Tools), g.Connected, g.Transports)
 	}
+	// The record keeps the owner's approval of what is connected: its body
+	// names the grant's digest, not the addition's (the owner's export).
+	if g.Approval == nil || !strings.Contains(g.Approval.Body, g.Digest) {
+		t.Fatalf("the approval after a failed addition is of another digest: %+v, grant digest %s", g.Approval, g.Digest)
+	}
 	if d := e.refund(); d != "allowed" {
 		t.Fatalf("a refund after a failed addition: %s", d)
 	}

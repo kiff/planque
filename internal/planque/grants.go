@@ -338,9 +338,6 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 	return out
 }
 
-// toolTitle names a tool for the owner: the title the asking agent gave it,
-// else the vendor's own label, else its vendor tool's name, never the name
-
 // additionText is what the owner reads first when tools are added to a
 // connection the taf already has: what's new, and that what it does today
 // keeps working while they decide.
@@ -352,6 +349,9 @@ func additionText(added []ToolRequest, catalog []CatalogTool) string {
 	return "This adds to a connection the taf already has: " + strings.Join(names, ", ") +
 		". What it does today keeps working while you decide.\n\n"
 }
+
+// toolTitle names a tool for the owner: the title the asking agent gave it,
+// else the vendor's own label, else its vendor tool's name, never the name
 
 // planque or the agent gave it (a grant prefix the owner can't read).
 func toolTitle(t ToolRequest, catalog ...CatalogTool) string {
@@ -727,15 +727,15 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		// Tools set on a grant whose sign-in is held: approving them
 		// connects at once, with no second sign-in.
 		a := sr.approval
-		g.Approval = &a
-		g.event(s.now(), "tools approved "+a.Who())
 		tok, _, err := s.openToken(r.Context(), g)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
 		if g.Connected != nil {
-			if err := s.addTools(r.Context(), g, tok.Access); err != nil {
+			// The approval of the addition replaces the grant's only once it
+			// connects: a failed one leaves the approval of what stays.
+			if err := s.addTools(r.Context(), g, tok.Access, a); err != nil {
 				s.log().WarnContext(r.Context(), "adding tools failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 				writeErr(w, http.StatusBadGateway, err.Error())
 				return
@@ -743,6 +743,8 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 			writeJSON(w, http.StatusOK, s.view(g))
 			return
 		}
+		g.Approval = &a
+		g.event(s.now(), "tools approved "+a.Who())
 		if err := s.connect(r.Context(), g, tok.Access); err != nil {
 			s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 			writeErr(w, http.StatusBadGateway, g.Reason)
@@ -1093,15 +1095,17 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 // credential of their own, and the tools it had stay as they were. If
 // anything fails, the grant goes back to connected with those alone, and
 // its sign-in stays: an addition never takes a taf's tools away.
-func (s *Server) addTools(ctx context.Context, g *Grant, access string) error {
-	had, hadTools, hadTransports := g.Connected, g.Tools, g.Transports
+func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approval) error {
+	had, hadTools, hadTransports, hadApproval := g.Connected, g.Tools, g.Transports, g.Approval
+	g.Approval = &a
+	g.event(s.now(), "added tools approved "+a.Who())
 	back := func(registered []string, reason string) error {
 		if key, err := s.connectorKey(ctx, g.Tenant); err == nil {
 			for _, name := range registered {
 				_ = s.KIFF.Disconnect(ctx, key, name)
 			}
 		}
-		g.Request.Tools, g.Connected, g.Tools, g.Transports = had, nil, hadTools, hadTransports
+		g.Request.Tools, g.Connected, g.Tools, g.Transports, g.Approval = had, nil, hadTools, hadTransports, hadApproval
 		g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
 		if d, err := digest(g.Request); err == nil {
 			g.Digest = d
@@ -1133,7 +1137,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string) error {
 	g.Transports = append(slices.Clone(hadTransports), hex.EncodeToString(sum[:]))
 	g.Connected, g.Status, g.HeldUntil = nil, StatusConnected, time.Time{}
 	if err := s.saveGrant(ctx, g); err != nil {
-		g.Connected, g.Tools, g.Transports = had, hadTools, hadTransports
+		g.Connected, g.Tools, g.Transports, g.Approval = had, hadTools, hadTransports, hadApproval
 		return err
 	}
 	key, err := s.connectorKey(ctx, g.Tenant)
