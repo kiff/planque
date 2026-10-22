@@ -98,6 +98,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signed(s.export))
+	// Deleting the account (kiff/tafs#185): everything planque keeps for it.
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}", s.eraseAccount)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux

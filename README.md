@@ -78,6 +78,7 @@ It's the same code either way.
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
 | `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed | every grant with what the owner read and their signature, checkable without planque |
+| `DELETE /v1/accounts/{tenant}` | the phone, signed (tafs cloud forwards it, before KIFF's own deletion) | deletes the account (kiff/tafs#185): each grant's tools leave KIFF's gateway, its vendor tokens are revoked where the vendor allows and deleted, and every record goes, the enrolment with the connector key last. Answers what KIFF or a vendor didn't confirm in `problems`. Asked again once nothing is kept, **204** |
 
 A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>,d=<device id>`:
 the device's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
