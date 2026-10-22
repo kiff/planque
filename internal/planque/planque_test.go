@@ -1201,7 +1201,7 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatalf("a refund inside the Card: %+v %v, vendor calls %d", res, err, e.vendor.CallCount())
 	}
 	if st, _ := e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup"); st != 409 {
-		t.Fatalf("setting tools on a connected grant: %d", st)
+		t.Fatalf("adding a tool the connected grant has: %d", st)
 	}
 }
 
