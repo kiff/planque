@@ -62,6 +62,15 @@ func (t Tool) Label() string {
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	// HTTPStatus is the HTTP status it came with, when the server refused the
+	// request at the transport (4xx); 0 for an error in a 2xx answer.
+	HTTPStatus int `json:"-"`
+}
+
+// forgotten says the server no longer knows the session: HTTP 404, as MCP
+// says, whatever body it came with.
+func (e *RPCError) forgotten() bool {
+	return e.HTTPStatus == http.StatusNotFound || e.Code == -http.StatusNotFound
 }
 
 func (e *RPCError) Error() string { return fmt.Sprintf("mcp error %d: %s", e.Code, e.Message) }
@@ -156,10 +165,14 @@ func (c *Client) CallTool(ctx context.Context, url, token, name string, args jso
 		case err == nil:
 			c.keep(s)
 			return raw, nil
-		case reused && attempt == 0 && errors.As(err, &rpc) && rpc.Code == -http.StatusNotFound:
-			// The server forgot the session: nothing ran. Once more, on a new one.
+		case errors.As(err, &rpc) && rpc.forgotten():
+			// The server doesn't know the session: nothing ran, and it's never kept.
+			// Once more on a new one, if this one was reused.
 			c.forget(s)
-			continue
+			if reused && attempt == 0 {
+				continue
+			}
+			return nil, err
 		case errors.Is(err, ErrUnauthorized):
 			c.forget(s)
 			return nil, err
@@ -358,6 +371,7 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		var m message
 		if json.Unmarshal(b, &m) == nil && m.Error != nil {
+			m.Error.HTTPStatus = resp.StatusCode
 			*into = m
 			return nil
 		}
@@ -365,7 +379,7 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 		if len(msg) > 300 {
 			msg = msg[:300] + "…"
 		}
-		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg)}
+		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg), HTTPStatus: resp.StatusCode}
 	}
 	m, err := readMessage(resp, string(want))
 	if err != nil {

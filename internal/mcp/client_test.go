@@ -53,6 +53,8 @@ type sessionServer struct {
 	opened int
 	live   map[string]bool
 	calls  []string // session of each call
+	// rpc404 answers an unknown session with HTTP 404 and a JSON-RPC error body.
+	rpc404 bool
 }
 
 func (v *sessionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +80,12 @@ func (v *sessionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		sid := r.Header.Get("Mcp-Session-Id")
 		if !v.live[sid] {
+			if v.rpc404 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32001, "message": "Session not found"}})
+				return
+			}
 			http.Error(w, "unknown session", http.StatusNotFound)
 			return
 		}
@@ -127,6 +135,31 @@ func TestAForgottenSessionIsOpenedAgain(t *testing.T) {
 	}
 	if v.opened != 2 || strings.Join(v.calls, ",") != "s1,s2" {
 		t.Fatalf("want the call once, on a new session: opened %d, calls %v", v.opened, v.calls)
+	}
+}
+
+// A server that answers an unknown session with HTTP 404 and a JSON-RPC
+// error body forgot it all the same: the call goes once more on a new
+// session, and the dead one is never kept.
+func TestAForgottenSessionWithAnRPCBodyIsOpenedAgain(t *testing.T) {
+	v := &sessionServer{rpc404: true}
+	srv := httptest.NewServer(v)
+	defer srv.Close()
+	c := &Client{}
+	if _, err := c.CallTool(t.Context(), srv.URL, "tok", "get_charge", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	v.mu.Lock()
+	v.live = map[string]bool{}
+	v.mu.Unlock()
+	if _, err := c.CallTool(t.Context(), srv.URL, "tok", "create_refund", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CallTool(t.Context(), srv.URL, "tok", "get_charge", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if v.opened != 2 || strings.Join(v.calls, ",") != "s1,s2,s2" {
+		t.Fatalf("want the call once on a new session, then that one kept: opened %d, calls %v", v.opened, v.calls)
 	}
 }
 
