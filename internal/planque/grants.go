@@ -1334,7 +1334,21 @@ func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[str
 // to a vendor and adds to it, instead of asking for another (kiff/tafs#138).
 // Only what Setup needs: no approval, no text.
 func (s *Server) agentGrants(w http.ResponseWriter, r *http.Request) {
-	tenant, agent := r.PathValue("tenant"), r.PathValue("agent")
+	s.askedGrants(w, r, r.PathValue("agent"))
+}
+
+// everyAskedGrant is every grant the asking agent asked for, for any taf's
+// agent, each naming its agent: so Setup that lost a taf's agent id finds its
+// own connection again instead of asking the owner to connect once more
+// (kiff/planque#49).
+func (s *Server) everyAskedGrant(w http.ResponseWriter, r *http.Request) {
+	s.askedGrants(w, r, "")
+}
+
+// askedGrants lists the grants the asking agent asked for: for agent, or for
+// any agent when it is empty.
+func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent string) {
+	tenant := r.PathValue("tenant")
 	me, err := s.agentKey(r, tenant)
 	if err != nil {
 		s.fail(w, r, err)
@@ -1353,16 +1367,18 @@ func (s *Server) agentGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	type grant struct {
 		ID      string `json:"id"`
+		Agent   string `json:"agent"`
 		Vendor  string `json:"vendor"`
 		Server  string `json:"server"`
 		Status  string `json:"status"`
 		Account string `json:"account,omitempty"`
+		Created string `json:"created,omitempty"`
 		Tools   []tool `json:"tools"`
 	}
 	out := []grant{}
 	for _, it := range items {
 		var g Grant
-		if json.Unmarshal(it.Doc, &g) != nil || g.Request.Agent != agent || g.Request.AskedBy != me.AgentID {
+		if json.Unmarshal(it.Doc, &g) != nil || (agent != "" && g.Request.Agent != agent) || g.Request.AskedBy != me.AgentID {
 			continue
 		}
 		g.ver = it.Ver
@@ -1370,7 +1386,8 @@ func (s *Server) agentGrants(w http.ResponseWriter, r *http.Request) {
 		if g.Status == StatusFailed || g.Status == StatusDisconnected {
 			continue
 		}
-		v := grant{ID: g.ID, Vendor: vendorName(&g), Server: g.Request.Server, Status: g.Status, Account: g.Account, Tools: []tool{}}
+		v := grant{ID: g.ID, Agent: g.Request.Agent, Vendor: vendorName(&g), Server: g.Request.Server, Status: g.Status, Account: g.Account,
+			Created: g.Request.CreatedAt, Tools: []tool{}}
 		for _, t := range g.Request.Tools {
 			v.Tools = append(v.Tools, tool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
 		}
