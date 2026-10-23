@@ -172,3 +172,25 @@ func TestSetupFindsTheTafsConnections(t *testing.T) {
 		t.Fatalf("another account's key: %d", st)
 	}
 }
+
+// Setup that lost a taf's agent id finds the connections it asked for, each
+// with its agent, and none another agent asked for (kiff/planque#49).
+func TestSetupFindsItsConnectionsWithoutTheTafsAgent(t *testing.T) {
+	e := newEnv(t)
+	id := e.connectedRefunds()
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, "k_setup")
+	gs, _ := out["grants"].([]any)
+	if st != 200 || len(gs) != 1 {
+		t.Fatalf("Setup's list: %d %v", st, out)
+	}
+	g := gs[0].(map[string]any)
+	if g["id"] != id || g["agent"] != "agt_taf" || g["status"] != StatusConnected || g["created"] == "" || g["text"] != nil || g["approval"] != nil {
+		t.Fatalf("the grant as Setup reads it: %v", g)
+	}
+	if _, out := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, "k_taf"); len(out["grants"].([]any)) != 0 {
+		t.Fatalf("another agent's list: %v", out)
+	}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, "k_other"); st != 403 {
+		t.Fatalf("another account's key: %d", st)
+	}
+}
