@@ -7,12 +7,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Version is the protocol revision planque asks for and serves.
@@ -58,6 +62,15 @@ func (t Tool) Label() string {
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	// HTTPStatus is the HTTP status it came with, when the server refused the
+	// request at the transport (4xx); 0 for an error in a 2xx answer.
+	HTTPStatus int `json:"-"`
+}
+
+// forgotten says the server no longer knows the session: HTTP 404, as MCP
+// says, whatever body it came with.
+func (e *RPCError) forgotten() bool {
+	return e.HTTPStatus == http.StatusNotFound || e.Code == -http.StatusNotFound
 }
 
 func (e *RPCError) Error() string { return fmt.Sprintf("mcp error %d: %s", e.Code, e.Message) }
@@ -76,11 +89,26 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Err.Error() }
 func (e *CallError) Unwrap() error { return e.Err }
 
-// Client calls a vendor's MCP server.
+// Client calls a vendor's MCP server. Its calls reuse one session per
+// server and sign-in while it's warm (kiff/planque#47): opening one is two
+// round trips (initialize, initialized) before every call otherwise.
 type Client struct {
 	HTTP *http.Client
 	Name string // clientInfo.name
+	// Idle is how long an unused session is kept; SessionIdle when zero.
+	Idle time.Duration
+
+	mu       sync.Mutex
+	sessions map[string]*session
+	now      func() time.Time // tests set it
 }
+
+// SessionIdle is how long a vendor session is reused after its last call:
+// well under what vendors keep one, so a reused session is rarely gone.
+const SessionIdle = 5 * time.Minute
+
+// maxSessions bounds the sessions kept: the least recently used goes first.
+const maxSessions = 256
 
 // ListTools lists the server's tools, following pagination, with how the
 // server names itself.
@@ -117,26 +145,122 @@ func (c *Client) ListTools(ctx context.Context, url, token string) ([]Tool, Serv
 }
 
 // CallTool calls one tool and returns its result. An error from the
-// handshake is never Sent; one after tools/call left is.
+// handshake is never Sent; one after tools/call left is. It reuses the
+// session of an earlier call to the same server with the same sign-in; a
+// server that no longer knows it (HTTP 404, as MCP says) refused the call
+// before it ran, so the call goes once more on a new session.
 func (c *Client) CallTool(ctx context.Context, url, token, name string, args json.RawMessage) (json.RawMessage, error) {
+	params := map[string]any{"name": name, "arguments": args}
+	for attempt := 0; ; attempt++ {
+		s, reused, err := c.session(ctx, url, token)
+		if err != nil {
+			if errors.Is(err, ErrUnauthorized) {
+				return nil, err
+			}
+			return nil, &CallError{Sent: false, Err: err}
+		}
+		raw, err := s.rpc(ctx, s.nextID(), "tools/call", params)
+		var rpc *RPCError
+		switch {
+		case err == nil:
+			c.keep(s)
+			return raw, nil
+		case errors.As(err, &rpc) && rpc.forgotten():
+			// The server doesn't know the session: nothing ran, and it's never kept.
+			// Once more on a new one, if this one was reused.
+			c.forget(s)
+			if reused && attempt == 0 {
+				continue
+			}
+			return nil, err
+		case errors.Is(err, ErrUnauthorized):
+			c.forget(s)
+			return nil, err
+		case errors.As(err, &rpc):
+			// Answered: refused before it ran, or the tool's own error. The
+			// session is still good.
+			c.keep(s)
+			return nil, err
+		default:
+			c.forget(s)
+			return nil, &CallError{Sent: true, Err: err}
+		}
+	}
+}
+
+// session is the kept session for the server and sign-in, or a new one;
+// reused says which.
+func (c *Client) session(ctx context.Context, url, token string) (*session, bool, error) {
+	key := sessionKey(url, token)
+	c.mu.Lock()
+	now := c.clock()
+	s := c.sessions[key]
+	if s != nil && now.Sub(s.used) > c.idle() {
+		delete(c.sessions, key)
+		s = nil
+	}
+	c.mu.Unlock()
+	if s != nil {
+		return s, true, nil
+	}
 	s, err := c.open(ctx, url, token)
 	if err != nil {
-		if errors.Is(err, ErrUnauthorized) {
-			return nil, err
+		return nil, false, err
+	}
+	s.key = key
+	return s, false, nil
+}
+
+// keep keeps s for the next call to its server with its sign-in.
+func (c *Client) keep(s *session) {
+	if s.key == "" || s.id == "" {
+		return // a server without sessions: nothing to reuse
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s.used = c.clock()
+	if c.sessions == nil {
+		c.sessions = map[string]*session{}
+	}
+	if _, ok := c.sessions[s.key]; !ok && len(c.sessions) >= maxSessions {
+		var oldest string
+		for k, v := range c.sessions {
+			if oldest == "" || v.used.Before(c.sessions[oldest].used) {
+				oldest = k
+			}
 		}
-		return nil, &CallError{Sent: false, Err: err}
+		delete(c.sessions, oldest)
 	}
-	raw, err := s.rpc(ctx, 2, "tools/call", map[string]any{"name": name, "arguments": args})
-	var rpc *RPCError
-	switch {
-	case err == nil:
-		return raw, nil
-	case errors.Is(err, ErrUnauthorized), errors.As(err, &rpc):
-		// Answered: refused before it ran, or the tool's own error.
-		return nil, err
-	default:
-		return nil, &CallError{Sent: true, Err: err}
+	c.sessions[s.key] = s
+}
+
+// forget drops s, if it's the one kept.
+func (c *Client) forget(s *session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessions[s.key] == s {
+		delete(c.sessions, s.key)
 	}
+}
+
+func (c *Client) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+func (c *Client) idle() time.Duration {
+	if c.Idle > 0 {
+		return c.Idle
+	}
+	return SessionIdle
+}
+
+// sessionKey names a server and a sign-in without keeping the sign-in.
+func sessionKey(url, token string) string {
+	h := sha256.Sum256([]byte(token))
+	return url + "\x00" + fmt.Sprintf("%x", h)
 }
 
 type session struct {
@@ -146,6 +270,15 @@ type session struct {
 	id      string
 	version string // negotiated at initialize; sent on every later request
 	server  Server // how the server named itself at initialize
+	key     string // its server and sign-in, once it may be kept
+	used    time.Time
+	ids     atomic.Int64 // request ids after initialize's
+}
+
+// nextID is a request id not used yet on the session: calls on one session
+// may go at once.
+func (s *session) nextID() int {
+	return int(s.ids.Add(1)) + 1
 }
 
 func (c *Client) open(ctx context.Context, url, token string) (*session, error) {
@@ -218,7 +351,8 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 		return err
 	}
 	defer resp.Body.Close()
-	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
+	// The session is named at initialize; later requests may go at once on it.
+	if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" && body["method"] == "initialize" {
 		s.id = sid
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -237,6 +371,7 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		var m message
 		if json.Unmarshal(b, &m) == nil && m.Error != nil {
+			m.Error.HTTPStatus = resp.StatusCode
 			*into = m
 			return nil
 		}
@@ -244,7 +379,7 @@ func (s *session) post(ctx context.Context, body map[string]any, into *message) 
 		if len(msg) > 300 {
 			msg = msg[:300] + "…"
 		}
-		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg)}
+		return &RPCError{Code: -resp.StatusCode, Message: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg), HTTPStatus: resp.StatusCode}
 	}
 	m, err := readMessage(resp, string(want))
 	if err != nil {
