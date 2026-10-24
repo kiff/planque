@@ -663,9 +663,14 @@ func TestDisconnectAndExport(t *testing.T) {
 			t.Errorf("record lacks %q: %v", want, whats)
 		}
 	}
-	// Listing works with the phone's signature too.
-	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants", nil, e.phone, ""); st != 200 || len(out["grants"].([]any)) != 1 {
+	// The owner's list is the grants in use: a disconnected one is left
+	// out, and its record is listed on request (kiff/tafs#214).
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants", nil, e.phone, ""); st != 200 || len(out["grants"].([]any)) != 0 {
 		t.Fatalf("list: %d %v", st, out)
+	}
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants?include=disconnected", nil, e.phone, ""); st != 200 || len(out["grants"].([]any)) != 1 ||
+		out["grants"].([]any)[0].(map[string]any)["status"] != StatusDisconnected {
+		t.Fatalf("list with the disconnected: %d %v", st, out)
 	}
 }
 
