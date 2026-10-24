@@ -194,3 +194,18 @@ func TestSetupFindsItsConnectionsWithoutTheTafsAgent(t *testing.T) {
 		t.Fatalf("another account's key: %d", st)
 	}
 }
+
+// A connection that holds only Setup's own reads gives the taf nothing yet: its first
+// tools are never called an addition to what it has (kiff/tafs#236, item 4).
+func TestTheTafsFirstToolsAfterSetupsReadsArentAnAddition(t *testing.T) {
+	added := []ToolRequest{{Tool: "create_refund", Name: "create_refund_x", Title: "Refund a payment"}}
+	reads := []ToolRequest{{Tool: "list_accounts", Name: "list_accounts_x", ReadOnly: true, SetupReads: true}}
+	if got := additionText(added, reads, nil); !strings.HasPrefix(got, "These are the taf's first tools on this connection: Refund a payment.") ||
+		strings.Contains(got, "already has") {
+		t.Fatalf("after Setup's reads:\n%s", got)
+	}
+	taf := append(reads, ToolRequest{Tool: "list_charges", Name: "list_charges_x", ReadOnly: true})
+	if got := additionText(added, taf, nil); !strings.HasPrefix(got, "This adds to a connection the taf already has: Refund a payment.") {
+		t.Fatalf("after a tool of the taf's own:\n%s", got)
+	}
+}

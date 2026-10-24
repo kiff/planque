@@ -341,10 +341,16 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 // additionText is what the owner reads first when tools are added to a
 // connection the taf already has: what's new, and that what it does today
 // keeps working while they decide.
-func additionText(added []ToolRequest, catalog []CatalogTool) string {
+func additionText(added, has []ToolRequest, catalog []CatalogTool) string {
 	names := make([]string, 0, len(added))
 	for _, t := range added {
 		names = append(names, toolTitle(t, catalog...))
+	}
+	// A connection that holds only the asking agent's own reads gives the taf nothing
+	// yet: these are its first tools, never an addition to what it has (kiff/tafs#236).
+	if !slices.ContainsFunc(has, func(t ToolRequest) bool { return !t.SetupReads }) {
+		return "These are the taf's first tools on this connection: " + strings.Join(names, ", ") +
+			". Setup's own reads keep working while you decide.\n\n"
 	}
 	return "This adds to a connection the taf already has: " + strings.Join(names, ", ") +
 		". What it does today keeps working while you decide.\n\n"
@@ -587,7 +593,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		// The owner reads what's added first, then the whole connection, as
 		// it will be: the approval signs all of it. The earlier approval
 		// stays on the grant until this one replaces it.
-		g.Text = additionText(req.Tools, g.Catalog) + requestText(g.Request, true, g.Account, g.Catalog...)
+		g.Text = additionText(req.Tools, g.Connected, g.Catalog) + requestText(g.Request, true, g.Account, g.Catalog...)
 		g.Status, g.HeldUntil = StatusPending, s.now().Add(holdTTL).UTC()
 		g.event(s.now(), fmt.Sprintf("%d tools added by %s; waiting for the owner's approval; its %d tools keep working meanwhile", len(req.Tools), me.AgentID, len(g.Connected)))
 	}
