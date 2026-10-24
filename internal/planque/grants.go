@@ -1396,12 +1396,19 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 	writeJSON(w, http.StatusOK, map[string]any{"grants": out})
 }
 
-// listGrants is every grant and its signed approval, for the owner.
+// listGrants is the account's grants and their signed approvals, for the
+// owner: those still in use, so the list doesn't grow with every
+// connection ever made. A disconnected grant's record stays until the
+// account ends (its vendor tokens are gone at disconnect), and
+// ?include=disconnected lists it too, as the export does.
 func (s *Server) listGrants(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	gs, err := s.grants(r.Context(), sr.tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if r.URL.Query().Get("include") != "disconnected" {
+		gs = slices.DeleteFunc(gs, func(g grantView) bool { return g.Status == StatusDisconnected })
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grants": gs})
 }
