@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -362,7 +363,7 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 		result(map[string]any{"tools": vendorTools})
 	case "tools/call":
 		// A read changes nothing, so it isn't one of the vendor's calls.
-		if out, ok := v.read(req.Params.Name, req.Params.Arguments); ok {
+		if out, ok := v.read(r.Context(), req.Params.Name, req.Params.Arguments); ok {
 			// A vendor's own _meta key, as Stripe's answers carry one
 			// (kiff/kiff-cloud#1306).
 			meta := map[string]any{"com.example/session": next("sess")}
@@ -394,9 +395,9 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 
 // read answers the vendor's read-only tools: what the sign-in covers, the
 // charges, one charge (an unrefunded test charge of 1,000.00, whatever its
-// id, so a taf can check any charge it's asked about), and an operation's
-// parameters. A read the vendor refuses is a vendorError.
-func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
+// id, so a taf can check any charge it's asked about), the refunds made, and
+// an operation's parameters. A read the vendor refuses is a vendorError.
+func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (any, bool) {
 	switch tool {
 	case "list_accounts":
 		return map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}}, true
@@ -409,6 +410,9 @@ func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
 		params, _ := args["parameters"].(map[string]any)
 		if _, known := operations[op]; !known || op == "PostRefunds" {
 			return vendorError(fmt.Sprintf("Unknown read operation %q. Use stripe_api_details to see an operation's parameters.", op)), true
+		}
+		if op == "GetRefunds" {
+			return v.refunds(ctx, params), true
 		}
 		if id, _ := params["id"].(string); id == "" {
 			return vendorError(fmt.Sprintf("Missing required path parameters: id\n\nUse stripe_api_details with stripe_api_operation_id: %q to see all required and optional parameters.", op)), true
@@ -425,6 +429,73 @@ func (v *Vendor) read(tool string, args map[string]any) (any, bool) {
 	return nil, false
 }
 
+// refunds lists the refunds the vendor made, newest first, as Stripe's
+// GET /v1/refunds does: of one charge when params names it, within a created
+// range ({gte, gt, lte, lt}, Unix seconds) when it gives one, and at most
+// limit of them (10 by default, 1 to 100), with has_more when more matched.
+func (v *Vendor) refunds(ctx context.Context, params map[string]any) any {
+	its, err := v.KV.Query(ctx, kvCall, "")
+	if err != nil {
+		return vendorError("Couldn't list refunds just now.")
+	}
+	charge, _ := params["charge"].(string)
+	created, _ := params["created"].(map[string]any)
+	limit := 10
+	if l, ok := params["limit"].(float64); ok {
+		if l < 1 || l > 100 {
+			return vendorError("Invalid limit: must be an integer from 1 to 100.")
+		}
+		limit = int(l)
+	}
+	bound := func(k string) (int64, bool) {
+		f, ok := created[k].(float64)
+		return int64(f), ok
+	}
+	data := []any{}
+	for i := len(its) - 1; i >= 0; i-- {
+		var c VendorCall
+		if json.Unmarshal(its[i].Doc, &c) != nil || !refundCall(c) {
+			continue
+		}
+		args := c.Args
+		if c.Tool == "stripe_api_write" {
+			args, _ = c.Args["parameters"].(map[string]any)
+		}
+		ch, _ := args["charge"].(string)
+		if charge != "" && ch != charge {
+			continue
+		}
+		// The key is the call's time in nanoseconds, then its id.
+		ns, id, _ := strings.Cut(its[i].SK, "#")
+		n, _ := strconv.ParseInt(ns, 10, 64)
+		at := n / int64(time.Second)
+		if b, ok := bound("gte"); ok && at < b {
+			continue
+		}
+		if b, ok := bound("gt"); ok && at <= b {
+			continue
+		}
+		if b, ok := bound("lte"); ok && at > b {
+			continue
+		}
+		if b, ok := bound("lt"); ok && at >= b {
+			continue
+		}
+		data = append(data, map[string]any{"id": id, "object": "refund", "charge": ch, "amount": args["amount"],
+			"currency": "eur", "status": "succeeded", "created": at})
+	}
+	more := len(data) > limit
+	if more {
+		data = data[:limit]
+	}
+	return map[string]any{"object": "list", "data": data, "has_more": more}
+}
+
+// refundCall says whether a recorded call made a refund.
+func refundCall(c VendorCall) bool {
+	return c.Tool == "create_refund" || (c.Tool == "stripe_api_write" && c.Args["stripe_api_operation_id"] == "PostRefunds")
+}
+
 // vendorError is a read the vendor refused: its text, answered with isError.
 type vendorError string
 
@@ -433,6 +504,11 @@ type vendorError string
 var operations = map[string]map[string]any{
 	"GetChargesCharge": {"operation_id": "GetChargesCharge", "method": "GET", "path": "/v1/charges/{id}", "summary": "Retrieve a charge",
 		"parameters": []map[string]any{{"name": "id", "in": "path", "required": true, "type": "string", "description": "The charge's id."}}},
+	"GetRefunds": {"operation_id": "GetRefunds", "method": "GET", "path": "/v1/refunds", "summary": "List all refunds",
+		"parameters": []map[string]any{
+			{"name": "charge", "in": "query", "type": "string", "description": "Only the refunds of this charge."},
+			{"name": "created", "in": "query", "type": "object", "description": "Only the refunds made in this range: gte, gt, lte or lt, each a Unix time in seconds."},
+			{"name": "limit", "in": "query", "type": "integer", "description": "How many refunds to return, from 1 to 100. 10 by default; has_more says whether more matched."}}},
 	"PostRefunds": {"operation_id": "PostRefunds", "method": "POST", "path": "/v1/refunds", "summary": "Create a refund",
 		"parameters": []map[string]any{
 			{"name": "charge", "in": "body", "type": "string", "description": "The charge to refund."},

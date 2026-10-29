@@ -5,11 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/store"
 )
@@ -109,7 +112,7 @@ func TestVendorReadsAreNotCalls(t *testing.T) {
 		if !readOnly[name] {
 			t.Errorf("%s isn't marked read-only", name)
 		}
-		if _, ok := v.read(name, map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": map[string]any{"id": "ch_1"}}); !ok {
+		if _, ok := v.read(context.Background(), name, map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": map[string]any{"id": "ch_1"}}); !ok {
 			t.Errorf("%s isn't answered as a read", name)
 		}
 	}
@@ -117,7 +120,7 @@ func TestVendorReadsAreNotCalls(t *testing.T) {
 		if readOnly[name] {
 			t.Errorf("%s is marked read-only", name)
 		}
-		if _, ok := v.read(name, nil); ok {
+		if _, ok := v.read(context.Background(), name, nil); ok {
 			t.Errorf("%s was answered as a read, not recorded as a call", name)
 		}
 	}
@@ -129,7 +132,7 @@ func TestVendorReadsAreNotCalls(t *testing.T) {
 func TestVendorReadsAChargeByTheOperationsOwnField(t *testing.T) {
 	v, _ := NewVendorAt("https://vendor.test")
 	read := func(params map[string]any) any {
-		out, _ := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": params})
+		out, _ := v.read(context.Background(), "stripe_api_read", map[string]any{"stripe_api_operation_id": "GetChargesCharge", "parameters": params})
 		return out
 	}
 	if c, ok := read(map[string]any{"id": "ch_e2e_1"}).(map[string]any); !ok || c["id"] != "ch_e2e_1" || c["currency"] != "eur" || c["amount_refunded"] != 0 {
@@ -138,14 +141,109 @@ func TestVendorReadsAChargeByTheOperationsOwnField(t *testing.T) {
 	if e, ok := read(map[string]any{"charge": "ch_e2e_1"}).(vendorError); !ok || !strings.Contains(string(e), "Missing required path parameters: id") {
 		t.Fatalf("by charge: %v", e)
 	}
-	d, _ := v.read("stripe_api_details", map[string]any{"stripe_api_operation_id": "GetChargesCharge"})
+	d, _ := v.read(context.Background(), "stripe_api_details", map[string]any{"stripe_api_operation_id": "GetChargesCharge"})
 	b, _ := json.Marshal(d)
 	if !strings.Contains(string(b), `"name":"id","required":true`) {
 		t.Fatalf("details = %s", b)
 	}
-	if _, ok := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds", "parameters": map[string]any{"id": "x"}}); !ok {
+	if _, ok := v.read(context.Background(), "stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds", "parameters": map[string]any{"id": "x"}}); !ok {
 		t.Fatal("a write operation through the read tool isn't refused as a read")
-	} else if out, _ := v.read("stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds"}); func() bool { _, isErr := out.(vendorError); return !isErr }() {
+	} else if out, _ := v.read(context.Background(), "stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds"}); func() bool { _, isErr := out.(vendorError); return !isErr }() {
 		t.Fatalf("a write operation was read: %v", out)
+	}
+}
+
+// GetRefunds lists the refunds the vendor made, newest first, as Stripe does:
+// by either refund tool, of one charge, and within a created range.
+func TestVendorListsItsRefunds(t *testing.T) {
+	v, _ := NewVendorAt("https://vendor.test")
+	ctx := context.Background()
+	day := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		at   time.Time
+		call VendorCall
+	}{
+		{day.Add(-time.Hour), VendorCall{Tool: "create_refund", Args: map[string]any{"charge": "ch_yesterday", "amount": 100.0}}},
+		{day.Add(9 * time.Hour), VendorCall{Tool: "create_refund", Args: map[string]any{"charge": "ch_a", "amount": 300.0}}},
+		{day.Add(10 * time.Hour), VendorCall{Tool: "stripe_api_write", Args: map[string]any{"stripe_api_operation_id": "PostRefunds",
+			"parameters": map[string]any{"charge": "ch_b", "amount": 800.0}}}},
+		{day.Add(11 * time.Hour), VendorCall{Tool: "payout_balance", Args: map[string]any{"amount": 5000.0}}},
+	} {
+		doc, _ := json.Marshal(c.call)
+		if err := v.keep(ctx, kvCall, fmt.Sprintf("%020d#re_%d", c.at.UnixNano(), c.at.Unix()), doc, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := func(params map[string]any) []string {
+		t.Helper()
+		out, ok := v.read(ctx, "stripe_api_read", map[string]any{"stripe_api_operation_id": "GetRefunds", "parameters": params})
+		if !ok {
+			t.Fatal("GetRefunds isn't a read")
+		}
+		if e, isErr := out.(vendorError); isErr {
+			t.Fatalf("GetRefunds refused: %s", e)
+		}
+		var got []string
+		for _, r := range out.(map[string]any)["data"].([]any) {
+			m := r.(map[string]any)
+			got = append(got, fmt.Sprintf("%s %v", m["charge"], m["amount"]))
+		}
+		return got
+	}
+	if got := list(nil); !slices.Equal(got, []string{"ch_b 800", "ch_a 300", "ch_yesterday 100"}) {
+		t.Errorf("every refund, newest first, and no payout: %v", got)
+	}
+	today := map[string]any{"gte": float64(day.Unix()), "lt": float64(day.Add(24 * time.Hour).Unix())}
+	if got := list(map[string]any{"created": today}); !slices.Equal(got, []string{"ch_b 800", "ch_a 300"}) {
+		t.Errorf("today's refunds: %v", got)
+	}
+	if got := list(map[string]any{"charge": "ch_a"}); !slices.Equal(got, []string{"ch_a 300"}) {
+		t.Errorf("one charge's refunds: %v", got)
+	}
+	if d, _ := v.read(ctx, "stripe_api_details", map[string]any{"stripe_api_operation_id": "GetRefunds"}); d == nil {
+		t.Error("stripe_api_details doesn't know GetRefunds")
+	}
+}
+
+// GetRefunds pages as Stripe does: 10 by default, at most limit, and
+// has_more when more matched; a limit outside 1 to 100 is refused.
+func TestVendorPagesItsRefunds(t *testing.T) {
+	v, _ := NewVendorAt("https://vendor.test")
+	ctx := context.Background()
+	start := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		at := start.Add(time.Duration(i) * time.Minute)
+		doc, _ := json.Marshal(VendorCall{Tool: "create_refund", Args: map[string]any{"charge": fmt.Sprintf("ch_%02d", i), "amount": 100.0}})
+		if err := v.keep(ctx, kvCall, fmt.Sprintf("%020d#re_%02d", at.UnixNano(), i), doc, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := func(params map[string]any) (int, bool, string) {
+		t.Helper()
+		out, _ := v.read(ctx, "stripe_api_read", map[string]any{"stripe_api_operation_id": "GetRefunds", "parameters": params})
+		if e, isErr := out.(vendorError); isErr {
+			return 0, false, string(e)
+		}
+		m := out.(map[string]any)
+		data := m["data"].([]any)
+		first := ""
+		if len(data) > 0 {
+			first, _ = data[0].(map[string]any)["charge"].(string)
+		}
+		return len(data), m["has_more"].(bool), first
+	}
+	if n, more, first := page(nil); n != 10 || !more || first != "ch_11" {
+		t.Errorf("by default: %d refunds, has_more %v, newest %s; want 10, true, ch_11", n, more, first)
+	}
+	if n, more, _ := page(map[string]any{"limit": 100.0}); n != 12 || more {
+		t.Errorf("limit 100: %d refunds, has_more %v; want 12, false", n, more)
+	}
+	if n, more, _ := page(map[string]any{"limit": 12.0}); n != 12 || more {
+		t.Errorf("limit exactly the count: %d, has_more %v", n, more)
+	}
+	for _, l := range []float64{0, 101} {
+		if _, _, e := page(map[string]any{"limit": l}); !strings.Contains(e, "Invalid limit") {
+			t.Errorf("limit %v: %q, want refused", l, e)
+		}
 	}
 }
