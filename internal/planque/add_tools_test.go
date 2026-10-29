@@ -55,7 +55,8 @@ func TestAConnectedGrantGainsTools(t *testing.T) {
 		t.Fatalf("adding a tool it has: %d %v", st, out)
 	}
 	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{list}}, nil, "k_setup")
-	if st != 200 || out["status"] != StatusPending || out["signed_in"] != true || out["held_until"] == nil {
+	if st != 200 || out["status"] != StatusPending || out["signed_in"] != true || out["held_until"] == nil ||
+		out["status_words"] != "Connected · new tools waiting for your approval" {
 		t.Fatalf("add: %d %v", st, out)
 	}
 	text := out["text"].(string)

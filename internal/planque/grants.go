@@ -386,7 +386,10 @@ type grantView struct {
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
 	Status string `json:"status"`
-	Text   string `json:"text"`
+	// StatusWords is Status in the owner's words, so every app shows the
+	// same line for a connection and none keeps its own.
+	StatusWords string `json:"status_words"`
+	Text        string `json:"text"`
 	// Terms are each tool's exact terms, for the owner who opens Details:
 	// the text names the tools in words (kiff/tafs#138, item 52).
 	Terms    []string      `json:"terms,omitempty"`
@@ -416,7 +419,7 @@ type approvalView struct {
 }
 
 func (s *Server) view(g *Grant) grantView {
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusWords(g), Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
 	for _, t := range g.Tools {
@@ -427,6 +430,34 @@ func (s *Server) view(g *Grant) grantView {
 			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt}
 	}
 	return v
+}
+
+// statusWords is a grant's status as the owner reads it, one line for any app.
+func statusWords(g *Grant) string {
+	switch g.Status {
+	case StatusConnected:
+		return "Connected"
+	case StatusPending:
+		switch {
+		case g.Connected != nil:
+			// Tools added to a connected grant: its tools keep working.
+			return "Connected · new tools waiting for your approval"
+		case g.SignedIn:
+			return "Signed in · tools waiting for your approval"
+		}
+		return "Waiting for your approval"
+	case StatusListed:
+		return "Signed in · the tools are being chosen"
+	case StatusApproved:
+		return "Approved · waiting for the sign-in at " + vendorName(g)
+	case StatusSignedIn:
+		return "Signed in · waiting for your phone to confirm"
+	case StatusFailed:
+		return "Not connected"
+	case StatusDisconnected:
+		return "Disconnected"
+	}
+	return g.Status
 }
 
 // getGrant shows a grant to an agent of its account, so the setup agent
