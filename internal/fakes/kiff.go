@@ -37,6 +37,10 @@ type KIFF struct {
 	// (kiff-cloud #1267), checked at /v1/devices/verify.
 	Devices map[string]Device
 
+	// Deletions are the account deletions KIFF accepted, intent → signature,
+	// as POST /v1/account-deletions/status answers for them.
+	Deletions map[string]string
+
 	// SetupReads are the read Cards asked for (kiff/tafs#138), in order;
 	// SetupReadsRefused makes KIFF refuse them.
 	SetupReads        []kiff.SetupReads
@@ -171,6 +175,7 @@ func (k *KIFF) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/me", k.me)
 	mux.HandleFunc("POST /v1/devices/verify", k.verifyDevice)
+	mux.HandleFunc("POST /v1/account-deletions/status", k.deletionStatus)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
 	mux.HandleFunc("POST /v1/me/setup-reads", k.setupReads)
 	mux.HandleFunc("GET /v1/agents/{id}/halt", k.haltHTTP)
@@ -205,6 +210,24 @@ func (k *KIFF) me(w http.ResponseWriter, r *http.Request) {
 
 // verifyDevice answers as apps/api's /v1/devices/verify (kiff-cloud
 // #1267): a connector key asks about a device of its own account.
+// deletionStatus answers whether KIFF accepted a deletion by exactly this
+// intent and signature: sessionless, as KIFF's.
+func (k *KIFF) deletionStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Intent, Signature string }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Intent == "" {
+		writeJSON(w, 401, map[string]string{"error": "intent_required"})
+		return
+	}
+	k.mu.Lock()
+	sig, ok := k.Deletions[req.Intent]
+	k.mu.Unlock()
+	if !ok || sig != req.Signature {
+		writeJSON(w, 403, map[string]string{"error": "not_accepted"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "deleted_pending"})
+}
+
 func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 	me, ok := k.who(r)
 	if !ok {

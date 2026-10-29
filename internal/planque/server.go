@@ -102,6 +102,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedFor(capExport, s.export))
 	// Deleting the account (kiff/tafs#185): everything planque keeps for it.
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}", s.eraseAccount)
+	// Deleting it from one signed intent, which tafs cloud carries (deletions.go).
+	mux.HandleFunc("POST /v1/account-deletions", s.acceptDeletion)
+	mux.HandleFunc("POST /v1/account-deletions/finish", s.finishDeletion)
+	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux

@@ -38,14 +38,23 @@ func (s *Server) eraseAccount(w http.ResponseWriter, r *http.Request) {
 // again with a new signature. A vendor or KIFF that doesn't confirm is
 // named in problems; planque's own copies are deleted either way.
 func (s *Server) erase(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	ctx := r.Context()
-	items, err := s.KV.Query(ctx, tenantPK(sr.tenant), "GRANT#")
+	grants, problems, err := s.eraseAll(r.Context(), sr.tenant, sr.enrolment, sr.approval.Fingerprint)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": sr.tenant, "erased": true, "grants": grants, "problems": problems})
+}
+
+// eraseAll disconnects each grant and deletes every record of the account,
+// the enrolment last; by names who asked, for the log.
+func (s *Server) eraseAll(ctx context.Context, tenant string, e Enrolment, by string) (int, []string, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return 0, nil, err
+	}
 	problems := []string{}
-	key, keyErr := s.openConnector(ctx, sr.enrolment)
+	key, keyErr := s.openConnector(ctx, e)
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -53,27 +62,24 @@ func (s *Server) erase(w http.ResponseWriter, r *http.Request, sr signedRequest)
 		}
 		problems = append(problems, s.eraseGrant(ctx, &g, key, keyErr)...)
 	}
-	all, err := s.KV.Query(ctx, tenantPK(sr.tenant), "")
+	all, err := s.KV.Query(ctx, tenantPK(tenant), "")
 	if err != nil {
-		s.fail(w, r, err)
-		return
+		return 0, nil, err
 	}
 	for _, it := range all {
 		if it.SK == skEnrolment {
 			continue
 		}
 		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil {
-			s.fail(w, r, err)
-			return
+			return 0, nil, err
 		}
 	}
-	if _, _, err := s.KV.Delete(ctx, tenantPK(sr.tenant), skEnrolment); err != nil {
-		s.fail(w, r, err)
-		return
+	if _, _, err := s.KV.Delete(ctx, tenantPK(tenant), skEnrolment); err != nil {
+		return 0, nil, err
 	}
-	s.log().InfoContext(ctx, "account erased", slog.String("tenant", sr.tenant), slog.Int("grants", len(items)),
-		slog.Int("problems", len(problems)), slog.String("by", sr.approval.Fingerprint))
-	writeJSON(w, http.StatusOK, map[string]any{"tenant": sr.tenant, "erased": true, "grants": len(items), "problems": problems})
+	s.log().InfoContext(ctx, "account erased", slog.String("tenant", tenant), slog.Int("grants", len(items)),
+		slog.Int("problems", len(problems)), slog.String("by", by))
+	return len(items), problems, nil
 }
 
 // eraseGrant takes g's tools out of KIFF's gateway, unless it was already

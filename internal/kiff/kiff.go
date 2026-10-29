@@ -110,6 +110,27 @@ func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string
 	return v, nil
 }
 
+// DeletionAccepted asks KIFF whether it accepted the account's deletion by
+// exactly this signed intent (POST /v1/account-deletions/status): KIFF
+// checked the phone's approval key when it accepted, so planque relies on
+// its answer and checks no key itself. No session goes with it: the signed
+// intent is the route's credential.
+func (c *Client) DeletionAccepted(ctx context.Context, intent, signature string) (bool, error) {
+	var out struct {
+		Error string `json:"error"`
+	}
+	status, err := c.do(ctx, http.MethodPost, c.API+"/v1/account-deletions/status", "", map[string]string{"intent": intent, "signature": signature}, &out)
+	switch {
+	case status == http.StatusOK:
+		return true, nil
+	case status == http.StatusForbidden || status == http.StatusUnauthorized:
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return false, fmt.Errorf("kiff: deletion status answered %d", status)
+}
+
 // SetupReads asks KIFF for the Card Setup reads a grant's setup_reads tools
 // on (kiff/tafs#138), with the account's connector key and the owner's
 // signed approval of the grant, which KIFF checks itself. Each read is then
@@ -205,7 +226,9 @@ func (c *Client) do(ctx context.Context, method, u, key string, in, out any) (in
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "planque")
 	if in != nil {
