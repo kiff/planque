@@ -430,8 +430,9 @@ func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (an
 }
 
 // refunds lists the refunds the vendor made, newest first, as Stripe's
-// GET /v1/refunds does: of one charge when params names it, and within a
-// created range ({gte, gt, lte, lt}, Unix seconds) when it gives one.
+// GET /v1/refunds does: of one charge when params names it, within a created
+// range ({gte, gt, lte, lt}, Unix seconds) when it gives one, and at most
+// limit of them (10 by default, 1 to 100), with has_more when more matched.
 func (v *Vendor) refunds(ctx context.Context, params map[string]any) any {
 	its, err := v.KV.Query(ctx, kvCall, "")
 	if err != nil {
@@ -439,6 +440,13 @@ func (v *Vendor) refunds(ctx context.Context, params map[string]any) any {
 	}
 	charge, _ := params["charge"].(string)
 	created, _ := params["created"].(map[string]any)
+	limit := 10
+	if l, ok := params["limit"].(float64); ok {
+		if l < 1 || l > 100 {
+			return vendorError("Invalid limit: must be an integer from 1 to 100.")
+		}
+		limit = int(l)
+	}
 	bound := func(k string) (int64, bool) {
 		f, ok := created[k].(float64)
 		return int64(f), ok
@@ -476,7 +484,11 @@ func (v *Vendor) refunds(ctx context.Context, params map[string]any) any {
 		data = append(data, map[string]any{"id": id, "object": "refund", "charge": ch, "amount": args["amount"],
 			"currency": "eur", "status": "succeeded", "created": at})
 	}
-	return map[string]any{"object": "list", "data": data, "has_more": false}
+	more := len(data) > limit
+	if more {
+		data = data[:limit]
+	}
+	return map[string]any{"object": "list", "data": data, "has_more": more}
 }
 
 // refundCall says whether a recorded call made a refund.
@@ -495,7 +507,8 @@ var operations = map[string]map[string]any{
 	"GetRefunds": {"operation_id": "GetRefunds", "method": "GET", "path": "/v1/refunds", "summary": "List all refunds",
 		"parameters": []map[string]any{
 			{"name": "charge", "in": "query", "type": "string", "description": "Only the refunds of this charge."},
-			{"name": "created", "in": "query", "type": "object", "description": "Only the refunds made in this range: gte, gt, lte or lt, each a Unix time in seconds."}}},
+			{"name": "created", "in": "query", "type": "object", "description": "Only the refunds made in this range: gte, gt, lte or lt, each a Unix time in seconds."},
+			{"name": "limit", "in": "query", "type": "integer", "description": "How many refunds to return, from 1 to 100. 10 by default; has_more says whether more matched."}}},
 	"PostRefunds": {"operation_id": "PostRefunds", "method": "POST", "path": "/v1/refunds", "summary": "Create a refund",
 		"parameters": []map[string]any{
 			{"name": "charge", "in": "body", "type": "string", "description": "The charge to refund."},

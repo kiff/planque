@@ -204,3 +204,46 @@ func TestVendorListsItsRefunds(t *testing.T) {
 		t.Error("stripe_api_details doesn't know GetRefunds")
 	}
 }
+
+// GetRefunds pages as Stripe does: 10 by default, at most limit, and
+// has_more when more matched; a limit outside 1 to 100 is refused.
+func TestVendorPagesItsRefunds(t *testing.T) {
+	v, _ := NewVendorAt("https://vendor.test")
+	ctx := context.Background()
+	start := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		at := start.Add(time.Duration(i) * time.Minute)
+		doc, _ := json.Marshal(VendorCall{Tool: "create_refund", Args: map[string]any{"charge": fmt.Sprintf("ch_%02d", i), "amount": 100.0}})
+		if err := v.keep(ctx, kvCall, fmt.Sprintf("%020d#re_%02d", at.UnixNano(), i), doc, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := func(params map[string]any) (int, bool, string) {
+		t.Helper()
+		out, _ := v.read(ctx, "stripe_api_read", map[string]any{"stripe_api_operation_id": "GetRefunds", "parameters": params})
+		if e, isErr := out.(vendorError); isErr {
+			return 0, false, string(e)
+		}
+		m := out.(map[string]any)
+		data := m["data"].([]any)
+		first := ""
+		if len(data) > 0 {
+			first, _ = data[0].(map[string]any)["charge"].(string)
+		}
+		return len(data), m["has_more"].(bool), first
+	}
+	if n, more, first := page(nil); n != 10 || !more || first != "ch_11" {
+		t.Errorf("by default: %d refunds, has_more %v, newest %s; want 10, true, ch_11", n, more, first)
+	}
+	if n, more, _ := page(map[string]any{"limit": 100.0}); n != 12 || more {
+		t.Errorf("limit 100: %d refunds, has_more %v; want 12, false", n, more)
+	}
+	if n, more, _ := page(map[string]any{"limit": 12.0}); n != 12 || more {
+		t.Errorf("limit exactly the count: %d, has_more %v", n, more)
+	}
+	for _, l := range []float64{0, 101} {
+		if _, _, e := page(map[string]any{"limit": l}); !strings.Contains(e, "Invalid limit") {
+			t.Errorf("limit %v: %q, want refused", l, e)
+		}
+	}
+}
