@@ -110,28 +110,18 @@ func (s *Server) acceptDeletion(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "the intent expired: sign the deletion again")
 		return
 	}
-	var e Enrolment
-	if _, err := getDoc(ctx, s.KV, tenantPK(in.Tenant), skEnrolment, &e); errors.Is(err, errNotFound) {
+	if items, err := s.KV.Query(ctx, tenantPK(in.Tenant), ""); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if len(items) == 0 {
 		// Nothing kept for the account: there's nothing to delete here.
 		writeJSON(w, http.StatusAccepted, map[string]any{"accepted_at": now, "nothing_kept": true})
 		return
-	} else if err != nil {
-		s.fail(w, r, err)
-		return
 	}
-	key, err := s.openConnector(ctx, e)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	v, err := s.KIFF.VerifyDevice(ctx, key, in.Device, []byte(req.Intent), req.Signature, capDelete)
-	if err != nil {
-		s.log().ErrorContext(ctx, "device check failed", slog.String("tenant", in.Tenant), slog.String("err", err.Error()))
-		writeErr(w, http.StatusBadGateway, "KIFF could not check the device that signed")
-		return
-	}
-	if !v.Valid {
-		s.fail(w, r, deviceRefused(v.Reason, capDelete))
+	// KIFF accepts first, with the phone's session: it checks the approval key
+	// that signed, which only it holds. planque takes KIFF's word for exactly
+	// this intent and signature.
+	if !s.kiffAccepted(w, r, req) {
 		return
 	}
 	// The same intent again answers as the first time did; its nonce is
@@ -158,7 +148,7 @@ func (s *Server) acceptDeletion(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.log().InfoContext(ctx, "account deletion accepted", slog.String("tenant", in.Tenant), slog.String("device", v.DeviceID))
+	s.log().InfoContext(ctx, "account deletion accepted", slog.String("tenant", in.Tenant), slog.String("device", in.Device))
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted_at": now})
 }
 
@@ -204,6 +194,10 @@ func (s *Server) finishDeletion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "not_accepted", "detail": "planque finishes only a deletion it accepted, with its signature"})
 		return
 	}
+	// Never erase on an intent KIFF didn't take.
+	if !s.kiffAccepted(w, r, req) {
+		return
+	}
 	var e Enrolment
 	if _, err := getDoc(ctx, s.KV, tenantPK(in.Tenant), skEnrolment, &e); err != nil && !errors.Is(err, errNotFound) {
 		s.fail(w, r, err)
@@ -236,4 +230,21 @@ func (s *Server) deletionStatus(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "not_accepted"})
 	}
+}
+
+// kiffAccepted is whether KIFF accepted the account's deletion by exactly
+// this intent and signature; when not, it has answered (403 not_accepted, or
+// 502 when KIFF can't be asked).
+func (s *Server) kiffAccepted(w http.ResponseWriter, r *http.Request, req deletionBody) bool {
+	ok, err := s.KIFF.DeletionAccepted(r.Context(), req.Intent, req.Signature)
+	if err != nil {
+		s.log().ErrorContext(r.Context(), "deletion status failed", slog.String("err", err.Error()))
+		writeErr(w, http.StatusBadGateway, "KIFF could not say whether it accepted the deletion")
+		return false
+	}
+	if !ok {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "not_accepted", "detail": "KIFF hasn't accepted this deletion: it accepts first, from the phone"})
+		return false
+	}
+	return true
 }
