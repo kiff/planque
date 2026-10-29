@@ -349,6 +349,10 @@ func TestSignInAndRegister(t *testing.T) {
 		if strings.Contains(c.Credential, "access_") {
 			t.Error("KIFF received the vendor token")
 		}
+		// KIFF names a held call by the vendor's own tool name.
+		if i := slices.IndexFunc(g.Tools, func(r GrantedTool) bool { return r.Name == c.Name }); i < 0 || c.VendorTool == "" || c.VendorTool != g.Tools[i].Tool {
+			t.Errorf("%s: vendor_tool %q, want the vendor's tool name", c.Name, c.VendorTool)
+		}
 	}
 	if c, _ := e.kiff.Connection(tenant, "create_refund"); c.AmountArg != "amount" || c.AmountUnit != "EUR" || *c.AmountScale != 2 {
 		t.Errorf("create_refund amount: %+v", c.Connection)
