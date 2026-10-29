@@ -38,7 +38,7 @@ func TestDeletingTheAccountFromOneSignedIntent(t *testing.T) {
 		e.kiff.Deletions[b["intent"]] = b["signature"]
 	}
 
-	// Refused at accept, deleting nothing: expired, too long-lived, malformed,
+	// Refused at accept, deleting nothing: too long-lived, malformed,
 	// and any intent KIFF didn't accept (another key's signature, a person who
 	// can't delete the account: KIFF refused those).
 	other := e.device("dev_other")
@@ -47,7 +47,7 @@ func TestDeletingTheAccountFromOneSignedIntent(t *testing.T) {
 		body map[string]string
 		want int
 	}{
-		{"expired", intent(e.phone, "dev_phone", now.Add(-20*time.Minute), 10*time.Minute, "11111111111111111111111111111111"), 400},
+		{"expired, and not accepted by KIFF", intent(e.phone, "dev_phone", now.Add(-20*time.Minute), 10*time.Minute, "11111111111111111111111111111111"), 403},
 		{"too long-lived", intent(e.phone, "dev_phone", now, 30*time.Minute, "22222222222222222222222222222222"), 400},
 		{"malformed", map[string]string{"intent": "delete everything", "signature": "x"}, 400},
 		{"not accepted by KIFF", good, 403},
@@ -61,7 +61,6 @@ func TestDeletingTheAccountFromOneSignedIntent(t *testing.T) {
 		t.Fatalf("a refused accept changed KIFF's tools: %d, was %d", n, tools)
 	}
 	accept(good)
-
 	// Not accepted by planque yet: finish and status refuse, and nothing goes.
 	if st, out := e.do("POST", "/v1/account-deletions/finish", good, nil, ""); st != 403 || out["error"] != "not_accepted" {
 		t.Fatalf("finish before accept: %d %v", st, out)
@@ -137,5 +136,20 @@ func TestADeletionWithNothingKept(t *testing.T) {
 	}
 	if st, out := e.do("POST", "/v1/account-deletions/finish", body, nil, ""); st != 200 || out["erased"] != true {
 		t.Fatalf("finish with nothing kept: %d %v", st, out)
+	}
+}
+
+// Accepted by KIFF, planque takes an intent even past its expiry: tafs
+// cloud's sweep may reach planque late, and KIFF checked the expiry.
+func TestALateIntentKIFFAccepted(t *testing.T) {
+	e := newEnv(t)
+	e.connect()
+	late := intent(e.phone, "dev_phone", time.Now().Add(-20*time.Minute), 10*time.Minute, "44444444444444444444444444444444")
+	e.kiff.Deletions = map[string]string{late["intent"]: late["signature"]}
+	if st, out := e.do("POST", "/v1/account-deletions", late, nil, ""); st != 202 {
+		t.Fatalf("a late intent KIFF accepted: %d %v", st, out)
+	}
+	if st, out := e.do("POST", "/v1/account-deletions/finish", late, nil, ""); st != 200 || out["erased"] != true {
+		t.Fatalf("finish: %d %v", st, out)
 	}
 }

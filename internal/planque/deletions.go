@@ -106,10 +106,8 @@ func (s *Server) acceptDeletion(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	now := s.now().UTC()
-	if !now.Before(in.Expires) || now.Before(in.Issued.Add(-time.Minute)) {
-		writeErr(w, http.StatusBadRequest, "the intent expired: sign the deletion again")
-		return
-	}
+	// No expiry here: KIFF checked it when it accepted, and planque may be
+	// asked later, by tafs cloud's sweep, once KIFF's answer was lost.
 	if items, err := s.KV.Query(ctx, tenantPK(in.Tenant), ""); err != nil {
 		s.fail(w, r, err)
 		return
