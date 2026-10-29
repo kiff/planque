@@ -7,6 +7,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- Every grant carries `status_words`: its status in the owner's words, so the
+  apps show the same line for a connection and keep no words of their own.
 - A connected grant gains tools with one approval and no second sign-in,
   while its tools keep working (kiff/tafs#138). The asking agent lists the
   grants it asked for a taf's agent, to add to them.
