@@ -16,7 +16,7 @@ func TestStatusWords(t *testing.T) {
 		{Grant{Status: StatusListed, SignedIn: true}, "Signed in · the tools are being chosen"},
 		{Grant{Status: StatusApproved, Request: vendor}, "Approved · waiting for the sign-in at mcp.stripe.com"},
 		{Grant{Status: StatusApproved, Request: vendor, VendorName: "Stripe"}, "Approved · waiting for the sign-in at Stripe"},
-		{Grant{Status: StatusSignedIn}, "Signed in · waiting for your phone to confirm"},
+		{Grant{Status: StatusSignedIn}, "Signed in · waiting for you to confirm"},
 		{Grant{Status: StatusFailed, Reason: "the token could not be stored"}, "Not connected"},
 		{Grant{Status: StatusDisconnected}, "Disconnected"},
 	} {

@@ -451,7 +451,7 @@ func statusWords(g *Grant) string {
 	case StatusApproved:
 		return "Approved · waiting for the sign-in at " + vendorName(g)
 	case StatusSignedIn:
-		return "Signed in · waiting for your phone to confirm"
+		return "Signed in · waiting for you to confirm"
 	case StatusFailed:
 		return "Not connected"
 	case StatusDisconnected:
