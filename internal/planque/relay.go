@@ -279,9 +279,11 @@ func (s *Server) recorded(ctx context.Context, g *Grant, it store.Item, op opera
 
 // serves says the relay forwards g's calls: connected, or connected with
 // tools added that wait for the owner's approval, while its own keep
-// working. A tool is served only once it is in g.Tools.
+// working. A tool is served only once it is in g.Tools. A grant its vendor
+// signed out is served too, so each call is answered, saying why it wasn't
+// sent, rather than the connection looking gone.
 func (g *Grant) serves() bool {
-	return g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil)
+	return g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil) || g.signedOut()
 }
 
 // transportIs says sum is the SHA-256 of one of g's transport credentials.

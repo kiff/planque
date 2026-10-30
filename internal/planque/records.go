@@ -161,6 +161,10 @@ const (
 	StatusListed       = "listed"
 	StatusFailed       = "failed"       // see Reason
 	StatusDisconnected = "disconnected" // token deleted, tools removed
+	// StatusNeedsReconnect: a connected grant whose sign-in the vendor
+	// ended (it refused the refresh). Its tools stay in KIFF and its calls
+	// are refused, saying so, until the owner signs in again (Reconnect).
+	StatusNeedsReconnect = "needs_reconnect"
 )
 
 // Grant is one connection of a vendor account to one taf.
@@ -182,6 +186,10 @@ type Grant struct {
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
+	// Reconnect: the owner approved a new sign-in for a grant the vendor
+	// signed out. Confirmed, it is connected again with the same tools, in
+	// KIFF as they were; until then its calls are refused, saying why.
+	Reconnect bool `json:"reconnect,omitempty"`
 	// HeldUntil is when a held sign-in that isn't connected (a listed
 	// grant, or its tools waiting for approval) is revoked if nothing
 	// connected it: planque keeps no live vendor token the taf doesn't use.

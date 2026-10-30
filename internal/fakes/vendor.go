@@ -254,6 +254,18 @@ func (v *Vendor) Expire() {
 	}
 }
 
+// SignOut ends every sign-in, as a vendor may (a password change, a
+// revoked app): access tokens expire and refresh tokens stop working, so
+// a refresh answers invalid_grant.
+func (v *Vendor) SignOut() {
+	v.Expire()
+	ctx := context.Background()
+	its, _ := v.KV.Query(ctx, kvRefresh, "")
+	for _, it := range its {
+		_, _, _ = v.KV.Delete(ctx, kvRefresh, it.SK)
+	}
+}
+
 // CallsSoFar is every tools/call the vendor ran, from all its instances,
 // in order.
 func (v *Vendor) CallsSoFar(ctx context.Context) ([]VendorCall, error) {
