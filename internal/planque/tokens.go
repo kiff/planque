@@ -115,13 +115,13 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 	}
 	if tok.Refresh == "" {
 		s.releaseLease(ctx, it, ver)
-		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token")
+		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token", "no_refresh_token")
 	}
 	next, err := s.OAuth.Refresh(ctx, g.Vendor, g.ClientID, tok.Refresh)
 	if err != nil {
 		s.releaseLease(ctx, it, ver)
 		if errors.Is(err, oauth.ErrInvalidGrant) {
-			return "", 0, s.signOut(ctx, g, "the vendor refused its refresh (invalid_grant)")
+			return "", 0, s.signOut(ctx, g, "the vendor refused its refresh (invalid_grant)", "refresh_refused")
 		}
 		return "", 0, err
 	}
@@ -186,13 +186,22 @@ func signedOutErr(g *Grant) error {
 // calls are refused saying why and the owner's next sign-in really signs
 // in, rather than finding the grant connected. It reads the grant again,
 // so a sign-in someone else just confirmed isn't undone.
-func (s *Server) signOut(ctx context.Context, g *Grant, why string) error {
+//
+// The change to signed out, and only it, is told to KIFF, so the people who
+// see the taf hear of it (connection_signed_out): reason is planque's code
+// for why. It's marked to tell before the grant is saved, so a notice KIFF
+// didn't take is sent again by the sweep.
+func (s *Server) signOut(ctx context.Context, g *Grant, why, reason string) error {
 	now, err := s.loadGrant(ctx, g.Tenant, g.ID)
 	if err == nil && now.Status == StatusConnected {
 		now.Status, now.Reason = StatusNeedsReconnect, why
+		now.SignedOutAt = s.now().UTC().Truncate(time.Second)
 		now.event(s.now(), "signed out by "+vendorName(now)+": "+why+"; waiting for the owner to sign in again")
-		if err = s.saveGrant(ctx, now); err == nil {
-			*g = *now
+		if err = s.markTell(ctx, now, reason); err == nil {
+			if err = s.saveGrant(ctx, now); err == nil {
+				*g = *now
+				s.tellSignedOut(ctx, now, reason)
+			}
 		}
 	}
 	if err != nil && !errors.Is(err, store.ErrCondition) {

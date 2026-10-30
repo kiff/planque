@@ -46,6 +46,11 @@ type KIFF struct {
 	SetupReads        []kiff.SetupReads
 	SetupReadsRefused bool
 
+	// SignedOut are the connections planque said a vendor signed out, in
+	// order; SignedOutDown makes KIFF fail them, as KIFF unreachable.
+	SignedOut     []kiff.SignedOut
+	SignedOutDown bool
+
 	mu      sync.Mutex
 	halts   map[string]halt       // tenant/agent ("" the account) → its halt
 	down    bool                  // the halt routes don't answer
@@ -107,6 +112,45 @@ func (k *KIFF) Resume(tenant, agent string) {
 func (k *KIFF) HaltsDown(down bool) {
 	k.mu.Lock()
 	k.down = down
+	k.mu.Unlock()
+}
+
+// signedOut answers as apps/api's POST /v1/me/connections/signed-out: only a
+// connector key, kept here as said.
+func (k *KIFF) signedOut(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok || !slices.Contains(me.Roles, "connector") {
+		writeJSON(w, 403, map[string]string{"error": "connector_key_required"})
+		return
+	}
+	var req kiff.SignedOut
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if dec.Decode(&req) != nil {
+		writeJSON(w, 400, map[string]string{"error": "bad body"})
+		return
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.SignedOutDown {
+		writeJSON(w, 503, map[string]string{"error": "down"})
+		return
+	}
+	k.SignedOut = append(k.SignedOut, req)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// SignedOutSeen is what planque said so far.
+func (k *KIFF) SignedOutSeen() []kiff.SignedOut {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return slices.Clone(k.SignedOut)
+}
+
+// SetSignedOutDown makes the route fail, or answer again.
+func (k *KIFF) SetSignedOutDown(down bool) {
+	k.mu.Lock()
+	k.SignedOutDown = down
 	k.mu.Unlock()
 }
 
@@ -178,6 +222,7 @@ func (k *KIFF) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/status", k.deletionStatus)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
 	mux.HandleFunc("POST /v1/me/setup-reads", k.setupReads)
+	mux.HandleFunc("POST /v1/me/connections/signed-out", k.signedOut)
 	mux.HandleFunc("GET /v1/agents/{id}/halt", k.haltHTTP)
 	mux.HandleFunc("GET /v1/halt", k.haltHTTP)
 	mux.HandleFunc("POST /v1/connections", k.connect)

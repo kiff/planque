@@ -162,6 +162,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// Sign-outs KIFF didn't take when they happened, sent again.
+	if told, err := s.tellAgain(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))
+	} else if told > 0 {
+		s.log().InfoContext(r.Context(), "sweep told sign-outs to KIFF", slog.Int("told", told))
+	}
 	if n > 0 {
 		s.log().InfoContext(r.Context(), "sweep ended grants", slog.Int("ended", n))
 	}
