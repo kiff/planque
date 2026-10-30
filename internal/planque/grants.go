@@ -448,6 +448,8 @@ func statusWords(g *Grant) string {
 		return "Waiting for your approval"
 	case StatusListed:
 		return "Signed in · the tools are being chosen"
+	case StatusNeedsReconnect:
+		return "Signed out by " + vendorName(g) + " · sign in again"
 	case StatusApproved:
 		return "Approved · waiting for the sign-in at " + vendorName(g)
 	case StatusSignedIn:
@@ -671,6 +673,21 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	switch {
 	case held && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil):
 		reason = "its tools were not approved within a day; the sign-in was revoked"
+	case g.Status == StatusSignedIn && g.Reconnect && s.now().After(g.ConfirmBy):
+		// A new sign-in for a grant its vendor signed out, never confirmed:
+		// that token goes, and the grant waits for a sign-in again.
+		if err := s.revokeNow(ctx, g); err != nil {
+			return false, err
+		}
+		was := *g
+		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
+		g.Status, g.Reconnect = StatusNeedsReconnect, false
+		g.event(s.now(), "the new sign-in was not confirmed in time; still waiting for the owner to sign in again")
+		if err := s.saveGrant(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		return false, nil
 	case g.Status == StatusSignedIn && s.now().After(g.ConfirmBy):
 		reason = "the sign-in was not confirmed in time; its token was revoked"
 	default:
@@ -745,7 +762,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "this grant has no tools to approve yet")
 		return
 	}
-	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn {
+	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn && g.Status != StatusNeedsReconnect {
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
 	}
@@ -815,10 +832,16 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	a := sr.approval
-	if g.Status == StatusPending {
+	switch {
+	case g.Status == StatusPending:
 		g.Approval = &a
 		g.event(s.now(), "approved "+a.Who())
-	} else {
+	case g.Status == StatusNeedsReconnect:
+		// The same tools, signed again: the sign-in that follows connects
+		// the grant again, with no change in KIFF. This device confirms it.
+		g.Approval, g.Reconnect = &a, true
+		g.event(s.now(), "a new sign-in was approved "+a.Who()+" to reconnect")
+	default:
 		g.event(s.now(), "a new sign-in link was signed for "+a.Who())
 	}
 	g.Status, g.ClientID = StatusApproved, clientID
@@ -915,6 +938,23 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.page(w, http.StatusInternalServerError, "Not connected", "Sign-ins can't be confirmed right now.")
 		return
 	}
+	if g.Reconnect {
+		// Reconnecting acts in the same vendor account, or not at all.
+		if g.Account != "" && tok.Account != "" && tok.Account != g.Account {
+			for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
+				if t.tok != "" {
+					_ = s.OAuth.Revoke(r.Context(), g.Vendor, g.ClientID, t.tok, t.hint)
+				}
+			}
+			g.Status, g.Reconnect = StatusNeedsReconnect, false
+			g.event(s.now(), "a sign-in to another account at "+vendorName(g)+" was refused; still waiting for the owner to sign in again")
+			_ = s.saveGrant(r.Context(), g)
+			s.page(w, http.StatusConflict, "Not connected", "That sign-in is for another account at "+vendorName(g)+". Sign in to the account this taf uses.")
+			return
+		}
+		// The token the vendor ended goes; the new one takes its place.
+		s.dropToken(r.Context(), g)
+	}
 	// The token is kept but not used: nothing is connected until the phone
 	// that approved confirms with the code only this browser receives.
 	if err := s.storeToken(r.Context(), g, tok, nil); err != nil {
@@ -995,6 +1035,19 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	g.SignedIn = true
+	if g.Reconnect {
+		// Signed in again: the same tools, still in KIFF, now with this token.
+		g.Reconnect, g.Reason = false, ""
+		g.Status, g.HeldUntil = StatusConnected, time.Time{}
+		g.event(s.now(), "connected again with the new sign-in; its tools are as they were")
+		if err := s.saveGrant(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		s.log().InfoContext(r.Context(), "grant reconnected", slog.String("grant", g.ID))
+		writeJSON(w, http.StatusOK, s.view(g))
+		return
+	}
 	if len(g.Request.Tools) == 0 {
 		// Connect first: the vendor's tools are listed for the asking agent
 		// to choose from, and nothing is registered in KIFF.

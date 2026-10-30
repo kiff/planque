@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -68,6 +70,9 @@ var errNoToken = errors.New("planque holds no token for this grant")
 // the record it came from. stale, when not 0, is a version the vendor
 // refused: the token is refreshed unless someone already replaced it.
 func (s *Server) accessToken(ctx context.Context, g *Grant, stale int64) (string, int64, error) {
+	if g.signedOut() {
+		return "", 0, signedOutErr(g)
+	}
 	tok, it, err := s.openToken(ctx, g)
 	if errors.Is(err, errNotFound) {
 		return "", 0, errNoToken
@@ -110,11 +115,14 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 	}
 	if tok.Refresh == "" {
 		s.releaseLease(ctx, it, ver)
-		return "", 0, errors.New("the vendor's token expired and it gave no refresh token; the owner must connect again")
+		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token")
 	}
 	next, err := s.OAuth.Refresh(ctx, g.Vendor, g.ClientID, tok.Refresh)
 	if err != nil {
 		s.releaseLease(ctx, it, ver)
+		if errors.Is(err, oauth.ErrInvalidGrant) {
+			return "", 0, s.signOut(ctx, g, "the vendor refused its refresh (invalid_grant)")
+		}
 		return "", 0, err
 	}
 	if next.Refresh == "" {
@@ -160,4 +168,36 @@ func (s *Server) waitRefresh(ctx context.Context, g *Grant, ver int64) (string, 
 		}
 	}
 	return "", 0, errors.New("another refresh of the vendor token did not finish in time")
+}
+
+// signedOut says the vendor ended g's sign-in: it waits for the owner to
+// sign in again, or did and that sign-in isn't confirmed yet.
+func (g *Grant) signedOut() bool {
+	return g.Status == StatusNeedsReconnect || g.Reconnect
+}
+
+// signedOutErr is what a call through a signed-out grant answers: the
+// taf says it can't be done now, and the owner reads why in tafs.
+func signedOutErr(g *Grant) error {
+	return fmt.Errorf("%s ended the sign-in planque holds; the owner signs in to %s again in tafs", vendorName(g), vendorName(g))
+}
+
+// signOut marks a connected grant as signed out by its vendor, so its
+// calls are refused saying why and the owner's next sign-in really signs
+// in, rather than finding the grant connected. It reads the grant again,
+// so a sign-in someone else just confirmed isn't undone.
+func (s *Server) signOut(ctx context.Context, g *Grant, why string) error {
+	now, err := s.loadGrant(ctx, g.Tenant, g.ID)
+	if err == nil && now.Status == StatusConnected {
+		now.Status, now.Reason = StatusNeedsReconnect, why
+		now.event(s.now(), "signed out by "+vendorName(now)+": "+why+"; waiting for the owner to sign in again")
+		if err = s.saveGrant(ctx, now); err == nil {
+			*g = *now
+		}
+	}
+	if err != nil && !errors.Is(err, store.ErrCondition) {
+		s.log().WarnContext(ctx, "signed-out grant not marked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+	}
+	s.log().InfoContext(ctx, "grant signed out by its vendor", slog.String("grant", g.ID), slog.String("why", why))
+	return signedOutErr(g)
 }

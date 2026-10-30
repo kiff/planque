@@ -599,6 +599,85 @@ func TestRefreshOnce(t *testing.T) {
 	}
 }
 
+// A vendor that ends planque's sign-in (it refuses the refresh) leaves the
+// grant needs_reconnect: calls say why and reach no vendor, and the owner's
+// next sign-in really signs in, then connects the same tools again, with
+// KIFF as it was. (Seen live: the grant stayed "connected", so every new
+// sign-in found it connected and closed at once.)
+func TestSignedOutGrantReconnects(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	ctx := context.Background()
+	before := len(e.kiff.Connections(tenant))
+	tok, it, _ := e.s.openToken(ctx, g)
+	tok.Expiry = time.Now().Add(-time.Second)
+	_ = e.s.storeToken(ctx, g, tok, &it.Ver)
+	e.vendor.SignOut()
+
+	res, err := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{})
+	if err != nil || !strings.Contains(string(res.Result), "signs in to") || !strings.Contains(string(res.Result), "again") {
+		t.Fatalf("a call after the vendor signed out: %s %v", res.Result, err)
+	}
+	now, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	if now.Status != StatusNeedsReconnect || !strings.HasPrefix(statusWords(now), "Signed out by") {
+		t.Fatalf("grant: %s, %q", now.Status, statusWords(now))
+	}
+	// Another call tries no refresh and sends nothing: the words are the same.
+	refreshes, calls := e.vendor.Refreshes, e.vendor.CallCount()
+	if res, _ := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{}); !strings.Contains(string(res.Result), "signs in to") {
+		t.Fatalf("second call: %s", res.Result)
+	}
+	if e.vendor.Refreshes != refreshes || e.vendor.CallCount() != calls {
+		t.Fatalf("a signed-out grant reached the vendor: refreshes %d→%d, calls %d→%d", refreshes, e.vendor.Refreshes, calls, e.vendor.CallCount())
+	}
+
+	// The owner signs in again: the same digest, a real sign-in, confirmed.
+	// (A signed request is told apart by its second: this one comes later.)
+	time.Sleep(1100 * time.Millisecond)
+	if st, out := e.approveAndSignIn(g.ID, now.Digest); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("reconnect: %d %v", st, out)
+	}
+	if n := len(e.kiff.Connections(tenant)); n != before {
+		t.Fatalf("KIFF lists %d tools after the reconnect, want %d as before", n, before)
+	}
+	again, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	if again.Reconnect || again.Reason != "" || statusWords(again) != "Connected" {
+		t.Fatalf("after the reconnect: reconnect %v, reason %q, %q", again.Reconnect, again.Reason, statusWords(again))
+	}
+	if res, err := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{}); err != nil || strings.Contains(string(res.Result), "Not sent") {
+		t.Fatalf("a call after the reconnect: %s %v", res.Result, err)
+	}
+}
+
+// A new sign-in for a signed-out grant that nobody confirms goes, and the
+// grant waits for a sign-in again: it isn't failed, its tools stay.
+func TestUnconfirmedReconnectWaitsAgain(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	ctx := context.Background()
+	tok, it, _ := e.s.openToken(ctx, g)
+	tok.Expiry = time.Now().Add(-time.Second)
+	_ = e.s.storeToken(ctx, g, tok, &it.Ver)
+	e.vendor.SignOut()
+	_, _ = e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{})
+	now, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	time.Sleep(1100 * time.Millisecond) // a signed request is told apart by its second
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/approve", map[string]string{"digest": now.Digest}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	_ = e.signIn(out["sign_in_url"].(string)) // signed in, never confirmed
+	e.s.Now = func() time.Time { return time.Now().Add(signInTTL + time.Minute) }
+	later, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	if _, err := e.s.expire(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+	later, _ = e.s.loadGrant(ctx, tenant, g.ID)
+	if later.Status != StatusNeedsReconnect || later.Reconnect || len(later.Tools) == 0 {
+		t.Fatalf("after an unconfirmed reconnect: %s, reconnect %v, %d tools", later.Status, later.Reconnect, len(later.Tools))
+	}
+}
+
 // 7 and 8. Disconnecting, and the oversight record.
 func TestDisconnectAndExport(t *testing.T) {
 	e := newEnv(t)
