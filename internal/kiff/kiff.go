@@ -153,6 +153,26 @@ func (c *Client) IssueSetupReads(ctx context.Context, connectorKey string, req S
 	return err
 }
 
+// SignedOut is what planque tells KIFF when a vendor ends the sign-in it
+// holds for a taf's connection: the grant, the taf's agent, the vendor by
+// its name for people, why (for KIFF's records; people never read it), and
+// when. KIFF alerts the account's app backend, which tells the people who
+// see the taf.
+type SignedOut struct {
+	Grant       string `json:"grant"`
+	Agent       string `json:"agent"`
+	Vendor      string `json:"vendor"`
+	Reason      string `json:"reason"` // refresh_refused | no_refresh_token
+	SignedOutAt string `json:"signed_out_at"`
+}
+
+// ConnectionSignedOut tells KIFF a vendor signed a connection out
+// (POST /v1/me/connections/signed-out), with the account's connector key.
+func (c *Client) ConnectionSignedOut(ctx context.Context, connectorKey string, s SignedOut) error {
+	_, err := c.do(ctx, http.MethodPost, c.API+"/v1/me/connections/signed-out", connectorKey, s, nil)
+	return err
+}
+
 // Connection is a tool registered in KIFF's gateway, as planque sends it.
 type Connection struct {
 	Name           string `json:"name"`

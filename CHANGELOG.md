@@ -7,6 +7,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A vendor's sign-out is told to KIFF once, when the grant turns
+  `needs_reconnect`, so the people who see the taf hear of it at once. A
+  notice KIFF didn't take is sent again by the hourly sweep, for up to a week;
+  one whose grant was signed in again is dropped.
 - Every grant carries `status_words`: its status in the owner's words, so the
   apps show the same line for a connection and keep no words of their own.
 - A connected grant gains tools with one approval and no second sign-in,

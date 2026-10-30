@@ -1629,3 +1629,79 @@ func TestAnotherAccountCantReachAGrant(t *testing.T) {
 		t.Fatalf("the grant after another account's attempts: %d %v", st, out)
 	}
 }
+
+// signOutByVendor has the vendor end planque's sign-in for g and a call find
+// it out.
+func signOutByVendor(t *testing.T, e *env, g *Grant) {
+	t.Helper()
+	ctx := context.Background()
+	tok, it, _ := e.s.openToken(ctx, g)
+	tok.Expiry = time.Now().Add(-time.Second)
+	_ = e.s.storeToken(ctx, g, tok, &it.Ver)
+	e.vendor.SignOut()
+	if res, _ := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{}); !strings.Contains(string(res.Result), "signs in to") {
+		t.Fatalf("a call after the vendor signed out: %s", res.Result)
+	}
+}
+
+// A vendor's sign-out is told to KIFF once, with the account's connector
+// key: the grant, the taf's agent, the vendor by name, why and when. The
+// calls refused after it tell nothing more.
+func TestASignOutIsToldToKIFFOnce(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	signOutByVendor(t, e, g)
+	now, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	seen := e.kiff.SignedOutSeen()
+	if len(seen) != 1 {
+		t.Fatalf("told %d times: %+v", len(seen), seen)
+	}
+	want := kiff.SignedOut{Grant: g.ID, Agent: g.Request.Agent, Vendor: vendorName(now), Reason: "refresh_refused",
+		SignedOutAt: now.SignedOutAt.UTC().Format(time.RFC3339)}
+	if seen[0] != want || now.SignedOutAt.IsZero() {
+		t.Fatalf("told %+v, want %+v", seen[0], want)
+	}
+	for range 3 {
+		_, _ = e.kiff.Call(context.Background(), "k_taf", "list_charges", map[string]any{})
+	}
+	if n, err := e.s.tellAgain(context.Background()); err != nil || n != 0 || len(e.kiff.SignedOutSeen()) != 1 {
+		t.Fatalf("told again: %d %v, seen %d", n, err, len(e.kiff.SignedOutSeen()))
+	}
+}
+
+// A sign-out KIFF didn't take is told by the next sweep, once; one whose
+// grant was signed in again meanwhile is dropped.
+func TestASignOutKIFFDidntTakeIsToldBySweep(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	e.kiff.SetSignedOutDown(true)
+	signOutByVendor(t, e, g)
+	if n := len(e.kiff.SignedOutSeen()); n != 0 {
+		t.Fatalf("seen %d while KIFF was down", n)
+	}
+	if n, _ := e.s.tellAgain(context.Background()); n != 0 {
+		t.Fatalf("told %d while KIFF is still down", n)
+	}
+	e.kiff.SetSignedOutDown(false)
+	if n, err := e.s.tellAgain(context.Background()); err != nil || n != 1 || len(e.kiff.SignedOutSeen()) != 1 {
+		t.Fatalf("sweep: %d %v, seen %d", n, err, len(e.kiff.SignedOutSeen()))
+	}
+	if n, _ := e.s.tellAgain(context.Background()); n != 0 {
+		t.Fatalf("a second sweep told %d", n)
+	}
+
+	// Down again, then the owner signs in again before the sweep: nothing to tell.
+	other := newEnv(t)
+	h := other.connect()
+	other.kiff.SetSignedOutDown(true)
+	signOutByVendor(t, other, h)
+	now, _ := other.s.loadGrant(context.Background(), tenant, h.ID)
+	time.Sleep(1100 * time.Millisecond)
+	if st, out := other.approveAndSignIn(h.ID, now.Digest); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("reconnect: %d %v", st, out)
+	}
+	other.kiff.SetSignedOutDown(false)
+	if n, _ := other.s.tellAgain(context.Background()); n != 0 || len(other.kiff.SignedOutSeen()) != 0 {
+		t.Fatalf("told a sign-out the owner already fixed: %d", n)
+	}
+}

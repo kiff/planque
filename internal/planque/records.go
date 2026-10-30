@@ -190,6 +190,9 @@ type Grant struct {
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.
 	Reconnect bool `json:"reconnect,omitempty"`
+	// SignedOutAt is when the vendor last ended its sign-in: KIFF is told
+	// of each sign-out once, by it.
+	SignedOutAt time.Time `json:"signed_out_at,omitzero"`
 	// HeldUntil is when a held sign-in that isn't connected (a listed
 	// grant, or its tools waiting for approval) is revoked if nothing
 	// connected it: planque keeps no live vendor token the taf doesn't use.
