@@ -61,3 +61,39 @@ func TestMemoryQueryToStopsAtItsBound(t *testing.T) {
 		t.Fatalf("QueryTo = %+v %v", got, err)
 	}
 }
+
+// A read is sent again when the connection drops before DynamoDB answers; a
+// write isn't, since one whose answer was lost may already have landed.
+func TestDynamoReadsAgainWhenTheConnectionDrops(t *testing.T) {
+	calls := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := r.Header.Get("X-Amz-Target")
+		calls[target]++
+		if calls[target] == 1 {
+			// The connection drops with no answer: the client reads EOF.
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+			return
+		}
+		_, _ = io.WriteString(w, `{"Items":[],"Item":{"pk":{"S":"pk"},"sk":{"S":"sk"},"doc":{"S":"{}"}}}`)
+	}))
+	defer srv.Close()
+	d := &Dynamo{Table: "t", API: &awsapi.Client{Service: "dynamodb", Region: "eu-west-1", Target: "DynamoDB_20120810",
+		JSONType: "application/x-amz-json-1.0", Endpoint: srv.URL,
+		Creds: func() (awsapi.Credentials, error) {
+			return awsapi.Credentials{AccessKey: "AKID", SecretKey: "secret"}, nil
+		}}}
+	ctx := context.Background()
+	if _, err := d.Query(ctx, "pk", "GRANT#"); err != nil {
+		t.Fatalf("a query after one dropped connection: %v", err)
+	}
+	if _, _, err := d.Get(ctx, "pk", "sk"); err != nil {
+		t.Fatalf("a get after one dropped connection: %v", err)
+	}
+	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}")}, Cond{}); err == nil {
+		t.Fatal("a put whose connection dropped succeeded: it must not be sent again")
+	}
+	if calls["DynamoDB_20120810.Query"] != 2 || calls["DynamoDB_20120810.GetItem"] != 2 || calls["DynamoDB_20120810.PutItem"] != 1 {
+		t.Fatalf("calls: %v", calls)
+	}
+}

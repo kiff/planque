@@ -5,6 +5,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- A read of planque's store is sent again when the connection drops before an
+  answer, so one dropped connection no longer fails the owner's request. Writes
+  are never sent again.
+- An operation's outcome is always recorded, even when the vendor's answer is
+  too large to keep; the answer is then kept as a short stand-in, and a replay
+  still never sends again.
+
 ### Added
 
 - A vendor's sign-out is told to KIFF once, when the grant turns
