@@ -240,10 +240,20 @@ func unknownResult(g *Grant) map[string]any {
 	return toolResult("Sent to "+hostOf(g.Request.Server)+", but its answer was lost. planque will not send it again; check the account before making a new call.", true)
 }
 
+// maxKeptResult is the largest answer kept in an operation's record, well
+// under DynamoDB's 400 KB item, which also holds the record's other fields.
+const maxKeptResult = 256 << 10
+
 // finish records how an operation ended and returns the result.
 func (s *Server) finish(ctx context.Context, claim store.Item, op operation, state string, res any) any {
 	op.State = state
 	op.Result, _ = json.Marshal(res)
+	if len(op.Result) > maxKeptResult {
+		// The outcome is always kept, so a replay never sends again; a vendor's
+		// answer too large for one record (a long list, an API's docs) is kept
+		// as a stand-in, as it was returned once.
+		op.Result, _ = json.Marshal(toolResult("Answered once; the answer was too large to keep. Nothing new was sent; read again with a new call.", false))
+	}
 	it := claim
 	it.Ver, it.Lease = claim.Ver+1, 0
 	if err := putDoc(ctx, s.KV, it, op, store.Cond{Ver: &claim.Ver}); err != nil {

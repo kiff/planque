@@ -194,11 +194,32 @@ func (d *Dynamo) live(it Item) bool {
 	return it.TTL == 0 || it.TTL > now().Unix()
 }
 
+// readTries is how many times a read is sent when the connection drops.
+const readTries = 3
+
+// read sends a read again when the connection dropped before DynamoDB answered
+// (an EOF, a reset): reading twice changes nothing. An answer from DynamoDB,
+// or the request's context ending, is final. Writes are never resent here: a
+// conditional write whose answer was lost may already have landed.
+func (d *Dynamo) read(ctx context.Context, action string, in, out any) error {
+	var err error
+	for try := 0; try < readTries; try++ {
+		if err = d.API.Do(ctx, action, in, out); err == nil || ctx.Err() != nil {
+			return err
+		}
+		var answered *awsapi.Error
+		if errors.As(err, &answered) {
+			return err
+		}
+	}
+	return err
+}
+
 func (d *Dynamo) Get(ctx context.Context, pk, sk string) (Item, bool, error) {
 	var out struct {
 		Item map[string]attr `json:"Item"`
 	}
-	err := d.API.Do(ctx, "GetItem", av{"TableName": d.Table, "Key": d.key(pk, sk), "ConsistentRead": true}, &out)
+	err := d.read(ctx, "GetItem", av{"TableName": d.Table, "Key": d.key(pk, sk), "ConsistentRead": true}, &out)
 	if err != nil || out.Item == nil {
 		return Item{}, false, err
 	}
@@ -272,7 +293,7 @@ func (d *Dynamo) query(ctx context.Context, cond string, values av) ([]Item, err
 			Items            []map[string]attr `json:"Items"`
 			LastEvaluatedKey json.RawMessage   `json:"LastEvaluatedKey"`
 		}
-		if err := d.API.Do(ctx, "Query", in, &out); err != nil {
+		if err := d.read(ctx, "Query", in, &out); err != nil {
 			return nil, err
 		}
 		for _, m := range out.Items {
