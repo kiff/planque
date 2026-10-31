@@ -210,6 +210,11 @@ func (s *Server) verifySigned(r *http.Request, tenant, capability string, body [
 			return Approval{}, apiError{http.StatusBadGateway, "KIFF could not check the device that signed"}
 		}
 		if !v.Valid {
+			// The phone reads only a 401 or 403; the reason is kept here, so a
+			// refusal can be told apart (another account's device, a key KIFF
+			// doesn't have) without reading KIFF's records. No key material.
+			s.log().WarnContext(r.Context(), "device refused", slog.String("tenant", tenant), slog.String("device", sg.Device),
+				slog.String("reason", v.Reason), slog.String("capability", capability))
 			return Approval{}, deviceRefused(v.Reason, capability)
 		}
 		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID

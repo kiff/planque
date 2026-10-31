@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -228,5 +229,33 @@ func TestAnUnnamedDeviceReadsWithoutItsID(t *testing.T) {
 	}
 	if got := (Approval{Fingerprint: "ab12 cd34 ef56 7890"}).Who(); got != "on the enrolled phone" {
 		t.Fatalf("a key-enrolled phone: %q", got)
+	}
+}
+
+// A device KIFF refuses is logged with why, so the refusal can be told apart
+// from the 401 the phone reads: here another account's device, after the
+// phone switched accounts and kept its old id.
+func TestARefusedDeviceIsLoggedWithItsReason(t *testing.T) {
+	e := newEnv(t)
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	other := e.device("dev_other")
+	d := e.kiff.Devices["dev_other"]
+	d.Tenant = "tnt_other"
+	e.kiff.Devices["dev_other"] = d
+	if st, _ := e.enrolAs(other); st != 401 {
+		t.Fatalf("enrol from another account's device: %d, want 401", st)
+	}
+	var line map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("one JSON log line: %q %v", logs.String(), err)
+	}
+	for k, want := range map[string]string{"msg": "device refused", "tenant": tenant, "device": "dev_other", "reason": "unknown_device", "capability": "tools.connect"} {
+		if line[k] != want {
+			t.Errorf("log %s = %v, want %q", k, line[k], want)
+		}
+	}
+	if strings.Contains(logs.String(), "k_connector") || strings.Contains(logs.String(), "v1=") {
+		t.Fatalf("the log carries a key or a signature: %s", logs.String())
 	}
 }
