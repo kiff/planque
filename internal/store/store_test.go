@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/kiff/planque/internal/awsapi"
@@ -65,11 +66,16 @@ func TestMemoryQueryToStopsAtItsBound(t *testing.T) {
 // A read is sent again when the connection drops before DynamoDB answers; a
 // write isn't, since one whose answer was lost may already have landed.
 func TestDynamoReadsAgainWhenTheConnectionDrops(t *testing.T) {
+	// Written from the server's handler goroutines, read by the test.
+	var mu sync.Mutex
 	calls := map[string]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := r.Header.Get("X-Amz-Target")
+		mu.Lock()
 		calls[target]++
-		if calls[target] == 1 {
+		first := calls[target] == 1
+		mu.Unlock()
+		if first {
 			// The connection drops with no answer: the client reads EOF.
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			_ = conn.Close()
@@ -93,6 +99,8 @@ func TestDynamoReadsAgainWhenTheConnectionDrops(t *testing.T) {
 	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}")}, Cond{}); err == nil {
 		t.Fatal("a put whose connection dropped succeeded: it must not be sent again")
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if calls["DynamoDB_20120810.Query"] != 2 || calls["DynamoDB_20120810.GetItem"] != 2 || calls["DynamoDB_20120810.PutItem"] != 1 {
 		t.Fatalf("calls: %v", calls)
 	}
