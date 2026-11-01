@@ -282,8 +282,11 @@ func (s *Server) signedFor(capability string, next func(http.ResponseWriter, *ht
 
 // enrol hands planque the account's KIFF connector key. A device KIFF
 // knows (d=) signs it, and KIFF says whether its person may connect tools:
-// any of the person's devices may, and the latest connector key is kept
-// (kiff/planque#10). Without d=, a phone enrols its own key and signs with
+// any of the person's devices may (kiff/planque#10). The enrolled key is
+// kept while KIFF still accepts it for the account: the tools it connected
+// are that key's in KIFF, so a second device setting up changes nothing,
+// and the answer says kept. A new key replaces it only once KIFF no longer
+// takes it (revoked, or no longer the account's connector). Without d=, a phone enrols its own key and signs with
 // it, as before: a different phone can't replace an enrolled one, and the
 // enrolled phone may re-enrol to hand planque a new connector key.
 func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
@@ -330,6 +333,18 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if prevItem.Ver > 0 {
+		kept, err := s.connectorStands(r.Context(), tenant, prev)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if kept {
+			s.log().InfoContext(r.Context(), "enrolment kept", slog.String("tenant", tenant), slog.String("device", a.Fingerprint))
+			writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "device": a.Fingerprint, "kept": true})
+			return
+		}
 	}
 	sealed, err := s.Sealer.Seal(r.Context(), []byte(connector), map[string]string{"tenant": tenant, "kind": "connector"})
 	if err != nil {
@@ -398,6 +413,24 @@ func (s *Server) connectorKey(ctx context.Context, tenant string) (string, error
 		return "", err
 	}
 	return s.openConnector(ctx, e)
+}
+
+// connectorStands says whether KIFF still takes e's connector key as
+// tenant's connector. KIFF refusing the key is false; KIFF not answering
+// is an error, so an outage never swaps the account's key.
+func (s *Server) connectorStands(ctx context.Context, tenant string, e Enrolment) (bool, error) {
+	key, err := s.openConnector(ctx, e)
+	if err != nil {
+		return false, err
+	}
+	me, err := s.KIFF.Me(ctx, key)
+	if errors.Is(err, kiff.ErrUnauthorized) {
+		return false, nil
+	}
+	if err != nil {
+		return false, apiError{http.StatusBadGateway, "KIFF could not be asked whether the enrolled connector key still works; enrol again"}
+	}
+	return me.ConnectorProblem(tenant) == "", nil
 }
 
 // openConnector opens an enrolment's KIFF connector key.

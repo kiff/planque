@@ -7,6 +7,12 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- An enrolment keeps the enrolled connector key while KIFF still takes it for
+  the account, and answers `200 {"kept": true}`: a second device setting up no
+  longer swaps the key, which left the tools the first key connected unowned
+  in KIFF. A new key replaces the enrolled one only once KIFF no longer takes
+  it.
+
 - A broad tool narrowed to one operation (Stripe's `stripe_api_write`) takes
   only the operation's fields: planque reads them with the vendor's
   describing tool, once the owner approved it on the grant, and refuses a
