@@ -175,6 +175,12 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	// Nothing is approved on a grant not made yet: a broad write narrowed
+	// to an operation waits for the vendor's describing tool.
+	if msg, _ := s.operationsCheck(r.Context(), nil, nil, *req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	server := strings.TrimSpace(req.Server)
 	meta, err := s.OAuth.Discover(r.Context(), server)
 	if err != nil {
@@ -608,6 +614,15 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "this grant already has "+n+": send only the tools to add; what it has stays as it is")
 			return
 		}
+	}
+	// Each tool narrowed to one operation takes only the operation's fields,
+	// read with the describing tool the owner approved on this grant.
+	if msg, err := s.operationsCheck(r.Context(), g, has, req.Tools); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	} else if msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
 	}
 	if err := s.freeNames(r.Context(), tenant, g.ID, g.Tools, req.Tools); err != nil {
 		s.fail(w, r, err)

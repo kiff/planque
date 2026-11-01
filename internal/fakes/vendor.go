@@ -383,8 +383,12 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 				result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(e)}}, "isError": true, "_meta": meta})
 				return
 			}
-			b, _ := json.Marshal(out)
-			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}, "_meta": meta})
+			text, isText := out.(vendorText)
+			if !isText {
+				b, _ := json.Marshal(out)
+				text = vendorText(b)
+			}
+			result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(text)}}, "_meta": meta})
 			return
 		}
 		time.Sleep(v.CallDelay)
@@ -434,9 +438,9 @@ func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (an
 		op, _ := args["stripe_api_operation_id"].(string)
 		d, ok := operations[op]
 		if !ok {
-			return vendorError(fmt.Sprintf("Unknown operation %q.", op)), true
+			return vendorError(fmt.Sprintf("Operation '%s' is not available. Use stripe_api_search to find available operations.", op)), true
 		}
-		return d, true
+		return details(op, d), true
 	}
 	return nil, false
 }
@@ -523,8 +527,40 @@ var operations = map[string]map[string]any{
 			{"name": "limit", "in": "query", "type": "integer", "description": "How many refunds to return, from 1 to 100. 10 by default; has_more says whether more matched."}}},
 	"PostRefunds": {"operation_id": "PostRefunds", "method": "POST", "path": "/v1/refunds", "summary": "Create a refund",
 		"parameters": []map[string]any{
+			{"name": "amount", "in": "body", "type": "integer", "description": "In the charge currency's smallest unit."},
 			{"name": "charge", "in": "body", "type": "string", "description": "The charge to refund."},
-			{"name": "amount", "in": "body", "type": "integer", "description": "In the charge currency's smallest unit."}}},
+			{"name": "metadata", "in": "body", "type": "object", "description": "Your own keys and values."},
+			{"name": "payment_intent", "in": "body", "type": "string", "description": "The payment intent to refund."}}},
+}
+
+// vendorText is a tool's answer as text, sent as it is.
+type vendorText string
+
+// details describes op in Markdown, as Stripe's stripe_api_details does: its
+// fields under "## Path Parameters", "## Query Parameters" and "## Body
+// Parameters", each "- **name** [type] (required) - description".
+func details(op string, d map[string]any) vendorText {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n**%s %s**\n\n%s\n", op, d["method"], d["path"], d["summary"])
+	params, _ := d["parameters"].([]map[string]any)
+	for _, in := range []string{"path", "query", "body"} {
+		head := false
+		for _, p := range params {
+			if p["in"] != in {
+				continue
+			}
+			if !head {
+				fmt.Fprintf(&b, "\n## %s%s Parameters\n", strings.ToUpper(in[:1]), in[1:])
+				head = true
+			}
+			req := ""
+			if r, _ := p["required"].(bool); r {
+				req = " (required)"
+			}
+			fmt.Fprintf(&b, "- **%s** [%s]%s - %s\n", p["name"], p["type"], req, p["description"])
+		}
+	}
+	return vendorText(b.String())
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

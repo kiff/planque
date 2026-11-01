@@ -5,6 +5,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Changed
+
+- A broad tool narrowed to one operation (Stripe's `stripe_api_write`) takes
+  only the operation's fields: planque reads them with the vendor's
+  describing tool, once the owner approved it on the grant, and refuses a
+  field the operation doesn't take, with the list it does. A narrowed broad
+  write is added to a grant after its describing tool is approved; asked for
+  at once, it is refused. Narrowed reads are unchanged.
+
 ### Fixed
 
 - A read of planque's store is sent again when the connection drops before an

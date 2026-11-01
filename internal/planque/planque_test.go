@@ -42,6 +42,8 @@ type env struct {
 	s      *Server
 	url    string
 	kv     *store.Memory
+	// enrolled: enrol has run, so a helper that needs it can call it again.
+	enrolled bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -113,10 +115,14 @@ func (e *env) do(method, path string, body any, phone *fakes.Phone, key string) 
 
 func (e *env) enrol() {
 	e.t.Helper()
+	if e.enrolled {
+		return
+	}
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
 		map[string]string{"device_key": e.phone.PublicKey(), "connector_key": "k_connector"}, e.phone, ""); st != 201 {
 		e.t.Fatalf("enrol: %d %v", st, out)
 	}
+	e.enrolled = true
 }
 
 func (e *env) request() (id, digest string) {
@@ -905,11 +911,7 @@ func TestTitledTool(t *testing.T) {
 			t.Fatalf("title %q: %d, want 400", bad, st)
 		}
 	}
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{refund}}, nil, "k_setup")
-	if st != 201 {
-		t.Fatalf("request: %d %v", st, out)
-	}
+	id, out := e.addToDetails(refund)
 	text := out["text"].(string)
 	if !strings.Contains(text, "• Refund a payment: moves money (amount), only within the taf's Card") {
 		t.Fatalf("text:\n%s", text)
@@ -919,18 +921,17 @@ func TestTitledTool(t *testing.T) {
 			t.Errorf("text shows %q:\n%s", raw, text)
 		}
 	}
-	if terms, _ := out["terms"].([]any); len(terms) != 1 || !strings.HasPrefix(terms[0].(string), `bxkwf7vi_refund_payment (stripe_api_write with stripe_api_operation_id = "PostRefunds"`) {
+	if terms, _ := out["terms"].([]any); !slices.ContainsFunc(terms, func(t any) bool {
+		return strings.HasPrefix(t.(string), `bxkwf7vi_refund_payment (stripe_api_write with stripe_api_operation_id = "PostRefunds"`)
+	}) {
 		t.Fatalf("terms: %v", out["terms"])
 	}
-	id, digest := out["id"].(string), out["digest"].(string)
-	if st, out := e.approveAndSignIn(id, digest); st != 200 {
-		t.Fatalf("confirm: %d %v", st, out)
-	}
+	e.approveAddition(id, out)
 	if c, ok := e.kiff.Connection(tenant, "bxkwf7vi_refund_payment"); !ok || c.Title != "Refund a payment" {
 		t.Fatalf("registered: %+v %v", c.Connection, ok)
 	}
 	_, out = e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
-	if b, _ := json.Marshal(out["events"]); !strings.Contains(string(b), "Connected in KIFF: Refund a payment") || strings.Contains(string(b), "bxkwf7vi") {
+	if b, _ := json.Marshal(out["events"]); !strings.Contains(string(b), "in KIFF: Refund a payment") || strings.Contains(string(b), "bxkwf7vi") {
 		t.Fatalf("events: %s", b)
 	}
 }
@@ -949,22 +950,15 @@ func TestNarrowedTool(t *testing.T) {
 			"amount":         map[string]any{"path": "parameters.amount", "type": "integer", "required": true},
 			"approval_token": map[string]any{"path": "human_confirmation.approval_token", "type": "string"},
 		}}
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{refund}}, nil, "k_setup")
-	if st != 201 {
-		t.Fatalf("request: %d %v", st, out)
-	}
+	id, out := e.addToDetails(refund)
 	// The text names the tool in words; its exact terms are in Details.
 	if text := out["text"].(string); !strings.Contains(text, "• stripe_api_write: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
 		t.Fatalf("text:\n%s", text)
 	}
-	if terms, _ := out["terms"].([]any); len(terms) != 1 || terms[0] != `stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent)` {
+	if terms, _ := out["terms"].([]any); !slices.Contains(terms, any(`stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent)`)) {
 		t.Fatalf("terms: %v", out["terms"])
 	}
-	id, digest := out["id"].(string), out["digest"].(string)
-	if st, out := e.approveAndSignIn(id, digest); st != 200 {
-		t.Fatalf("confirm: %d %v", st, out)
-	}
+	e.approveAddition(id, out)
 	if c, ok := e.kiff.Connection(tenant, "stripe_refund"); !ok || c.Tool != "stripe_refund" || c.AmountArg != "amount" {
 		t.Fatalf("registered: %+v %v", c.Connection, ok)
 	}
