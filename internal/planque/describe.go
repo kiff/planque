@@ -29,10 +29,15 @@ type describer struct {
 	Params string   // where the operation's fields go in a broad tool's arguments
 	Writes []string // broad tools that write
 	Reads  []string // broad tools that only read
+	// Context are the arguments that say which account to act in: the
+	// describing tool reads the operation in the narrowed tool's account,
+	// so they go with the read as the narrowed tool pins them. Stripe
+	// refuses stripe_api_details without stripe_context.
+	Context []string
 }
 
 var describers = []describer{{Tool: "stripe_api_details", OpArg: "stripe_api_operation_id", Params: "parameters",
-	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}}}
+	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context"}}}
 
 // narrowedTo is the describer of t and the operation t pins, when t is a
 // broad tool narrowed to one operation; write says t writes.
@@ -156,14 +161,19 @@ func (s *Server) operationsCheck(ctx context.Context, g *Grant, approved, tools 
 			}
 			continue
 		}
-		fields, ok := read[op]
+		// Read once per operation and account.
+		key := op
+		for _, k := range d.Context {
+			key += "\n" + string(t.Fixed[k])
+		}
+		fields, ok := read[key]
 		if !ok {
 			var why string
 			var err error
-			if fields, why, err = s.describe(ctx, g, d, op); err != nil || why != "" {
+			if fields, why, err = s.describe(ctx, g, d, op, t.Fixed); err != nil || why != "" {
 				return why, err
 			}
-			read[op] = fields
+			read[key] = fields
 		}
 		if msg := fieldsCheck(t, d, op, fields); msg != "" {
 			return msg, nil
@@ -172,10 +182,18 @@ func (s *Server) operationsCheck(ctx context.Context, g *Grant, approved, tools 
 	return "", nil
 }
 
-// describe reads op's fields with d's tool, with g's token, and puts the
-// read on g's record. why is the vendor's refusal.
-func (s *Server) describe(ctx context.Context, g *Grant, d describer, op string) (fields map[string]*field, why string, err error) {
-	args, _ := json.Marshal(map[string]string{d.OpArg: op})
+// describe reads op's fields with d's tool, with g's token, in the account
+// the narrowed tool pins (fixed, d.Context), and puts the read on g's
+// record. why is the vendor's refusal.
+func (s *Server) describe(ctx context.Context, g *Grant, d describer, op string, fixed map[string]json.RawMessage) (fields map[string]*field, why string, err error) {
+	in := map[string]json.RawMessage{}
+	for _, k := range d.Context {
+		if v, ok := fixed[k]; ok {
+			in[k] = v
+		}
+	}
+	in[d.OpArg], _ = json.Marshal(op)
+	args, _ := json.Marshal(in)
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
 		return nil, "", err
