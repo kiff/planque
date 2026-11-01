@@ -325,7 +325,9 @@ var vendorTools = []map[string]any{
 		"annotations": map[string]any{"readOnlyHint": true}},
 	{"name": "stripe_api_details", "description": "Lists an API operation's parameters: their names, where they go, and which are required.",
 		"inputSchema": map[string]any{"type": "object",
-			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"}}, "required": []string{"stripe_api_operation_id"}},
+			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
+				"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
+			"required": []string{"stripe_api_operation_id"}},
 		"annotations": map[string]any{"readOnlyHint": true}},
 	// What the sign-in covers, as Stripe's list_available_accounts_or_orgs
 	// says it: read-only, and it takes nothing (kiff/tafs#89).
@@ -435,6 +437,10 @@ func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (an
 		}
 		return map[string]any{"id": params["id"], "object": "charge", "amount": 100000, "amount_refunded": 0, "currency": "eur", "livemode": false}, true
 	case "stripe_api_details":
+		// In an account the sign-in doesn't cover, Stripe describes nothing.
+		if acct, ok := args["stripe_context"].(string); ok && acct != v.Account {
+			return vendorError(fmt.Sprintf("No such account: '%s'.", acct)), true
+		}
 		op, _ := args["stripe_api_operation_id"].(string)
 		d, ok := operations[op]
 		if !ok {
