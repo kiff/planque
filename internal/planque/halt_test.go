@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -154,5 +155,34 @@ func TestATrialPermitIsHeldByItsAgentsHalt(t *testing.T) {
 	}
 	if e.vendor.CallCount() != sent {
 		t.Fatalf("the vendor was called %d times for the halted agent's trial", e.vendor.CallCount()-sent)
+	}
+}
+
+// A connector key planque can't read (its enrolment gone or unsealable)
+// refuses the call as a halt KIFF can't say, and the log names why: KIFF was
+// never asked, so its answer isn't there to read. The key never is.
+func TestAnUnreadableConnectorKeyIsLoggedWithItsReason(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	if _, _, err := e.kv.Delete(context.Background(), tenantPK(tenant), skEnrolment); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"charge": "ch_9", "amount": 100, IdempotencyArg: "op_unread"}
+	b, _ := json.Marshal(args)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "create_refund", Sub: "agt_taf", Op: "op_unread", Args: b, IssuedAt: time.Now()})
+	sent := e.vendor.CallCount()
+	if out := e.relayCall(g, "create_refund", args, permit); !strings.Contains(out, "couldn't check whether the owner halted") {
+		t.Fatalf("a call with no readable connector key: %s", out)
+	}
+	if e.vendor.CallCount() != sent {
+		t.Fatal("the vendor was called with the halt unchecked")
+	}
+	if !strings.Contains(logs.String(), `"msg":"halt unknown: the connector key couldn't be read; refusing"`) || !strings.Contains(logs.String(), `"err":`) {
+		t.Fatalf("log: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "k_connector") {
+		t.Fatalf("the log carries the key: %s", logs.String())
 	}
 }
