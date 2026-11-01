@@ -23,6 +23,9 @@ import (
 func (s *Server) haltRefusal(ctx context.Context, tenant, agent string, issued time.Time) string {
 	key, err := s.connectorKey(ctx, tenant)
 	if err != nil {
+		// Its own enrolment unread or unsealed: KIFF was never asked. Logged
+		// so the refusal names its reason, as KIFF's own answer does below.
+		s.log().WarnContext(ctx, "halt unknown: the connector key couldn't be read; refusing", slog.String("tenant", tenant), slog.String("agent", agent), slog.String("err", err.Error()))
 		return "planque couldn't check whether the owner halted this agent"
 	}
 	h, err := s.KIFF.HaltOf(ctx, key, agent)
