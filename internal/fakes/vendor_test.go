@@ -142,9 +142,8 @@ func TestVendorReadsAChargeByTheOperationsOwnField(t *testing.T) {
 		t.Fatalf("by charge: %v", e)
 	}
 	d, _ := v.read(context.Background(), "stripe_api_details", map[string]any{"stripe_api_operation_id": "GetChargesCharge"})
-	b, _ := json.Marshal(d)
-	if !strings.Contains(string(b), `"name":"id","required":true`) {
-		t.Fatalf("details = %s", b)
+	if text, _ := d.(vendorText); !strings.Contains(string(text), "## Path Parameters\n- **id** [string] (required)") {
+		t.Fatalf("details = %v", d)
 	}
 	if _, ok := v.read(context.Background(), "stripe_api_read", map[string]any{"stripe_api_operation_id": "PostRefunds", "parameters": map[string]any{"id": "x"}}); !ok {
 		t.Fatal("a write operation through the read tool isn't refused as a read")

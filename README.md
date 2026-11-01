@@ -142,6 +142,15 @@ Details. The phone signs the whole request either way:
                "amount": {"path": "parameters.amount", "type": "integer", "required": true}}}
 ```
 
+The fields a narrowed tool may reach are the operation's own: planque reads
+them with the vendor's describing tool (Stripe's `stripe_api_details`) and
+refuses a path into `parameters` the operation doesn't take, with the list
+it does, before the owner is asked. It reads nothing through a vendor's
+tools before the owner approves them, so that tool is connected first (with
+`setup_reads`), and a broad write is added once it's approved; a narrowed
+broad write asked for any other way is refused. The read is on the grant's
+record.
+
 ## Run it
 
 ```sh
