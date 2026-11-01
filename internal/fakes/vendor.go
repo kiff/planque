@@ -326,7 +326,8 @@ var vendorTools = []map[string]any{
 	{"name": "stripe_api_details", "description": "Lists an API operation's parameters: their names, where they go, and which are required.",
 		"inputSchema": map[string]any{"type": "object",
 			"properties": map[string]any{"stripe_api_operation_id": map[string]any{"type": "string"},
-				"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."}},
+				"stripe_context": map[string]any{"type": "string", "description": "The account to act in, from list_accounts."},
+				"livemode":       map[string]any{"type": "boolean", "description": "Live mode, or test mode when false."}},
 			"required": []string{"stripe_api_operation_id"}},
 		"annotations": map[string]any{"readOnlyHint": true}},
 	// What the sign-in covers, as Stripe's list_available_accounts_or_orgs
@@ -440,6 +441,10 @@ func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (an
 		// In an account the sign-in doesn't cover, Stripe describes nothing.
 		if acct, ok := args["stripe_context"].(string); ok && acct != v.Account {
 			return vendorError(fmt.Sprintf("No such account: '%s'.", acct)), true
+		}
+		// The sign-in is a test one: it describes nothing in live mode.
+		if live, ok := args["livemode"].(bool); ok && live {
+			return vendorError("This sign-in has no access to live mode."), true
 		}
 		op, _ := args["stripe_api_operation_id"].(string)
 		d, ok := operations[op]
