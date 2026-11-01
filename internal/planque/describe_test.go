@@ -120,19 +120,24 @@ func TestANarrowedWriteTakesOnlyTheOperationsFields(t *testing.T) {
 // pins: Stripe describes nothing without stripe_context, so a check without
 // it refused every narrowed tool on a real account (the 1 Nov phone run).
 func TestTheFieldsAreReadInTheNarrowedToolsAccount(t *testing.T) {
-	search := func(acct string) map[string]any {
+	search := func(acct string, live bool) map[string]any {
 		return map[string]any{"tool": "stripe_api_read", "name": "search_charges", "read_only": true,
-			"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge", "stripe_context": acct, "livemode": false},
+			"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge", "stripe_context": acct, "livemode": live},
 			"arguments":       map[string]any{"id": map[string]any{"path": "parameters.id", "type": "string"}}}
 	}
 	e := newEnv(t)
 	id := e.detailsGrant()
 	at := "/v1/accounts/" + tenant + "/grants/" + id + "/tools"
-	if st, out := e.do("POST", at, map[string]any{"tools": []any{search("acct_other")}}, nil, "k_setup"); st != 400 ||
+	if st, out := e.do("POST", at, map[string]any{"tools": []any{search("acct_other", false)}}, nil, "k_setup"); st != 400 ||
 		!strings.Contains(out["error"].(string), "No such account: 'acct_other'") {
 		t.Fatalf("another account: %d %v", st, out)
 	}
-	if st, out := e.do("POST", at, map[string]any{"tools": []any{search(e.vendor.Account)}}, nil, "k_setup"); st != 200 {
+	// And in its mode: the test sign-in describes nothing in live mode.
+	if st, out := e.do("POST", at, map[string]any{"tools": []any{search(e.vendor.Account, true)}}, nil, "k_setup"); st != 400 ||
+		!strings.Contains(out["error"].(string), "no access to live mode") {
+		t.Fatalf("live mode: %d %v", st, out)
+	}
+	if st, out := e.do("POST", at, map[string]any{"tools": []any{search(e.vendor.Account, false)}}, nil, "k_setup"); st != 200 {
 		t.Fatalf("the sign-in's account: %d %v", st, out)
 	}
 }

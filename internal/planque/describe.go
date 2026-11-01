@@ -29,15 +29,16 @@ type describer struct {
 	Params string   // where the operation's fields go in a broad tool's arguments
 	Writes []string // broad tools that write
 	Reads  []string // broad tools that only read
-	// Context are the arguments that say which account to act in: the
-	// describing tool reads the operation in the narrowed tool's account,
-	// so they go with the read as the narrowed tool pins them. Stripe
-	// refuses stripe_api_details without stripe_context.
+	// Context are the arguments that say which account and mode to act
+	// in: the describing tool reads the operation in the narrowed tool's
+	// account and mode, so they go with the read as the narrowed tool pins
+	// them. Stripe refuses stripe_api_details without stripe_context or
+	// without livemode.
 	Context []string
 }
 
 var describers = []describer{{Tool: "stripe_api_details", OpArg: "stripe_api_operation_id", Params: "parameters",
-	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context"}}}
+	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context", "livemode"}}}
 
 // narrowedTo is the describer of t and the operation t pins, when t is a
 // broad tool narrowed to one operation; write says t writes.
