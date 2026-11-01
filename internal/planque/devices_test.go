@@ -39,8 +39,8 @@ func TestKIFFDevicesConnectFromEither(t *testing.T) {
 	if st, out := e.enrolAs(iphone); st != 201 || out["device"] != "dev_iphone" {
 		t.Fatalf("enrol from the iPhone: %d %v", st, out)
 	}
-	if st, out := e.enrolAs(ipad); st != 201 {
-		t.Fatalf("enrol from the iPad, a second device: %d %v, want 201", st, out)
+	if st, out := e.enrolAs(ipad); st != 200 || out["kept"] != true {
+		t.Fatalf("enrol from the iPad, a second device: %d %v, want 200 kept", st, out)
 	}
 	if it, ok, err := e.kv.Get(context.Background(), tenantPK(tenant), skEnrolment); err != nil || !ok || bytes.Contains(it.Doc, []byte("device_key")) {
 		t.Fatalf("a KIFF device left a key in the enrolment: %s %v", it.Doc, err)
@@ -257,5 +257,44 @@ func TestARefusedDeviceIsLoggedWithItsReason(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "k_connector") || strings.Contains(logs.String(), "v1=") {
 		t.Fatalf("the log carries a key or a signature: %s", logs.String())
+	}
+}
+
+// A second device's setup hands planque a new connector key, but the tools
+// the enrolled key connected are that key's in KIFF: planque keeps it while
+// KIFF takes it, and answers kept. Once KIFF no longer takes it (revoked),
+// a new key replaces it.
+func TestTheEnrolledConnectorKeyIsKeptWhileItWorks(t *testing.T) {
+	e := newEnv(t)
+	iphone, ipad := e.device("dev_iphone"), e.device("dev_ipad")
+	e.kiff.Keys["k_connector2"] = e.kiff.Keys["k_connector"]
+	enrol := func(p *fakes.Phone, key string) (int, map[string]any) {
+		return e.do("POST", "/v1/accounts/"+tenant+"/enrolment", map[string]string{"connector_key": key}, p, "")
+	}
+	stored := func() string {
+		var en Enrolment
+		if _, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en); err != nil {
+			t.Fatal(err)
+		}
+		k, err := e.s.openConnector(context.Background(), en)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	if st, out := enrol(iphone, "k_connector"); st != 201 {
+		t.Fatalf("first enrolment: %d %v", st, out)
+	}
+	if st, out := enrol(ipad, "k_connector2"); st != 200 || out["kept"] != true || stored() != "k_connector" {
+		t.Fatalf("a second device's key: %d %v, stored %s", st, out, stored())
+	}
+	// A new key must still be a good one: kept or not, a bad one is refused.
+	if st, _ := enrol(ipad, "k_admin"); st != 400 {
+		t.Fatalf("a bad key: %d, want 400", st)
+	}
+	// The enrolled key revoked in KIFF: the new one replaces it.
+	delete(e.kiff.Keys, "k_connector")
+	if st, out := enrol(iphone, "k_connector2"); st != 201 || out["kept"] != nil || stored() != "k_connector2" {
+		t.Fatalf("after the enrolled key was revoked: %d %v, stored %s", st, out, stored())
 	}
 }
