@@ -25,6 +25,7 @@ import (
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/permit"
+	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
 	"github.com/kiff/planque/internal/store"
 )
@@ -45,6 +46,8 @@ type Server struct {
 	Permits *permit.Verifier
 	OAuth   *oauth.Client
 	MCP     *mcp.Client
+	// REST reaches an API-key grant's vendor (kiff/planque#64).
+	REST *rest.Client
 	Logger  *slog.Logger
 	Now     func() time.Time
 	// AppReturn is where the browser that completed a vendor sign-in is
@@ -94,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/tools", s.setTools)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/read", s.setupRead)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/key", s.signed(s.giveKey))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))

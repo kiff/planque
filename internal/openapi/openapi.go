@@ -575,8 +575,9 @@ var ErrArguments = errors.New("the arguments don't fit the operation")
 // args the call's arguments. The key isn't in it: the relay adds it.
 func (op Operation) Request(base string, args map[string]any) (method, target string, body []byte, err error) {
 	u, err := url.Parse(strings.TrimRight(base, "/"))
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return "", "", nil, fmt.Errorf("%w: the grant's server isn't an https URL", ErrArguments)
+	// Which schemes may be reached is the caller's to check (planque's rest client: https only).
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return "", "", nil, fmt.Errorf("%w: the grant's server isn't a URL", ErrArguments)
 	}
 	rest := map[string]any{}
 	for k, v := range args {

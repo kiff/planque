@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
+	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -76,6 +78,26 @@ type Request struct {
 	Tools     []ToolRequest `json:"tools"`
 	AskedBy   string        `json:"asked_by"` // the KIFF agent or key that asked
 	CreatedAt string        `json:"created_at"`
+	// Kind is "api_key" for a vendor reached by its REST API with a key the
+	// owner gives (kiff/planque#64); empty for an MCP server with a sign-in.
+	// Both, like API and Reuse, are left out when empty, so an MCP grant's
+	// digest is what it always was.
+	Kind string `json:"kind,omitempty"`
+	// API is what an API-key grant calls: the description it was read from,
+	// that description's SHA-256 (the snapshot every call uses), the server
+	// and where the key goes. The owner signs all of it.
+	API *APIRequest `json:"api,omitempty"`
+	// Reuse names a connected grant whose sign-in (or key) this one uses:
+	// approving it needs no second sign-in (kiff/planque#36).
+	Reuse string `json:"reuse,omitempty"`
+}
+
+// APIRequest is the API an API-key grant calls.
+type APIRequest struct {
+	URL    string       `json:"url"`
+	Digest string       `json:"digest"`
+	Base   string       `json:"base"`
+	Auth   openapi.Auth `json:"auth"`
 }
 
 // Approval is the owner's signature on a grant, kept as evidence. The device
@@ -136,6 +158,9 @@ type CatalogTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	ReadOnly    bool            `json:"read_only,omitempty"` // the server's readOnlyHint
+	// Method and Path are an API-key grant's operation: what a call sends.
+	Method string `json:"method,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // Event is one line of a grant's record.
@@ -220,7 +245,11 @@ type Grant struct {
 	Audience    string    `json:"audience"`
 	Reason      string    `json:"reason,omitempty"`
 	Events      []Event   `json:"events"`
-	ver         int64
+	// TokenOf is the grant whose sign-in (or key) this one uses, for a grant
+	// asked for with reuse: its token is that grant's, never a copy, so a
+	// refresh happens once for both. Cleared when that sign-in is gone.
+	TokenOf string `json:"token_of,omitempty"`
+	ver     int64
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.
@@ -262,6 +291,9 @@ const skEnrolment = "ENROLMENT"
 
 func skGrant(id string) string     { return "GRANT#" + id }
 func skToken(id string) string     { return "TOKEN#" + id }
+func skSnapshot(id string, n int) string {
+	return fmt.Sprintf("SNAPSHOT#%s#%03d", id, n)
+}
 func skOp(id, op string) string    { return "OP#" + id + "#" + op }
 func pkSignIn(state string) string { return "SIGNIN#" + state }
 func pkClient(issuer, redirect, name string) string {

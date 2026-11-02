@@ -37,6 +37,7 @@ import (
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/permit"
 	"github.com/kiff/planque/internal/planque"
+	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
 	"github.com/kiff/planque/internal/store"
 )
@@ -102,6 +103,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
 		OAuth:  &oauth.Client{HTTP: vendors},
 		MCP:    &mcp.Client{HTTP: vendors},
+		REST:   &rest.Client{HTTP: vendors},
 		Logger: logger,
 	}, nil
 }
