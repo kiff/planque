@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/openapi"
 )
 
 // restVendor is a vendor with a REST API, an OpenAPI description and an API
@@ -457,4 +458,33 @@ func mustHave(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// A snapshot larger than one record is kept in several, and read back whole.
+func TestABigSnapshotIsKeptInParts(t *testing.T) {
+	e := newEnv(t)
+	snap := &openapi.Snapshot{Version: "3.1.0", Digest: strings.Repeat("a", 64)}
+	for i := range 400 {
+		// Text that doesn't compress, so the snapshot spans records.
+		desc := hex.EncodeToString(sha256.New().Sum([]byte(strings.Repeat(string(rune('a'+i%26)), 1)))) + strings.Repeat(hex.EncodeToString([]byte{byte(i), byte(i * 7)}), 1)
+		for range 40 {
+			sum := sha256.Sum256([]byte(desc))
+			desc += hex.EncodeToString(sum[:])
+		}
+		snap.Operations = append(snap.Operations, openapi.Operation{Name: "op" + hex.EncodeToString([]byte{byte(i), byte(i >> 8)}), Method: "GET", Path: "/x", Description: desc, InputSchema: json.RawMessage(`{"type":"object"}`)})
+	}
+	ctx := context.Background()
+	if err := e.s.saveSnapshot(ctx, tenant, "grt_big", snap); err != nil {
+		t.Fatal(err)
+	}
+	parts := 0
+	for _, sk := range mustQuery(t, e) {
+		if strings.HasPrefix(sk, "SNAPSHOT#grt_big#") {
+			parts++
+		}
+	}
+	got, err := e.s.loadSnapshot(ctx, tenant, "grt_big")
+	if err != nil || parts < 2 || len(got.Operations) != 400 || got.Operations[399].Description != snap.Operations[399].Description {
+		t.Fatalf("%d parts, %v", parts, err)
+	}
 }
