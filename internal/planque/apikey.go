@@ -356,7 +356,7 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	case ans.Status >= 300 && ans.Status < 400:
 		return OpUnknown, toolResult(fmt.Sprintf("Sent to %s, which answered %d, a redirect planque doesn't follow: it may or may not have done it. Check the account before making a new call.", host, ans.Status), true)
 	}
-	text := answerText(ans)
+	text := rest.HideKey(answerText(ans), key)
 	if ans.Status >= 400 {
 		return OpDone, toolResult(fmt.Sprintf("%s refused it (%d): %s", host, ans.Status, text), true)
 	}

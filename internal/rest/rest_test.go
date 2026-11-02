@@ -58,3 +58,19 @@ func TestADescriptionOver2MBIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A failed call's error is logged: it never holds the key, though Go's
+// url.Error carries the URL a query key is in.
+func TestAFailedCallsErrorHoldsNoKey(t *testing.T) {
+	c := &Client{AllowHTTP: true}
+	key := "sk_live/secret+1"
+	for _, target := range []string{"http://127.0.0.1:1/x?y=1", "http://nohost.invalid/x"} {
+		_, err := c.Call(context.Background(), "GET", target, nil, openapi.Auth{In: "query", Name: "api_key"}, key)
+		if err == nil || strings.Contains(err.Error(), "secret") {
+			t.Fatalf("%s: %v", target, err)
+		}
+	}
+	if got := HideKey(`{"error":"invalid key sk_live/secret+1"}`, key); got != `{"error":"invalid key [key]"}` {
+		t.Fatal(got)
+	}
+}

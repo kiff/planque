@@ -600,6 +600,11 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 			if !ok {
 				return "", "", nil, fmt.Errorf("%w: %s must be a string or a number", ErrArguments, p.Name)
 			}
+			// "." and ".." aren't escaped, and a server that normalizes the
+			// path would answer another operation than the one approved.
+			if s == "" || s == "." || s == ".." {
+				return "", "", nil, fmt.Errorf("%w: %s can't be empty, . or ..", ErrArguments, p.Name)
+			}
 			path = strings.ReplaceAll(path, "{"+p.Name+"}", url.PathEscape(s))
 		case "query":
 			if l, isList := v.([]any); isList {

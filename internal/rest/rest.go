@@ -117,7 +117,7 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, rd)
 	if err != nil {
-		return Answer{}, &CallError{Err: err}
+		return Answer{}, &CallError{Err: hideKey(err, key)}
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
@@ -130,18 +130,48 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	if err != nil {
 		// A request that failed before a connection was made never reached
 		// the vendor; any later failure may have.
-		return Answer{}, &CallError{Sent: !notConnected(err), Err: err}
+		return Answer{}, &CallError{Sent: !notConnected(err), Err: hideKey(err, key)}
 	}
 	defer res.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(res.Body, MaxAnswer+1))
 	if err != nil {
-		return Answer{}, &CallError{Sent: true, Err: err}
+		return Answer{}, &CallError{Sent: true, Err: hideKey(err, key)}
 	}
 	a := Answer{Status: res.StatusCode, Body: b}
 	if len(b) > MaxAnswer {
 		a.Body, a.Cut = b[:MaxAnswer], true
 	}
 	return a, nil
+}
+
+// hideKey is err without the key, so it can be logged: Go's url.Error
+// carries the whole URL, and a query key is in it. The URL loses its query,
+// and the key, as it is or escaped, is replaced with [key] anywhere else.
+func hideKey(err error, key string) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		if u, perr := url.Parse(ue.URL); perr == nil {
+			u.RawQuery = ""
+			ue.URL = u.String()
+		} else {
+			ue.URL = "[url]"
+		}
+	}
+	msg := err.Error()
+	if key == "" || !(strings.Contains(msg, key) || strings.Contains(msg, url.QueryEscape(key))) {
+		return err
+	}
+	msg = strings.ReplaceAll(msg, key, "[key]")
+	return errors.New(strings.ReplaceAll(msg, url.QueryEscape(key), "[key]"))
+}
+
+// HideKey is text with the key replaced with [key]: a vendor's answer can
+// echo it back ("invalid key sk_…").
+func HideKey(text, key string) string {
+	if key == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, key, "[key]")
 }
 
 // notConnected: err happened before planque connected to the vendor (the

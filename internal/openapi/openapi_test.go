@@ -176,6 +176,13 @@ func TestACallFillsItsRequest(t *testing.T) {
 			t.Errorf("%v: %v", args, err)
 		}
 	}
+	// A path parameter of . or .. would make another endpoint once the path is
+	// normalized: refused, as is an empty one.
+	for _, order := range []string{"..", ".", ""} {
+		if _, _, _, err := op(t, s, "getOrder").Request("https://eu.shop.example/v1", map[string]any{"order": order}); !errors.Is(err, ErrArguments) {
+			t.Errorf("%q: %v", order, err)
+		}
+	}
 	if _, _, _, err := op(t, s, "getOrder").Request("ftp://eu.shop.example/v1", map[string]any{"order": "o1"}); !errors.Is(err, ErrArguments) {
 		t.Fatal(err)
 	}

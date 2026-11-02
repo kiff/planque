@@ -83,8 +83,9 @@ func newRESTVendor(t *testing.T) *restVendor {
 		case strings.HasPrefix(r.URL.Path, "/v1/charges/ch_away/"):
 			http.Redirect(w, r, v.elsewhere.URL+"/steal", http.StatusFound)
 		case c.Body["amount"] == float64(499):
+			// Some vendors echo the key back in a refusal.
 			w.WriteHeader(402)
-			_, _ = io.WriteString(w, `{"error":"insufficient funds"}`)
+			_, _ = io.WriteString(w, `{"error":"insufficient funds","key":"`+c.Key+`"}`)
 		case r.Method == "POST":
 			_, _ = io.WriteString(w, `{"id":"re_1","status":"succeeded"}`)
 		default:
@@ -319,7 +320,8 @@ func TestAnAPIKeyCallsAnswers(t *testing.T) {
 	e.connectAPI(v)
 	ctx := context.Background()
 	res, _ := e.kiff.Call(ctx, "k_taf", "create_refund", map[string]any{"charge": "ch_1", "amount": 499})
-	if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "refused it (402)") || !strings.Contains(text, "insufficient funds") {
+	if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "refused it (402)") || !strings.Contains(text, "insufficient funds") ||
+		strings.Contains(text, v.key) || !strings.Contains(text, "[key]") {
 		t.Fatalf("%s", text)
 	}
 	res, _ = e.kiff.Call(ctx, "k_taf", "create_refund", map[string]any{"charge": "ch_boom", "amount": 5})
