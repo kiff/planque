@@ -642,23 +642,15 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 	if err != nil {
 		return "", "", nil, fmt.Errorf("%w: the body can't be written as JSON", ErrArguments)
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + path
-	u.RawPath = ""
-	if strings.Contains(path, "%") {
-		u.RawPath = strings.TrimRight(u.EscapedPath(), "/")
-		u.RawPath = strings.TrimRight(mustEscaped(base), "/") + path
+	// path holds its parameters escaped: the URL keeps them as they are.
+	escaped := strings.TrimRight(u.EscapedPath(), "/") + path
+	unescaped, err := url.PathUnescape(escaped)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("%w: the path can't be written", ErrArguments)
 	}
+	u.Path, u.RawPath = unescaped, escaped
 	u.RawQuery = q.Encode()
 	return op.Method, u.String(), body, nil
-}
-
-// mustEscaped is base's path, escaped.
-func mustEscaped(base string) string {
-	u, err := url.Parse(strings.TrimRight(base, "/"))
-	if err != nil {
-		return ""
-	}
-	return u.EscapedPath()
 }
 
 func firstKey(m map[string]any) string {
