@@ -88,6 +88,9 @@ func (s *Server) accessToken(ctx context.Context, g *Grant, stale int64) (string
 		return "", 0, signedOutErr(g)
 	}
 	tok, it, err := s.openToken(ctx, g)
+	if errors.Is(err, errNotFound) && g.TokenOf != "" {
+		return "", 0, s.signOut(ctx, g, "the connection whose sign-in it used was disconnected", "reused_sign_in_gone")
+	}
 	if errors.Is(err, errNotFound) {
 		return "", 0, errNoToken
 	}
@@ -208,7 +211,9 @@ func signedOutErr(g *Grant) error {
 func (s *Server) signOut(ctx context.Context, g *Grant, why, reason string) error {
 	now, err := s.loadGrant(ctx, g.Tenant, g.ID)
 	if err == nil && now.Status == StatusConnected {
-		now.Status, now.Reason = StatusNeedsReconnect, why
+		// A reused sign-in that's gone isn't this grant's any more: it signs
+		// in (or takes a key) on its own (kiff/planque#36).
+		now.Status, now.Reason, now.TokenOf = StatusNeedsReconnect, why, ""
 		now.SignedOutAt = s.now().UTC().Truncate(time.Second)
 		now.event(s.now(), "signed out by "+vendorName(now)+": "+why+"; waiting for the owner to sign in again")
 		if err = s.markTell(ctx, now, reason); err == nil {

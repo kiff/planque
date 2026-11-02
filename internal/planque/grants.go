@@ -1503,6 +1503,15 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	problems = append(problems, s.revoke(r.Context(), g)...)
 	g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
+	switch {
+	case g.TokenOf != "":
+		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
+	case g.Request.Kind == KindAPIKey:
+		what = "disconnected " + sr.approval.Who() + ": key deleted"
+	}
+	if g.Request.Kind == KindAPIKey {
+		s.dropSnapshot(r.Context(), g.Tenant, g.ID)
+	}
 	if len(problems) > 0 {
 		what += "; " + strings.Join(problems, "; ")
 	}

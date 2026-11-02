@@ -289,8 +289,8 @@ func tenantPK(t string) string { return "TENANT#" + t }
 
 const skEnrolment = "ENROLMENT"
 
-func skGrant(id string) string     { return "GRANT#" + id }
-func skToken(id string) string     { return "TOKEN#" + id }
+func skGrant(id string) string { return "GRANT#" + id }
+func skToken(id string) string { return "TOKEN#" + id }
 func skSnapshot(id string, n int) string {
 	return fmt.Sprintf("SNAPSHOT#%s#%03d", id, n)
 }

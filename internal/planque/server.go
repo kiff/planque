@@ -47,9 +47,9 @@ type Server struct {
 	OAuth   *oauth.Client
 	MCP     *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
-	REST *rest.Client
-	Logger  *slog.Logger
-	Now     func() time.Time
+	REST   *rest.Client
+	Logger *slog.Logger
+	Now    func() time.Time
 	// AppReturn is where the browser that completed a vendor sign-in is
 	// sent, with the code that confirms it: the owner's app (tafs), for
 	// example tafs://planque/signed-in. The operator sets it; no request
