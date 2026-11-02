@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
@@ -47,9 +49,13 @@ type Server struct {
 	OAuth   *oauth.Client
 	MCP     *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
-	REST   *rest.Client
-	Logger *slog.Logger
-	Now    func() time.Time
+	REST *rest.Client
+	// Application definitions are reviewed public protocol facts; their
+	// client credentials are resolved separately from an operator store.
+	Applications           map[string]appconfig.Application
+	ApplicationCredentials appcredentials.Reader
+	Logger                 *slog.Logger
+	Now                    func() time.Time
 	// AppReturn is where the browser that completed a vendor sign-in is
 	// sent, with the code that confirms it: the owner's app (tafs), for
 	// example tafs://planque/signed-in. The operator sets it; no request

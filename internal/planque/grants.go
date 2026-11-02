@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
@@ -169,7 +170,8 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		Kind string  `json:"kind"`
 		API  *apiAsk `json:"api"`
 		// Reuse names a connected grant whose sign-in this one uses.
-		Reuse string `json:"reuse"`
+		Reuse       string `json:"reuse"`
+		Application string `json:"application"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
@@ -189,8 +191,12 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	if req.Kind != "" && req.Kind != KindAPIKey {
-		writeErr(w, http.StatusBadRequest, `kind is "api_key", or left out for a vendor's MCP server`)
+	if req.Kind != "" && req.Kind != KindAPIKey && req.Kind != appconfig.MCP && req.Kind != appconfig.REST {
+		writeErr(w, http.StatusBadRequest, `unsupported connection kind`)
+		return
+	}
+	if (req.Kind == appconfig.MCP || req.Kind == appconfig.REST) && req.Application == "" && req.Reuse == "" {
+		writeErr(w, http.StatusBadRequest, "a registered OAuth connection needs its configured application id")
 		return
 	}
 	id := "grt_" + oauth.Random(12)
@@ -198,6 +204,7 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	var meta oauth.Metadata
 	var api *APIRequest
 	var reused *Grant
+	var application *ApplicationApproval
 	switch {
 	case req.Reuse != "":
 		// The sign-in (or key) of a connected grant of this account, to the
@@ -212,6 +219,11 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reused, meta, api, server = g, g.Vendor, g.Request.API, g.Request.Server
+		if req.Application != "" && (g.Request.Application == nil || g.Request.Application.ID != req.Application) {
+			writeErr(w, http.StatusBadRequest, "that connection belongs to another registered application")
+			return
+		}
+		application = g.Request.Application
 		if api != nil {
 			snap, err := s.loadSnapshot(r.Context(), tenant, g.ID)
 			if err == nil {
@@ -226,6 +238,23 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	case req.Application != "":
+		if req.API != nil {
+			writeErr(w, http.StatusBadRequest, "a registered application uses its reviewed API definition")
+			return
+		}
+		definition, configured := s.Applications[req.Application]
+		if !configured || req.Kind != "" && req.Kind != definition.Kind || server != "" && server != definition.Server {
+			writeErr(w, http.StatusBadRequest, "the request does not match a configured vendor application")
+			return
+		}
+		application, api, err = s.applicationRequest(r.Context(), tenant, id, req.Application, *req.Tools)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		definition = application.Definition
+		req.Kind, server, meta = definition.Kind, definition.Server, definition.OAuth
 	case req.Kind == KindAPIKey:
 		if req.API == nil {
 			writeErr(w, http.StatusBadRequest, "api is required for an api_key grant: {url, auth, base}")
@@ -267,12 +296,15 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
-			Kind: req.Kind, API: api, Reuse: req.Reuse},
+			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if reused != nil {
 		// Held as the other grant's: approving connects with no second sign-in.
 		g.Request.Kind = reused.Request.Kind
 		g.TokenOf, g.SignedIn, g.ClientID, g.Account, g.VendorName = tokenOwner(reused), true, reused.ClientID, reused.Account, reused.VendorName
+	}
+	if application != nil {
+		g.VendorName = application.Definition.Name
 	}
 	g.Text = grantText(g.Request)
 	if reused != nil {
@@ -342,6 +374,10 @@ func grantText(q Request) string { return requestText(q, false, "") }
 // grant whose sign-in planque already holds: there is no second sign-in,
 // and the text names the account it acts in, when the vendor names it.
 func requestText(q Request, held bool, account string, catalog ...CatalogTool) string {
+	return connectionText(q, held, account, catalog...) + appWords(q)
+}
+
+func connectionText(q Request, held bool, account string, catalog ...CatalogTool) string {
 	if q.Kind == KindAPIKey {
 		return apiKeyText(q, held, account, catalog...)
 	}
@@ -862,7 +898,7 @@ func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
 		if t.tok == "" {
 			continue
 		}
-		if err := s.OAuth.Revoke(ctx, g.Vendor, g.ClientID, t.tok, t.hint); err != nil {
+		if err := s.revokeToken(ctx, g, t.tok, t.hint); err != nil {
 			return fmt.Errorf("the vendor did not confirm revoking the %s: %w", t.hint, err)
 		}
 	}
@@ -956,7 +992,16 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
 		g.event(s.now(), "an unconfirmed sign-in was revoked")
 	}
-	clientID, err := s.client(r.Context(), g.Vendor)
+	clientID := ""
+	if g.Request.Application != nil {
+		var registration []oauth.Registration
+		registration, err = s.registration(r.Context(), g)
+		if err == nil {
+			clientID = registration[0].ClientID
+		}
+	} else {
+		clientID, err = s.client(r.Context(), g.Vendor)
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "Couldn't register with "+hostOf(g.Vendor.Issuer)+": "+err.Error())
 		return
@@ -1078,7 +1123,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	tok, err := s.OAuth.Exchange(r.Context(), g.Vendor, g.ClientID, s.redirect(), q.Get("code"), string(verifier))
+	tok, err := s.exchangeToken(r.Context(), g, q.Get("code"), string(verifier))
 	if err != nil {
 		s.failGrant(r.Context(), g, "the sign-in code was not accepted: "+err.Error())
 		s.page(w, http.StatusBadGateway, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished.")
@@ -1094,7 +1139,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		if g.Account != "" && tok.Account != "" && tok.Account != g.Account {
 			for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 				if t.tok != "" {
-					_ = s.OAuth.Revoke(r.Context(), g.Vendor, g.ClientID, t.tok, t.hint)
+					_ = s.revokeToken(r.Context(), g, t.tok, t.hint)
 				}
 			}
 			g.Status, g.Reconnect = StatusNeedsReconnect, false
@@ -1454,7 +1499,7 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 			if t.tok == "" {
 				continue
 			}
-			if err := s.OAuth.Revoke(ctx, g.Vendor, g.ClientID, t.tok, t.hint); err != nil {
+			if err := s.revokeToken(ctx, g, t.tok, t.hint); err != nil {
 				problems = append(problems, "the vendor did not confirm revoking the "+t.hint+": "+err.Error())
 			}
 		}
@@ -1519,7 +1564,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	case g.Request.Kind == KindAPIKey:
 		what = "disconnected " + sr.approval.Who() + ": key deleted"
 	}
-	if g.Request.Kind == KindAPIKey {
+	if g.Request.API != nil {
 		s.dropSnapshot(r.Context(), g.Tenant, g.ID)
 	}
 	if len(problems) > 0 {

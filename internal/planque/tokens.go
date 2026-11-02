@@ -134,7 +134,7 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 		s.releaseLease(ctx, it, ver)
 		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token", "no_refresh_token")
 	}
-	next, err := s.OAuth.Refresh(ctx, g.Vendor, g.ClientID, tok.Refresh)
+	next, err := s.refreshToken(ctx, g, tok.Refresh)
 	if err != nil {
 		s.releaseLease(ctx, it, ver)
 		if errors.Is(err, oauth.ErrInvalidGrant) {

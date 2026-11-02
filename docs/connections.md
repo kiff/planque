@@ -60,3 +60,46 @@ revocation requests do not follow redirects.
 
 References: [OAuth client authentication](https://www.rfc-editor.org/rfc/rfc6749#section-2.3),
 [token revocation](https://www.rfc-editor.org/rfc/rfc7009).
+
+### Configuring an application
+
+`PLANQUE_APPS_FILE` names a JSON file mapping stable application ids to
+credential-free definitions. Each definition includes `name`, `kind`
+(`mcp_oauth_app` or `rest_oauth_app`), `server`, a documentation `source`,
+`oauth` metadata, `token_endpoint_auth_method` and `permission_words`.
+REST definitions also include an `operations` snapshot of reviewed
+operations, using the same request builder as an OpenAPI snapshot.
+
+MCP applications require PKCE and exact resource binding. REST definitions
+may set `no_resource_parameter` for providers that use scopes without
+resource indicators. Only a confidential client may set `no_pkce` when
+its provider does not support PKCE. Authorization parameters are restricted
+to `access_type`, `prompt`, `include_granted_scopes` and `audience`; they
+cannot override the client, redirect or one-use state.
+
+`PLANQUE_APP_SECRETS` is a JSON object mapping configured application ids
+to Secrets Manager references. The process's role needs `GetSecretValue`
+only for those references. Each secret contains `client_id` and
+`client_secret`; reads use `AWSCURRENT`. No reference or secret value is
+accepted in a grant request. Without this setting, the operator may provision
+credentials through the Go `appcredentials.Sealed` interface, backed by the
+configured KV and sealer. Credential provisioning has no HTTP endpoint.
+
+An agent requests a configured application using its id:
+
+```json
+{"application":"support-desk","agent":"support","tools":[]}
+```
+
+The owner first approves the connection on their device, signs in at the
+vendor, and confirms that sign-in on the approving device. Only then may
+the grant expose tools. A REST application uses its reviewed operations;
+the caller cannot replace its source or base URL. MCP applications list
+the server's tools through the existing MCP transport.
+
+The signed request pins a copy of the public definition, the client id,
+and the REST operation digest. A later configuration change does not
+reinterpret an existing grant. Rotating a secret for the same client id is
+supported; a different client id requires a new connection. Exchanges,
+refreshes and revocations all use the approved endpoints. Vendor calls
+retain exact-call permit verification and the existing outcome handling.

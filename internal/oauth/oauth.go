@@ -35,6 +35,12 @@ type Metadata struct {
 	// ClientMetadata lets planque use its HTTPS metadata document as its
 	// client id, without registering a separate public client at each server.
 	ClientMetadata bool `json:"client_id_metadata_document_supported,omitempty"`
+	// Registered REST apps may use scopes rather than RFC 8707 resource
+	// indicators, and confidential providers may not offer PKCE. These
+	// options come from operator-reviewed app definitions, never discovery.
+	NoResourceParameter bool              `json:"no_resource_parameter,omitempty"`
+	NoPKCE              bool              `json:"no_pkce,omitempty"`
+	AuthorizationParams map[string]string `json:"authorization_params,omitempty"`
 	// IssParameter: the server always names itself in its answer (RFC 9207).
 	IssParameter bool `json:"iss_parameter,omitempty"`
 }
@@ -304,6 +310,19 @@ func AuthURL(m Metadata, clientID, redirect, state, challenge string) string {
 	if len(m.Scopes) > 0 {
 		q.Set("scope", strings.Join(m.Scopes, " "))
 	}
+	if m.NoResourceParameter {
+		q.Del("resource")
+	}
+	if m.NoPKCE {
+		q.Del("code_challenge")
+		q.Del("code_challenge_method")
+	}
+	for name, value := range m.AuthorizationParams {
+		switch name {
+		case "access_type", "prompt", "include_granted_scopes", "audience":
+			q.Set(name, value)
+		}
+	}
 	sep := "?"
 	if strings.Contains(m.Authorization, "?") {
 		sep = "&"
@@ -352,6 +371,12 @@ func (c *Client) Refresh(ctx context.Context, m Metadata, clientID, refresh stri
 }
 
 func (c *Client) token(ctx context.Context, m Metadata, form url.Values, registrations ...Registration) (Token, error) {
+	if m.NoResourceParameter {
+		form.Del("resource")
+	}
+	if m.NoPKCE {
+		form.Del("code_verifier")
+	}
 	req, err := c.formRequest(ctx, m.Token, form, false, registrations)
 	if err != nil {
 		return Token{}, err

@@ -31,6 +31,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Registered vendor applications:** operator-configured MCP and REST
+  applications use credentials from a sealed store or configured Secrets
+  Manager references. The owner's approval pins the client identity,
+  endpoints, access descriptions and reviewed operations. Secret rotation
+  for that client works without changing the approval; replacing the
+  client identity needs a new approval.
+
 - **MCP client metadata documents:** a vendor that supports CIMD can use
   planque's public HTTPS client document instead of a registration request.
   The document contains only the configured client identity and redirect.

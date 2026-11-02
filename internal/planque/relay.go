@@ -205,7 +205,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: "+err.Error(), true))
 	}
-	if g.Request.Kind == KindAPIKey {
+	if g.Request.API != nil {
 		// The vendor's REST API, from the grant's snapshot, with its key
 		// (kiff/planque#64): the same permit, halt and once-only record.
 		var callArgs map[string]any

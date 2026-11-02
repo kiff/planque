@@ -94,6 +94,9 @@ type Request struct {
 	// Reuse names a connected grant whose sign-in (or key) this one uses:
 	// approving it needs no second sign-in (kiff/planque#36).
 	Reuse string `json:"reuse,omitempty"`
+	// Application is the exact registered app configuration approved for
+	// this grant. It contains public facts and a client id, never a secret.
+	Application *ApplicationApproval `json:"application,omitempty"`
 }
 
 // APIRequest is the API an API-key grant calls.
@@ -105,6 +108,7 @@ type APIRequest struct {
 	// Operations is the selected subset. Its names are signed together
 	// with the full document digest, so selection cannot change silently.
 	Operations []string `json:"operations,omitempty"`
+	SourceKind string   `json:"source_kind,omitempty"`
 }
 
 // Approval is the owner's signature on a grant, kept as evidence. The device

@@ -207,7 +207,7 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 // vendorTools are the tools g's vendor offers, as an MCP server lists them:
 // listed by its MCP server, or read from an API-key grant's snapshot.
 func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mcpTool, mcp.Server, error) {
-	if g.Request.Kind != KindAPIKey {
+	if g.Request.API == nil {
 		return s.MCP.ListTools(ctx, g.Request.Server, access)
 	}
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)

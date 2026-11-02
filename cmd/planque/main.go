@@ -16,10 +16,13 @@
 //	KIFF_ISSUER        the permit issuer, default KIFF_API
 //	KIFF_JWKS_URL      default KIFF_ISSUER/.well-known/kiff-permit-keys.json
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
+//	PLANQUE_APPS_FILE  optional credential-free registered app definitions
+//	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
 package main
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"log"
 	"log/slog"
@@ -29,6 +32,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/awsapi"
 	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/kiff"
@@ -87,6 +92,26 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	default:
 		return nil, errors.New("set PLANQUE_KMS_KEY or PLANQUE_LOCAL_KEY")
 	}
+	applications := map[string]appconfig.Application{}
+	if path := os.Getenv("PLANQUE_APPS_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, errors.New("the registered application definitions could not be read")
+		}
+		applications, err = appconfig.Decode(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
+	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
+		var references map[string]string
+		if json.Unmarshal([]byte(raw), &references) != nil || len(references) == 0 {
+			return nil, errors.New("PLANQUE_APP_SECRETS must map application ids to secret references")
+		}
+		applicationCredentials = &appcredentials.SecretsManager{References: references, API: &awsapi.Client{
+			Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+	}
 	api := cmp.Or(os.Getenv("KIFF_API"), "https://api.kiff.dev")
 	issuer := cmp.Or(os.Getenv("KIFF_ISSUER"), api)
 	// KIFF is configured here; vendors are named by agents and servers, so
@@ -101,9 +126,11 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		KIFF:      &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
-		OAuth:  &oauth.Client{HTTP: vendors},
-		MCP:    &mcp.Client{HTTP: vendors},
-		REST:   &rest.Client{HTTP: vendors},
-		Logger: logger,
+		OAuth:                  &oauth.Client{HTTP: vendors},
+		MCP:                    &mcp.Client{HTTP: vendors},
+		REST:                   &rest.Client{HTTP: vendors},
+		Logger:                 logger,
+		Applications:           applications,
+		ApplicationCredentials: applicationCredentials,
 	}, nil
 }
