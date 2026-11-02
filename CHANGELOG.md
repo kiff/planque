@@ -31,6 +31,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **MCP client metadata documents:** a vendor that supports CIMD can use
+  planque's public HTTPS client document instead of a registration request.
+  The document contains only the configured client identity and redirect.
+- **Larger API descriptions and selected operations:** descriptions may be
+  up to 16 MB. `api.operations` selects up to 500 operations from a larger
+  description; the selection and the complete source digest are included
+  in the request the owner approves. An operation fingerprint distinguishes
+  request changes from wording changes.
+
 - **A write's amount read from its resource:** a tool may name `amount_lookup` (`{tool, argument,
   path}`), a read-only tool of the same request, the read's string argument that takes the call's
   `resource_argument`, and where the amount is in its answer. planque registers it in KIFF like

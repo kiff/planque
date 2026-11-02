@@ -118,9 +118,10 @@ func (s *Server) dropSnapshot(ctx context.Context, tenant, grant string) {
 
 // apiAsk is what a grant request says about the API it calls.
 type apiAsk struct {
-	URL  string       `json:"url"`
-	Base string       `json:"base"`
-	Auth openapi.Auth `json:"auth"`
+	URL        string       `json:"url"`
+	Base       string       `json:"base"`
+	Auth       openapi.Auth `json:"auth"`
+	Operations []string     `json:"operations,omitempty"`
 }
 
 // readAPI reads the description an API-key grant names, checks the tools
@@ -136,7 +137,12 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if err != nil {
 		return nil, nil, "Couldn't read the API description at " + a.URL + ": " + err.Error(), nil
 	}
-	snap, err := openapi.Parse(raw, a.Auth)
+	var snap *openapi.Snapshot
+	if len(a.Operations) > 0 {
+		snap, err = openapi.ParseOperations(raw, a.Auth, a.Operations)
+	} else {
+		snap, err = openapi.Parse(raw, a.Auth)
+	}
 	if err != nil {
 		return nil, nil, err.Error(), nil
 	}
@@ -155,7 +161,8 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if err := s.saveSnapshot(ctx, tenant, grant, snap); err != nil {
 		return nil, nil, "", err
 	}
-	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth}, snap, "", nil
+	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth,
+		Operations: slices.Clone(a.Operations)}, snap, "", nil
 }
 
 // apiToolsCheck says why tools can't be asked for from snap, "" when they can.

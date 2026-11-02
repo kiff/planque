@@ -77,7 +77,7 @@ func (c *Client) Fetch(ctx context.Context, raw string) ([]byte, error) {
 		return nil, fmt.Errorf("it couldn't be read: %w", err)
 	}
 	if len(b) > openapi.MaxBytes {
-		return nil, &openapi.Refused{Why: "it is over 2 MB"}
+		return nil, &openapi.Refused{Why: "it is over 16 MB"}
 	}
 	return b, nil
 }

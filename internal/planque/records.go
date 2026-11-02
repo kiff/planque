@@ -102,6 +102,9 @@ type APIRequest struct {
 	Digest string       `json:"digest"`
 	Base   string       `json:"base"`
 	Auth   openapi.Auth `json:"auth"`
+	// Operations is the selected subset. Its names are signed together
+	// with the full document digest, so selection cannot change silently.
+	Operations []string `json:"operations,omitempty"`
 }
 
 // Approval is the owner's signature on a grant, kept as evidence. The device

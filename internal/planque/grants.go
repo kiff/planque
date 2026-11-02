@@ -1006,6 +1006,13 @@ const ClientName = "tafs"
 // server, registering once per server and name: a new name registers
 // again, so the vendor shows it.
 func (s *Server) client(ctx context.Context, m oauth.Metadata) (string, error) {
+	if m.ClientMetadata {
+		doc, err := oauth.NewClientDocument(s.BaseURL+"/oauth/client-metadata.json", ClientName, s.redirect())
+		if err != nil {
+			return "", err
+		}
+		return doc.ClientID, nil
+	}
 	var c struct {
 		ClientID string `json:"client_id"`
 	}

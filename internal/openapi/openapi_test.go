@@ -150,7 +150,7 @@ func TestWhatIsntReadIsRefusedWithTheReason(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := Parse(make([]byte, MaxBytes+1), key); err == nil || !strings.Contains(err.Error(), "2 MB") {
+	if _, err := Parse(make([]byte, MaxBytes+1), key); err == nil || !strings.Contains(err.Error(), "16 MB") {
 		t.Fatal(err)
 	}
 }

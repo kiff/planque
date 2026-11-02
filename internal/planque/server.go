@@ -111,8 +111,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/finish", s.finishDeletion)
 	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
+	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux
+}
+
+// clientMetadata is the same document whose URL is sent as client_id when
+// a vendor supports CIMD. No tenant or sign-in data belongs in this response.
+func (s *Server) clientMetadata(w http.ResponseWriter, _ *http.Request) {
+	doc, err := oauth.NewClientDocument(s.BaseURL+"/oauth/client-metadata.json", ClientName, s.redirect())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "this installation's public client metadata is not configured")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(doc)
 }
 
 type apiError struct {

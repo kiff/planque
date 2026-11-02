@@ -48,7 +48,7 @@ func TestACallSendsTheKeyWhereItGoesAndFollowsNoRedirect(t *testing.T) {
 	}
 }
 
-func TestADescriptionOver2MBIsRefused(t *testing.T) {
+func TestADescriptionOver16MBIsRefused(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("{" + strings.Repeat(" ", openapi.MaxBytes) + "}"))
 	}))

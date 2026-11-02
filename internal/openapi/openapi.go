@@ -23,12 +23,14 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/kiff/planque/internal/jcs"
 )
 
 // Limits on a description, as the owner's approval and planque's memory
 // allow.
 const (
-	MaxBytes      = 2 << 20
+	MaxBytes      = 16 << 20
 	MaxOperations = 500
 	// maxNodes bounds a description once its references are resolved: a
 	// small document can reference itself into a huge one.
@@ -100,8 +102,29 @@ var ToolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
 // Parse reads raw, a description, for a grant whose key goes as auth says.
 func Parse(raw []byte, auth Auth) (*Snapshot, error) {
+	return parseSelected(raw, auth, nil)
+}
+
+// ParseOperations retains only the named operations while keeping the
+// digest of the complete source document. The operation limit applies to
+// this selection, not to every operation the vendor publishes.
+func ParseOperations(raw []byte, auth Auth, operations []string) (*Snapshot, error) {
+	if len(operations) == 0 || len(operations) > MaxOperations {
+		return nil, refuse("select between 1 and %d operations", MaxOperations)
+	}
+	selected := make(map[string]bool, len(operations))
+	for _, name := range operations {
+		if !ToolName.MatchString(name) || selected[name] {
+			return nil, refuse("selected operations need distinct tool names")
+		}
+		selected[name] = true
+	}
+	return parseSelected(raw, auth, selected)
+}
+
+func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, error) {
 	if len(raw) > MaxBytes {
-		return nil, refuse("it is over 2 MB")
+		return nil, refuse("it is over 16 MB")
 	}
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
@@ -166,6 +189,9 @@ func Parse(raw []byte, auth Auth) (*Snapshot, error) {
 			if err != nil {
 				return nil, err
 			}
+			if selected != nil && !selected[opName(m, p, o)] {
+				continue
+			}
 			op, why, err := r.operation(p, m, o, shared, global, scheme)
 			if err != nil {
 				return nil, err
@@ -190,7 +216,76 @@ func Parse(raw []byte, auth Auth) (*Snapshot, error) {
 	if len(s.Operations) == 0 {
 		return nil, refuse("it has no operation planque can call")
 	}
+	if selected != nil && len(names) != len(selected) {
+		var missing []string
+		for name := range selected {
+			if !names[name] {
+				missing = append(missing, name)
+			}
+		}
+		sort.Strings(missing)
+		return nil, refuse("selected operations are missing or unsupported: %s", strings.Join(missing, ", "))
+	}
 	return s, nil
+}
+
+// Digest identifies what executing an operation depends on. Vendor wording
+// can change without pausing the operation; request shape and constraints
+// cannot. Schema property names, including a property named description,
+// remain part of the identity.
+func (op Operation) Digest() (string, error) {
+	var schema any
+	if err := json.Unmarshal(op.InputSchema, &schema); err != nil {
+		return "", err
+	}
+	semantic := struct {
+		Name, Method, Path, Body string
+		ReadOnly                 bool
+		Params                   []Param
+		Schema                   any
+	}{op.Name, op.Method, op.Path, op.Body, op.ReadOnly, op.Params, semanticSchema(schema)}
+	b, err := json.Marshal(semantic)
+	if err != nil {
+		return "", err
+	}
+	return jcs.SHA256(b)
+}
+
+func semanticSchema(v any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, value := range v {
+			switch k {
+			case "description", "title", "$comment", "examples", "example", "externalDocs":
+				continue
+			case "properties", "patternProperties", "$defs", "definitions", "dependentSchemas":
+				if named, ok := value.(map[string]any); ok {
+					children := make(map[string]any, len(named))
+					for name, child := range named {
+						children[name] = semanticSchema(child)
+					}
+					out[k] = children
+					continue
+				}
+			case "const", "enum", "default":
+				// These values are data, not schemas: their object keys are
+				// meaningful even when they happen to be annotation names.
+				out[k] = value
+				continue
+			}
+			out[k] = semanticSchema(value)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, child := range v {
+			out[i] = semanticSchema(child)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // matchAuth is the name of the description's security scheme the grant's
