@@ -103,3 +103,52 @@ reinterpret an existing grant. Rotating a secret for the same client id is
 supported; a different client id requires a new connection. Exchanges,
 refreshes and revocations all use the approved endpoints. Vendor calls
 retain exact-call permit verification and the existing outcome handling.
+
+## Connection profiles and device approval
+
+A grant request, or the request that chooses its tools, may include a
+`profile` following KIFF's `kiff.profile.v1` contract. planque returns it as
+`request.profile`; the existing grant digest covers it. The phone reads
+KIFF's `kiff.words.v1` words using its own session, checks the profile and
+words digests, and displays the ordered lines verbatim.
+
+The signed `/approve` body includes both digests:
+
+```json
+{
+  "digest": "<grant digest>",
+  "kiff_profile": {
+    "profile_sha256": "<canonical profile digest>",
+    "words_sha256": "<canonical words digest>"
+  }
+}
+```
+
+The signed `/key` body carries the same object alongside `key_sha256`.
+The key itself remains in its existing header. A missing or mismatched
+profile digest is refused before sign-in or key storage. KIFF checks the
+words digest independently when applying the profile.
+
+planque derives read-only, amount, unit, scale and resource settings from
+the profile when registering the tools. A decimal amount uses
+`amount_format: "decimal_string"`; its argument or nested path must have
+a string schema. It is forwarded as a string, without conversion to a
+floating-point amount. KIFF measures it in minor units.
+
+After registering the tools, planque sends the profile and the exact signed
+request evidence to KIFF's gateway. The relay refuses calls until KIFF
+confirms the matching profile and words digests. A failed application rolls
+back the registered tools. A tool addition cannot remove the existing
+profile or change its operations; the existing tools retain their profile
+while the owner decides. Each operation record keeps its profile and
+revision so a replay cannot adopt a later profile or send the write again.
+
+Profiles can require arguments before any vendor call. A marker must name a
+string field in the vendor schema; planque fills that field from the permit's
+operation id and refuses a caller-supplied value there. Agent proposals
+cannot claim reviewed catalog status or successful test calls. Version
+header pins and profiles needing a nominal-currency lookup definition
+require reviewed configuration; unsupported definitions are refused.
+
+The synthetic profile/words vectors exercise both canonical digests. These
+tests do not claim a live vendor check or a successful deployment.

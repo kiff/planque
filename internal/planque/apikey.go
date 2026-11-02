@@ -244,8 +244,9 @@ func withOperations(g *Grant, snap *openapi.Snapshot) {
 // taking the key for (needs_reconnect) takes a new one the same way.
 func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	var req struct {
-		Digest    string `json:"digest"`
-		KeySHA256 string `json:"key_sha256"`
+		Digest    string          `json:"digest"`
+		KeySHA256 string          `json:"key_sha256"`
+		Profile   *ProfileDigests `json:"kiff_profile,omitempty"`
 	}
 	if err := decodeStrict(sr.body, &req); err != nil {
 		s.fail(w, r, err)
@@ -286,6 +287,10 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	a := sr.approval
+	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	reconnect := g.Status == StatusNeedsReconnect
 	var prev *int64
 	if reconnect {

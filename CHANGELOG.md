@@ -31,6 +31,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Device-approved connection profiles:** a grant's digest covers its
+  profile, and `/approve` and `/key` accept the phone-signed profile/words
+  digests. Tools use the profile's measurements, including decimal-string
+  amounts. The relay waits for KIFF to confirm the profile; a failed
+  application rolls back registration. Required arguments and permit-derived
+  markers are checked before sending, and operation records keep the profile
+  revision used for their replay.
+
 - **Registered vendor applications:** operator-configured MCP and REST
   applications use credentials from a sealed store or configured Secrets
   Manager references. The owner's approval pins the client identity,

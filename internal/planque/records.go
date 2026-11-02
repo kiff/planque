@@ -43,17 +43,20 @@ type ToolRequest struct {
 	// operation's fields, so Setup names them from the vendor, never by
 	// guess (kiff/tafs#174). Only a read-only tool; the owner's text says
 	// so, and every read is in the grant's record.
-	SetupReads  bool                       `json:"setup_reads,omitempty"`
-	AmountArg   string                     `json:"amount_argument,omitempty"`
-	AmountUnit  string                     `json:"amount_unit,omitempty"`
-	AmountScale *int                       `json:"amount_scale,omitempty"`
-	ReadOnly    bool                       `json:"read_only,omitempty"`
-	Fixed       map[string]json.RawMessage `json:"fixed_arguments,omitempty"` // path → value
-	Arguments   map[string]Argument        `json:"arguments,omitempty"`       // name → where it goes
+	SetupReads   bool                       `json:"setup_reads,omitempty"`
+	AmountArg    string                     `json:"amount_argument,omitempty"`
+	AmountPath   string                     `json:"amount_path,omitempty"`
+	AmountFormat string                     `json:"amount_format,omitempty"`
+	AmountUnit   string                     `json:"amount_unit,omitempty"`
+	AmountScale  *int                       `json:"amount_scale,omitempty"`
+	ReadOnly     bool                       `json:"read_only,omitempty"`
+	Fixed        map[string]json.RawMessage `json:"fixed_arguments,omitempty"` // path → value
+	Arguments    map[string]Argument        `json:"arguments,omitempty"`       // name → where it goes
 	// ResourceArg is the string argument saying what a call acts on (a
 	// payment): KIFF's Card can scope on it, and the owner's record names
 	// it (kiff/tafs#167).
-	ResourceArg string `json:"resource_argument,omitempty"`
+	ResourceArg  string `json:"resource_argument,omitempty"`
+	ResourcePath string `json:"resource_path,omitempty"`
 	// UnitLookup is the read of this grant that says which currency a call
 	// is in, so KIFF counts only calls in the Card's (kiff/kiff-cloud#1299).
 	UnitLookup *kiff.UnitLookup `json:"unit_lookup,omitempty"`
@@ -97,6 +100,9 @@ type Request struct {
 	// Application is the exact registered app configuration approved for
 	// this grant. It contains public facts and a client id, never a secret.
 	Application *ApplicationApproval `json:"application,omitempty"`
+	// Profile is the exact public profile the device approves. Keeping the
+	// original JSON preserves the same canonical digest the phone checks.
+	Profile json.RawMessage `json:"profile,omitempty"`
 }
 
 // APIRequest is the API an API-key grant calls.
@@ -247,7 +253,11 @@ type Grant struct {
 	// added more: set while the addition waits for the owner's approval,
 	// during which those tools keep working. Approved, the grant is
 	// connected with both; not approved within a day, with these alone.
-	Connected []ToolRequest `json:"connected,omitempty"`
+	Connected        []ToolRequest   `json:"connected,omitempty"`
+	ConnectedProfile json.RawMessage `json:"connected_profile,omitempty"`
+	// ProfileRevision is KIFF's accepted revision, never the proposing key's
+	// assertion that an approval applied.
+	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
 	// ConfirmHash is the SHA-256 of the code the vendor sign-in handed to
 	// the browser that completed it; the approving phone presents it to
 	// confirm, by ConfirmBy.
@@ -288,12 +298,14 @@ const (
 
 // operation is one permit's execution, keyed by its op.
 type operation struct {
-	Tool      string          `json:"tool"`
-	ArgsHash  string          `json:"args_sha256"`
-	State     string          `json:"state"`
-	StartedAt time.Time       `json:"started_at"`
-	Decision  string          `json:"decision,omitempty"`
-	Result    json.RawMessage `json:"result,omitempty"`
+	Tool            string                `json:"tool"`
+	ArgsHash        string                `json:"args_sha256"`
+	State           string                `json:"state"`
+	StartedAt       time.Time             `json:"started_at"`
+	Decision        string                `json:"decision,omitempty"`
+	Result          json.RawMessage       `json:"result,omitempty"`
+	Profile         json.RawMessage       `json:"profile,omitempty"`
+	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
 }
 
 func tenantPK(t string) string { return "TENANT#" + t }

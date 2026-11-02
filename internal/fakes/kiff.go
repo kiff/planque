@@ -368,7 +368,10 @@ func (k *KIFF) connect(w http.ResponseWriter, r *http.Request) {
 	case c.AmountLookup != nil && (c.AmountArg == "" || c.ResourceArg == "" || c.ReadOnly):
 		writeJSON(w, 400, map[string]string{"error": "amount_lookup needs the tool's amount and resource arguments, on a write"})
 		return
-	case c.AmountLookup == nil && c.AmountArg != "" && !slices.Contains(props[c.AmountArg], "integer"):
+	case c.AmountLookup == nil && c.AmountArg != "" && c.AmountFormat == "decimal_string" && !slices.Contains(props[c.AmountArg], "string"):
+		writeJSON(w, 400, map[string]string{"error": "a decimal amount_argument must be a string argument of the tool"})
+		return
+	case c.AmountLookup == nil && c.AmountArg != "" && c.AmountFormat != "decimal_string" && !slices.Contains(props[c.AmountArg], "integer"):
 		writeJSON(w, 400, map[string]string{"error": "amount_argument must be an integer argument of the tool"})
 		return
 	}
