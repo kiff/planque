@@ -15,6 +15,7 @@ import (
 
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
+	"github.com/kiff/planque/internal/rest"
 )
 
 const (
@@ -26,14 +27,15 @@ const (
 // Snapshot consists of reviewed operations, cited by Source. Their data
 // uses the same request builder as an OpenAPI snapshot.
 type Application struct {
-	Name        string            `json:"name"`
-	Kind        string            `json:"kind"`
-	Server      string            `json:"server"`
-	Source      string            `json:"source"`
-	OAuth       oauth.Metadata    `json:"oauth"`
-	AuthMethod  string            `json:"token_endpoint_auth_method"`
-	Permissions []string          `json:"permission_words"`
-	Snapshot    *openapi.Snapshot `json:"operations,omitempty"`
+	Name          string            `json:"name"`
+	Kind          string            `json:"kind"`
+	Server        string            `json:"server"`
+	Source        string            `json:"source"`
+	OAuth         oauth.Metadata    `json:"oauth"`
+	AuthMethod    string            `json:"token_endpoint_auth_method"`
+	Permissions   []string          `json:"permission_words"`
+	VersionHeader string            `json:"version_header,omitempty"`
+	Snapshot      *openapi.Snapshot `json:"operations,omitempty"`
 }
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -102,6 +104,14 @@ func (a Application) Validate() error {
 		}
 		if len(value) > 1024 || strings.ContainsAny(value, "\r\n\x00") {
 			return errors.New("invalid authorization parameter")
+		}
+	}
+	if a.VersionHeader != "" {
+		if a.Kind != REST {
+			return errors.New("only a REST application uses a version header")
+		}
+		if err := (rest.VersionPin{Name: a.VersionHeader, Value: "reviewed"}).Validate(); err != nil {
+			return err
 		}
 	}
 	if a.Kind == REST {

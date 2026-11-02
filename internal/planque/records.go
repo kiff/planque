@@ -11,6 +11,7 @@ import (
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
+	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -114,8 +115,9 @@ type APIRequest struct {
 	Auth   openapi.Auth `json:"auth"`
 	// Operations is the selected subset. Its names are signed together
 	// with the full document digest, so selection cannot change silently.
-	Operations []string `json:"operations,omitempty"`
-	SourceKind string   `json:"source_kind,omitempty"`
+	Operations []string         `json:"operations,omitempty"`
+	SourceKind string           `json:"source_kind,omitempty"`
+	VersionPin *rest.VersionPin `json:"version_header,omitempty"`
 }
 
 // Approval is the owner's signature on a grant, kept as evidence. The device

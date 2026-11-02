@@ -361,7 +361,7 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if hostOf(target) != host {
 		return OpNotSent, toolResult("Refused by planque: the call would leave "+host+". Nothing was sent.", true)
 	}
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key)
+	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	var ce *rest.CallError
 	switch {
 	case errors.As(err, &ce) && !ce.Sent:

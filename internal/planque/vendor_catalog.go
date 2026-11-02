@@ -30,6 +30,7 @@ type CatalogEntry struct {
 	Server            string          `json:"server,omitempty"`
 	Application       string          `json:"application,omitempty"`
 	API               *apiAsk         `json:"api,omitempty"`
+	VersionHeader     string          `json:"version_header,omitempty"`
 	DescriptionSHA256 string          `json:"description_sha256,omitempty"`
 	Tools             []ToolRequest   `json:"tools"`
 	Profile           json.RawMessage `json:"profile"`
@@ -90,7 +91,7 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	if msg := checkTools("catalog", tools); msg != "" {
 		return errors.New(msg)
 	}
-	server := e.Server
+	server, header := e.Server, e.VersionHeader
 	var api *APIRequest
 	switch {
 	case e.Application != "":
@@ -98,7 +99,10 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 		if !ok || app.Validate() != nil || e.Kind != "" && e.Kind != app.Kind || e.Server != "" && e.Server != app.Server || e.API != nil || e.DescriptionSHA256 != "" {
 			return errors.New("a catalog application must use its configured endpoints and operations")
 		}
-		server = app.Server
+		if e.VersionHeader != "" {
+			return errors.New("an application supplies its own reviewed version header")
+		}
+		server, header = app.Server, app.VersionHeader
 		if app.Kind == appconfig.REST {
 			api = &APIRequest{}
 			if msg := apiToolsCheck(app.Snapshot, tools); msg != "" {
@@ -124,7 +128,7 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	default:
 		return errors.New("unsupported catalog connection kind")
 	}
-	return profileTransport(e.Profile, api, server)
+	return bindProfileTransport(e.Profile, api, server, header)
 }
 
 type catalogEntryView struct {

@@ -16,6 +16,7 @@ import (
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/fakes"
 	"github.com/kiff/planque/internal/kiff"
+	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/profile"
 )
 
@@ -32,8 +33,16 @@ func profileResponse(status int, body string) *http.Response {
 
 func TestProfileApprovalLifecycle(t *testing.T) {
 	for _, flow := range []string{"key", "approve"} {
-		for _, outcome := range []string{"accepted", "mismatch", "unavailable", "wrong_receipt"} {
-			t.Run(flow+"/"+outcome, func(t *testing.T) {
+		for _, scenario := range []string{"accepted", "mismatch", "unavailable", "wrong_receipt", "accepted_header"} {
+			if flow == "approve" && scenario == "accepted_header" {
+				continue
+			}
+			t.Run(flow+"/"+scenario, func(t *testing.T) {
+				outcome := scenario
+				headerPin := scenario == "accepted_header"
+				if headerPin {
+					outcome = "accepted"
+				}
 				e := newInProcessEnv(t)
 				e.enrol()
 				ctx := context.Background()
@@ -47,6 +56,9 @@ func TestProfileApprovalLifecycle(t *testing.T) {
 					if r.Header.Get("X-API-Key") != "test-vendor-key" {
 						t.Error("vendor did not receive its stored key")
 					}
+					if headerPin && r.Header.Get("Pay-Version") != "2030-01-01" {
+						t.Error("the approved version header was not sent")
+					}
 					vendorCalls.Add(1)
 					if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
 						t.Error(err)
@@ -55,6 +67,11 @@ func TestProfileApprovalLifecycle(t *testing.T) {
 				})}
 				tools := []ToolRequest{{Tool: "createRefund", Name: "refund", Title: "Refund a charge"}}
 				p := refundProfile()
+				if headerPin {
+					p.Pin = profile.Pin{Kind: "header", Value: "2030-01-01"}
+					p.Source = "catalog"
+					p.CatalogEntry = "pay@1"
+				}
 				body := map[string]any{"kind": KindAPIKey, "agent": "agt_taf", "tools": tools, "profile": p,
 					"api": map[string]any{"url": "https://pay.example/openapi.json", "base": "https://pay.example/v1", "auth": map[string]string{"in": "header", "name": "X-API-Key"}}}
 				if flow == "approve" {
@@ -62,7 +79,25 @@ func TestProfileApprovalLifecycle(t *testing.T) {
 					delete(body, "profile")
 				}
 				path := "/v1/accounts/" + tenant + "/grants"
-				status, requested := e.do("POST", path, body, nil, "k_setup")
+				createPath := path
+				if headerPin {
+					raw, _ := json.Marshal(p)
+					sum := sha256.Sum256([]byte(description))
+					entry := CatalogEntry{ID: "pay@1", Vendor: p.Vendor, Title: "Refund payments", Kind: KindAPIKey, VersionHeader: "Pay-Version", Profile: raw, Tools: tools,
+						API: &apiAsk{URL: "https://pay.example/openapi.json", Base: "https://pay.example/v1", Auth: openapi.Auth{In: "header", Name: "X-API-Key"}}, DescriptionSHA256: hex.EncodeToString(sum[:])}
+					conf, _ := json.Marshal(map[string]CatalogEntry{entry.ID: entry})
+					var err error
+					e.s.CatalogEntries, err = DecodeCatalog(conf, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					body = map[string]any{"agent": "agt_taf"}
+					createPath = "/v1/accounts/" + tenant + "/catalog/pay@1/grants"
+				}
+				status, requested := e.do("POST", createPath, body, nil, "k_setup")
+				if headerPin && status == 201 {
+					requested = requested["grant"].(map[string]any)
+				}
 				if status != 201 {
 					t.Fatalf("request: %d %v", status, requested)
 				}
@@ -99,6 +134,9 @@ func TestProfileApprovalLifecycle(t *testing.T) {
 				g, err := e.s.loadGrant(ctx, tenant, id)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if headerPin && (g.Request.API.VersionPin == nil || g.Request.API.VersionPin.Name != "Pay-Version" || g.Request.API.VersionPin.Value != p.Pin.Value) {
+					t.Fatal("the signed grant lost its version pin")
 				}
 				profileHash, _ := profile.Digest(g.Request.Profile)
 				approved := &ProfileDigests{ProfileSHA256: profileHash, WordsSHA256: strings.Repeat("a", 64)}

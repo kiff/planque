@@ -15,6 +15,7 @@ import (
 
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/profile"
+	"github.com/kiff/planque/internal/rest"
 )
 
 // ProfileDigests is the phone's checked pair, under its existing request
@@ -117,6 +118,10 @@ func deriveProfileFields(raw json.RawMessage, tools []ToolRequest, reviewed bool
 }
 
 func profileTransport(raw json.RawMessage, api *APIRequest, server string) error {
+	return bindProfileTransport(raw, api, server, "")
+}
+
+func bindProfileTransport(raw json.RawMessage, api *APIRequest, server, header string) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -132,7 +137,19 @@ func profileTransport(raw json.RawMessage, api *APIRequest, server string) error
 		return errors.New("the profile transport does not match this connection")
 	}
 	if p.Pin.Kind == "header" {
-		return errors.New("this vendor needs a reviewed version-header definition before its header pin can be used")
+		if api == nil || header == "" {
+			return errors.New("this vendor needs a reviewed version-header definition before its header pin can be used")
+		}
+		pin := &rest.VersionPin{Name: header, Value: p.Pin.Value}
+		if err := pin.Validate(); err != nil {
+			return err
+		}
+		if api.Auth.In == "header" && strings.EqualFold(api.Auth.Name, header) {
+			return errors.New("a version pin cannot replace the vendor credential")
+		}
+		api.VersionPin = pin
+	} else if api != nil && api.VersionPin != nil {
+		return errors.New("the profile must preserve this connection's approved version header")
 	}
 	if p.Pin.Kind == "base_path" {
 		u, err := url.Parse(server)

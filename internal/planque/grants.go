@@ -306,7 +306,17 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		}
 	}
 	asked := me.AgentID
-	if err := profileTransport(req.Profile, api, server); err != nil {
+	header := ""
+	if application != nil {
+		header = application.Definition.VersionHeader
+	}
+	if entry != nil && entry.VersionHeader != "" {
+		header = entry.VersionHeader
+	}
+	if reused != nil && api != nil && api.VersionPin != nil {
+		header = api.VersionPin.Name
+	}
+	if err := bindProfileTransport(req.Profile, api, server, header); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -836,7 +846,14 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := profileTransport(req.Profile, g.Request.API, g.Request.Server); err != nil {
+	header := ""
+	if g.Request.API != nil && g.Request.API.VersionPin != nil {
+		header = g.Request.API.VersionPin.Name
+	}
+	if g.Request.Application != nil {
+		header = g.Request.Application.Definition.VersionHeader
+	}
+	if err := bindProfileTransport(req.Profile, g.Request.API, g.Request.Server, header); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

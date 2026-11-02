@@ -31,6 +31,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- Reviewed REST definitions can name a version header. Profile approval pins
+  its value in the grant and every request; callers cannot replace the header
+  definition or overwrite authentication with it.
+
 - An operator-installed, versioned vendor catalog lists account connection
   state and requests reviewed operations for a chosen taf. Catalog grants
   freeze their profile and final tool names before device approval. API-key

@@ -146,9 +146,9 @@ revision so a replay cannot adopt a later profile or send the write again.
 Profiles can require arguments before any vendor call. A marker must name a
 string field in the vendor schema; planque fills that field from the permit's
 operation id and refuses a caller-supplied value there. Agent proposals
-cannot claim reviewed catalog status or successful test calls. Version
-header pins and profiles needing a nominal-currency lookup definition
-require reviewed configuration; unsupported definitions are refused.
+cannot claim reviewed catalog status or successful test calls. Profiles needing a nominal-currency lookup definition are refused until
+that definition is supported. Version-header pins use the reviewed
+configuration described below.
 
 The synthetic profile/words vectors exercise both canonical digests. These
 tests do not claim a live vendor check or a successful deployment.
@@ -187,3 +187,16 @@ Both catalog endpoints require a bearer KIFF key for the account:
 The catalog starts empty when no file is configured. Installing definitions
 alone does not establish live vendor evidence; each supported entry needs
 reviewed vendor documentation and a measured connection with test accounts.
+
+
+### Version headers
+
+A REST application's `version_header`, or an API-key catalog entry's
+`version_header`, names the vendor's reviewed version header (for example
+`Pay-Version`). A profile with `pin: {"kind":"header","value":"2030-01-01"}`
+then binds that value to that header. A caller cannot choose the header name
+in a grant request. The exact header and value are in
+`request.api.version_header`, covered by the grant digest, and sent on each
+REST operation alongside the stored credential. Later configuration changes
+cannot change an existing grant's pin. Header names must identify a version;
+control characters and collisions with the credential header are refused.
