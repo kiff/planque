@@ -217,7 +217,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		if !p.Live(s.now()) {
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
 		}
-		state, res := s.callAPI(ctx, g, tool, access, p.Op, callArgs)
+		state, res := s.callAPI(ctx, g, tool, access, callArgs)
 		return s.finish(ctx, claim, op, state, res)
 	}
 	var res json.RawMessage

@@ -42,8 +42,13 @@ type Vendor struct {
 	// make it an open redirector.
 	Redirects []string
 
+	// DeskKey is the API key the desk takes (desk.go); without one the desk
+	// refuses every call.
+	DeskKey string
+
 	mu        sync.Mutex
 	Calls     []VendorCall // this instance's
+	DeskCalls []VendorCall // this instance's desk writes
 	Refreshes int
 	Revoked   []string
 	// RevokeFails is how many revocations to answer 503 first, as a
@@ -94,6 +99,7 @@ func NewVendorAt(base string) (*Vendor, http.Handler) {
 	mux.HandleFunc("POST /as/token", v.token)
 	mux.HandleFunc("POST /as/revoke", v.revoke)
 	mux.HandleFunc("POST /mcp", v.mcp)
+	v.deskRoutes(mux)
 	return v, mux
 }
 

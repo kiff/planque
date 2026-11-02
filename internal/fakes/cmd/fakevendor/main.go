@@ -7,6 +7,8 @@
 //	FAKEVENDOR_TOKEN  the bearer GET /fake/calls takes: what tools/call it ran
 //	FAKEVENDOR_TABLE  the DynamoDB table its state is in, so any of its
 //	                  instances answers (in memory without it)
+//	FAKEVENDOR_DESK_KEY  the API key the desk takes (its X-Desk-Key); the desk
+//	                  refuses every call without one
 //	FAKEVENDOR_REDIRECTS  the redirect URIs a client may register, comma-
 //	                  separated: planque's callback. It consents on its own,
 //	                  so it never sends anyone anywhere else.
@@ -43,6 +45,8 @@ func main() {
 	}
 	v, h := fakes.NewVendorAt(base)
 	v.Redirects = redirects
+	// The desk (an API-key vendor, kiff/agents#293) answers only with a key.
+	v.DeskKey = os.Getenv("FAKEVENDOR_DESK_KEY")
 	if t := os.Getenv("FAKEVENDOR_TABLE"); t != "" {
 		v.KV = &store.Dynamo{Table: t, API: &awsapi.Client{Service: "dynamodb", Region: cmp.Or(os.Getenv("AWS_REGION"), "eu-west-1"),
 			Target: "DynamoDB_20120810", JSONType: "application/x-amz-json-1.0", Creds: awsapi.FromEnv}}
