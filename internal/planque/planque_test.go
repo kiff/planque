@@ -1568,6 +1568,58 @@ func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 	}
 }
 
+// A write whose amount KIFF reads from its resource (a dispute's) names the
+// read: it reaches KIFF by the read's name there, so KIFF's Card counts the
+// amount read, never one the agent sends (kiff/kiff-cloud#1460).
+func TestAmountLookupReachesKIFF(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	answer := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+		"resource_argument": "charge", "amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}
+	read := chargeRead("")
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{answer, read}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	if st, out := e.approveAndSignIn(out["id"].(string), out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	var writeName, readName string
+	for _, c := range e.kiff.Connections(tenant) {
+		switch c.Tool[:strings.LastIndex(c.Tool, "_")] {
+		case "create_refund":
+			writeName = c.Name
+		case "stripe_api_read":
+			readName = c.Name
+		}
+	}
+	c, ok := e.kiff.Connection(tenant, writeName)
+	if !ok || readName == "" || c.AmountLookup == nil || *c.AmountLookup != (kiff.UnitLookup{Tool: readName, Argument: "charge", Path: "amount"}) || c.UnitLookup != nil {
+		t.Fatalf("registered: %+v (read %q)", c.Connection, readName)
+	}
+
+	for name, tools := range map[string][]any{
+		"no resource": {map[string]any{"tool": "create_refund", "amount_argument": "amount",
+			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}, read},
+		"not a read": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+			"amount_lookup": map[string]any{"tool": "list_charges", "argument": "charge", "path": "amount"}}, map[string]any{"tool": "list_charges"}},
+		"not in the request": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}},
+		"a bad path": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": ""}}, read},
+		// The agent never sets an amount KIFF reads.
+		"the amount an argument too": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+			"arguments":     map[string]any{"amount": map[string]any{"type": "integer", "path": "amount"}, "charge": map[string]any{"type": "string", "path": "charge"}},
+			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}, read},
+	} {
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+			"tools": tools}, nil, "k_setup"); st != 400 {
+			t.Errorf("%s: %d %v, want 400", name, st, out)
+		}
+	}
+}
+
 // The lookup names its read by name when two reads share a vendor tool.
 func TestUnitLookupByTheReadsName(t *testing.T) {
 	e := newEnv(t)

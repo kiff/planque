@@ -196,6 +196,10 @@ type Connection struct {
 	// the read that says a call's currency (kiff/kiff-cloud#1299).
 	ResourceArg string      `json:"resource_argument,omitempty"`
 	UnitLookup  *UnitLookup `json:"unit_lookup,omitempty"`
+	// AmountLookup is the read that says a call's amount from its resource
+	// (a dispute's): the call carries no amount, and KIFF's Card counts the
+	// one read (kiff/kiff-cloud#1460).
+	AmountLookup *UnitLookup `json:"amount_lookup,omitempty"`
 	// VendorTool is the tool's own name at its vendor ("create_refund"),
 	// which KIFF's held-call words name it by.
 	VendorTool string `json:"vendor_tool,omitempty"`

@@ -365,7 +365,10 @@ func (k *KIFF) connect(w http.ResponseWriter, r *http.Request) {
 	case c.OutcomeContract != "" && c.OutcomeContract != "terminal_no_effect_v1":
 		writeJSON(w, 400, map[string]string{"error": "unknown outcome_contract"})
 		return
-	case c.AmountArg != "" && !slices.Contains(props[c.AmountArg], "integer"):
+	case c.AmountLookup != nil && (c.AmountArg == "" || c.ResourceArg == "" || c.ReadOnly):
+		writeJSON(w, 400, map[string]string{"error": "amount_lookup needs the tool's amount and resource arguments, on a write"})
+		return
+	case c.AmountLookup == nil && c.AmountArg != "" && !slices.Contains(props[c.AmountArg], "integer"):
 		writeJSON(w, 400, map[string]string{"error": "amount_argument must be an integer argument of the tool"})
 		return
 	}

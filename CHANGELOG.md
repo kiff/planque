@@ -31,6 +31,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A write's amount read from its resource:** a tool may name `amount_lookup` (`{tool, argument,
+  path}`), a read-only tool of the same request, the read's string argument that takes the call's
+  `resource_argument`, and where the amount is in its answer. planque registers it in KIFF like
+  `unit_lookup`, by the read's name there; KIFF reads the amount before deciding, and the call
+  carries none, so a Card counts the amount the vendor says, never one the agent sends. It needs
+  `amount_argument` and `resource_argument`, and the amount can't also be one of a narrowed tool's
+  arguments.
 - **API-key grants** (kiff/planque#64): a vendor with a REST API and an OpenAPI description, and no
   MCP server, is connected with a key the owner gives on their phone. The description is read
   once into a snapshot the owner approves by its digest; each operation is a tool, called through

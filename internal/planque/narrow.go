@@ -58,7 +58,12 @@ func checkNarrowing(t ToolRequest) string {
 		}
 		paths[a.Path] = true
 	}
-	if t.AmountArg != "" && len(t.Arguments) > 0 && t.Arguments[t.AmountArg].Type != "integer" {
+	if t.AmountLookup != nil {
+		// KIFF reads the amount from the resource: the agent never sets it.
+		if _, set := t.Arguments[t.AmountArg]; set {
+			return "amount_argument " + t.AmountArg + " is read by amount_lookup, so it can't also be one of the tool's arguments"
+		}
+	} else if t.AmountArg != "" && len(t.Arguments) > 0 && t.Arguments[t.AmountArg].Type != "integer" {
 		return "amount_argument " + t.AmountArg + " must be one of the tool's integer arguments"
 	}
 	if r := t.ResourceArg; r != "" {
@@ -72,29 +77,45 @@ func checkNarrowing(t ToolRequest) string {
 	return ""
 }
 
-// checkLookups says what is wrong with the tools' unit lookups, or "": each
-// names a read of the same request, by its name or its vendor tool, and the
-// read's string argument that takes the resource.
+// checkLookups says what is wrong with the tools' unit and amount lookups,
+// or "": each names a read of the same request, by its name or its vendor
+// tool, and the read's string argument that takes the resource.
 func checkLookups(tools []ToolRequest) string {
 	for k, t := range tools {
-		l := t.UnitLookup
-		if l == nil {
-			continue
+		if l := t.UnitLookup; l != nil {
+			if t.AmountArg == "" || t.AmountUnit == "" || t.ResourceArg == "" {
+				return t.Tool + "'s unit_lookup needs its amount_argument, amount_unit and resource_argument"
+			}
+			if msg := checkLookup(tools, k, *l, "unit_lookup", "currency"); msg != "" {
+				return msg
+			}
 		}
-		if t.AmountArg == "" || t.AmountUnit == "" || t.ResourceArg == "" {
-			return t.Tool + "'s unit_lookup needs its amount_argument, amount_unit and resource_argument"
+		if l := t.AmountLookup; l != nil {
+			if t.AmountArg == "" || t.ResourceArg == "" {
+				return t.Tool + "'s amount_lookup needs its amount_argument (the name its Card counts) and resource_argument"
+			}
+			if msg := checkLookup(tools, k, *l, "amount_lookup", "amount"); msg != "" {
+				return msg
+			}
 		}
-		i := lookupIndex(tools, l.Tool)
-		if i < 0 || i == k || !tools[i].ReadOnly {
-			return t.Tool + "'s unit_lookup must name a read-only tool of the same request"
-		}
-		read := tools[i]
-		if !toolName.MatchString(l.Argument) || (len(read.Arguments) > 0 && read.Arguments[l.Argument].Type != "string") {
-			return t.Tool + "'s unit_lookup.argument must be one of " + read.Tool + "'s string arguments"
-		}
-		if _, ok := pathParts(l.Path); !ok {
-			return t.Tool + "'s unit_lookup.path must be a dotted path in the read's answer, such as currency"
-		}
+	}
+	return ""
+}
+
+// checkLookup checks one lookup of tools[k]: a read-only tool of the same
+// request, its string argument, and a dotted path in its answer.
+func checkLookup(tools []ToolRequest, k int, l kiff.UnitLookup, field, example string) string {
+	t := tools[k]
+	i := lookupIndex(tools, l.Tool)
+	if i < 0 || i == k || !tools[i].ReadOnly {
+		return t.Tool + "'s " + field + " must name a read-only tool of the same request"
+	}
+	read := tools[i]
+	if !toolName.MatchString(l.Argument) || (len(read.Arguments) > 0 && read.Arguments[l.Argument].Type != "string") {
+		return t.Tool + "'s " + field + ".argument must be one of " + read.Tool + "'s string arguments"
+	}
+	if _, ok := pathParts(l.Path); !ok {
+		return t.Tool + "'s " + field + ".path must be a dotted path in the read's answer, such as " + example
 	}
 	return ""
 }
@@ -117,13 +138,16 @@ func lookupIndex(tools []ToolRequest, name string) int {
 	return at
 }
 
-// resolveLookups points each unit lookup at its read's name in KIFF, once
-// every tool has one.
+// resolveLookups points each unit and amount lookup at its read's name in
+// KIFF, once every tool has one.
 func resolveLookups(tools []ToolRequest) {
 	for i := range tools {
-		if l := tools[i].UnitLookup; l != nil {
-			if j := lookupIndex(tools, l.Tool); j >= 0 {
-				tools[i].UnitLookup = &kiff.UnitLookup{Tool: tools[j].Name, Argument: l.Argument, Path: l.Path}
+		for _, l := range []**kiff.UnitLookup{&tools[i].UnitLookup, &tools[i].AmountLookup} {
+			if *l == nil {
+				continue
+			}
+			if j := lookupIndex(tools, (*l).Tool); j >= 0 {
+				*l = &kiff.UnitLookup{Tool: tools[j].Name, Argument: (*l).Argument, Path: (*l).Path}
 			}
 		}
 	}
