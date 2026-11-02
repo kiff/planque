@@ -511,48 +511,33 @@ func outcome(t *testing.T, raw json.RawMessage) map[string]any {
 	return r.Structured.Outcome
 }
 
-// An API-key grant's write tools are registered with KIFF's no-effect
-// contract, its reads without. A final refusal answers with kiff_outcome,
-// from the status alone, so KIFF releases what it counted; a 408, a 5xx or a
-// read's refusal carries none (kiff/planque#64).
-func TestARefusedWriteSaysItHadNoEffect(t *testing.T) {
+// A vendor's refusal is never evidence that nothing happened: no tool is
+// registered with an outcome contract, and no refusal, of a write or a
+// read, carries kiff_outcome, so KIFF keeps every refused call counted
+// until something established says otherwise (a batch can answer 400 after
+// part of it ran).
+func TestARefusalIsNeverEvidenceOfNoEffect(t *testing.T) {
 	e := newEnv(t)
 	v := newRESTVendor(t)
 	e.connectAPI(v)
-	contracts := map[string]string{}
 	for _, c := range e.kiff.Connections(tenant) {
-		contracts[c.Name] = c.OutcomeContract
-	}
-	if contracts["create_refund"] != NoEffectContract || contracts["list_charges"] != "" {
-		t.Fatalf("contracts: %v", contracts)
+		if c.OutcomeContract != "" {
+			t.Fatalf("%s registered with %q", c.Name, c.OutcomeContract)
+		}
 	}
 	ctx := context.Background()
-	res, _ := e.kiff.Call(ctx, "k_taf", "create_refund", map[string]any{"charge": "ch_1", "amount": 499})
-	got := outcome(t, res.Result)
-	if got == nil || got["operation_id"] != res.Op || got["effect"] != "none" || got["terminal"] != true || got["reason_code"] != "vendor_refused_402" {
-		t.Fatalf("a 402: %v (op %s)", got, res.Op)
-	}
-	for _, charge := range []string{"ch_slow", "ch_boom"} { // 408, 503: may have begun
-		res, _ := e.kiff.Call(ctx, "k_taf", "create_refund", map[string]any{"charge": charge, "amount": 5})
-		if got := outcome(t, res.Result); got != nil {
-			t.Fatalf("%s: %v", charge, got)
+	for _, args := range []map[string]any{
+		{"charge": "ch_1", "amount": 499},  // 402
+		{"charge": "ch_slow", "amount": 5}, // 408
+		{"charge": "ch_boom", "amount": 5}, // 503
+	} {
+		res, _ := e.kiff.Call(ctx, "k_taf", "create_refund", args)
+		if _, isErr := resultText(t, res.Result); !isErr || outcome(t, res.Result) != nil {
+			t.Fatalf("%v: %s", args, res.Result)
 		}
 	}
-	res, _ = e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{"limit": 999})
+	res, _ := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{"limit": 999})
 	if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "refused it (400)") || outcome(t, res.Result) != nil {
 		t.Fatalf("a read's refusal: %s", res.Result)
-	}
-}
-
-func TestOnlyAFinalRefusalHasNoEffect(t *testing.T) {
-	for _, st := range []int{400, 401, 402, 403, 404, 405, 409, 410, 412, 413, 415, 422, 429} {
-		if !refusedWithNoEffect(st) {
-			t.Errorf("%d", st)
-		}
-	}
-	for _, st := range []int{200, 302, 406, 408, 411, 418, 451, 500, 503} {
-		if refusedWithNoEffect(st) {
-			t.Errorf("%d", st)
-		}
 	}
 }

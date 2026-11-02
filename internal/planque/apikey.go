@@ -326,7 +326,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 // makes, with the key where the grant says. A 2xx is the result; a 4xx the
 // vendor's refusal, done; a 5xx or a lost answer unknown, never sent again;
 // a call that never reached the vendor, not sent.
-func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key, opID string, args map[string]any) (state string, res any) {
+func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key string, args map[string]any) (state string, res any) {
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
 	if err != nil {
 		return OpNotSent, toolResult("Not sent: planque couldn't read this connection's API description.", true)
@@ -358,45 +358,12 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key, o
 	}
 	text := rest.HideKey(answerText(ans), key)
 	if ans.Status >= 400 {
-		res := toolResult(fmt.Sprintf("%s refused it (%d): %s", host, ans.Status, text), true)
-		if !tool.ReadOnly && refusedWithNoEffect(ans.Status) {
-			// Evidence KIFF trusts, from the status alone, never the
-			// vendor's words: it releases what it counted for the call.
-			res["structuredContent"] = map[string]any{"kiff_outcome": map[string]any{
-				"operation_id": opID, "effect": "none", "terminal": true,
-				"reason_code": fmt.Sprintf("vendor_refused_%d", ans.Status)}}
-		}
-		return OpDone, res
+		// A status alone never says nothing happened (a batch can answer 400
+		// after part of it ran): the refusal carries no evidence, and the
+		// call stays counted in KIFF until something established says so.
+		return OpDone, toolResult(fmt.Sprintf("%s refused it (%d): %s", host, ans.Status, text), true)
 	}
 	return OpDone, toolResult(text, false)
-}
-
-// NoEffectContract is the outcome contract of an API-key grant's write
-// tools: a final refusal says so in kiff_outcome, and KIFF releases the
-// call's total (kiff/planque#64).
-const NoEffectContract = "terminal_no_effect_v1"
-
-// outcomeContract is the contract t is registered with: an API-key grant's
-// write tools only. A REST vendor's status says whether it refused; an MCP
-// vendor's answer is free text, never evidence.
-func outcomeContract(g *Grant, t GrantedTool) string {
-	if g.Request.Kind == KindAPIKey && !t.ReadOnly {
-		return NoEffectContract
-	}
-	return ""
-}
-
-// refusedWithNoEffect: a REST status that means the vendor refused the
-// request, made nothing, and won't run it later. planque never sends a call
-// twice, so a 429 is final too. A 408 is not: the vendor may have begun it.
-// Any other 4xx stays counted. A batch endpoint that answers a partial
-// failure with 400 is the known exception the docs name.
-func refusedWithNoEffect(status int) bool {
-	switch status {
-	case 400, 401, 402, 403, 404, 405, 409, 410, 412, 413, 415, 422, 429:
-		return true
-	}
-	return false
 }
 
 // answerText is a vendor's answer as the tool's text: its JSON as it is,
