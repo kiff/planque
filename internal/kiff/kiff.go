@@ -188,10 +188,10 @@ type Connection struct {
 	// a call had no effect (kiff_outcome), so KIFF releases what it counted.
 	// Taken only when the tool is created.
 	OutcomeContract string `json:"outcome_contract,omitempty"`
-	ReadOnly       bool   `json:"read_only"`
-	Mode           string `json:"mode"`
-	Audience       string `json:"audience"`
-	Credential     string `json:"credential"` // the relay's transport credential
+	ReadOnly        bool   `json:"read_only"`
+	Mode            string `json:"mode"`
+	Audience        string `json:"audience"`
+	Credential      string `json:"credential"` // the relay's transport credential
 	// ResourceArg names the string argument a call acts on, and UnitLookup
 	// the read that says a call's currency (kiff/kiff-cloud#1299).
 	ResourceArg string      `json:"resource_argument,omitempty"`
