@@ -184,6 +184,10 @@ type Connection struct {
 	AmountUnit     string `json:"amount_unit,omitempty"`
 	AmountScale    *int   `json:"amount_scale,omitempty"`
 	IdempotencyArg string `json:"idempotency_argument"`
+	// OutcomeContract says the tool's answers can carry trusted evidence that
+	// a call had no effect (kiff_outcome), so KIFF releases what it counted.
+	// Taken only when the tool is created.
+	OutcomeContract string `json:"outcome_contract,omitempty"`
 	ReadOnly       bool   `json:"read_only"`
 	Mode           string `json:"mode"`
 	Audience       string `json:"audience"`
