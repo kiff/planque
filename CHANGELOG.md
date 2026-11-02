@@ -31,6 +31,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **API-key grants** (kiff/planque#64): a vendor with a REST API and an OpenAPI description, and no
+  MCP server, is connected with a key the owner gives on their phone. The description is read
+  once into a snapshot the owner approves by its digest; each operation is a tool, called through
+  the relay with KIFF's permit like any other. A 4xx is the vendor's refusal; a 5xx, a redirect or a
+  lost answer is unknown and never sent again. The key is sealed, never shown again, and deleted on
+  disconnect.
+- **Reusing a sign-in** (kiff/planque#36): `reuse` names a connected grant whose sign-in or key a
+  second grant uses, approved with no second sign-in.
+
 - A vendor's sign-out is told to KIFF once, when the grant turns
   `needs_reconnect`, so the people who see the taf hear of it at once. A
   notice KIFF didn't take is sent again by the hourly sweep, for up to a week;

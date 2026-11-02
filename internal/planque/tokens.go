@@ -22,8 +22,17 @@ const refreshEarly = time.Minute
 // refreshLease is how long one refresher holds the token record.
 const refreshLease = 20 * time.Second
 
+// tokenOwner is the grant whose token record g uses: its own, or, for a
+// grant that reuses another's sign-in (kiff/planque#36), that one's.
+func tokenOwner(g *Grant) string {
+	if g.TokenOf != "" {
+		return g.TokenOf
+	}
+	return g.ID
+}
+
 func tokenBinding(g *Grant) map[string]string {
-	return map[string]string{"tenant": g.Tenant, "grant": g.ID, "kind": "token"}
+	return map[string]string{"tenant": g.Tenant, "grant": tokenOwner(g), "kind": "token"}
 }
 
 // storeToken seals tok for g. With prev, only if the record is still at
@@ -35,7 +44,7 @@ func (s *Server) storeToken(ctx context.Context, g *Grant, tok oauth.Token, prev
 	if err != nil {
 		return err
 	}
-	it := store.Item{PK: tenantPK(g.Tenant), SK: skToken(g.ID), Ver: 1}
+	it := store.Item{PK: tenantPK(g.Tenant), SK: skToken(tokenOwner(g)), Ver: 1}
 	c := store.Cond{NotExists: true}
 	if prev != nil {
 		it.Ver, c = *prev+1, store.Cond{Ver: prev}
@@ -45,7 +54,7 @@ func (s *Server) storeToken(ctx context.Context, g *Grant, tok oauth.Token, prev
 
 func (s *Server) openToken(ctx context.Context, g *Grant) (oauth.Token, store.Item, error) {
 	var rec tokenRecord
-	it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skToken(g.ID), &rec)
+	it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skToken(tokenOwner(g)), &rec)
 	if err != nil {
 		return oauth.Token{}, it, err
 	}
@@ -60,7 +69,12 @@ func (s *Server) openToken(ctx context.Context, g *Grant) (oauth.Token, store.It
 	return tok, it, err
 }
 
+// dropToken deletes g's own token. A grant that reuses another's sign-in
+// only lets go of it: the token stays that grant's.
 func (s *Server) dropToken(ctx context.Context, g *Grant) {
+	if g.TokenOf != "" {
+		return
+	}
 	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID))
 }
 
@@ -74,6 +88,9 @@ func (s *Server) accessToken(ctx context.Context, g *Grant, stale int64) (string
 		return "", 0, signedOutErr(g)
 	}
 	tok, it, err := s.openToken(ctx, g)
+	if errors.Is(err, errNotFound) && g.TokenOf != "" {
+		return "", 0, s.signOut(ctx, g, "the connection whose sign-in it used was disconnected", "reused_sign_in_gone")
+	}
 	if errors.Is(err, errNotFound) {
 		return "", 0, errNoToken
 	}
@@ -194,7 +211,9 @@ func signedOutErr(g *Grant) error {
 func (s *Server) signOut(ctx context.Context, g *Grant, why, reason string) error {
 	now, err := s.loadGrant(ctx, g.Tenant, g.ID)
 	if err == nil && now.Status == StatusConnected {
-		now.Status, now.Reason = StatusNeedsReconnect, why
+		// A reused sign-in that's gone isn't this grant's any more: it signs
+		// in (or takes a key) on its own (kiff/planque#36).
+		now.Status, now.Reason, now.TokenOf = StatusNeedsReconnect, why, ""
 		now.SignedOutAt = s.now().UTC().Truncate(time.Second)
 		now.event(s.now(), "signed out by "+vendorName(now)+": "+why+"; waiting for the owner to sign in again")
 		if err = s.markTell(ctx, now, reason); err == nil {

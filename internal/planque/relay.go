@@ -205,6 +205,21 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: "+err.Error(), true))
 	}
+	if g.Request.Kind == KindAPIKey {
+		// The vendor's REST API, from the grant's snapshot, with its key
+		// (kiff/planque#64): the same permit, halt and once-only record.
+		var callArgs map[string]any
+		dec := json.NewDecoder(bytes.NewReader(vendorArgs))
+		dec.UseNumber()
+		if dec.Decode(&callArgs) != nil {
+			return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: the arguments are not a JSON object. Nothing was sent.", true))
+		}
+		if !p.Live(s.now()) {
+			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
+		}
+		state, res := s.callAPI(ctx, g, tool, access, callArgs)
+		return s.finish(ctx, claim, op, state, res)
+	}
 	var res json.RawMessage
 	for attempt := 0; ; attempt++ {
 		// The permit must still be live when the call leaves (D5).

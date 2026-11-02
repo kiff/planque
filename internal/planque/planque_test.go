@@ -27,6 +27,7 @@ import (
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/permit"
+	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
 	"github.com/kiff/planque/internal/store"
 )
@@ -85,7 +86,7 @@ func (e *env) server() *Server {
 	return &Server{BaseURL: e.url, AppReturn: e.app.URL + "/signed-in", KV: e.kv, Sealer: &seal.Local{Key: key},
 		KIFF:    &kiff.Client{API: e.kiff.Issuer, Gateway: e.kiff.Issuer},
 		Permits: &permit.Verifier{Issuer: e.kiff.Issuer, Keys: &permit.JWKS{URL: e.kiff.Issuer + "/.well-known/kiff-permit-keys.json"}},
-		OAuth:   &oauth.Client{AllowHTTP: true}, MCP: &mcp.Client{}}
+		OAuth:   &oauth.Client{AllowHTTP: true}, MCP: &mcp.Client{}, REST: &rest.Client{AllowHTTP: true}}
 }
 
 // do sends a request; phone signs it when not nil, key is a KIFF bearer.

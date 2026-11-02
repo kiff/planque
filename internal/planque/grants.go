@@ -162,6 +162,11 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		Server string         `json:"server"`
 		Agent  string         `json:"agent"`
 		Tools  *[]ToolRequest `json:"tools"`
+		// An API-key grant (kiff/planque#64): its kind and the API it calls.
+		Kind string  `json:"kind"`
+		API  *apiAsk `json:"api"`
+		// Reuse names a connected grant whose sign-in this one uses.
+		Reuse string `json:"reuse"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
@@ -181,13 +186,67 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	server := strings.TrimSpace(req.Server)
-	meta, err := s.OAuth.Discover(r.Context(), server)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
+	if req.Kind != "" && req.Kind != KindAPIKey {
+		writeErr(w, http.StatusBadRequest, `kind is "api_key", or left out for a vendor's MCP server`)
 		return
 	}
 	id := "grt_" + oauth.Random(12)
+	server := strings.TrimSpace(req.Server)
+	var meta oauth.Metadata
+	var api *APIRequest
+	var reused *Grant
+	switch {
+	case req.Reuse != "":
+		// The sign-in (or key) of a connected grant of this account, to the
+		// same vendor: no second sign-in, and the same snapshot for a key.
+		g, msg, err := s.reusable(r.Context(), tenant, req.Reuse, req.Kind, server)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if msg != "" {
+			writeErr(w, http.StatusConflict, msg)
+			return
+		}
+		reused, meta, api, server = g, g.Vendor, g.Request.API, g.Request.Server
+		if api != nil {
+			snap, err := s.loadSnapshot(r.Context(), tenant, g.ID)
+			if err == nil {
+				err = s.saveSnapshot(r.Context(), tenant, id, snap)
+			}
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			if msg := apiToolsCheck(snap, *req.Tools); msg != "" {
+				writeErr(w, http.StatusBadRequest, msg)
+				return
+			}
+		}
+	case req.Kind == KindAPIKey:
+		if req.API == nil {
+			writeErr(w, http.StatusBadRequest, "api is required for an api_key grant: {url, auth, base}")
+			return
+		}
+		var msg string
+		api, _, msg, err = s.readAPI(r.Context(), tenant, id, *req.API, *req.Tools)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		// The base is the vendor's address for every message that names it.
+		server = api.Base
+	default:
+		meta, err = s.OAuth.Discover(r.Context(), server)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
+			return
+		}
+	}
 	asked := me.AgentID
 	if asked == "" {
 		asked = "an account key"
@@ -204,9 +263,18 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
-			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339)},
+			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
+			Kind: req.Kind, API: api, Reuse: req.Reuse},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
+	if reused != nil {
+		// Held as the other grant's: approving connects with no second sign-in.
+		g.Request.Kind = reused.Request.Kind
+		g.TokenOf, g.SignedIn, g.ClientID, g.Account, g.VendorName = tokenOwner(reused), true, reused.ClientID, reused.Account, reused.VendorName
+	}
 	g.Text = grantText(g.Request)
+	if reused != nil {
+		g.Text = requestText(g.Request, true, reused.Account, reused.Catalog...)
+	}
 	g.Digest, err = digest(g.Request)
 	if err != nil {
 		s.fail(w, r, err)
@@ -271,6 +339,9 @@ func grantText(q Request) string { return requestText(q, false, "") }
 // grant whose sign-in planque already holds: there is no second sign-in,
 // and the text names the account it acts in, when the vendor names it.
 func requestText(q Request, held bool, account string, catalog ...CatalogTool) string {
+	if q.Kind == KindAPIKey {
+		return apiKeyText(q, held, account, catalog...)
+	}
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
 			"You will sign in at %s.\n\nOnly what it offers is read: its list of tools. None of them is called: "+
@@ -280,7 +351,20 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
 	}
 	var b strings.Builder
+	b.WriteString(toolLines(q, held, account, catalog...))
+	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
+	return b.String()
+}
+
+// toolLines are the text's part about the sign-in and each tool, the same
+// for every kind of grant.
+func toolLines(q Request, held bool, account string, catalog ...CatalogTool) string {
+	var b strings.Builder
 	switch {
+	case held && q.Kind == KindAPIKey:
+		b.WriteString("The key you gave is used: no second key.\n\nThe taf may:\n")
+	case q.Kind == KindAPIKey:
+		b.WriteString("The taf may:\n")
 	case held && account != "":
 		fmt.Fprintf(&b, "You're already signed in, to the account %s: no second sign-in.\n\nThe taf may:\n", account)
 	case held:
@@ -319,7 +403,32 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 		fmt.Fprintf(&b, "\nSetup reads, to set this up: %s and %s. It only reads them, through KIFF with its own Card, at most %d reads a day; each read has KIFF's permit and is kept in KIFF's record.\n",
 			strings.Join(reads[:len(reads)-1], ", "), reads[len(reads)-1], SetupReadsPerDay)
 	}
-	b.WriteString("\nYour sign-in is kept in a sealed vault; the taf never sees it. Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time.")
+	return b.String()
+}
+
+// apiKeyText is what the owner reads for an API-key grant: the key they give
+// and where it goes, the API as it was read, and the tools.
+func apiKeyText(q Request, held bool, account string, catalog ...CatalogTool) string {
+	where := "in the " + q.API.Auth.Name + " header"
+	if q.API.Auth.In == "query" {
+		where = "as the " + q.API.Auth.Name + " query parameter"
+	}
+	api := fmt.Sprintf("Its API is as described at %s when it was read (SHA-256 %s…), at %s.", q.API.URL, q.API.Digest[:12], q.API.Base)
+	vault := "Your key is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to " +
+		hostOf(q.API.Base) + ", " + where + "."
+	if len(q.Tools) == 0 {
+		return fmt.Sprintf("Connect %s with an API key you give, to see what it offers for the taf %s.\n%s\n\n"+
+			"Only its API description is read: none of its operations is called, nothing is read from your account, nothing is changed, "+
+			"and nothing is given to the taf. The tools the taf may use come next, and you approve them again. "+
+			"If they aren't approved within a day, the key is deleted.\n\n%s You can disconnect at any time, which deletes it.",
+			hostOf(q.API.Base), q.Agent, api, vault)
+	}
+	var b strings.Builder
+	if !held {
+		fmt.Fprintf(&b, "You will give an API key for %s.\n%s\n\n", hostOf(q.API.Base), api)
+	}
+	b.WriteString(toolLines(q, held, account, catalog...))
+	b.WriteString("\n" + vault + " Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time, which deletes it.")
 	return b.String()
 }
 
@@ -728,6 +837,17 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 // so revoking can be tried again: dropping it would leave it live at the
 // vendor with no way to revoke it.
 func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
+	// A reused sign-in is the other grant's to revoke; a key has no
+	// revocation at the vendor, so it's deleted here (kiff/planque#64).
+	if g.TokenOf != "" {
+		return nil
+	}
+	if g.Request.Kind == KindAPIKey {
+		if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID)); err != nil {
+			return fmt.Errorf("drop the key: %w", err)
+		}
+		return nil
+	}
 	tok, _, err := s.openToken(ctx, g)
 	if errors.Is(err, errNotFound) {
 		return nil
@@ -775,6 +895,12 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 	}
 	if g.Status == StatusListed {
 		writeErr(w, http.StatusConflict, "this grant has no tools to approve yet")
+		return
+	}
+	// An API-key grant is approved with its key (POST …/key); once the key is
+	// held, tools set on it are approved here, with no second key.
+	if g.Request.Kind == KindAPIKey && g.TokenOf == "" && (!g.SignedIn || g.Status == StatusNeedsReconnect) {
+		writeErr(w, http.StatusConflict, "this grant is approved with its key: POST …/key, signed, with the key in "+KeyHeader)
 		return
 	}
 	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn && g.Status != StatusNeedsReconnect {
@@ -1097,7 +1223,7 @@ func notReadOnly(g *Grant, tool string) string {
 // list reads the vendor's tools into the grant's catalog, with the token
 // of a confirmed sign-in, and keeps the sign-in: the grant is listed.
 func (s *Server) list(ctx context.Context, g *Grant, access string) error {
-	listed, server, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	listed, server, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
@@ -1117,7 +1243,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 // and registers them in KIFF's gateway with the connector key. If any
 // step fails, nothing stays connected and the token is revoked.
 func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
-	listed, server, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	listed, server, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
@@ -1221,7 +1347,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 		}
 		return errors.New(reason)
 	}
-	listed, _, err := s.MCP.ListTools(ctx, g.Request.Server, access)
+	listed, _, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		return back(nil, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
@@ -1310,7 +1436,10 @@ func accountNote(a string) string {
 // confirm.
 func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	var problems []string
-	if tok, _, err := s.openToken(ctx, g); err == nil {
+	if g.TokenOf != "" {
+		return nil // the other grant's sign-in: it stays
+	}
+	if tok, _, err := s.openToken(ctx, g); err == nil && g.Request.Kind != KindAPIKey {
 		for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 			if t.tok == "" {
 				continue
@@ -1374,6 +1503,15 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	problems = append(problems, s.revoke(r.Context(), g)...)
 	g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
+	switch {
+	case g.TokenOf != "":
+		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
+	case g.Request.Kind == KindAPIKey:
+		what = "disconnected " + sr.approval.Who() + ": key deleted"
+	}
+	if g.Request.Kind == KindAPIKey {
+		s.dropSnapshot(r.Context(), g.Tenant, g.ID)
+	}
 	if len(problems) > 0 {
 		what += "; " + strings.Join(problems, "; ")
 	}
