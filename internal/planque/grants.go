@@ -144,6 +144,11 @@ func (s *Server) namesInKIFF(ctx context.Context, tenant string) []string {
 // grants nothing: it returns the plain words the owner will see, and the
 // digest their phone signs to approve exactly this.
 func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
+	s.requestGrantFrom(w, r, nil)
+}
+
+// entry is supplied only by the reviewed catalog route, never by a request body.
+func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry *CatalogEntry) {
 	tenant := r.PathValue("tenant")
 	me, err := s.agentKey(r, tenant)
 	if err != nil {
@@ -174,15 +179,27 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		Application string          `json:"application"`
 		Profile     json.RawMessage `json:"profile"`
 	}
-	if err := decodeStrict(body, &req); err != nil {
-		s.fail(w, r, err)
-		return
+	if entry == nil {
+		if err := decodeStrict(body, &req); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	} else {
+		var ask struct {
+			Agent string `json:"agent"`
+		}
+		if err := decodeStrict(body, &ask); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		req.Agent, req.Server, req.Application = ask.Agent, entry.Server, entry.Application
+		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, entry.API, &entry.Tools, entry.Profile
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
 		return
 	}
-	if req.Profile, err = profileFields(req.Profile, *req.Tools); err != nil {
+	if req.Profile, err = deriveProfileFields(req.Profile, *req.Tools, entry != nil); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -266,7 +283,11 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var msg string
-		api, _, msg, err = s.readAPI(r.Context(), tenant, id, *req.API, *req.Tools)
+		expected := ""
+		if entry != nil {
+			expected = entry.DescriptionSHA256
+		}
+		api, _, msg, err = s.readAPI(r.Context(), tenant, id, *req.API, *req.Tools, expected)
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -312,6 +333,9 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
 			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
+	if entry != nil {
+		g.Request.CatalogEntry = entry.ID
+	}
 	if reused != nil {
 		// Held as the other grant's: approving connects with no second sign-in.
 		g.Request.Kind = reused.Request.Kind
@@ -335,7 +359,11 @@ func (s *Server) requestGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)))
-	writeJSON(w, http.StatusCreated, s.view(g))
+	if entry != nil {
+		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(g), "needs_key": g.Request.Kind == KindAPIKey})
+	} else {
+		writeJSON(w, http.StatusCreated, s.view(g))
+	}
 }
 
 func checkTools(agent string, tools []ToolRequest) string {

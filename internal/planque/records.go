@@ -102,7 +102,8 @@ type Request struct {
 	Application *ApplicationApproval `json:"application,omitempty"`
 	// Profile is the exact public profile the device approves. Keeping the
 	// original JSON preserves the same canonical digest the phone checks.
-	Profile json.RawMessage `json:"profile,omitempty"`
+	Profile      json.RawMessage `json:"profile,omitempty"`
+	CatalogEntry string          `json:"catalog_entry,omitempty"`
 }
 
 // APIRequest is the API an API-key grant calls.

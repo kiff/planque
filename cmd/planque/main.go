@@ -103,6 +103,17 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	catalog := map[string]planque.CatalogEntry{}
+	if path := os.Getenv("PLANQUE_CATALOG_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, errors.New("the vendor catalog could not be read")
+		}
+		catalog, err = planque.DecodeCatalog(raw, applications)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
 	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
 		var references map[string]string
@@ -130,6 +141,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		MCP:                    &mcp.Client{HTTP: vendors},
 		REST:                   &rest.Client{HTTP: vendors},
 		Logger:                 logger,
+		CatalogEntries:         catalog,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,
 	}, nil

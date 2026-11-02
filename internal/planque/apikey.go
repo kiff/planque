@@ -127,7 +127,7 @@ type apiAsk struct {
 // readAPI reads the description an API-key grant names, checks the tools
 // asked for against it and keeps it as the grant's snapshot. msg is the
 // refusal in words, for the agent; err is planque's own failure.
-func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, tools []ToolRequest) (*APIRequest, *openapi.Snapshot, string, error) {
+func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, tools []ToolRequest, expectedDigest ...string) (*APIRequest, *openapi.Snapshot, string, error) {
 	a.URL, a.Base = strings.TrimSpace(a.URL), strings.TrimSpace(a.Base)
 	a.Auth.In, a.Auth.Name = strings.TrimSpace(a.Auth.In), strings.TrimSpace(a.Auth.Name)
 	if a.URL == "" {
@@ -136,6 +136,12 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	raw, err := s.REST.Fetch(ctx, a.URL)
 	if err != nil {
 		return nil, nil, "Couldn't read the API description at " + a.URL + ": " + err.Error(), nil
+	}
+	if len(expectedDigest) > 0 && expectedDigest[0] != "" {
+		sum := sha256.Sum256(raw)
+		if hex.EncodeToString(sum[:]) != expectedDigest[0] {
+			return nil, nil, "the vendor description changed since this catalog entry was reviewed", nil
+		}
 	}
 	var snap *openapi.Snapshot
 	if len(a.Operations) > 0 {

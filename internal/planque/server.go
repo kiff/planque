@@ -52,6 +52,7 @@ type Server struct {
 	REST *rest.Client
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
+	CatalogEntries         map[string]CatalogEntry
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger
@@ -91,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/catalog/{entry}/grants", s.requestCatalogGrant)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)

@@ -152,3 +152,38 @@ require reviewed configuration; unsupported definitions are refused.
 
 The synthetic profile/words vectors exercise both canonical digests. These
 tests do not claim a live vendor check or a successful deployment.
+
+## Reviewed vendor catalog
+
+`PLANQUE_CATALOG_FILE` names a credential-free JSON object of reviewed
+entries, keyed by a versioned id such as `support-desk@1`. Entries contain
+`vendor`, `title`, optional HTTPS `icon`, `tools`, and a `profile`. Its
+`source` must be `catalog`, `catalog_entry` must match the entry id, and the
+profile must name exactly those tools. Test-proven status is not accepted
+from catalog configuration. A changed definition receives a new revision.
+
+For a registered OAuth connection, set `application` to an id in
+`PLANQUE_APPS_FILE`. Its endpoints, scopes and REST operations come from
+that application's definition. An MCP entry without a registered application
+sets `server`. An API-key entry sets `kind: "api_key"`, `api` (the same shape
+as a grant request), and `description_sha256`: the SHA-256 of the reviewed
+OpenAPI source bytes. A changed source is refused before a grant is created.
+The full snapshot is still frozen and signed with the grant.
+
+Both catalog endpoints require a bearer KIFF key for the account:
+
+- `GET /v1/accounts/{tenant}/catalog?q=...` searches vendor names and titles,
+  without contacting a vendor. It returns `{entries, by_key: true}`. Each
+  entry has `entry`, `vendor`, `title`, optional `icon`, `how` (`oauth` or
+  `key`), `state` (`available`, `connected` or `needs_reconnect`) and, for an
+  active connection, `grant`. State comes only from that account's grants.
+- `POST /v1/accounts/{tenant}/catalog/{entry}/grants` accepts only `{agent}`,
+  identifying the taf's KIFF agent. It returns `{grant, needs_key}`, with the
+  full grant view. The server supplies the reviewed tools and profile and
+  allocates their final names before computing the approval digest. This
+  request creates no sign-in link and grants no tools. The existing signed
+  approval or key flow, including KIFF's profile and words digests, follows.
+
+The catalog starts empty when no file is configured. Installing definitions
+alone does not establish live vendor evidence; each supported entry needs
+reviewed vendor documentation and a measured connection with test accounts.

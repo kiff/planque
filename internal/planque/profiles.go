@@ -47,6 +47,10 @@ func profileApproval(raw json.RawMessage, approved *ProfileDigests) error {
 // before the phone sees its grant. A proposal cannot declare itself reviewed
 // catalog data or claim successful test calls.
 func profileFields(raw json.RawMessage, tools []ToolRequest) (json.RawMessage, error) {
+	return deriveProfileFields(raw, tools, false)
+}
+
+func deriveProfileFields(raw json.RawMessage, tools []ToolRequest, reviewed bool) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -54,7 +58,7 @@ func profileFields(raw json.RawMessage, tools []ToolRequest) (json.RawMessage, e
 	if err != nil {
 		return nil, err
 	}
-	if p.Source != "drafted" || p.TestProven {
+	if !reviewed && (p.Source != "drafted" || p.TestProven) {
 		return nil, errors.New("only a reviewed catalog entry or a recorded test can supply catalog or test-proven evidence")
 	}
 	if len(p.Operations) != len(tools) {

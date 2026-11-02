@@ -31,6 +31,11 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- An operator-installed, versioned vendor catalog lists account connection
+  state and requests reviewed operations for a chosen taf. Catalog grants
+  freeze their profile and final tool names before device approval. API-key
+  entries refuse a source description changed since review.
+
 - **Device-approved connection profiles:** a grant's digest covers its
   profile, and `/approve` and `/key` accept the phone-signed profile/words
   digests. Tools use the profile's measurements, including decimal-string
