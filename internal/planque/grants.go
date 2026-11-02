@@ -1278,7 +1278,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	for _, t := range g.Tools {
 		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
-			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
+			IdempotencyArg: IdempotencyArg, OutcomeContract: outcomeContract(g, t), ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
 			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, VendorTool: t.Tool})
 		if err != nil {
 			return s.undo(ctx, g, done, "KIFF did not register "+t.Name+": "+err.Error())
@@ -1378,7 +1378,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 	for _, t := range added {
 		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
-			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
+			IdempotencyArg: IdempotencyArg, OutcomeContract: outcomeContract(g, t), ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
 			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, VendorTool: t.Tool})
 		if err != nil {
 			return back(done, "KIFF did not register "+t.Name+": "+err.Error())

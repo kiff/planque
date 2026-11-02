@@ -184,10 +184,14 @@ type Connection struct {
 	AmountUnit     string `json:"amount_unit,omitempty"`
 	AmountScale    *int   `json:"amount_scale,omitempty"`
 	IdempotencyArg string `json:"idempotency_argument"`
-	ReadOnly       bool   `json:"read_only"`
-	Mode           string `json:"mode"`
-	Audience       string `json:"audience"`
-	Credential     string `json:"credential"` // the relay's transport credential
+	// OutcomeContract says the tool's answers can carry trusted evidence that
+	// a call had no effect (kiff_outcome), so KIFF releases what it counted.
+	// Taken only when the tool is created.
+	OutcomeContract string `json:"outcome_contract,omitempty"`
+	ReadOnly        bool   `json:"read_only"`
+	Mode            string `json:"mode"`
+	Audience        string `json:"audience"`
+	Credential      string `json:"credential"` // the relay's transport credential
 	// ResourceArg names the string argument a call acts on, and UnitLookup
 	// the read that says a call's currency (kiff/kiff-cloud#1299).
 	ResourceArg string      `json:"resource_argument,omitempty"`

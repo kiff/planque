@@ -37,6 +37,13 @@ version headings refer to releases, not merely to merged pull requests.
   the relay with KIFF's permit like any other. A 4xx is the vendor's refusal; a 5xx, a redirect or a
   lost answer is unknown and never sent again. The key is sealed, never shown again, and deleted on
   disconnect.
+- **A refused write releases its total:** an API-key grant's write tools are registered in KIFF with
+  `outcome_contract: terminal_no_effect_v1`. A final refusal (400, 401, 402, 403, 404, 405, 409,
+  410, 412, 413, 415, 422 or 429) answers with `structuredContent.kiff_outcome`: `{operation_id:
+  planque_op, effect: "none", terminal: true, reason_code: "vendor_refused_<status>"}`, so KIFF
+  releases what it counted for the call. The vendor's status alone decides, never its words. A 408,
+  any other 4xx, a 5xx, a redirect or a lost answer stays counted, as does a read's refusal. Known
+  caveat: a batch endpoint that answers a partial failure with 400 had some effect.
 - **Reusing a sign-in** (kiff/planque#36): `reuse` names a connected grant whose sign-in or key a
   second grant uses, approved with no second sign-in.
 
