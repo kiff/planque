@@ -8,6 +8,7 @@ import (
 	"github.com/kiff/planque/internal/kiff"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -43,8 +44,10 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if r.URL.Query().Get("cursor") == "next" {
 			body = `{"items":[{"slug":"calendar_demo","name":"Calendar demo"}]}`
 		} else {
-			body = `{"items":[{"slug":"desk_demo","name":"Support desk"}],"next_cursor":"next"}`
+			body = `{"items":[{"slug":"desk_demo","name":"Support desk"},{"slug":"unset_demo","name":"Not set up"}],"next_cursor":"next"}`
 		}
+	case path == "/auth_configs":
+		body = `{"items":[{"status":"ENABLED","toolkit":{"slug":"desk_demo"}},{"status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
 	case path == "/toolkits/desk_demo":
 		body = `{"slug":"desk_demo","name":"Support desk"}`
 	case path == "/tool_router/session":
@@ -202,13 +205,15 @@ func connectConnector(t *testing.T, e *env, f *connectorFixture) *Grant {
 func TestConnectorCatalogAndApprovalBoundary(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	path := "/v1/accounts/" + tenant + "/catalog"
+	// One read walks the provider's pages until it has enough apps that can
+	// be connected, or reaches the end.
 	st, out := e.do("GET", path, nil, nil, "k_setup")
-	if st != 200 || out["next_cursor"] != "next" || out["provider"] != "composio" {
-		t.Fatalf("page one: %d %v", st, out)
+	if st != 200 || out["next_cursor"] != "" || out["provider"] != "composio" || len(out["entries"].([]any)) != 2 {
+		t.Fatalf("catalog: %d %v", st, out)
 	}
 	st, out = e.do("GET", path+"?provider=composio&cursor=next", nil, nil, "k_setup")
 	if st != 200 || out["entries"].([]any)[0].(map[string]any)["vendor"] != "calendar_demo" {
-		t.Fatalf("page two: %d %v", st, out)
+		t.Fatalf("from a cursor: %d %v", st, out)
 	}
 	v := requestConnector(t, e)
 	id := v["id"].(string)
@@ -353,5 +358,26 @@ func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	}
 	if st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds\nand more"}, nil, "k_setup"); st != 400 {
 		t.Fatalf("a name on two lines: %d %v", st, out)
+	}
+}
+
+// Only an app the provider project can sign someone in to is offered: one
+// listed upstream without an enabled sign-in is neither in the catalog nor
+// started.
+func TestConnectorCatalogOffersOnlyAppsWithASignIn(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	var listed []string
+	for _, v := range out["entries"].([]any) {
+		listed = append(listed, v.(map[string]any)["entry"].(string))
+	}
+	if !slices.Contains(listed, "connector:composio:desk_demo") || slices.Contains(listed, "connector:composio:unset_demo") {
+		t.Fatalf("listed: %v", listed)
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 404 {
+		t.Fatalf("an app without a sign-in was started: %d %v", st, out)
 	}
 }

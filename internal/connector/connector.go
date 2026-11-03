@@ -38,6 +38,10 @@ func (e *CallError) Error() string {
 func (e *CallError) Unwrap() error { return ErrUnavailable }
 
 var ErrAccount = errors.New("the selected connection is not active for this account and app")
+
+// ErrNotSetUp: the provider can't sign anyone in to this app here (it has no
+// enabled sign-in set up for it), so it isn't offered.
+var ErrNotSetUp = errors.New("this app can't be connected here yet")
 var ErrDefinition = errors.New("the connector tool definition changed; approve its current definition")
 
 // Identity is allocated by planque, never selected in a tool call.

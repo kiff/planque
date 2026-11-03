@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kiff/planque/internal/connector"
@@ -24,6 +25,67 @@ type Secret func(context.Context) (string, error)
 type Client struct {
 	HTTP   *http.Client
 	Secret Secret
+	// Now is the clock for the sign-in cache; nil is time.Now.
+	Now func() time.Time
+
+	mu         sync.Mutex
+	configured map[string]bool // toolkits with an enabled auth config
+	readAt     time.Time
+}
+
+// configuredFor is how long the project's auth configs are trusted before
+// they're read again.
+const configuredFor = 5 * time.Minute
+
+// signInSetUp reads which toolkits the project can sign someone in to: those
+// with an enabled auth config. An app without one can't be connected, so it
+// is neither listed nor started. The answer is cached briefly; a failed read
+// offers nothing.
+func (c *Client) signInSetUp(ctx context.Context) (map[string]bool, error) {
+	now := time.Now()
+	if c.Now != nil {
+		now = c.Now()
+	}
+	c.mu.Lock()
+	if c.configured != nil && now.Sub(c.readAt) < configuredFor {
+		m := c.configured
+		c.mu.Unlock()
+		return m, nil
+	}
+	c.mu.Unlock()
+	m := map[string]bool{}
+	cursor := ""
+	for range 50 {
+		q := url.Values{"limit": {"100"}}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		var page struct {
+			Items []struct {
+				Status  string `json:"status"`
+				Toolkit struct {
+					Slug string `json:"slug"`
+				} `json:"toolkit"`
+			} `json:"items"`
+			Next string `json:"next_cursor"`
+		}
+		if _, err := c.request(ctx, "GET", "/auth_configs", q, nil, &page); err != nil {
+			return nil, err
+		}
+		for _, a := range page.Items {
+			if strings.EqualFold(a.Status, "ENABLED") && identifier.MatchString(a.Toolkit.Slug) {
+				m[strings.ToLower(a.Toolkit.Slug)] = true
+			}
+		}
+		if page.Next == "" || page.Next == cursor {
+			c.mu.Lock()
+			c.configured, c.readAt = m, now
+			c.mu.Unlock()
+			return m, nil
+		}
+		cursor = page.Next
+	}
+	return nil, connector.ErrDefinition
 }
 
 func (c *Client) Platform() connector.Platform { return connector.Platform{Name: "Composio", URL: API} }
@@ -115,46 +177,72 @@ func (a wireApp) app() (connector.App, error) {
 	return connector.App{Slug: a.Slug, Name: a.Name, Description: a.Meta.Description, Icon: icon}, nil
 }
 
+// catalogPages bounds the upstream pages one catalog read walks, and
+// catalogFill the apps it gathers before answering: most upstream apps have
+// no sign-in here, so one upstream page alone would often offer nothing.
+const catalogPages, catalogFill = 10, 30
+
 func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.Page[connector.App], error) {
 	if len(search) > 200 || len(cursor) > 4096 {
 		return connector.Page[connector.App]{}, connector.ErrDefinition
 	}
-	q := url.Values{"limit": {"100"}, "sort_by": {"alphabetically"}, "include_deprecated": {"false"}}
-	if search != "" {
-		q.Set("search", search)
-	}
-	if cursor != "" {
-		q.Set("cursor", cursor)
-	}
-	var page struct {
-		Items []json.RawMessage `json:"items"`
-		Next  string            `json:"next_cursor"`
-	}
-	if _, err := c.request(ctx, "GET", "/toolkits", q, nil, &page); err != nil {
+	setUp, err := c.signInSetUp(ctx)
+	if err != nil {
 		return connector.Page[connector.App]{}, err
 	}
-	result := connector.Page[connector.App]{Items: []connector.App{}, Next: page.Next}
-	if len(page.Items) > 100 || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
-		return result, connector.ErrDefinition
-	}
-	for _, raw := range page.Items {
-		var a wireApp
-		if json.Unmarshal(raw, &a) != nil {
-			result.Skipped++
-			continue
+	result := connector.Page[connector.App]{Items: []connector.App{}}
+	for range catalogPages {
+		q := url.Values{"limit": {"100"}, "sort_by": {"alphabetically"}, "include_deprecated": {"false"}}
+		if search != "" {
+			q.Set("search", search)
 		}
-		app, err := a.app()
-		if err != nil {
-			result.Skipped++
-			continue
+		if cursor != "" {
+			q.Set("cursor", cursor)
 		}
-		result.Items = append(result.Items, app)
+		var page struct {
+			Items []json.RawMessage `json:"items"`
+			Next  string            `json:"next_cursor"`
+		}
+		if _, err := c.request(ctx, "GET", "/toolkits", q, nil, &page); err != nil {
+			return connector.Page[connector.App]{}, err
+		}
+		if len(page.Items) > 100 || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
+			return result, connector.ErrDefinition
+		}
+		for _, raw := range page.Items {
+			var a wireApp
+			if json.Unmarshal(raw, &a) != nil {
+				result.Skipped++
+				continue
+			}
+			app, err := a.app()
+			if err != nil {
+				result.Skipped++
+				continue
+			}
+			// Only an app the project can sign someone in to is offered.
+			if !setUp[strings.ToLower(app.Slug)] {
+				continue
+			}
+			result.Items = append(result.Items, app)
+		}
+		result.Next, cursor = page.Next, page.Next
+		if page.Next == "" || len(result.Items) >= catalogFill {
+			break
+		}
 	}
 	return result, nil
 }
 func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	if !identifier.MatchString(id) {
 		return connector.App{}, connector.ErrDefinition
+	}
+	setUp, err := c.signInSetUp(ctx)
+	if err != nil {
+		return connector.App{}, err
+	}
+	if !setUp[strings.ToLower(id)] {
+		return connector.App{}, connector.ErrNotSetUp
 	}
 	var a wireApp
 	if _, err := c.request(ctx, "GET", "/toolkits/"+id, nil, nil, &a); err != nil {

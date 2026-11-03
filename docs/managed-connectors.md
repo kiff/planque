@@ -50,9 +50,18 @@ The account-authenticated catalog endpoints include upstream discovery:
    `cursor=...` for the next page. `skipped` counts entries that fail adapter
    validation; they do not discard valid entries or the next-page cursor.
    Configured reviewed entries remain available.
+   Only an app the provider project can sign someone in to is listed: one
+   with an enabled auth config, read with the scoped key and cached for five
+   minutes. Apps with an API key only, OAuth apps with no managed sign-in, and
+   anything not set up are left out, so nothing offered fails at sign-in. If
+   the auth configs can't be read, the provider's apps aren't listed. One read
+   walks up to ten upstream pages until it has 30 such apps or reaches the
+   end, so a page is rarely empty.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
-   accepts only `{"agent":"..."}`. It returns a pending grant and no sign-in
-   link. Its text explains that the provider holds the vendor credentials.
+   accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
+   taf's name for people). An app without a sign-in set up is 404. It returns
+   a pending grant and no sign-in link. Its text names the app and the taf,
+   and says the sign-in stays with the connection service.
 3. The owner's device signs `/approve` with that grant's digest. Only then
    is a scoped hosted sign-in created. The callback independently checks the
    server-allocated user, app and exact connection; callback account/status
