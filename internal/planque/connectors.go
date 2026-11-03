@@ -127,6 +127,10 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	app, err := p.App(r.Context(), toolkit)
+	if errors.Is(err, connector.ErrNotSetUp) {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err != nil {
 		s.fail(w, r, err)
 		return

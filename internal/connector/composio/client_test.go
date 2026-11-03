@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/connector"
 )
@@ -160,13 +161,19 @@ func TestExecutionFailuresAreNeverRetried(t *testing.T) {
 
 func TestCatalogKeepsPaginationAndUsesUpstreamApps(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/api/v3.1/auth_configs" {
+			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"app_outside_starter_list"}}]}`), nil
+		}
+		if r.URL.Query().Get("cursor") == "page-three" {
+			return response(200, `{"items":[]}`), nil
+		}
 		if r.URL.Query().Get("search") != "project" || r.URL.Query().Get("cursor") != "page-two" || r.URL.Path != "/api/v3.1/toolkits" {
 			t.Fatal("catalog query changed")
 		}
 		return response(200, `{"items":[{"slug":"app_outside_starter_list","name":"Project app","meta":{"logo":"https://assets.example/icon.png","description":"Project management"}}],"next_cursor":"page-three"}`), nil
 	})
 	page, err := c.Catalog(context.Background(), "project", "page-two")
-	if err != nil || len(page.Items) != 1 || page.Items[0].Slug != "app_outside_starter_list" || page.Next != "page-three" {
+	if err != nil || len(page.Items) != 1 || page.Items[0].Slug != "app_outside_starter_list" || page.Next != "" {
 		t.Fatalf("catalog: %+v %v", page, err)
 	}
 }
@@ -306,7 +313,12 @@ func TestPermitExpiryDuringPreflightNeverExecutes(t *testing.T) {
 func TestDiscoveryRetainsUnderscoreSlugsAndSkipsOddEntries(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"_1password"}},{"status":"ENABLED","toolkit":{"slug":"_21risk"}},{"status":"ENABLED","toolkit":{"slug":"_2chat"}},{"status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
 		case "/api/v3.1/toolkits":
+			if r.URL.Query().Get("cursor") == "next_page" {
+				return response(200, `{"items":[]}`), nil
+			}
 			return response(200, `{"items":[{"slug":"_1password","name":"1Password"},{"slug":"_21risk","name":"21Risk"},{"slug":"_2chat","name":"2Chat"},{"slug":"../bad","name":"Bad"},{"slug":42,"name":"Wrong type"},{"slug":"empty_name","name":""},{"slug":"desk","name":"Desk"}],"next_cursor":"next_page"}`), nil
 		case "/api/v3.1/toolkits/_1password":
 			return response(200, `{"slug":"_1password","name":"1Password"}`), nil
@@ -326,7 +338,7 @@ func TestDiscoveryRetainsUnderscoreSlugsAndSkipsOddEntries(t *testing.T) {
 		}
 	})
 	page, err := c.Catalog(context.Background(), "", "")
-	if err != nil || len(page.Items) != 4 || page.Skipped != 3 || page.Next != "next_page" {
+	if err != nil || len(page.Items) != 4 || page.Skipped != 3 || page.Next != "" {
 		t.Fatalf("discovery page: %+v %v", page, err)
 	}
 	for i, slug := range []string{"_1password", "_21risk", "_2chat", "desk"} {
@@ -374,5 +386,54 @@ func TestARefusedCallSaysWhichCallAndItsStatus(t *testing.T) {
 	_, err = lost.Authorize(context.Background(), connector.Identity{User: "owner_one", Toolkit: "gmail"}, "connection_one", "https://planque.example/connected")
 	if !errors.Is(err, connector.ErrUnavailable) || !strings.HasSuffix(err.Error(), "POST /tool_router/session: no answer") {
 		t.Fatalf("lost: %v", err)
+	}
+}
+
+// The catalog offers only apps the project can sign someone in to: an
+// enabled auth config, read across pages and cached briefly. A disabled or
+// missing one hides the app and refuses to start it; a failed read offers
+// nothing.
+func TestOnlyAppsWithAnEnabledSignInAreOffered(t *testing.T) {
+	reads, fail := 0, false
+	now := time.Unix(1800000000, 0)
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			reads++
+			if fail {
+				return response(500, `{}`), nil
+			}
+			if r.URL.Query().Get("cursor") == "" {
+				return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"gmail"}},{"status":"DISABLED","toolkit":{"slug":"notion"}}],"next_cursor":"more"}`), nil
+			}
+			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"slack"}}]}`), nil
+		case "/api/v3.1/toolkits":
+			return response(200, `{"items":[{"slug":"gmail","name":"Gmail"},{"slug":"notion","name":"Notion"},{"slug":"slack","name":"Slack"},{"slug":"hubspot","name":"HubSpot"}]}`), nil
+		case "/api/v3.1/toolkits/gmail":
+			return response(200, `{"slug":"gmail","name":"Gmail"}`), nil
+		}
+		t.Fatalf("unexpected request: %s", r.URL)
+		return nil, nil
+	})
+	c.Now = func() time.Time { return now }
+	page, err := c.Catalog(context.Background(), "", "")
+	if err != nil || len(page.Items) != 2 || page.Items[0].Slug != "gmail" || page.Items[1].Slug != "slack" {
+		t.Fatalf("catalog: %+v %v", page, err)
+	}
+	if _, err := c.App(context.Background(), "gmail"); err != nil {
+		t.Fatalf("gmail: %v", err)
+	}
+	for _, id := range []string{"notion", "hubspot"} {
+		if _, err := c.App(context.Background(), id); !errors.Is(err, connector.ErrNotSetUp) {
+			t.Fatalf("%s: %v", id, err)
+		}
+	}
+	if reads != 2 {
+		t.Fatalf("the sign-ins were read %d times, want one read of two pages", reads)
+	}
+	now = now.Add(configuredFor + time.Second)
+	fail = true
+	if _, err := c.Catalog(context.Background(), "", ""); !errors.Is(err, connector.ErrUnavailable) {
+		t.Fatalf("a failed read still offered apps: %v", err)
 	}
 }
