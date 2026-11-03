@@ -351,8 +351,8 @@ func doorSubscriptions(slug string, channels []string) ([]subscription, error) {
 // subscribe makes one upstream subscription and its record, then the tenant's
 // index after the record: an index never names a record that isn't there. The
 // provider may answer an id planque already has: for this connection it is
-// reused, and kept says it was already on before this request, so a failure
-// later in the request leaves it on. Reusing an id drops any sweep note to
+// reused, and kept says it was already on before this request: its record
+// stays as it was, and a failure later in the request leaves it on. Reusing an id drops any sweep note to
 // delete it. The record it returns carries the upstream id whenever planque
 // made one, even with an error, so the caller can take it back; one that
 // belongs to another connection is never returned to be taken back.
@@ -370,11 +370,15 @@ func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvi
 		if prior.Tenant != g.Tenant || prior.Grant != g.ID || prior.Account != record.Account {
 			return triggerRecord{}, false, apiError{http.StatusConflict, "that upstream event belongs to another approved connection"}
 		}
-		kept = prior.Active
+		if prior.Active {
+			// Already on: its record, and the approval that turned it on, stay
+			// as they were, whatever happens to the rest of this request.
+			return prior, true, nil
+		}
 		cond = store.Cond{Ver: &old.Ver}
 		key.Ver = old.Ver + 1
 		if _, _, err := s.KV.Delete(ctx, triggerCleanupPK, record.Provider+"#"+id); err != nil {
-			return record, kept, err
+			return record, false, err
 		}
 	} else if !errors.Is(err, errNotFound) {
 		return record, false, err
@@ -382,12 +386,12 @@ func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvi
 	record.Active = true
 	if err := putDoc(ctx, s.KV, key, record, cond); err != nil {
 		record.Active = false
-		return record, kept, err
+		return record, false, err
 	}
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "TRIGGER#" + record.Provider + "#" + record.ID}, map[string]string{"provider": record.Provider, "trigger": record.ID}, store.Cond{}); err != nil {
-		return record, kept, err
+		return record, false, err
 	}
-	return record, kept, nil
+	return record, false, nil
 }
 
 func (s *Server) listTriggers(w http.ResponseWriter, r *http.Request) {

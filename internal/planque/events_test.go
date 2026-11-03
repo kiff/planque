@@ -510,11 +510,16 @@ func TestSweepLeavesAPendingIndexBeingEnqueued(t *testing.T) {
 func TestAFailedApprovalLeavesSubscriptionsThatWereAlreadyOn(t *testing.T) {
 	e, f, g := newEventFixture(t)
 	f.enable(t, g) // CDEMO123 is on as trigger_events
+	before, _, _ := e.kv.Get(context.Background(), triggerPK("composio", "trigger_events"), "-")
 	f.reuse, f.failCreate = map[int]string{2: "trigger_events"}, 3
 	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
 	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CNEW0002"}}
 	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
 		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	after, _, _ := e.kv.Get(context.Background(), triggerPK("composio", "trigger_events"), "-")
+	if !bytes.Equal(before.Doc, after.Doc) || before.Ver != after.Ver {
+		t.Fatal("the record of a door that was on was rewritten by a failed request")
 	}
 	var record triggerRecord
 	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || !record.Active || slices.Contains(f.deleted, "trigger_events") {
