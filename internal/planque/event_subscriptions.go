@@ -190,21 +190,22 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		s.takeBack(r.Context(), p, made)
 		s.fail(w, r, err)
 	}
+	ids := []string{}
 	for _, sub := range subscriptions {
-		record, err := s.subscribe(r.Context(), g, p, definition, sub, sr.approval)
-		if record.ID != "" {
+		record, kept, err := s.subscribe(r.Context(), g, p, definition, sub, sr.approval)
+		// A subscription that was already on before this request stays on.
+		if record.ID != "" && !kept {
 			made = append(made, record)
 		}
 		if err != nil {
 			undo(err)
 			return
 		}
-	}
-	ids := []string{}
-	for _, record := range made {
 		ids = append(ids, record.ID)
-		if !slices.Contains(g.TriggerIDs, record.ID) {
-			g.TriggerIDs = append(g.TriggerIDs, record.ID)
+	}
+	for _, id := range ids {
+		if !slices.Contains(g.TriggerIDs, id) {
+			g.TriggerIDs = append(g.TriggerIDs, id)
 		}
 	}
 	g.HeldUntil = time.Time{}
@@ -270,6 +271,15 @@ func (s *Server) cleanTriggers(ctx context.Context) (int, error) {
 		}
 		p, ok := s.Connectors[note.Provider].(connector.EventProvider)
 		if !ok {
+			continue
+		}
+		// Approved again since: the subscription routes, so it stays upstream.
+		var record triggerRecord
+		if _, err := getDoc(ctx, s.KV, triggerPK(note.Provider, note.Trigger), "-", &record); err == nil && record.Active {
+			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+			continue
+		} else if err != nil && !errors.Is(err, errNotFound) {
+			errs = append(errs, err)
 			continue
 		}
 		if err := p.DeleteTrigger(ctx, note.Trigger); err != nil {
@@ -340,37 +350,44 @@ func doorSubscriptions(slug string, channels []string) ([]subscription, error) {
 
 // subscribe makes one upstream subscription and its record, then the tenant's
 // index after the record: an index never names a record that isn't there. The
-// record it returns carries the upstream id whenever planque made one, even
-// with an error, so the caller can take it back; a subscription that already
+// provider may answer an id planque already has: for this connection it is
+// reused, and kept says it was already on before this request, so a failure
+// later in the request leaves it on. Reusing an id drops any sweep note to
+// delete it. The record it returns carries the upstream id whenever planque
+// made one, even with an error, so the caller can take it back; one that
 // belongs to another connection is never returned to be taken back.
-func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvider, definition connector.TriggerType, sub subscription, approval Approval) (triggerRecord, error) {
+func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvider, definition connector.TriggerType, sub subscription, approval Approval) (record triggerRecord, kept bool, err error) {
 	id, err := p.CreateTrigger(ctx, s.connectorIdentity(g), g.Connector.Account, definition, sub.config)
 	if err != nil {
-		return triggerRecord{}, err
+		return triggerRecord{}, false, err
 	}
-	record := triggerRecord{Tenant: g.Tenant, Grant: g.ID, Provider: g.Request.Connector.Provider, Account: g.Connector.Account, User: s.connectorIdentity(g).User, ID: id, Definition: definition, Config: sub.config, Channels: sub.channels, Approval: approval}
+	record = triggerRecord{Tenant: g.Tenant, Grant: g.ID, Provider: g.Request.Connector.Provider, Account: g.Connector.Account, User: s.connectorIdentity(g).User, ID: id, Definition: definition, Config: sub.config, Channels: sub.channels, Approval: approval}
 	key := store.Item{PK: triggerPK(record.Provider, id), SK: "-", Ver: 1}
 	var prior triggerRecord
 	old, err := getDoc(ctx, s.KV, key.PK, key.SK, &prior)
 	cond := store.Cond{NotExists: true}
 	if err == nil {
 		if prior.Tenant != g.Tenant || prior.Grant != g.ID || prior.Account != record.Account {
-			return triggerRecord{}, apiError{http.StatusConflict, "that upstream event belongs to another approved connection"}
+			return triggerRecord{}, false, apiError{http.StatusConflict, "that upstream event belongs to another approved connection"}
 		}
+		kept = prior.Active
 		cond = store.Cond{Ver: &old.Ver}
 		key.Ver = old.Ver + 1
+		if _, _, err := s.KV.Delete(ctx, triggerCleanupPK, record.Provider+"#"+id); err != nil {
+			return record, kept, err
+		}
 	} else if !errors.Is(err, errNotFound) {
-		return record, err
+		return record, false, err
 	}
 	record.Active = true
 	if err := putDoc(ctx, s.KV, key, record, cond); err != nil {
 		record.Active = false
-		return record, err
+		return record, kept, err
 	}
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "TRIGGER#" + record.Provider + "#" + record.ID}, map[string]string{"provider": record.Provider, "trigger": record.ID}, store.Cond{}); err != nil {
-		return record, err
+		return record, kept, err
 	}
-	return record, nil
+	return record, kept, nil
 }
 
 func (s *Server) listTriggers(w http.ResponseWriter, r *http.Request) {

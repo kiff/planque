@@ -27,8 +27,9 @@ type eventFixture struct {
 	now                                  time.Time
 	user                                 string
 	creates, hookCreates, deletes, sends int
-	failCreate                           int // the create that fails upstream, from 1
-	failDeletes                          int // upstream deletes that fail before one succeeds
+	failCreate                           int            // the create that fails upstream, from 1
+	failDeletes                          int            // upstream deletes that fail before one succeeds
+	reuse                                map[int]string // the id the provider answers for a create, from 1
 	configs                              []map[string]any
 	deleted                              []string
 	listCalls                            int
@@ -101,6 +102,9 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 			id := "trigger_events"
 			if f.creates > 1 {
 				id += "_" + strconv.Itoa(f.creates)
+			}
+			if reused, ok := f.reuse[f.creates]; ok {
+				id = reused
 			}
 			return profileResponse(201, `{"trigger_id":"`+id+`"}`), nil
 		case strings.HasPrefix(path, "/api/v3.1/trigger_instances/manage/"):
@@ -500,5 +504,60 @@ func TestSweepLeavesAPendingIndexBeingEnqueued(t *testing.T) {
 	}
 	if _, ok, _ := e.kv.Get(context.Background(), pendingEventsPK, "evt_enqueueing"); ok {
 		t.Fatal("a stale index with no delivery stayed")
+	}
+}
+
+func TestAFailedApprovalLeavesSubscriptionsThatWereAlreadyOn(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.enable(t, g) // CDEMO123 is on as trigger_events
+	f.reuse, f.failCreate = map[int]string{2: "trigger_events"}, 3
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CNEW0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	var record triggerRecord
+	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || !record.Active || slices.Contains(f.deleted, "trigger_events") {
+		t.Fatalf("a door that was on was taken back: active %v, deleted %v", record.Active, f.deleted)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
+		t.Fatal("a door that was on was noted for deletion")
+	}
+	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
+		t.Fatal("the door that was on stopped delivering")
+	}
+}
+
+func TestReapprovalRetiresTheSweepsNoteToDelete(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate, f.failDeletes = 2, 1
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 1 {
+		t.Fatal("the kept subscription was not noted")
+	}
+	// Approved again: the provider answers the subscription it kept.
+	f.reuse = map[int]string{3: "trigger_events"}
+	time.Sleep(1100 * time.Millisecond) // a signed request is told apart by its second
+	ask["channels"] = []string{"CDEMO123"}
+	if st, out := e.do("POST", path, ask, e.phone, ""); st != 201 || out["id"] != "trigger_events" {
+		t.Fatalf("reapproval: %d %v", st, out)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
+		t.Fatal("the reapproved subscription is still noted for deletion")
+	}
+	// Even a note that outlived its reapproval never deletes a routing subscription.
+	_ = putDoc(context.Background(), e.kv, store.Item{PK: triggerCleanupPK, SK: "composio#trigger_events"}, triggerCleanup{Provider: "composio", Trigger: "trigger_events", Tenant: tenant, Grant: g.ID}, store.Cond{})
+	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 0 || len(f.deleted) != 0 {
+		t.Fatalf("sweep deleted a reapproved subscription: %d %v %v", n, err, f.deleted)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
+		t.Fatal("an obsolete note stayed")
+	}
+	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
+		t.Fatal("the reapproved door does not deliver")
 	}
 }
