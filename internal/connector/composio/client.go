@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ type Client struct {
 	mu         sync.Mutex
 	configured map[string]bool // toolkits with an enabled auth config
 	readAt     time.Time
+	firstPage  connector.Page[connector.App] // the unsearched first page, for readAt's sign-ins
+	firstAt    time.Time
 }
 
 // configuredFor is how long the project's auth configs are trusted before
@@ -177,10 +180,10 @@ func (a wireApp) app() (connector.App, error) {
 	return connector.App{Slug: a.Slug, Name: a.Name, Description: a.Meta.Description, Icon: icon}, nil
 }
 
-// catalogPages bounds the upstream pages one catalog read walks, and
-// catalogFill the apps it gathers before answering: most upstream apps have
-// no sign-in here, so one upstream page alone would often offer nothing.
-const catalogPages, catalogFill = 10, 30
+// catalogPages bounds the upstream pages one catalog read walks, at
+// catalogLimit apps each (the provider's maximum): the whole catalog is
+// usually one page, filtered here to the apps with a sign-in.
+const catalogPages, catalogLimit = 3, 1000
 
 func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.Page[connector.App], error) {
 	if len(search) > 200 || len(cursor) > 4096 {
@@ -190,9 +193,20 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 	if err != nil {
 		return connector.Page[connector.App]{}, err
 	}
+	// The first page with no search is what every Connect apps opens on:
+	// kept as long as the sign-ins it was filtered with.
+	first := search == "" && cursor == ""
+	if first {
+		c.mu.Lock()
+		cached, ok := c.firstPage, !c.firstAt.IsZero() && c.firstAt.Equal(c.readAt)
+		c.mu.Unlock()
+		if ok {
+			return cached, nil
+		}
+	}
 	result := connector.Page[connector.App]{Items: []connector.App{}}
 	for range catalogPages {
-		q := url.Values{"limit": {"100"}, "sort_by": {"alphabetically"}, "include_deprecated": {"false"}}
+		q := url.Values{"limit": {strconv.Itoa(catalogLimit)}, "sort_by": {"alphabetically"}, "include_deprecated": {"false"}}
 		if search != "" {
 			q.Set("search", search)
 		}
@@ -206,7 +220,7 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 		if _, err := c.request(ctx, "GET", "/toolkits", q, nil, &page); err != nil {
 			return connector.Page[connector.App]{}, err
 		}
-		if len(page.Items) > 100 || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
+		if len(page.Items) > catalogLimit || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
 			return result, connector.ErrDefinition
 		}
 		for _, raw := range page.Items {
@@ -227,9 +241,14 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 			result.Items = append(result.Items, app)
 		}
 		result.Next, cursor = page.Next, page.Next
-		if page.Next == "" || len(result.Items) >= catalogFill {
+		if page.Next == "" {
 			break
 		}
+	}
+	if first {
+		c.mu.Lock()
+		c.firstPage, c.firstAt = result, c.readAt
+		c.mu.Unlock()
 	}
 	return result, nil
 }

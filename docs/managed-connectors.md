@@ -55,8 +55,10 @@ The account-authenticated catalog endpoints include upstream discovery:
    minutes. Apps with an API key only, OAuth apps with no managed sign-in, and
    anything not set up are left out, so nothing offered fails at sign-in. If
    the auth configs can't be read, the provider's apps aren't listed. One read
-   walks up to ten upstream pages until it has 30 such apps or reaches the
-   end, so a page is rarely empty.
+   asks for the provider's whole catalog (1000 apps a page, at most three
+   pages) and keeps the ones with a sign-in, so they all come in one page. The
+   first page with no search is kept with the sign-ins it was filtered by, so
+   opening Connect apps again reads nothing upstream.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
    taf's name for people). An app without a sign-in set up is 404. It returns
