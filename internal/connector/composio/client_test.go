@@ -228,12 +228,9 @@ func TestAuthorizationRestrictsTheSessionAndChecksItsUser(t *testing.T) {
 						Execute struct {
 							Multi bool `json:"enable_multi_execute"`
 						} `json:"execute"`
-						Workbench struct {
-							Enable bool `json:"enable"`
-							Proxy  bool `json:"proxy_execution_enabled"`
-						} `json:"workbench"`
+						Workbench map[string]any `json:"workbench"`
 					}
-					if json.NewDecoder(r.Body).Decode(&body) != nil || body.User != "owner_one" || len(body.Toolkits.Enable) != 1 || body.Toolkits.Enable[0] != "desk" || body.Execute.Multi || body.Workbench.Enable || body.Workbench.Proxy {
+					if json.NewDecoder(r.Body).Decode(&body) != nil || body.User != "owner_one" || len(body.Toolkits.Enable) != 1 || body.Toolkits.Enable[0] != "desk" || body.Execute.Multi || len(body.Workbench) != 1 || body.Workbench["enable"] != false {
 						t.Fatal("session was not restricted")
 					}
 					user := "owner_one"
