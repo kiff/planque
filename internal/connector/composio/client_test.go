@@ -162,7 +162,7 @@ func TestExecutionFailuresAreNeverRetried(t *testing.T) {
 func TestCatalogKeepsPaginationAndUsesUpstreamApps(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path == "/api/v3.1/auth_configs" {
-			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"app_outside_starter_list"}}]}`), nil
+			return response(200, `{"items":[{"id":"ac_app_outside_starter_list","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"app_outside_starter_list"}}]}`), nil
 		}
 		if r.URL.Query().Get("cursor") == "page-three" {
 			return response(200, `{"items":[]}`), nil
@@ -314,7 +314,7 @@ func TestDiscoveryRetainsUnderscoreSlugsAndSkipsOddEntries(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/api/v3.1/auth_configs":
-			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"_1password"}},{"status":"ENABLED","toolkit":{"slug":"_21risk"}},{"status":"ENABLED","toolkit":{"slug":"_2chat"}},{"status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
+			return response(200, `{"items":[{"id":"ac__1password","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"_1password"}},{"id":"ac__21risk","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"_21risk"}},{"id":"ac__2chat","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"_2chat"}},{"id":"ac_desk","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
 		case "/api/v3.1/toolkits":
 			if r.URL.Query().Get("cursor") == "next_page" {
 				return response(200, `{"items":[]}`), nil
@@ -404,9 +404,9 @@ func TestOnlyAppsWithAnEnabledSignInAreOffered(t *testing.T) {
 				return response(500, `{}`), nil
 			}
 			if r.URL.Query().Get("cursor") == "" {
-				return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"gmail"}},{"status":"DISABLED","toolkit":{"slug":"notion"}}],"next_cursor":"more"}`), nil
+				return response(200, `{"items":[{"id":"ac_gmail","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"gmail"}},{"id":"ac_notion","auth_scheme":"OAUTH2","status":"DISABLED","toolkit":{"slug":"notion"}}],"next_cursor":"more"}`), nil
 			}
-			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"slack"}}]}`), nil
+			return response(200, `{"items":[{"id":"ac_slack","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"slack"}}]}`), nil
 		case "/api/v3.1/toolkits":
 			return response(200, `{"items":[{"slug":"gmail","name":"Gmail"},{"slug":"notion","name":"Notion"},{"slug":"slack","name":"Slack"},{"slug":"hubspot","name":"HubSpot"}]}`), nil
 		case "/api/v3.1/toolkits/gmail":
@@ -448,7 +448,7 @@ func TestTheFirstPageIsOneReadAndKept(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v3.1/auth_configs":
 			configs++
-			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"gmail"}}]}`), nil
+			return response(200, `{"items":[{"id":"ac_gmail","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"gmail"}}]}`), nil
 		case "/api/v3.1/toolkits":
 			toolkits++
 			if r.URL.Query().Get("limit") != "1000" {

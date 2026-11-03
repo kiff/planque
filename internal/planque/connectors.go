@@ -26,13 +26,17 @@ type ConnectorRequest struct {
 	Toolkit  string `json:"toolkit"`
 	// Title is the app's name for people ("Gmail"), as the provider lists it:
 	// the words the owner reads and signs. Empty on grants made before it.
-	Title   string           `json:"title,omitempty"`
-	Account string           `json:"account,omitempty"`
-	Tools   []connector.Tool `json:"tools,omitempty"`
+	Title string `json:"title,omitempty"`
+	// AuthConfig and AuthScheme freeze the hosted sign-in setup and wording.
+	// Omitted on older grants so their existing digests and words stay valid.
+	AuthConfig string           `json:"auth_config,omitempty"`
+	AuthScheme string           `json:"auth_scheme,omitempty"`
+	Account    string           `json:"account,omitempty"`
+	Tools      []connector.Tool `json:"tools,omitempty"`
 }
 
 // ConnectorState is private server state, never an agent-selected identity.
-// Vendor OAuth credentials remain at the configured connection provider.
+// Vendor credentials remain at the configured connection provider.
 type ConnectorState struct {
 	User       string                `json:"user"`
 	Session    string                `json:"session"`
@@ -50,7 +54,7 @@ func connectorEntry(id string) (string, string, bool) {
 }
 func (s *Server) connectorIdentity(g *Grant) connector.Identity {
 	sum := sha256.Sum256([]byte(s.BaseURL + "\n" + g.Tenant))
-	return connector.Identity{User: "planque_" + hex.EncodeToString(sum[:]), Toolkit: g.Request.Connector.Toolkit}
+	return connector.Identity{User: "planque_" + hex.EncodeToString(sum[:]), Toolkit: g.Request.Connector.Toolkit, AuthConfig: g.Request.Connector.AuthConfig}
 }
 func (s *Server) provider(g *Grant) (connector.Provider, error) {
 	if g.Request.Connector == nil {
@@ -144,7 +148,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name),
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
 			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
-			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name)},
+			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme},
 			API: &APIRequest{URL: platform.URL, Base: platform.URL, SourceKind: "connector"}},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if g.Request.AskedBy == "" {
@@ -469,6 +473,14 @@ func connectorText(q Request) string {
 			taf = q.AgentName
 		}
 		text = "Connect " + q.Connector.Title + " for " + taf + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
+		switch q.Connector.AuthScheme {
+		case "API_KEY", "BEARER_TOKEN":
+			credential := "key"
+			if q.Connector.AuthScheme == "BEARER_TOKEN" {
+				credential = "token"
+			}
+			text = "Connect " + q.Connector.Title + " for " + taf + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+		}
 	}
 	if len(q.Tools) == 0 {
 		return text + " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
