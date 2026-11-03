@@ -152,7 +152,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 			API: &APIRequest{URL: platform.URL, Base: platform.URL, SourceKind: "connector"}},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if g.Request.AskedBy == "" {
-		g.Request.AskedBy = "an account key"
+		g.Request.AskedBy = askedByAccountKey
 	}
 	g.Text = grantText(g.Request)
 	g.Digest, err = digest(g.Request)

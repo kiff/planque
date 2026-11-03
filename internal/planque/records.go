@@ -220,12 +220,15 @@ const (
 
 // Grant is one connection of a vendor account to one taf.
 type Grant struct {
-	ID       string         `json:"id"`
-	Tenant   string         `json:"tenant"`
-	Status   string         `json:"status"`
-	Request  Request        `json:"request"`
-	Text     string         `json:"text"`
-	Digest   string         `json:"digest"`
+	ID      string  `json:"id"`
+	Tenant  string  `json:"tenant"`
+	Status  string  `json:"status"`
+	Request Request `json:"request"`
+	Text    string  `json:"text"`
+	Digest  string  `json:"digest"`
+	// Proposer is the agent that proposed the tools of a grant an account
+	// key asked (its taf, or the account's Setup); empty otherwise.
+	Proposer string         `json:"proposer,omitempty"`
 	Vendor   oauth.Metadata `json:"vendor"`
 	ClientID string         `json:"client_id,omitempty"`
 	Account  string         `json:"account,omitempty"` // the vendor account the token is bound to

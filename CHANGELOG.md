@@ -7,6 +7,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- A connection an account key asked for (an app's own Connect apps screen)
+  can be finished: the taf it is for and the account's Setup agent (KIFF
+  role `setup_reader`) may list it, read its catalog and propose its tools.
+  No other agent may, and the owner still approves the tools on the phone.
 - The connection service's sign-in page moved to a new host; planque accepts
   it. Each sign-in attempt names its connection afresh, so an approval that
   failed after the service made its link can be approved again.

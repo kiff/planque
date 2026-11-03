@@ -380,6 +380,68 @@ func TestConnectorApprovalRetriesAfterALinkWasMade(t *testing.T) {
 	}
 }
 
+// A connection an account key asked (Connect apps) is finished by the taf it
+// is for or the account's Setup: either may list it, read its catalog and
+// propose its tools, and the owner still approves them on the phone. No
+// other agent can.
+func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	// The account's own key (tafs cloud's Connect apps), the account's Setup
+	// (Coach), the taf, and an agent that is neither.
+	e.kiff.Keys["k_account"] = kiff.Me{APIKey: true, TenantID: tenant}
+	e.kiff.Keys["k_coach"] = kiff.Me{APIKey: true, TenantID: tenant, AgentID: "agt_coach", Roles: []string{"setup_reader"}}
+	e.kiff.Keys["k_taf"] = kiff.Me{APIKey: true, TenantID: tenant, AgentID: "agt_taf"}
+	e.kiff.Keys["k_third"] = kiff.Me{APIKey: true, TenantID: tenant, AgentID: "agt_third"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_account")
+	if st != 201 {
+		t.Fatalf("request with the account key: %d %v", st, out)
+	}
+	v := out["grant"].(map[string]any)
+	id := v["id"].(string)
+	path := "/v1/accounts/" + tenant + "/grants/" + id
+	if st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, ""); st != 200 {
+		t.Fatalf("approve sign-in: %d %v", st, out)
+	}
+	code := e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
+	if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusListed {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	lists := func(key string) bool {
+		_, out := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, key)
+		for _, g := range out["grants"].([]any) {
+			if g.(map[string]any)["id"] == id {
+				return true
+			}
+		}
+		return false
+	}
+	for _, key := range []string{"k_third"} {
+		if st, _ := e.do("GET", path+"/catalog", nil, nil, key); st != 403 || lists(key) {
+			t.Fatalf("%s, neither the taf nor Setup, read the grant: %d", key, st)
+		}
+	}
+	for _, key := range []string{"k_taf", "k_coach"} {
+		if st, _ := e.do("GET", path+"/catalog", nil, nil, key); st != 200 || !lists(key) {
+			t.Fatalf("%s can't read the grant: %d", key, st)
+		}
+	}
+	_, catalog := e.do("GET", path+"/catalog", nil, nil, "k_coach")
+	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	tools := map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}
+	if st, _ := e.do("POST", path+"/tools", tools, nil, "k_third"); st != 403 {
+		t.Fatalf("a third agent proposed tools: %d", st)
+	}
+	if st, out := e.do("POST", path+"/tools", tools, nil, "k_coach"); st != 200 {
+		t.Fatalf("Setup proposes tools: %d %v", st, out)
+	}
+	// Proposing granted nothing: the owner's approval on the phone is next.
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status == StatusConnected || g.Proposer != "agt_coach" || f.executions != 0 {
+		t.Fatalf("proposing tools connected them: %s, proposer %q", g.Status, g.Proposer)
+	}
+}
+
 // A managed connection's words name the app by its title and the taf by its
 // name, and no connection provider: what the owner reads and signs. Without a
 // name, the taf is named by its agent; a name that isn't one line is refused.
