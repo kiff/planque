@@ -220,7 +220,7 @@ func TestSignedEventsRouteExactAccountChannelAndDeliverOnce(t *testing.T) {
 		t.Fatalf("event: status%d sends%d", st, f.sends)
 	}
 	m := f.message
-	if m.Tenant != tenant || m.Agent != "agt_taf" || m.Grant != g.ID || m.Account != "account_events" || m.Channel != "CDEMO123" || m.Sender != "UDEMO123" || m.Thread != "1799999999.001" || m.Timestamp != "2027-01-15T08:00:00.001Z" {
+	if m.Tenant != tenant || m.Agent != "agt_taf" || m.Grant != g.ID || m.Account != "account_events" || m.Channel != "CDEMO123" || m.Sender != "UDEMO123" || m.Thread != "1799999999.001" || m.TS != "1800000000.001" || m.Timestamp != "2027-01-15T08:00:00.001Z" {
 		t.Fatalf("wrong server-bound event: %+v", m)
 	}
 	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
@@ -559,5 +559,19 @@ func TestReapprovalRetiresTheSweepsNoteToDelete(t *testing.T) {
 	}
 	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
 		t.Fatal("the reapproved door does not deliver")
+	}
+}
+
+func TestARootSlackMessageCarriesItsOwnTS(t *testing.T) {
+	_, f, g := newEventFixture(t)
+	f.enable(t, g)
+	if st := f.event(t, func(v map[string]any) { delete(v["data"].(map[string]any), "thread_ts") }, false); st != 202 || f.sends != 1 {
+		t.Fatalf("root message: %d, %d sent", st, f.sends)
+	}
+	raw, _ := json.Marshal(f.message)
+	var handoff map[string]any
+	_ = json.Unmarshal(raw, &handoff)
+	if handoff["ts"] != "1800000000.001" || handoff["thread"] != nil {
+		t.Fatalf("a root message's handoff cannot be replied under: %s", raw)
 	}
 }

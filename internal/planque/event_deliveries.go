@@ -142,7 +142,7 @@ func slackDoorMessage(g *Grant, route triggerRecord, e connector.Event) (door.Me
 	sec, _ := strconv.ParseInt(seconds, 10, 64)
 	nsec, _ := strconv.ParseInt(fraction+strings.Repeat("0", 9-len(fraction)), 10, 64)
 	timestamp := time.Unix(sec, nsec).UTC().Format(time.RFC3339Nano)
-	return door.Message{V: "planque.door.v1", ID: "evt_" + hex.EncodeToString(sum[:]), Tenant: g.Tenant, Agent: g.Request.Agent, Grant: g.ID, Provider: route.Provider, Account: route.Account, Trigger: route.ID, Slug: route.Definition.Slug, Channel: p.Channel, Sender: p.User, Text: p.Text, Thread: p.Thread, Timestamp: timestamp}, true
+	return door.Message{V: "planque.door.v1", ID: "evt_" + hex.EncodeToString(sum[:]), Tenant: g.Tenant, Agent: g.Request.Agent, Grant: g.ID, Provider: route.Provider, Account: route.Account, Trigger: route.ID, Slug: route.Definition.Slug, Channel: p.Channel, Sender: p.User, Text: p.Text, TS: p.TS, Thread: p.Thread, Timestamp: timestamp}, true
 }
 func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 	var delivery eventDelivery

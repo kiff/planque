@@ -183,7 +183,8 @@ and unrelated events are filtered. Tenant and KIFF agent come from the
 approved connection record.
 
 The receiver gets `{v:"planque.door.v1", id, tenant, agent, grant, provider,
-account, trigger, trigger_slug, channel, sender, text, thread?, timestamp}`.
+account, trigger, trigger_slug, channel, sender, text, ts, thread?, timestamp}`.
+`ts` is the message's own Slack ts, verbatim; `thread` its parent when it is already in a thread.
 `sender` is the Slack user ID; the receiver's sender controls decide whether
 work starts. Headers `Planque-Event-Id`, `Planque-Event-Timestamp` and
 `Planque-Event-Signature` use the same signing format and the shared handoff

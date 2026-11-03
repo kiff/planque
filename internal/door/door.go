@@ -17,18 +17,21 @@ import (
 )
 
 type Message struct {
-	V         string `json:"v"`
-	ID        string `json:"id"`
-	Tenant    string `json:"tenant"`
-	Agent     string `json:"agent"`
-	Grant     string `json:"grant"`
-	Provider  string `json:"provider"`
-	Account   string `json:"account"`
-	Trigger   string `json:"trigger"`
-	Slug      string `json:"trigger_slug"`
-	Channel   string `json:"channel"`
-	Sender    string `json:"sender"`
-	Text      string `json:"text"`
+	V        string `json:"v"`
+	ID       string `json:"id"`
+	Tenant   string `json:"tenant"`
+	Agent    string `json:"agent"`
+	Grant    string `json:"grant"`
+	Provider string `json:"provider"`
+	Account  string `json:"account"`
+	Trigger  string `json:"trigger"`
+	Slug     string `json:"trigger_slug"`
+	Channel  string `json:"channel"`
+	Sender   string `json:"sender"`
+	Text     string `json:"text"`
+	// TS is the message's own Slack ts, verbatim: a reply to a root message
+	// goes under it, as Thread is the parent of a message already in a thread.
+	TS        string `json:"ts"`
 	Thread    string `json:"thread,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
