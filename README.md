@@ -1,7 +1,7 @@
 # planque
 
 **The safe place for your agents' keys.** An agent asks to act in a vendor
-account (Stripe, Shopify, Gmail, any API). The owner approves on their own
+account: payments, a shop, email, any API. The owner approves on their own
 phone, seeing exactly what will be granted. Direct connections keep vendor keys in planque, in Europe or on the owner's
 own servers. Optional managed connections keep vendor credentials at the
 configured connection provider. Every call is made only
@@ -20,8 +20,7 @@ People who let AI agents work in their business tools and need to know:
 
 planque follows the standard that modern vendors' MCP servers speak:
 OAuth 2.1 with discovery (RFC 9728, RFC 8414), dynamic client
-registration (RFC 7591) and PKCE. Stripe's MCP server, for one, does all of
-it.
+registration (RFC 7591) and PKCE.
 
 An MCP authorization server can also use a **Client ID Metadata Document**
 instead of dynamic registration. When it advertises that support, planque
@@ -37,7 +36,7 @@ contains no account, grant or credential data.
    Nothing is granted without the signature.
 3. **Connect.** planque discovers the vendor's sign-in server, registers
    itself, and sends the owner to the vendor's own sign-in page. The token
-   lands in planque, encrypted with KMS, bound to that vendor account,
+   lands in planque, encrypted with a managed key, bound to that vendor account,
    refreshed safely, and revocable.
 4. **Call.** For each call, planque checks a permit for that exact call (for
    example from KIFF, RFC 046), then calls the vendor itself. The agent never
@@ -45,15 +44,23 @@ contains no account, grant or credential data.
 
 An optional [managed connection provider](docs/managed-connectors.md) adds
 paginated app discovery and hosted authentication without an app-specific
-adapter for every vendor. The first provider is Composio. The same device
+adapter for every vendor. The same device
 approval, exact-call permits and once-only relay govern each selected action.
-Slackbot incoming messages use separately approved subscriptions and a signed
-door handoff; receiving a message grants no reply authority.
+Incoming chat messages for a taf's door use separately approved subscriptions
+and a signed door handoff; receiving a message grants no reply authority.
+
+**Connection profiles.** A grant request can carry a profile: what each of the
+connection's operations does, in terms KIFF's Card can count (where its amount
+and resource are, and how KIFF can tell it happened), with KIFF's words for it.
+The owner's phone signs the profile and the words together with the grant.
+planque hands that signed evidence to KIFF, which applies the profile only if
+the signature covers it; if KIFF doesn't apply it, nothing is connected. Each
+operation keeps the profile revision it was decided under, so a replay never
+sends it again under another.
 
 ## Two ways to run it
 
-- **Hosted:** we run it in the EU (AWS eu-west-1 to start). The owner runs
-  nothing.
+- **Hosted:** we run it in the EU. The owner runs nothing.
 - **Self-hosted:** one container, on any cloud or server. Direct connections
   keep credentials on the owner's infrastructure; managed connections use
   the configured provider's credential custody.
@@ -62,10 +69,10 @@ It's the same code either way.
 
 ## Done when (the first end-to-end)
 
-- From kiff/tafs' setup chat, an owner connects **Stripe** through its MCP
-  server:
+- From kiff/tafs' setup chat, an owner connects a payment provider through its
+  MCP server:
   1. the approval on the phone;
-  2. Stripe's own sign-in;
+  2. the provider's own sign-in;
   3. the token in planque;
   4. a refund inside the Card goes through;
   5. a refund outside it is never sent.
@@ -73,8 +80,7 @@ It's the same code either way.
   or with an expired permit sends nothing. A test covers each case.
 - A grant request the phone didn't sign creates nothing.
 - Disconnecting revokes the token at the vendor and deletes it here.
-- The signed approvals can be exported as evidence of human oversight
-  (EU AI Act).
+- The signed approvals can be exported as evidence of human oversight.
 
 ## The API
 
@@ -95,10 +101,10 @@ It's the same code either way.
 | `POST /v1/accounts/{tenant}/grants` with `"kind": "api_key"` | an agent, with its KIFF key | a vendor with a REST API and no MCP server (kiff/planque#64). `api`: `{"url": its OpenAPI description, "auth": {"in": "header"\|"query", "name", "prefix"?}, "base"?}`. planque reads the description once (JSON, OpenAPI 3.0 or 3.1, at most 16 MB and 500 operations per snapshot; `api.operations` may select a subset from a larger catalog) and keeps it as the grant's snapshot: the owner signs its SHA-256 with the server and where the key goes, and every call uses the snapshot, whatever the URL serves later. Refused, with the reason: YAML, external `$ref`s, servers set per path or operation, an operation secured otherwise than the key, callbacks and links, and any way of sending the key but a header or the query. Each operation is a tool (its `operationId`, else its method and path), with its path, query and JSON body as arguments; `GET`/`HEAD` are reads. A vendor's refusal is never taken as evidence that nothing happened: the call stays counted in KIFF |
 | `POST /v1/accounts/{tenant}/grants/{id}/key` | the phone, signed, body `{"digest", "key_sha256"}`, the key in `Planque-Vendor-Key` | the owner's approval of an API-key grant, with the key: the signed body holds only the key's SHA-256, so the approval kept as evidence never holds the key. The key is sealed like a sign-in's token and never shown again. With no tools the grant is `listed` (its catalog is the snapshot's operations, each with its method and path); with tools it connects at once. Tools set later are approved with `…/approve`, with no second key. A `needs_reconnect` grant takes a new key the same way. Disconnecting deletes the key and the snapshot |
 | `POST /v1/accounts/{tenant}/grants` with `"reuse": "<grant id>"` | an agent, with its KIFF key | a second grant to the same vendor and account uses a connected grant's sign-in or key (kiff/planque#36): the owner's text says so, and approving needs no second sign-in or key. The token isn't copied: both grants use one, refreshed once. A grant that isn't connected, of another account or to another server can't be reused (409). When the first is disconnected, the second is `needs_reconnect` and signs in, or takes a key, on its own |
-| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed with KMS, unused, and the browser goes on to the owner's app with a confirmation code |
+| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed, unused, and the browser goes on to the owner's app with a confirmation code |
 | `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode; for a grant with no tools, the vendor's tools are listed instead (`listed`); for a reconnect, the grant is `connected` again with the new token, its tools in KIFF as they were |
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
-| *(a vendor signs planque out)* | | when the vendor refuses the refresh (`invalid_grant`), or a token expires with no refresh token, the grant is **`needs_reconnect`** ("Signed out by Stripe · sign in again"). Its tools stay in KIFF; each call through it is answered "not sent", saying the owner signs in again, and reaches no vendor. The owner's phone approves the same digest again, signs in (a sign-in to another account at the vendor is refused), and confirms: the grant is `connected` again. A new sign-in nobody confirms goes, and the grant waits again. planque tells KIFF of each sign-out once (`POST /v1/me/connections/signed-out`, with the connector key: the grant, the taf's agent, the vendor's name, why and when), so the people who see the taf hear of it; one KIFF didn't take is sent again by the sweep |
+| *(a vendor signs planque out)* | | when the vendor refuses the refresh (`invalid_grant`), or a token expires with no refresh token, the grant is **`needs_reconnect`** ("Signed out by the vendor · sign in again"). Its tools stay in KIFF; each call through it is answered "not sent", saying the owner signs in again, and reaches no vendor. The owner's phone approves the same digest again, signs in (a sign-in to another account at the vendor is refused), and confirms: the grant is `connected` again. A new sign-in nobody confirms goes, and the grant waits again. planque tells KIFF of each sign-out once (`POST /v1/me/connections/signed-out`, with the connector key: the grant, the taf's agent, the vendor's name, why and when), so the people who see the taf hear of it; one KIFF didn't take is sent again by the sweep |
 | `DELETE /v1/accounts/{tenant}/grants/{id}` | the phone, signed | removes the tools from KIFF, revokes the token at the vendor, deletes it here |
 | `GET /v1/accounts/{tenant}/grants`, `…/export` | the phone, signed (the export, by someone KIFF says may export the account: `account.export`, admins) | the grants in use with what the owner read and their signature, checkable without planque. A disconnected grant's record stays until the account ends (its vendor tokens are deleted at disconnect); the list leaves it out unless `?include=disconnected`, and the export has every grant |
 | `DELETE /v1/accounts/{tenant}` | the phone, signed by someone KIFF says may delete the account (`account.delete`, admins), as KIFF's own deletion requires; tafs cloud forwards it, before KIFF's own deletion | deletes the account (kiff/tafs#185): each grant's tools leave KIFF's gateway, its vendor tokens are revoked where the vendor allows and deleted, and every record goes, the enrolment with the connector key last. Answers what KIFF or a vendor didn't confirm in `problems`. Asked again once nothing is kept, **204** |
@@ -144,8 +150,8 @@ the arguments, and a lifetime of at most 60 seconds. Each operation runs
 at most once: a replay gets the first answer, and a call whose answer was
 lost is never sent again.
 
-**Narrowing a vendor tool.** Some vendors offer one broad tool: Stripe's
-MCP server writes to any endpoint through `stripe_api_write`. A grant
+**Narrowing a vendor tool.** Some vendors offer one broad tool that writes to
+any endpoint of their API. A grant
 narrows it with `fixed_arguments` (sent on every call, never set by the
 agent) and `arguments` (the only ones the agent sets, each placed at a path
 in the vendor's arguments, at the top level where KIFF's Card can govern
@@ -155,14 +161,14 @@ narrowing included, are in the grant's `terms`, which the app shows under
 Details. The phone signs the whole request either way:
 
 ```json
-{"tool": "stripe_api_write", "name": "stripe_refund", "title": "Refund a payment", "amount_argument": "amount",
- "fixed_arguments": {"stripe_api_operation_id": "PostRefunds", "stripe_context": "acct_…", "livemode": false},
+{"tool": "api_write", "name": "refund", "title": "Refund a payment", "amount_argument": "amount",
+ "fixed_arguments": {"operation_id": "PostRefunds", "account": "acct_…", "livemode": false},
  "arguments": {"payment_intent": {"path": "parameters.payment_intent", "type": "string", "required": true},
                "amount": {"path": "parameters.amount", "type": "integer", "required": true}}}
 ```
 
 The fields a narrowed tool may reach are the operation's own: planque reads
-them with the vendor's describing tool (Stripe's `stripe_api_details`) and
+them with the vendor's describing tool and
 refuses a path into `parameters` the operation doesn't take, with the list
 it does, before the owner is asked. It reads nothing through a vendor's
 tools before the owner approves them, so that tool is connected first (with
@@ -174,23 +180,23 @@ record.
 
 ```sh
 go test ./...                    # every step against a fake vendor and a fake KIFF
-deploy/aws.sh up                 # Lambda + function URL, DynamoDB, KMS in eu-west-1
+deploy/aws.sh up                 # the hosted deployment
 PLANQUE_BASE_URL=http://localhost:8080 PLANQUE_LOCAL_KEY=$(openssl rand -base64 32) \
   go run ./cmd/planque           # self-hosted, records in memory
 ```
 
 Configuration is in `cmd/planque/main.go`.
 
-**The live check** (`live/`) runs against Stripe's real MCP server in test
-mode and planque on AWS. Until KIFF ships the connector key role, KIFF is
+**The live check** (`live/`) runs against a payment provider's real MCP server
+in test mode and the hosted planque. Until KIFF ships the connector key role, KIFF is
 the stand-in in `internal/fakes`, deployed with `FAKEKIFF=1 deploy/aws.sh up`.
-It enrols a phone, asks for Stripe, approves, waits for the sign-in at
-Stripe, then: a refund inside the Card goes through, one outside it is
+It enrols a phone, asks for the provider, approves, waits for the sign-in at
+the provider, then: a refund inside the Card goes through, one outside it is
 never sent, permits for other arguments, another account, another audience,
 expired or missing send nothing, a replayed permit gets the first answer,
-parallel calls on several Lambda instances refresh the token once (the
-rotated refresh token is kept), disconnecting revokes the token at Stripe
-(Stripe then answers it with 401), and the export's signature verifies.
+parallel calls on several instances refresh the token once (the
+rotated refresh token is kept), disconnecting revokes the token at the provider
+(which then answers it with 401), and the export's signature verifies.
 
 ## Licence
 
