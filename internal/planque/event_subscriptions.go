@@ -263,13 +263,19 @@ func (s *Server) takeBack(ctx context.Context, p connector.EventProvider, made [
 
 // removeTrigger deletes a noted subscription upstream, once it holds the
 // claim on its record: a write conditioned on the version the note was taken
-// at. A newer record is a newer approval: the note is dropped and nothing is
-// deleted. While the claim is held, the record routes nothing and an
-// approval that reuses the id is refused, so a subscription is never deleted
-// under an approval made meanwhile. done says the note is settled.
+// at, with a lease. A newer record is a newer approval: the note is dropped
+// and nothing is deleted. The claim is exclusive through the provider call:
+// another worker takes it over only once its lease has passed, and the holder
+// gives up its own call well before that, so two deletions never overlap.
+// While it is held, the record routes nothing and an approval that reuses
+// the id is refused. It is settled only by a write conditioned on the
+// version it claimed: a worker that lost its claim settles nothing. done
+// says the note is settled.
 func (s *Server) removeTrigger(ctx context.Context, p connector.EventProvider, note triggerCleanup) (done bool, err error) {
 	key := store.Item{PK: triggerPK(note.Provider, note.Trigger), SK: "-"}
 	noteKey := [2]string{triggerCleanupPK, note.Provider + "#" + note.Trigger}
+	now := s.now()
+	key.Lease = now.Add(removeLease).UnixMilli()
 	var record triggerRecord
 	it, err := getDoc(ctx, s.KV, key.PK, key.SK, &record)
 	created := false
@@ -285,7 +291,14 @@ func (s *Server) removeTrigger(ctx context.Context, p connector.EventProvider, n
 	case err != nil:
 		return false, err
 	case record.Removing:
-		key.Ver = it.Ver // claimed already, and not finished: finish it
+		// Another worker's claim: taken over only once its lease has passed.
+		if it.Lease >= now.UnixMilli() {
+			return false, nil
+		}
+		key.Ver = it.Ver + 1
+		if err := putDoc(ctx, s.KV, key, record, store.Cond{Ver: &it.Ver, LeaseFreeAt: now.UnixMilli()}); err != nil {
+			return false, ignoreCondition(err)
+		}
 	case it.Ver > note.Fence:
 		_, _, err := s.KV.Delete(ctx, noteKey[0], noteKey[1])
 		return err == nil, err
@@ -296,23 +309,30 @@ func (s *Server) removeTrigger(ctx context.Context, p connector.EventProvider, n
 			return false, ignoreCondition(err)
 		}
 	}
-	if err := p.DeleteTrigger(ctx, note.Trigger); err != nil {
+	call, cancel := context.WithTimeout(ctx, removeCall)
+	err = p.DeleteTrigger(call, note.Trigger)
+	cancel()
+	if err != nil {
 		return false, err
+	}
+	claimed := key.Ver
+	record.Removing = false
+	key.Ver, key.Lease = claimed+1, 0
+	if err := putDoc(ctx, s.KV, key, record, store.Cond{Ver: &claimed}); err != nil {
+		return false, ignoreCondition(err)
 	}
 	if created {
 		if _, _, err := s.KV.Delete(ctx, key.PK, key.SK); err != nil {
-			return false, err
-		}
-	} else {
-		record.Removing = false
-		key.Ver++
-		if err := putDoc(ctx, s.KV, key, record, store.Cond{}); err != nil {
 			return false, err
 		}
 	}
 	_, _, err = s.KV.Delete(ctx, noteKey[0], noteKey[1])
 	return err == nil, err
 }
+
+// removeLease is how long a removal claim is exclusive; removeCall, how long
+// its holder waits for the provider, far within it.
+const removeLease, removeCall = 2 * time.Minute, 30 * time.Second
 
 // ignoreCondition: a lost race is no error; the next sweep reads again.
 func ignoreCondition(err error) error {

@@ -31,6 +31,7 @@ type eventFixture struct {
 	failCreate                           int            // the create that fails upstream, from 1
 	failDeletes                          int            // upstream deletes that fail before one succeeds
 	reuse                                map[int]string // the id the provider answers for a create, from 1
+	onDelete                             func()         // runs once inside an upstream delete, unlocked
 	configs                              []map[string]any
 	deleted                              []string
 	listCalls                            int
@@ -109,6 +110,12 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 			}
 			return profileResponse(201, `{"trigger_id":"`+id+`"}`), nil
 		case strings.HasPrefix(path, "/api/v3.1/trigger_instances/manage/"):
+			if hook := f.onDelete; hook != nil {
+				f.onDelete = nil
+				f.mu.Unlock()
+				hook()
+				f.mu.Lock()
+			}
 			if f.failDeletes > 0 {
 				f.failDeletes--
 				return profileResponse(500, `{"error":"unavailable"}`), nil
@@ -479,6 +486,7 @@ func TestUndoneSubscriptionsTheProviderKeptAreDeletedBySweep(t *testing.T) {
 	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || record.Active {
 		t.Fatal("the kept subscription still routes")
 	}
+	f.now = f.now.Add(removeLease + time.Second) // the undo's claim has lapsed
 	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 1 || !slices.Equal(f.deleted, []string{"trigger_events"}) {
 		t.Fatalf("sweep: %d %v, deleted %v", n, err, f.deleted)
 	}
@@ -552,6 +560,7 @@ func TestReapprovalWaitsForARemovalAndANewerApprovalRetiresTheNote(t *testing.T)
 	if st, _ := e.do("POST", path, ask, e.phone, ""); st != 409 || len(f.deleted) != 0 {
 		t.Fatalf("a reapproval during a removal answered %d, deleted %v", st, f.deleted)
 	}
+	f.now = f.now.Add(removeLease + time.Second) // the undo's claim has lapsed
 	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 1 || !slices.Equal(f.deleted, []string{"trigger_events"}) {
 		t.Fatalf("sweep: %d %v %v", n, err, f.deleted)
 	}
@@ -607,6 +616,7 @@ func TestASweepPausedByAReapprovalDeletesNothing(t *testing.T) {
 	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
 		t.Fatalf("a refused second subscription answered %d", st)
 	}
+	f.now = f.now.Add(removeLease + time.Second) // the undo's claim has lapsed
 	if _, err := e.s.cleanTriggers(context.Background()); err != nil || len(f.deleted) != 1 {
 		t.Fatalf("first removal: %v %v", err, f.deleted)
 	}
@@ -688,5 +698,77 @@ func TestAnIDReusedForAnotherChannelChangesNothing(t *testing.T) {
 	}
 	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
 		t.Fatal("the door that was on stopped delivering")
+	}
+}
+
+func TestTwoCleanupWorkersNeverShareARemoval(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate, f.failDeletes = 2, 1
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, "")
+	var note triggerCleanup
+	if len(notes) != 1 || json.Unmarshal(notes[0].Doc, &note) != nil {
+		t.Fatal("no note")
+	}
+	f.now = f.now.Add(removeLease + time.Second) // the undo's claim has lapsed
+	p := e.s.Connectors["composio"].(connector.EventProvider)
+	// Worker B runs while worker A is inside its provider delete: it must not enter.
+	var bDone bool
+	var bErr error
+	f.onDelete = func() { bDone, bErr = e.s.removeTrigger(context.Background(), p, note) }
+	if done, err := e.s.removeTrigger(context.Background(), p, note); err != nil || !done {
+		t.Fatalf("worker A: %v %v", done, err)
+	}
+	if bDone || bErr != nil || !slices.Equal(f.deleted, []string{"trigger_events"}) {
+		t.Fatalf("worker B shared A's removal: %v %v, deleted %v", bDone, bErr, f.deleted)
+	}
+	// Approved again; B, resuming with its old note, retires it and deletes nothing.
+	f.reuse = map[int]string{3: "trigger_events"}
+	time.Sleep(1100 * time.Millisecond)
+	ask["channels"] = []string{"CDEMO123"}
+	if st, out := e.do("POST", path, ask, e.phone, ""); st != 201 {
+		t.Fatalf("reapproval: %d %v", st, out)
+	}
+	if done, err := e.s.removeTrigger(context.Background(), p, note); err != nil || !done || len(f.deleted) != 1 {
+		t.Fatalf("worker B after the reapproval: %v %v, deleted %v", done, err, f.deleted)
+	}
+	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
+		t.Fatal("the reapproved door does not deliver")
+	}
+}
+
+func TestALapsedRemovalClaimIsTakenOverAndItsHolderSettlesNothing(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate, f.failDeletes = 2, 1
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, "")
+	var note triggerCleanup
+	_ = json.Unmarshal(notes[0].Doc, &note)
+	f.now = f.now.Add(removeLease + time.Second)
+	p := e.s.Connectors["composio"].(connector.EventProvider)
+	// A's claim lapses while it waits on the provider; B takes over and settles.
+	f.onDelete = func() {
+		f.now = f.now.Add(removeLease + time.Second)
+		if done, err := e.s.removeTrigger(context.Background(), p, note); err != nil || !done {
+			t.Errorf("worker B: %v %v", done, err)
+		}
+	}
+	if done, err := e.s.removeTrigger(context.Background(), p, note); err != nil || done {
+		t.Fatalf("worker A settled a claim it had lost: %v %v", done, err)
+	}
+	var record triggerRecord
+	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || record.Removing || record.Active {
+		t.Fatalf("after the takeover: %+v %v", record, err)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
+		t.Fatal("the settled note stayed")
 	}
 }

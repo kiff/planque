@@ -156,7 +156,9 @@ After the approving device has confirmed the connection:
   the provider does not delete at once is noted and deleted by the sweep.
   A subscription already on before the request, and its record, stay as
   they were. A note carries its record's version: it is deleted upstream
-  only after a write conditioned on that version marks it as being removed,
+  only after a write conditioned on that version marks it as being removed
+  with a two-minute lease, exclusive through the provider call (taken over
+  only once lapsed, settled only by a write conditioned on the claim),
   a newer record retires the note, and an approval that reuses an id being
   removed is 409 until the removal is done. The approval is limited to
   64 KB. The adapter independently rechecks account ownership and the
