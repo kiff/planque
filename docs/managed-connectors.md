@@ -18,8 +18,10 @@ operator-configured secret containing `api_key`, with a one-minute cache.
 No request can choose a secret reference. Credential requests follow no
 redirects, and backing-service error bodies are not returned.
 
-With Composio-managed authentication, Composio holds the vendor OAuth
-credentials and handles refresh. The adapter requests upstream revocation
+With provider-managed authentication, the connection service holds the vendor
+credentials: OAuth tokens and their refresh, or a key or bearer token entered
+on its hosted connection page. Neither the taf nor planque receives that key
+or token. The adapter requests upstream revocation
 when disconnecting the exact selected account. A successful deletion
 immediately disables that connection, while upstream revocation remains
 pending; the response keeps the background job id when supplied.
@@ -52,8 +54,9 @@ The account-authenticated catalog endpoints include upstream discovery:
    Configured reviewed entries remain available.
    Only an app the provider project can sign someone in to is listed: one
    with an enabled auth config, read with the scoped key and cached for five
-   minutes. Apps with an API key only, OAuth apps with no managed sign-in, and
-   anything not set up are left out, so nothing offered fails at sign-in. If
+   minutes. This includes API-key and bearer-token configs, whose hosted page
+   collects the owner's credential. An app without an enabled config, or one
+   missing its config ID or authentication scheme, is left out. If
    the auth configs can't be read, the provider's apps aren't listed. One read
    asks for the provider's whole catalog (1000 apps a page, at most three
    pages) and keeps the ones with a sign-in, so they all come in one page. The
@@ -62,10 +65,20 @@ The account-authenticated catalog endpoints include upstream discovery:
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
    taf's name for people). An app without a sign-in set up is 404. It returns
-   a pending grant and no sign-in link. Its text names the app and the taf,
-   and says the sign-in stays with the connection service.
+   a pending grant and no sign-in link (`needs_key: false`). Its text names
+   the app and the taf. For `API_KEY` it says the owner will enter their app
+   key on the connection service's page, the service keeps it and the taf
+   never sees it; `BEARER_TOKEN` says the same about a token. OAuth keeps its
+   sign-in wording. The config ID and scheme are part of the signed request,
+   so later catalog changes cannot rewrite an existing grant's words. If an
+   app has several enabled configs, the adapter selects the lowest ID in
+   lexical order, independently of page ordering, and pins that config.
 3. The owner's device signs `/approve` with that grant's digest. Only then
-   is a scoped hosted sign-in created. The callback independently checks the
+   is a scoped hosted sign-in created: `/tool_router/session` pins the approved
+   config through `auth_configs`, and `/tool_router/session/{id}/link` creates
+   the hosted link for OAuth, keys and bearer tokens alike. A session that
+   reports a different or missing pinned config is refused before `/link`.
+   The callback independently checks the
    server-allocated user, app and exact connection; callback account/status
    parameters establish no authority. The approving device confirms the
    browser's one-use code through the existing `/confirm` route.
@@ -86,6 +99,12 @@ The account-authenticated catalog endpoints include upstream discovery:
    once-only operation record. Permit expiry is checked again immediately
    before the provider execution request, after upstream preflight.
 
+Provider-managed key apps use the same hosted path as OAuth. The catalog's
+existing `how: "oauth"` value selects that path; it does not ask the phone for
+a key. Operator-reviewed direct API-key entries retain `how: "key"` and their
+separate `/key` flow. Grants made before the config binding keep their signed
+fields and existing wording.
+
 Disconnect disables the specific provider connection and reports upstream
 credential revocation as pending. Unfinished sign-ins and unapproved held
 connections are disabled by the existing sweep. Replacing a connected
@@ -97,11 +116,15 @@ adapter and the KIFF test service, including account isolation, profile
 application, exact-call permits, concurrent replay, lost answers and expiry.
 They do not establish live app compatibility. A configured project and
 owner-controlled test account are needed to validate an individual app.
+Key and bearer fixtures prove that the hosted `/link` flow reaches `connected`
+only after an active account is checked and both device approvals complete;
+they do not submit credentials to a live provider.
 
 Protocol references:
 
 - [App catalog](https://docs.composio.dev/reference/api-reference/toolkits/getToolkits)
 - [Session configuration](https://docs.composio.dev/docs/configuring-sessions)
+- [Authentication config IDs and schemes](https://docs.composio.dev/reference/api-reference/auth-configs/getAuthConfigs)
 - [Authentication and token custody](https://docs.composio.dev/docs/authentication)
 - [Versioned tool definitions](https://docs.composio.dev/reference/api-reference/tools/getToolsByToolSlug)
 - [Concrete execution](https://docs.composio.dev/reference/api-reference/tools/postToolsExecuteByToolSlug)

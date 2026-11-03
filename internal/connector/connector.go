@@ -48,6 +48,9 @@ var ErrDefinition = errors.New("the connector tool definition changed; approve i
 type Identity struct {
 	User    string
 	Toolkit string
+	// AuthConfig pins the sign-in setup whose words the owner approved.
+	// Empty for grants made before this binding was recorded.
+	AuthConfig string
 }
 
 type App struct {
@@ -55,6 +58,9 @@ type App struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Icon        string `json:"icon,omitempty"`
+	// Provider metadata for a new grant, not catalog display fields.
+	AuthConfig string `json:"-"`
+	AuthScheme string `json:"-"`
 }
 
 type Page[T any] struct {

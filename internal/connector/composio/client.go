@@ -30,7 +30,7 @@ type Client struct {
 	Now func() time.Time
 
 	mu         sync.Mutex
-	configured map[string]bool // toolkits with an enabled auth config
+	configured map[string]authConfig // enabled sign-in selected for each toolkit
 	readAt     time.Time
 	firstPage  connector.Page[connector.App] // the unsearched first page, for readAt's sign-ins
 	firstAt    time.Time
@@ -40,11 +40,16 @@ type Client struct {
 // they're read again.
 const configuredFor = 5 * time.Minute
 
+type authConfig struct {
+	ID     string
+	Scheme string
+}
+
 // signInSetUp reads which toolkits the project can sign someone in to: those
 // with an enabled auth config. An app without one can't be connected, so it
 // is neither listed nor started. The answer is cached briefly; a failed read
 // offers nothing.
-func (c *Client) signInSetUp(ctx context.Context) (map[string]bool, error) {
+func (c *Client) signInSetUp(ctx context.Context) (map[string]authConfig, error) {
 	now := time.Now()
 	if c.Now != nil {
 		now = c.Now()
@@ -56,7 +61,7 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]bool, error) {
 		return m, nil
 	}
 	c.mu.Unlock()
-	m := map[string]bool{}
+	m := map[string]authConfig{}
 	cursor := ""
 	for range 50 {
 		q := url.Values{"limit": {"100"}}
@@ -65,6 +70,8 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]bool, error) {
 		}
 		var page struct {
 			Items []struct {
+				ID      string `json:"id"`
+				Scheme  string `json:"auth_scheme"`
 				Status  string `json:"status"`
 				Toolkit struct {
 					Slug string `json:"slug"`
@@ -76,8 +83,13 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]bool, error) {
 			return nil, err
 		}
 		for _, a := range page.Items {
-			if strings.EqualFold(a.Status, "ENABLED") && identifier.MatchString(a.Toolkit.Slug) {
-				m[strings.ToLower(a.Toolkit.Slug)] = true
+			if strings.EqualFold(a.Status, "ENABLED") && identifier.MatchString(a.Toolkit.Slug) && identifier.MatchString(a.ID) && identifier.MatchString(a.Scheme) {
+				slug := strings.ToLower(a.Toolkit.Slug)
+				// Stable across upstream page ordering when an app has several
+				// enabled configs. The grant and hosted session pin this one.
+				if old, ok := m[slug]; !ok || a.ID < old.ID {
+					m[slug] = authConfig{ID: a.ID, Scheme: strings.ToUpper(a.Scheme)}
+				}
 			}
 		}
 		if page.Next == "" || page.Next == cursor {
@@ -235,9 +247,11 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 				continue
 			}
 			// Only an app the project can sign someone in to is offered.
-			if !setUp[strings.ToLower(app.Slug)] {
+			config, ok := setUp[strings.ToLower(app.Slug)]
+			if !ok {
 				continue
 			}
+			app.AuthConfig, app.AuthScheme = config.ID, config.Scheme
 			result.Items = append(result.Items, app)
 		}
 		result.Next, cursor = page.Next, page.Next
@@ -260,7 +274,8 @@ func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	if err != nil {
 		return connector.App{}, err
 	}
-	if !setUp[strings.ToLower(id)] {
+	config, ok := setUp[strings.ToLower(id)]
+	if !ok {
 		return connector.App{}, connector.ErrNotSetUp
 	}
 	var a wireApp
@@ -270,11 +285,13 @@ func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	if a.Slug != id {
 		return connector.App{}, connector.ErrDefinition
 	}
-	return a.app()
+	app, err := a.app()
+	app.AuthConfig, app.AuthScheme = config.ID, config.Scheme
+	return app, err
 }
 
 func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, callback string) (connector.Authorization, error) {
-	if !identifier.MatchString(id.User) || !identifier.MatchString(id.Toolkit) || !identifier.MatchString(alias) {
+	if !identifier.MatchString(id.User) || !identifier.MatchString(id.Toolkit) || !identifier.MatchString(alias) || id.AuthConfig != "" && !identifier.MatchString(id.AuthConfig) {
 		return connector.Authorization{}, connector.ErrDefinition
 	}
 	u, err := url.Parse(callback)
@@ -284,18 +301,25 @@ func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, ca
 	var s struct {
 		ID     string `json:"session_id"`
 		Config struct {
-			User string `json:"user_id"`
+			User        string            `json:"user_id"`
+			AuthConfigs map[string]string `json:"auth_configs"`
 		} `json:"config"`
 	}
 	body := map[string]any{"user_id": id.User, "toolkits": map[string]any{"enable": []string{id.Toolkit}},
 		"manage_connections": map[string]any{"enable": true, "enable_wait_for_connections": false, "enable_connection_removal": false},
 		"multi_account":      map[string]any{"enable": true, "require_explicit_selection": true},
 		"execute":            map[string]any{"enable_multi_execute": false}, "workbench": map[string]any{"enable": false, "proxy_execution_enabled": false}}
+	if id.AuthConfig != "" {
+		body["auth_configs"] = map[string]string{id.Toolkit: id.AuthConfig}
+	}
 	if _, err := c.request(ctx, "POST", "/tool_router/session", nil, body, &s); err != nil {
 		return connector.Authorization{}, err
 	}
 	if !identifier.MatchString(s.ID) || s.Config.User != id.User {
 		return connector.Authorization{}, connector.ErrAccount
+	}
+	if id.AuthConfig != "" && s.Config.AuthConfigs[id.Toolkit] != id.AuthConfig {
+		return connector.Authorization{}, connector.ErrDefinition
 	}
 	var link struct {
 		Account string `json:"connected_account_id"`

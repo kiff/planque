@@ -7,6 +7,12 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- Managed API-key and bearer-token apps explain that the owner enters their
+  credential on the connection service's page and that the service keeps it.
+  New grants bind the enabled authentication config and its scheme to the
+  device approval and hosted session. Existing grants and direct key entry
+  keep their previous behavior.
+
 - An enrolment keeps the enrolled connector key while KIFF still takes it for
   the account, and answers `200 {"kept": true}`: a second device setting up no
   longer swaps the key, which left the tools the first key connected unowned

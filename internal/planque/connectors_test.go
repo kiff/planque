@@ -26,6 +26,8 @@ type connectorFixture struct {
 	mu                                      sync.Mutex
 	t                                       *testing.T
 	user, callback, accountStatus           string
+	authScheme, authConfig                  string
+	links                                   int
 	foreign, changed, lost                  bool
 	authorizations, executions, revocations int
 	sent                                    map[string]json.RawMessage
@@ -47,21 +49,31 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			body = `{"items":[{"slug":"desk_demo","name":"Support desk"},{"slug":"unset_demo","name":"Not set up"}],"next_cursor":"next"}`
 		}
 	case path == "/auth_configs":
-		body = `{"items":[{"status":"ENABLED","toolkit":{"slug":"desk_demo"}},{"status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
+		scheme := f.authScheme
+		if scheme == "" {
+			scheme = "OAUTH2"
+		}
+		body = `{"items":[{"id":"ac_desk_demo","auth_scheme":"` + scheme + `","status":"ENABLED","toolkit":{"slug":"desk_demo"}},{"id":"ac_calendar_demo","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"id":"ac_unset_demo","auth_scheme":"API_KEY","status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
 	case path == "/toolkits/desk_demo":
 		body = `{"slug":"desk_demo","name":"Support desk"}`
 	case path == "/tool_router/session":
 		var in struct {
-			User string `json:"user_id"`
+			User        string            `json:"user_id"`
+			AuthConfigs map[string]string `json:"auth_configs"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		f.user = in.User
+		f.authConfig = in.AuthConfigs["desk_demo"]
 		f.authorizations++
-		b, _ := json.Marshal(map[string]any{"session_id": "session_demo", "config": map[string]string{"user_id": f.user}})
+		b, _ := json.Marshal(map[string]any{"session_id": "session_demo", "config": map[string]any{"user_id": f.user, "auth_configs": in.AuthConfigs}})
 		body = string(b)
 	case path == "/tool_router/session/session_demo/link":
+		f.links++
 		var in map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if r.Method != "POST" || in["toolkit"] != "desk_demo" {
+			f.t.Fatal("wrong hosted connection request")
+		}
 		f.callback = in["callback_url"]
 		body = `{"connected_account_id":"account_demo","redirect_url":"https://app.composio.dev/link/demo"}`
 	case path == "/connected_accounts/account_demo" && r.Method == "DELETE":
@@ -138,7 +150,7 @@ func newConnectorFixture(t *testing.T) (*env, *connectorFixture) {
 func requestConnector(t *testing.T, e *env) map[string]any {
 	t.Helper()
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
-	if st != 201 {
+	if st != 201 || out["needs_key"] != false {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	return out["grant"].(map[string]any)
