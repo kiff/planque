@@ -102,7 +102,8 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.KV.Put(r.Context(), store.Item{PK: pendingEventsPK, SK: message.ID, Doc: []byte("{}"), TTL: key.TTL}, store.Cond{}); err != nil {
+	stamp, _ := json.Marshal(pendingStamp{At: s.now().UnixMilli()})
+	if err := s.KV.Put(r.Context(), store.Item{PK: pendingEventsPK, SK: message.ID, Doc: stamp, TTL: key.TTL}, store.Cond{}); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -244,6 +245,17 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 	}
 	return retry, nil
 }
+
+// pendingStamp is when a pending index was written; an index from before it
+// had one reads as old.
+type pendingStamp struct {
+	At int64 `json:"at,omitempty"`
+}
+
+// pendingGrace is how long the sweep leaves a pending index whose delivery
+// is not written yet: far longer than a webhook takes to write both.
+const pendingGrace = 5 * time.Minute
+
 func (s *Server) deliverEvents(ctx context.Context) (int, error) {
 	items, err := s.KV.Query(ctx, pendingEventsPK, "")
 	if err != nil {
@@ -257,7 +269,13 @@ func (s *Server) deliverEvents(ctx context.Context) (int, error) {
 		var d eventDelivery
 		row, err := getDoc(ctx, s.KV, deliveryPK, it.SK, &d)
 		if errors.Is(err, errNotFound) {
-			_, _, _ = s.KV.Delete(ctx, pendingEventsPK, it.SK)
+			// The webhook writes this index before the delivery: a young index
+			// with no delivery yet is one being enqueued, not a stale one.
+			var stamp pendingStamp
+			_ = json.Unmarshal(it.Doc, &stamp)
+			if s.now().Sub(time.UnixMilli(stamp.At)) >= pendingGrace {
+				_, _, _ = s.KV.Delete(ctx, pendingEventsPK, it.SK)
+			}
 			continue
 		}
 		if err != nil {

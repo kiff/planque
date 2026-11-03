@@ -187,13 +187,7 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 	// nothing listens upstream that planque keeps no active record of.
 	var made []triggerRecord
 	undo := func(err error) {
-		for _, record := range made {
-			_ = p.DeleteTrigger(r.Context(), record.ID)
-			if record.Active {
-				record.Active = false
-				_ = putDoc(r.Context(), s.KV, store.Item{PK: triggerPK(record.Provider, record.ID), SK: "-"}, record, store.Cond{})
-			}
-		}
+		s.takeBack(r.Context(), p, made)
 		s.fail(w, r, err)
 	}
 	for _, sub := range subscriptions {
@@ -220,6 +214,75 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": ids[0], "trigger": ids[0], "triggers": ids, "account": ask.Account, "channels": ask.Channels, "definition": definition})
+}
+
+// triggerCleanupPK holds upstream subscriptions a failed approval made and
+// could not delete at once: the sweep deletes them later. Each names only
+// the provider, the subscription and whose approval made it.
+const triggerCleanupPK = "CONNECTOR#TRIGGER_CLEANUP"
+const takeBackTimeout = 20 * time.Second
+
+type triggerCleanup struct {
+	Provider string `json:"provider"`
+	Trigger  string `json:"trigger"`
+	Tenant   string `json:"tenant"`
+	Grant    string `json:"grant"`
+}
+
+// takeBack undoes the subscriptions a failed approval made, even when its
+// request is gone: each record stops routing, each one is noted for the
+// sweep, then deleted upstream, and the note goes only once it is.
+func (s *Server) takeBack(ctx context.Context, p connector.EventProvider, made []triggerRecord) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), takeBackTimeout)
+	defer cancel()
+	for _, record := range made {
+		if record.Active {
+			record.Active = false
+			if err := putDoc(ctx, s.KV, store.Item{PK: triggerPK(record.Provider, record.ID), SK: "-"}, record, store.Cond{}); err != nil {
+				s.log().WarnContext(ctx, "an undone subscription still routes", "trigger", record.ID, "err", err.Error())
+			}
+		}
+		note := store.Item{PK: triggerCleanupPK, SK: record.Provider + "#" + record.ID}
+		if err := putDoc(ctx, s.KV, note, triggerCleanup{Provider: record.Provider, Trigger: record.ID, Tenant: record.Tenant, Grant: record.Grant}, store.Cond{}); err != nil {
+			s.log().WarnContext(ctx, "an undone subscription was not noted for the sweep", "trigger", record.ID, "err", err.Error())
+		}
+		if err := p.DeleteTrigger(ctx, record.ID); err != nil {
+			s.log().WarnContext(ctx, "an undone subscription is left for the sweep", "trigger", record.ID, "err", err.Error())
+			continue
+		}
+		_, _, _ = s.KV.Delete(ctx, note.PK, note.SK)
+	}
+}
+
+// cleanTriggers deletes upstream the subscriptions takeBack could not, and
+// drops each note once its subscription is gone.
+func (s *Server) cleanTriggers(ctx context.Context) (int, error) {
+	items, err := s.KV.Query(ctx, triggerCleanupPK, "")
+	if err != nil {
+		return 0, err
+	}
+	cleaned := 0
+	var errs []error
+	for _, it := range items {
+		var note triggerCleanup
+		if json.Unmarshal(it.Doc, &note) != nil {
+			continue
+		}
+		p, ok := s.Connectors[note.Provider].(connector.EventProvider)
+		if !ok {
+			continue
+		}
+		if err := p.DeleteTrigger(ctx, note.Trigger); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		cleaned++
+	}
+	return cleaned, errors.Join(errs...)
 }
 
 // supportedSlugs are the events a door may subscribe to, for now.

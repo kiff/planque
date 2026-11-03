@@ -18,6 +18,7 @@ import (
 	"github.com/kiff/planque/internal/door"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
+	"github.com/kiff/planque/internal/store"
 )
 
 type eventFixture struct {
@@ -27,6 +28,7 @@ type eventFixture struct {
 	user                                 string
 	creates, hookCreates, deletes, sends int
 	failCreate                           int // the create that fails upstream, from 1
+	failDeletes                          int // upstream deletes that fail before one succeeds
 	configs                              []map[string]any
 	deleted                              []string
 	listCalls                            int
@@ -102,6 +104,10 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 			}
 			return profileResponse(201, `{"trigger_id":"`+id+`"}`), nil
 		case strings.HasPrefix(path, "/api/v3.1/trigger_instances/manage/"):
+			if f.failDeletes > 0 {
+				f.failDeletes--
+				return profileResponse(500, `{"error":"unavailable"}`), nil
+			}
 			f.deletes++
 			id := strings.TrimPrefix(path, "/api/v3.1/trigger_instances/manage/")
 			f.deleted = append(f.deleted, id)
@@ -449,5 +455,50 @@ func TestGrantViewNamesItsEntryAndProvider(t *testing.T) {
 	g.Request.CatalogEntry = "connector:composio:slackbot"
 	if v := e.s.view(g); v.Entry != "connector:composio:slackbot" {
 		t.Fatalf("view entry %q", v.Entry)
+	}
+}
+
+func TestUndoneSubscriptionsTheProviderKeptAreDeletedBySweep(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate, f.failDeletes = 2, 1
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CONE0001", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 || f.deletes != 0 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	notes, err := e.kv.Query(context.Background(), triggerCleanupPK, "")
+	if err != nil || len(notes) != 1 || bytes.Contains(notes[0].Doc, []byte("CONE0001")) {
+		t.Fatalf("the kept subscription was not noted for the sweep, or the note holds more: %v %v", notes, err)
+	}
+	var record triggerRecord
+	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || record.Active {
+		t.Fatal("the kept subscription still routes")
+	}
+	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 1 || !slices.Equal(f.deleted, []string{"trigger_events"}) {
+		t.Fatalf("sweep: %d %v, deleted %v", n, err, f.deleted)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
+		t.Fatal("a deleted subscription's note stayed")
+	}
+}
+
+func TestSweepLeavesAPendingIndexBeingEnqueued(t *testing.T) {
+	e, f, _ := newEventFixture(t)
+	stamp, _ := json.Marshal(pendingStamp{At: f.now.UnixMilli()})
+	if err := e.kv.Put(context.Background(), store.Item{PK: pendingEventsPK, SK: "evt_enqueueing", Doc: stamp}, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.deliverEvents(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := e.kv.Get(context.Background(), pendingEventsPK, "evt_enqueueing"); !ok {
+		t.Fatal("the sweep removed the index of a delivery still being written")
+	}
+	f.now = f.now.Add(pendingGrace)
+	if _, err := e.s.deliverEvents(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := e.kv.Get(context.Background(), pendingEventsPK, "evt_enqueueing"); ok {
+		t.Fatal("a stale index with no delivery stayed")
 	}
 }

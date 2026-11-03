@@ -152,7 +152,8 @@ After the approving device has confirmed the connection:
   `{id, trigger, triggers, account, channels, definition}`, `id` and
   `trigger` naming the first subscription. If any step fails after an
   upstream subscription was made, every subscription of the request is
-  deleted upstream and its record disabled. The approval is limited to
+  deleted upstream and its record disabled, even if the request is gone; one
+  the provider does not delete at once is noted and deleted by the sweep. The approval is limited to
   64 KB. The adapter independently rechecks account ownership and the
   pinned trigger definition before registering an instance. No listener is
   created without device approval.
