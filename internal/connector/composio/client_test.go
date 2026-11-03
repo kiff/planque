@@ -352,3 +352,27 @@ func TestDiscoveryRetainsUnderscoreSlugsAndSkipsOddEntries(t *testing.T) {
 		}
 	}
 }
+
+// A refused or lost call stays ErrUnavailable, and says which call and what
+// the provider answered, for the log: never the body, the key or a query.
+func TestARefusedCallSaysWhichCallAndItsStatus(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(r.URL.Path, "/link") {
+			return response(400, `{"error":{"message":"synthetic refusal detail"}}`), nil
+		}
+		return response(201, `{"session_id":"session_one","config":{"user_id":"owner_one"}}`), nil
+	})
+	_, err := c.Authorize(context.Background(), connector.Identity{User: "owner_one", Toolkit: "gmail"}, "connection_one", "https://planque.example/connected")
+	var call *connector.CallError
+	if !errors.Is(err, connector.ErrUnavailable) || !errors.As(err, &call) || call.Status != 400 || call.Call != "POST /tool_router/session/session_one/link" {
+		t.Fatalf("err = %v", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "composio: POST /tool_router/session/session_one/link: 400") || strings.Contains(msg, "synthetic") {
+		t.Fatalf("message = %q", msg)
+	}
+	lost := testClient(func(*http.Request) (*http.Response, error) { return nil, errors.New("synthetic network failure") })
+	_, err = lost.Authorize(context.Background(), connector.Identity{User: "owner_one", Toolkit: "gmail"}, "connection_one", "https://planque.example/connected")
+	if !errors.Is(err, connector.ErrUnavailable) || !strings.HasSuffix(err.Error(), "POST /tool_router/session: no answer") {
+		t.Fatalf("lost: %v", err)
+	}
+}

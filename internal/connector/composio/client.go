@@ -73,9 +73,10 @@ func (c *Client) requestGuard(ctx context.Context, method, path string, q url.Va
 	if live != nil && !live() {
 		return 0, connector.ErrPermit
 	}
+	call := &connector.CallError{Provider: "composio", Call: method + " " + path}
 	res, err := client.Do(req)
 	if err != nil {
-		return 0, connector.ErrUnavailable
+		return 0, call
 	}
 	defer res.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(res.Body, maxResponse+1))
@@ -83,7 +84,8 @@ func (c *Client) requestGuard(ctx context.Context, method, path string, q url.Va
 		return res.StatusCode, connector.ErrUnavailable
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return res.StatusCode, connector.ErrUnavailable
+		call.Status = res.StatusCode
+		return res.StatusCode, call
 	}
 	encodedKey, _ := json.Marshal(key)
 	b = bytes.ReplaceAll(b, encodedKey[1:len(encodedKey)-1], []byte("[redacted]"))
