@@ -15,6 +15,8 @@
 //	KIFF_GATEWAY       default https://mcp.kiff.dev
 //	KIFF_ISSUER        the permit issuer, default KIFF_API
 //	KIFF_JWKS_URL      default KIFF_ISSUER/.well-known/kiff-permit-keys.json
+//	PLANQUE_DOOR_URL fixed HTTPS receiver for approved incoming door events
+//	PLANQUE_DOOR_SECRET Secrets Manager reference containing {secret}
 //	PLANQUE_COMPOSIO_SECRET optional Secrets Manager reference for {api_key}
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
@@ -38,6 +40,7 @@ import (
 	"github.com/kiff/planque/internal/awsapi"
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/connector/composio"
+	"github.com/kiff/planque/internal/door"
 	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/lambda"
@@ -47,6 +50,7 @@ import (
 	"github.com/kiff/planque/internal/planque"
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
+	"github.com/kiff/planque/internal/secretstore"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -136,7 +140,18 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if reference := strings.TrimSpace(os.Getenv("PLANQUE_COMPOSIO_SECRET")); reference != "" {
 		connectors["composio"] = &composio.Client{HTTP: vendors, Secret: composio.SecretFromStore(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, reference)}
 	}
+	var doorSink door.Sink
+	doorURL, doorSecret := strings.TrimSpace(os.Getenv("PLANQUE_DOOR_URL")), strings.TrimSpace(os.Getenv("PLANQUE_DOOR_SECRET"))
+	if doorURL != "" || doorSecret != "" {
+		u, err := url.Parse(doorURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || doorSecret == "" {
+			return nil, errors.New("PLANQUE_DOOR_URL and PLANQUE_DOOR_SECRET must name the fixed HTTPS receiver and its secret reference")
+		}
+		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
+		doorSink = &door.HTTP{URL: doorURL, Secret: reader, Client: egress.Client(10 * time.Second)}
+	}
 	return &planque.Server{
+		DoorSink:   doorSink,
 		Connectors: connectors,
 		BaseURL:    base,
 		AppReturn:  appReturn,

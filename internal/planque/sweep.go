@@ -165,6 +165,9 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if _, err := s.deliverEvents(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: door events pending", "err", err.Error())
+	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))

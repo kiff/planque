@@ -417,28 +417,29 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	return OpDone, toolResult(string(result.Data), false)
 }
 func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
+	triggerErr := s.stopTriggers(ctx, g)
 	if g.Connector == nil {
-		return nil
+		return triggerErr
 	}
 	if g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
-		return nil
+		return triggerErr
 	}
 	p, err := s.provider(g)
 	if err != nil {
-		return err
+		return errors.Join(triggerErr, err)
 	}
 	if g.Connector.User != s.connectorIdentity(g).User {
-		return connector.ErrAccount
+		return errors.Join(triggerErr, connector.ErrAccount)
 	}
 	receipt, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account)
 	if err != nil {
-		return err
+		return errors.Join(triggerErr, err)
 	}
 	g.Connector.Revocation = &receipt
 	if !receipt.Disabled {
 		return errors.New("the connector did not confirm that access was disabled")
 	}
-	return nil
+	return triggerErr
 }
 func connectorText(q Request) string {
 	text := "Connect " + q.Connector.Toolkit + " through " + q.Connector.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."

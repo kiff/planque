@@ -268,6 +268,7 @@ type Grant struct {
 	// ConfirmHash is the SHA-256 of the code the vendor sign-in handed to
 	// the browser that completed it; the approving phone presents it to
 	// confirm, by ConfirmBy.
+	TriggerIDs  []string  `json:"trigger_ids,omitempty"`
 	ConfirmHash string    `json:"confirm_hash,omitempty"`
 	ConfirmBy   time.Time `json:"confirm_by,omitzero"`
 	Audience    string    `json:"audience"`

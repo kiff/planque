@@ -47,6 +47,8 @@ An optional [managed connection provider](docs/managed-connectors.md) adds
 paginated app discovery and hosted authentication without an app-specific
 adapter for every vendor. The first provider is Composio. The same device
 approval, exact-call permits and once-only relay govern each selected action.
+Slackbot incoming messages use separately approved subscriptions and a signed
+door handoff; receiving a message grants no reply authority.
 
 ## Two ways to run it
 

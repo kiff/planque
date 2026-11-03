@@ -15,7 +15,9 @@
 # signatures, the relay audience and the vendor redirect all use it.
 # PLANQUE_COMPOSIO_SECRET optionally enables managed connections. It names an
 # existing Secrets Manager secret; deployment resolves its exact ARN for the
-# runtime policy and never reads or prints its value.
+# runtime policy and never reads or prints its value. PLANQUE_DOOR_SECRET
+# similarly names the {secret} handoff credential; PLANQUE_DOOR_URL is the
+# fixed HTTPS event receiver. Each configured secret gets its own exact resource.
 #
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
@@ -69,12 +71,14 @@ role() {
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
-    if [[ -n "${PLANQUE_COMPOSIO_SECRET:-}" ]]; then
+    local secret_reference
+    for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}"; do
+      [[ -z "$secret_reference" ]] && continue
       local connector_secret
-      connector_secret=$(aws secretsmanager describe-secret --secret-id "$PLANQUE_COMPOSIO_SECRET" --query ARN)
+      connector_secret=$(aws secretsmanager describe-secret --secret-id "$secret_reference" --query ARN)
       [[ "$connector_secret" == arn:aws:secretsmanager:"$REGION":"$ACCOUNT":secret:* ]] || { echo "the configured connector secret could not be resolved" >&2; return 1; }
       stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"$connector_secret\"}"
-    fi
+    done
   fi
   aws iam put-role-policy --role-name "$ROLE" --policy-name "$ROLE" \
     --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[$stmts]}"
@@ -106,7 +110,7 @@ function_env() {
     python3 -c 'import json,os,sys; print(json.dumps({"Variables": json.loads(os.environ["FAKEKIFF_ENV"]) | {"FAKEKIFF_ISSUER": sys.argv[1]}}))' "$1"
   else
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET"):
     if os.environ.get(k): v[k]=os.environ[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi

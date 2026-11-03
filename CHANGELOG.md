@@ -35,6 +35,12 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- Device-approved Slackbot event subscriptions bind exact accounts, versioned
+  definitions and allowed conversations. Signed project webhooks feed a fixed,
+  signed door receiver, with durable replay suppression, transient delivery
+  retries and cancellation on disconnect. Oversight exports include the
+  approvals; account deletion removes the associated event records.
+
 - An optional Composio connection provider reuses upstream app discovery and
   hosted authentication. Device-approved grants pin each selected account,
   concrete tool version and schema; exact-call permits and once-only operation

@@ -162,7 +162,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		state := ""
 		switch {
-		case g.Status == StatusConnected || g.Status == StatusPending && len(g.Connected) > 0:
+		case len(g.TriggerIDs) > 0 && g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed && g.Status != StatusNeedsReconnect, g.Status == StatusConnected || g.Status == StatusPending && len(g.Connected) > 0:
 			state = "connected"
 		case g.Status == StatusNeedsReconnect:
 			state = "needs_reconnect"

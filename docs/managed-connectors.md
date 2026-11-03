@@ -113,3 +113,68 @@ provider responses are printed. The check creates no sign-in sessions or
 connected accounts and executes no vendor action. Passing it establishes
 live discovery/definition conformance only; owner-confirmed authentication,
 a permitted test action and revocation still need separate evidence.
+
+## Incoming Slack door events
+
+Managed Slackbot connections can deliver channel messages and direct
+messages through Composio triggers. This uses the `slackbot` toolkit and
+its managed OAuth app. A message arriving does not authorize a reply;
+replies use the taf's approved send tool through KIFF.
+
+Configure `PLANQUE_DOOR_URL` as the fixed HTTPS receiver and
+`PLANQUE_DOOR_SECRET` as a Secrets Manager reference containing
+`{"secret":"..."}`. The receiver uses the same literal UTF-8 secret.
+Deployment resolves this secret's exact ARN and grants read access alongside
+the configured project secret. Requests cannot supply another receiver or
+credential reference.
+
+After the approving device has confirmed the connection:
+
+- `GET /v1/accounts/{tenant}/grants/{id}/triggers/types?slug=...` reads the
+  current definition and exact account, authenticated with the account's
+  KIFF key. Supported slugs are `SLACKBOT_CHANNEL_MESSAGE_RECEIVED` and
+  `SLACKBOT_DIRECT_MESSAGE_RECEIVED`.
+- Device-signed `POST /v1/accounts/{tenant}/grants/{id}/triggers` takes
+  `{account, definition, config, channels}`. `definition` is the complete
+  returned object; `config` is its upstream configuration, and `channels`
+  names 1–100 exact allowed Slack conversation IDs. The signature covers
+  all fields. The approval is limited to 64 KB. The adapter independently
+  rechecks account ownership and the pinned trigger definition before
+  registering an instance. No listener is created without device approval.
+- `GET .../triggers` lists this connection's records. Device-signed
+  `DELETE .../triggers/{trigger}` takes `{account}` and disables local
+  delivery before deleting the upstream listener. Disconnecting stops
+  listeners and revokes the connection. Active door subscriptions keep a
+  confirmed sign-in in use, even when no business action has been selected.
+
+The first approved subscription registers this installation's fixed
+`/connectors/composio/webhook` as the project webhook. An existing subscription
+must already use that URL, V3 payloads and trigger-message events; planque
+refuses to replace another destination. The returned signing secret stays
+sealed in the existing KV/KMS store. A project key without subscription or
+trigger write permissions is refused explicitly. Read-only discovery alone
+does not establish those permissions.
+
+Incoming raw bytes are authenticated with `webhook-id`, `webhook-timestamp`
+and `webhook-signature` before routing. Signatures use HMAC-SHA256 over
+`id.timestamp.rawBody`, with a five-minute tolerance. The handler matches the
+stored trigger, connected account, user and allowed channel. Bot messages
+and unrelated events are filtered. Tenant and KIFF agent come from the
+approved connection record.
+
+The receiver gets `{v:"planque.door.v1", id, tenant, agent, grant, provider,
+account, trigger, trigger_slug, channel, sender, text, thread?, timestamp}`.
+`sender` is the Slack user ID; the receiver's sender controls decide whether
+work starts. Headers `Planque-Event-Id`, `Planque-Event-Timestamp` and
+`Planque-Event-Signature` use the same signing format and the shared handoff
+secret. Message IDs are stable for the connected account, channel and Slack
+message timestamp, including across upstream retries.
+
+Delivery is durable and payloads remain sealed while pending. The receiver
+must deduplicate the stable ID and return 202 when taken or already taken.
+Only 5xx or a lost answer is retried, with a lease and the scheduled sweep as
+backup. Other statuses, including 401, 404 and 409, are terminal. Completed
+or cancelled deliveries drop their message content. Disabling a route cancels
+its queued deliveries; deleting the account removes its global event and
+routing records. The oversight export includes the signed trigger approvals,
+without project credentials or signing secrets.

@@ -656,6 +656,9 @@ func statusWords(g *Grant) string {
 		}
 		return "Waiting for your approval"
 	case StatusListed:
+		if len(g.TriggerIDs) > 0 {
+			return "Connected · door events enabled"
+		}
 		return "Signed in · the tools are being chosen"
 	case StatusNeedsReconnect:
 		return "Signed out by " + vendorName(g) + " · sign in again"
@@ -1907,6 +1910,11 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest
 		s.fail(w, r, err)
 		return
 	}
+	triggers, err := s.accountTriggers(r.Context(), sr.tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	w.Header().Set("Content-Disposition", `attachment; filename="planque-oversight-`+s.now().UTC().Format("2006-01-02")+`.json"`)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"format":      "planque.oversight.v1",
@@ -1917,7 +1925,9 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest
 			"over SHA-256(message), by the key of the device approval.device_id names, which KIFF keeps: KIFF checked it " +
 			"when the approval was made, and checks it again on request (POST /v1/devices/verify). An approval made before " +
 			"kiff/planque#12 may instead carry approval.device_key (SPKI DER), the key itself.",
-		"grants": gs,
+		"grants":                gs,
+		"triggers":              triggers,
+		"trigger_how_to_verify": "Trigger approvals cover the exact subscription body, including connected account, definition, configuration and allowed channels. Check SHA-256(approval.body) against approval.message and verify its device signature as above; the signed route names this grant and trigger operation.",
 	})
 }
 

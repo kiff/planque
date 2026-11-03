@@ -24,6 +24,7 @@ import (
 	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/device"
+	"github.com/kiff/planque/internal/door"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
@@ -55,6 +56,7 @@ type Server struct {
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries         map[string]CatalogEntry
 	Connectors             map[string]connector.Provider
+	DoorSink               door.Sink
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger
@@ -123,6 +125,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
 	mux.HandleFunc("GET /connectors/callback", s.connectorCallback)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers/types", s.triggerType)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers", s.listTriggers)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers", s.signed(s.createTrigger))
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signed(s.deleteTrigger))
+	mux.HandleFunc("POST /connectors/{provider}/webhook", s.connectorWebhook)
 	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux

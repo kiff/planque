@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // Deleting the account from the app (kiff/tafs#185, App Store Review
@@ -70,6 +71,26 @@ func (s *Server) eraseAll(ctx context.Context, tenant string, e Enrolment, by st
 		if it.SK == skEnrolment {
 			continue
 		}
+		if strings.HasPrefix(it.SK, "DOOR_EVENT#") {
+			if _, _, err := s.KV.Delete(ctx, pendingEventsPK, strings.TrimPrefix(it.SK, "DOOR_EVENT#")); err != nil {
+				return 0, nil, err
+			}
+			if _, _, err := s.KV.Delete(ctx, deliveryPK, strings.TrimPrefix(it.SK, "DOOR_EVENT#")); err != nil {
+				return 0, nil, err
+			}
+		}
+		if strings.HasPrefix(it.SK, "TRIGGER#") {
+			var binding struct {
+				Provider string `json:"provider"`
+				Trigger  string `json:"trigger"`
+			}
+			if json.Unmarshal(it.Doc, &binding) == nil && binding.Provider != "" && binding.Trigger != "" {
+				if _, _, err := s.KV.Delete(ctx, triggerPK(binding.Provider, binding.Trigger), "-"); err != nil {
+					return 0, nil, err
+				}
+			}
+		}
+
 		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil {
 			return 0, nil, err
 		}

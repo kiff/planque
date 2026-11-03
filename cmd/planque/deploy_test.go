@@ -28,10 +28,11 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
+unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL
 export PLANQUE_APP_RETURN=https://app.example/confirm
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
@@ -39,7 +40,15 @@ aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
- "secretsmanager describe-secret") echo "$connector_arn";;
+ "secretsmanager describe-secret")
+  while [[ $# -gt 0 ]]; do
+   if [[ "$1" == --secret-id ]]; then
+    if [[ "$2" == demo/doors/handoff ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu; else echo "$connector_arn"; fi
+    return
+   fi
+   shift
+  done
+  return 1;;
  "iam put-role-policy")
   while [[ $# -gt 0 ]]; do
    if [[ "$1" == --policy-document ]]; then echo "$2";return;fi
@@ -55,6 +64,8 @@ aws() {
 				script += "unset PLANQUE_COMPOSIO_SECRET\n"
 			case "fake":
 				script += "FAKE=kiff\nexport FAKEKIFF_ENV='{}'\n"
+			case "handoff":
+				script += "export PLANQUE_DOOR_SECRET=demo/doors/handoff\nexport PLANQUE_DOOR_URL=https://receiver.example/v1/doors/planque\n"
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -87,7 +98,7 @@ aws() {
 				for _, action := range stmt.Action {
 					if strings.HasPrefix(action, "secretsmanager:") {
 						granted++
-						if action != "secretsmanager:GetSecretValue" || stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" {
+						if action != "secretsmanager:GetSecretValue" || (stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" && !(scenario == "handoff" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu")) {
 							t.Fatal("secret permission was broader than the exact configured resource")
 						}
 					}
@@ -97,7 +108,11 @@ aws() {
 			if json.Unmarshal([]byte(lines[1]), &env) != nil {
 				t.Fatal("invalid Lambda environment")
 			}
-			if scenario == "enabled" {
+			if scenario == "handoff" {
+				if granted != 2 || env.Variables["PLANQUE_DOOR_SECRET"] != "demo/doors/handoff" || env.Variables["PLANQUE_DOOR_URL"] != "https://receiver.example/v1/doors/planque" {
+					t.Fatal("handoff secret or fixed receiver was not configured")
+				}
+			} else if scenario == "enabled" {
 				if granted != 1 || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "demo/connectors/composio" {
 					t.Fatal("managed connector was not configured")
 				}
