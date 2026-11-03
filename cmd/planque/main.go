@@ -17,6 +17,8 @@
 //	KIFF_JWKS_URL      default KIFF_ISSUER/.well-known/kiff-permit-keys.json
 //	PLANQUE_DOOR_URL fixed HTTPS receiver for approved incoming door events
 //	PLANQUE_DOOR_SECRET Secrets Manager reference containing {secret}
+//	PLANQUE_EVENT_URL fixed HTTPS receiver for approved app events, signed
+//	                   with PLANQUE_DOOR_SECRET; unset, no app event can be approved
 //	PLANQUE_COMPOSIO_SECRET optional Secrets Manager reference for {api_key}
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
@@ -150,8 +152,18 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
 		doorSink = &door.HTTP{URL: doorURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
+	var eventSink door.EventSink
+	if eventURL := strings.TrimSpace(os.Getenv("PLANQUE_EVENT_URL")); eventURL != "" {
+		u, err := url.Parse(eventURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || doorSecret == "" {
+			return nil, errors.New("PLANQUE_EVENT_URL must name the fixed HTTPS receiver, and PLANQUE_DOOR_SECRET the secret it's signed with")
+		}
+		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
+		eventSink = &door.HTTP{URL: eventURL, Secret: reader, Client: egress.Client(10 * time.Second)}
+	}
 	return &planque.Server{
 		DoorSink:   doorSink,
+		EventSink:  eventSink,
 		Connectors: connectors,
 		BaseURL:    base,
 		AppReturn:  appReturn,

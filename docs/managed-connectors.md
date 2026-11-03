@@ -206,3 +206,33 @@ or cancelled deliveries drop their message content. Disabling a route cancels
 its queued deliveries; deleting the account removes its global event and
 routing records. The oversight export includes the signed trigger approvals,
 without project credentials or signing secrets.
+
+## App events for a taf
+
+Any other event a connection's app lists can wake a taf: a new deal, a paid
+invoice, a reaction. Configure `PLANQUE_EVENT_URL` as its fixed HTTPS
+receiver; events are signed with the same `PLANQUE_DOOR_SECRET`. Without it,
+no app event can be approved (503).
+
+- `GET .../triggers/types?slug=...` reads any event the connection's app
+  lists, with its config schema and `door` saying whether it is a Slack door's
+  event instead.
+- Device-signed `POST .../triggers` takes `{account, slug, config}`. `config`
+  is the owner's filters exactly as signed, at most 8 KB: an object whose
+  every field the event's config schema declares, each required field
+  present, each value of its declared type and, where the schema lists
+  values, one of them. Anything else is refused, so a subscription never
+  listens wider than what the owner read. It makes exactly one subscription
+  with that config and answers `{id, subscription, account, event, config,
+  definition}`. A door's events still take `channels`, and an app event never
+  does.
+- Taking back on failure, the cleanup sweep, disabling and disconnecting work
+  as for doors.
+
+The receiver gets `{v:"planque.event.v1", id, tenant, agent, grant, provider,
+account, subscription, event, payload, timestamp}`: `event` is the event's
+slug, `subscription` the approved subscription and `payload` the event's data
+as the app sent it. The ID is stable for the connection, subscription and the
+provider's event, so a redelivery is the same event. An event whose data is
+over 64 KB is dropped and noted on the connection, never cut. Delivery,
+sealing, retries and terminal answers are as for door messages.

@@ -10,12 +10,33 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var ErrPermit = errors.New("the permit expired before the call could be sent")
 
 var ErrUnavailable = errors.New("connector service is unavailable")
+
+// CallError is ErrUnavailable with what the log needs to say which call the
+// provider refused: the call (method and path, no query) and the status it
+// answered, 0 for no answer. It never carries the body, the key or a query.
+type CallError struct {
+	Provider string
+	Call     string
+	Status   int
+}
+
+func (e *CallError) Error() string {
+	status := "no answer"
+	if e.Status != 0 {
+		status = strconv.Itoa(e.Status)
+	}
+	return ErrUnavailable.Error() + ": " + e.Provider + ": " + e.Call + ": " + status
+}
+
+func (e *CallError) Unwrap() error { return ErrUnavailable }
+
 var ErrAccount = errors.New("the selected connection is not active for this account and app")
 var ErrDefinition = errors.New("the connector tool definition changed; approve its current definition")
 

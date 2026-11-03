@@ -54,9 +54,12 @@ type Server struct {
 	REST *rest.Client
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
-	CatalogEntries         map[string]CatalogEntry
-	Connectors             map[string]connector.Provider
-	DoorSink               door.Sink
+	CatalogEntries map[string]CatalogEntry
+	Connectors     map[string]connector.Provider
+	DoorSink       door.Sink
+	// EventSink takes app events for tafs (planque.event.v1); nil, no app
+	// event can be approved.
+	EventSink              door.EventSink
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger

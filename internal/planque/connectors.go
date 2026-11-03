@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,10 +22,13 @@ import (
 // ConnectorRequest is part of the device-signed grant. Once tools are chosen,
 // the exact account and concrete versioned definitions are covered by its digest.
 type ConnectorRequest struct {
-	Provider string           `json:"provider"`
-	Toolkit  string           `json:"toolkit"`
-	Account  string           `json:"account,omitempty"`
-	Tools    []connector.Tool `json:"tools,omitempty"`
+	Provider string `json:"provider"`
+	Toolkit  string `json:"toolkit"`
+	// Title is the app's name for people ("Gmail"), as the provider lists it:
+	// the words the owner reads and signs. Empty on grants made before it.
+	Title   string           `json:"title,omitempty"`
+	Account string           `json:"account,omitempty"`
+	Tools   []connector.Tool `json:"tools,omitempty"`
 }
 
 // ConnectorState is private server state, never an agent-selected identity.
@@ -106,6 +110,9 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	}
 	var ask struct {
 		Agent string `json:"agent"`
+		// AgentName is the taf's name for people ("Refunds"), optional: the
+		// grant's words name the taf by it instead of the agent id.
+		AgentName string `json:"agent_name"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
@@ -113,6 +120,10 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	}
 	if msg := checkTools(ask.Agent, nil); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	if ask.AgentName != "" && label(ask.AgentName) != ask.AgentName {
+		writeErr(w, http.StatusBadRequest, "agent_name is the taf's name, on one line, at most "+strconv.Itoa(MaxLabel)+" characters")
 		return
 	}
 	app, err := p.App(r.Context(), toolkit)
@@ -128,8 +139,8 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	id := "grt_" + oauth.Random(12)
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name),
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
-			Agent: ask.Agent, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
-			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit},
+			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
+			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name)},
 			API: &APIRequest{URL: platform.URL, Base: platform.URL, SourceKind: "connector"}},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if g.Request.AskedBy == "" {
@@ -441,8 +452,20 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 	}
 	return triggerErr
 }
+
+// connectorText is what the owner reads and signs for a managed connection.
+// A grant made with the app's title names the app and the taf in a person's
+// words, and no connection provider; one made before keeps the words it was
+// signed with.
 func connectorText(q Request) string {
 	text := "Connect " + q.Connector.Toolkit + " through " + q.Connector.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
+	if q.Connector.Title != "" {
+		taf := "the taf " + q.Agent
+		if q.AgentName != "" {
+			taf = q.AgentName
+		}
+		text = "Connect " + q.Connector.Title + " for " + taf + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
+	}
 	if len(q.Tools) == 0 {
 		return text + " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
 	}

@@ -78,12 +78,15 @@ type Argument struct {
 
 // Request is exactly what is asked, and what the owner signs.
 type Request struct {
-	Version   string        `json:"v"`
-	Grant     string        `json:"grant"`
-	Tenant    string        `json:"tenant"`
-	Server    string        `json:"server"`
-	SignInAt  string        `json:"sign_in_at"` // the vendor's authorization server
-	Agent     string        `json:"agent"`
+	Version  string `json:"v"`
+	Grant    string `json:"grant"`
+	Tenant   string `json:"tenant"`
+	Server   string `json:"server"`
+	SignInAt string `json:"sign_in_at"` // the vendor's authorization server
+	Agent    string `json:"agent"`
+	// AgentName is the taf's name for people, when the request gave one.
+	// Left out when empty, so a grant without it keeps its digest.
+	AgentName string        `json:"agent_name,omitempty"`
 	Tools     []ToolRequest `json:"tools"`
 	AskedBy   string        `json:"asked_by"` // the KIFF agent or key that asked
 	CreatedAt string        `json:"created_at"`
