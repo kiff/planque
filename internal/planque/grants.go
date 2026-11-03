@@ -321,7 +321,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	if asked == "" {
-		asked = "an account key"
+		asked = askedByAccountKey
 	}
 	tools := *req.Tools
 	originalNames := toolNames(tools)
@@ -725,8 +725,8 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
-		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may read its catalog")
+	if !mayAct(me, g) {
+		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant, or for one an account key asked, its taf or the account's Setup, may read its catalog")
 		return
 	}
 	_, _ = s.expire(r.Context(), g)
@@ -777,9 +777,14 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if me.AgentID == "" || me.AgentID != g.Request.AskedBy {
-		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant may set its tools")
+	if !mayAct(me, g) {
+		writeErr(w, http.StatusForbidden, "only the agent that asked for this grant, or for one an account key asked, its taf or the account's Setup, may set its tools")
 		return
+	}
+	// Setup's own reads, if any, are its own: for a grant an account key
+	// asked, the agent proposing the tools is who reads them.
+	if g.Request.AskedBy == askedByAccountKey {
+		g.Proposer = me.AgentID
 	}
 	_, _ = s.expire(r.Context(), g)
 	if s.overdue(g) {
@@ -1657,7 +1662,11 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 		g.event(s.now(), "Setup's reads weren't set up in KIFF: no approval from a device KIFF knows")
 		return
 	}
-	req := kiff.SetupReads{Agent: g.Request.AskedBy, Grant: g.ID, Tools: tools}
+	reader := g.Request.AskedBy
+	if g.Proposer != "" {
+		reader = g.Proposer
+	}
+	req := kiff.SetupReads{Agent: reader, Grant: g.ID, Tools: tools}
 	req.Approval.DeviceID, req.Approval.Message, req.Approval.Body, req.Approval.Signature = g.Approval.DeviceID, g.Approval.Message, g.Approval.Body, g.Approval.Signature
 	if err := s.KIFF.IssueSetupReads(ctx, key, req); err != nil {
 		s.log().WarnContext(ctx, "setup reads not issued", slog.String("grant", g.ID), slog.String("err", err.Error()))
@@ -1877,7 +1886,7 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 	out := []grant{}
 	for _, it := range items {
 		var g Grant
-		if json.Unmarshal(it.Doc, &g) != nil || (agent != "" && g.Request.Agent != agent) || g.Request.AskedBy != me.AgentID {
+		if json.Unmarshal(it.Doc, &g) != nil || (agent != "" && g.Request.Agent != agent) || !mayAct(me, &g) {
 			continue
 		}
 		g.ver = it.Ver
@@ -2003,4 +2012,26 @@ func (s *Server) setupRead(w http.ResponseWriter, r *http.Request) {
 	// Setup's reads go through KIFF's gateway now, decided on its own read
 	// Card, and the relay sends them only with KIFF's permit (kiff/tafs#138).
 	writeErr(w, http.StatusGone, "Setup reads through KIFF's gateway now: call the tool there, by the name the grant lists")
+}
+
+// askedByAccountKey is who asked a grant made with an account key, not an
+// agent's: tafs cloud's Connect apps, for one.
+const askedByAccountKey = "an account key"
+
+// mayAct says whether me may list a grant, read its catalog and propose its
+// tools: the agent that asked for it, or, for a grant an account key asked,
+// the grant's own taf agent and the account's Setup (Coach), whose key KIFF
+// gives the setup_reader role. Proposing grants nothing: the owner still
+// approves each tool on the phone.
+func mayAct(me kiff.Me, g *Grant) bool {
+	if me.AgentID == "" {
+		return false
+	}
+	if me.AgentID == g.Request.AskedBy {
+		return true
+	}
+	if g.Request.AskedBy != askedByAccountKey {
+		return false
+	}
+	return me.AgentID == g.Request.Agent || slices.Contains(me.Roles, "setup_reader")
 }
