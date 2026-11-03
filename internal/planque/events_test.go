@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/connector/composio"
 	"github.com/kiff/planque/internal/door"
+	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
 )
 
@@ -23,6 +26,11 @@ type eventFixture struct {
 	now                                  time.Time
 	user                                 string
 	creates, hookCreates, deletes, sends int
+	failCreate                           int // the create that fails upstream, from 1
+	configs                              []map[string]any
+	deleted                              []string
+	listCalls                            int
+	listReadOnly                         bool
 	status                               int
 	message                              door.Message
 	definition                           connector.TriggerType
@@ -32,7 +40,7 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 	e := newInProcessEnv(t)
 	e.enrol()
 	ctx := context.Background()
-	f := &eventFixture{e: e, now: time.Now().UTC().Truncate(time.Second), status: 202, definition: connector.TriggerType{Slug: "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", Toolkit: "slackbot", Version: "20300101_00", Name: "Channel message", Config: json.RawMessage(`{"type":"object"}`), Payload: json.RawMessage(`{"type":"object"}`)}}
+	f := &eventFixture{e: e, now: time.Now().UTC().Truncate(time.Second), status: 202, listReadOnly: true, definition: connector.TriggerType{Slug: "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", Toolkit: "slackbot", Version: "20300101_00", Name: "Channel message", Config: json.RawMessage(`{"type":"object"}`), Payload: json.RawMessage(`{"type":"object"}`)}}
 	e.s.Now = func() time.Time { return f.now }
 	g := &Grant{ID: "grt_" + oauth.Random(12), Tenant: tenant, Status: StatusListed, SignedIn: true, Account: "account_events", HeldUntil: f.now.Add(holdTTL), Request: Request{Version: "planque.grant.v1", Tenant: tenant, Server: composio.API, Agent: "agt_taf", AskedBy: "agt_setup", Connector: &ConnectorRequest{Provider: "composio", Toolkit: "slackbot"}, API: &APIRequest{Base: composio.API}}}
 	g.Request.Grant = g.ID
@@ -59,28 +67,66 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 		if r.URL.Host != "backend.composio.dev" || r.Header.Get("x-api-key") != "synthetic-project-key" {
 			t.Fatal("unexpected provider endpoint/credential")
 		}
-		switch r.URL.Path {
-		case "/api/v3.1/connected_accounts/account_events":
+		switch path := r.URL.Path; {
+		case path == "/api/v3.1/connected_accounts/account_events":
 			if r.Method == "DELETE" {
 				return profileResponse(200, `{"success":true,"revoke_job_id":"job_events"}`), nil
 			}
 			raw, _ := json.Marshal(map[string]any{"id": "account_events", "user_id": f.user, "status": "ACTIVE", "toolkit": map[string]string{"slug": "slackbot"}})
 			return profileResponse(200, string(raw)), nil
-		case "/api/v3.1/triggers_types/SLACKBOT_CHANNEL_MESSAGE_RECEIVED":
-			raw, _ := json.Marshal(map[string]any{"slug": f.definition.Slug, "name": f.definition.Name, "version": f.definition.Version, "toolkit": map[string]string{"slug": "slackbot"}, "config": f.definition.Config, "payload": f.definition.Payload})
+		case strings.HasPrefix(path, "/api/v3.1/triggers_types/SLACKBOT_"):
+			d := f.definition
+			d.Slug = strings.TrimPrefix(path, "/api/v3.1/triggers_types/")
+			raw, _ := json.Marshal(map[string]any{"slug": d.Slug, "name": d.Name, "version": d.Version, "toolkit": map[string]string{"slug": "slackbot"}, "config": d.Config, "payload": d.Payload})
 			return profileResponse(200, string(raw)), nil
-		case "/api/v3.1/webhook_subscriptions":
+		case path == "/api/v3.1/webhook_subscriptions":
 			if r.Method == "GET" {
 				return profileResponse(200, `{"items":[]}`), nil
 			}
 			f.hookCreates++
 			return profileResponse(201, `{"id":"hook_events","webhook_url":"https://planque.example/connectors/composio/webhook","version":"V3","enabled_events":["composio.trigger.message"],"secret":"synthetic-webhook-secret"}`), nil
-		case "/api/v3.1/trigger_instances/SLACKBOT_CHANNEL_MESSAGE_RECEIVED/upsert":
+		case strings.HasPrefix(path, "/api/v3.1/trigger_instances/SLACKBOT_") && strings.HasSuffix(path, "/upsert"):
 			f.creates++
-			return profileResponse(201, `{"trigger_id":"trigger_events"}`), nil
-		case "/api/v3.1/trigger_instances/manage/trigger_events":
+			if f.creates == f.failCreate {
+				return profileResponse(400, `{"error":"refused"}`), nil
+			}
+			var body struct {
+				Config map[string]any `json:"trigger_config"`
+			}
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &body)
+			f.configs = append(f.configs, body.Config)
+			id := "trigger_events"
+			if f.creates > 1 {
+				id += "_" + strconv.Itoa(f.creates)
+			}
+			return profileResponse(201, `{"trigger_id":"`+id+`"}`), nil
+		case strings.HasPrefix(path, "/api/v3.1/trigger_instances/manage/"):
 			f.deletes++
-			return profileResponse(200, `{"trigger_id":"trigger_events"}`), nil
+			id := strings.TrimPrefix(path, "/api/v3.1/trigger_instances/manage/")
+			f.deleted = append(f.deleted, id)
+			return profileResponse(200, `{"trigger_id":"`+id+`"}`), nil
+		case path == "/api/v3.1/tools/SLACKBOT_LIST_ALL_CHANNELS":
+			tags := []string{}
+			if f.listReadOnly {
+				tags = append(tags, "readOnlyHint")
+			}
+			raw, _ := json.Marshal(map[string]any{"slug": "SLACKBOT_LIST_ALL_CHANNELS", "name": "List all channels", "description": "Lists channels.", "toolkit": map[string]string{"slug": "slackbot"}, "version": "20261101_00", "input_parameters": map[string]any{"type": "object", "properties": map[string]any{"limit": map[string]string{"type": "integer"}, "types": map[string]string{"type": "string"}, "cursor": map[string]string{"type": "string"}, "exclude_archived": map[string]string{"type": "boolean"}}}, "tags": tags})
+			return profileResponse(200, string(raw)), nil
+		case path == "/api/v3.1/tools/execute/SLACKBOT_LIST_ALL_CHANNELS":
+			f.listCalls++
+			var body struct {
+				Arguments map[string]any `json:"arguments"`
+			}
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &body)
+			if body.Arguments["exclude_archived"] != true || body.Arguments["types"] != "public_channel,private_channel" {
+				t.Errorf("channel list asked for archived or other conversations: %v", body.Arguments)
+			}
+			if body.Arguments["cursor"] == nil {
+				return profileResponse(200, `{"successful":true,"data":{"channels":[{"id":"CSALES01","name":"sales","is_private":false,"topic":{"value":"not for the phone"}},{"id":"not-an-id","name":"bad"}],"response_metadata":{"next_cursor":"page2"}}}`), nil
+			}
+			return profileResponse(200, `{"successful":true,"data":{"channels":[{"id":"GSECRET1","name":"leads","is_private":true}],"response_metadata":{"next_cursor":""}}}`), nil
 		default:
 			t.Fatalf("unexpected provider API: %s", r.URL)
 			return nil, nil
@@ -93,7 +139,7 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 func (f *eventFixture) enable(t *testing.T, g *Grant) {
 	t.Helper()
 	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
-	ask := map[string]any{"account": g.Account, "definition": f.definition, "config": map[string]bool{"is_bot_message": false}, "channels": []string{"CDEMO123"}}
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123"}}
 	if st, _ := f.e.do("POST", path, ask, nil, ""); st != 401 || f.creates != 0 || f.hookCreates != 0 {
 		t.Fatal("trigger/project webhook created without device approval")
 	}
@@ -102,8 +148,11 @@ func (f *eventFixture) enable(t *testing.T, g *Grant) {
 		t.Fatal("a signed request changed the connection account")
 	}
 	ask["account"] = g.Account
-	if st, out := f.e.do("POST", path, ask, f.e.phone, ""); st != 201 {
+	if st, out := f.e.do("POST", path, ask, f.e.phone, ""); st != 201 || out["id"] != "trigger_events" || out["definition"].(map[string]any)["version"] != f.definition.Version {
 		t.Fatalf("enable: %d %v", st, out)
+	}
+	if len(f.configs) != 1 || f.configs[0]["channel_id"] != "CDEMO123" || f.configs[0]["is_bot_message"] != false {
+		t.Fatalf("the upstream config is not the one approved channel: %v", f.configs)
 	}
 	saved, _ := f.e.s.loadGrant(context.Background(), tenant, g.ID)
 	if len(saved.TriggerIDs) != 1 || !saved.HeldUntil.IsZero() {
@@ -239,8 +288,9 @@ func TestDisablingTriggerCancelsPendingDelivery(t *testing.T) {
 		t.Fatal("delivery was not queued")
 	}
 	id := f.message.ID
+	// The body is optional: the phone removes a door with a bare signed DELETE.
 	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers/trigger_events"
-	if st, out := e.do("DELETE", path, map[string]string{"account": g.Account}, e.phone, ""); st != 200 {
+	if st, out := e.do("DELETE", path, nil, e.phone, ""); st != 200 || f.deletes != 1 {
 		t.Fatalf("disable: %d %v", st, out)
 	}
 	f.now = f.now.Add(61 * time.Second)
@@ -273,5 +323,131 @@ func TestEventApprovalsExportWithoutProjectOrHandoffSecrets(t *testing.T) {
 	record := out["triggers"].([]any)[0].(map[string]any)
 	if record["approval"] == nil || record["definition"] == nil || record["account"] != "account_events" {
 		t.Fatal("export omitted the signed event authority")
+	}
+}
+
+func TestDoorSubscriptionsAreOnePerChannelAndNeverWider(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	for _, ask := range []map[string]any{
+		{"account": g.Account, "slug": "SLACKBOT_REACTION_ADDED", "channels": []string{"CDEMO123"}},
+		{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{}},
+		{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"DDIRECT1"}},
+		{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CDEMO123"}},
+		{"account": g.Account, "slug": "SLACKBOT_DIRECT_MESSAGE_RECEIVED", "channels": []string{"CDEMO123"}},
+		{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123"}, "config": map[string]any{}},
+	} {
+		if st, _ := e.do("POST", path, ask, e.phone, ""); st != 400 || f.creates != 0 {
+			t.Fatalf("%v: %d, %d upstream creates", ask, st, f.creates)
+		}
+	}
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CSALES01", "GLEADS01"}}
+	st, out := e.do("POST", path, ask, e.phone, "")
+	if st != 201 || out["id"] != "trigger_events" || len(out["triggers"].([]any)) != 2 {
+		t.Fatalf("two channels: %d %v", st, out)
+	}
+	if len(f.configs) != 2 || f.configs[0]["channel_id"] != "CSALES01" || f.configs[1]["channel_id"] != "GLEADS01" || f.configs[0]["is_bot_message"] != false || f.configs[1]["is_bot_message"] != false {
+		t.Fatalf("each channel needs its own subscription: %v", f.configs)
+	}
+	for i, id := range []string{"trigger_events", "trigger_events_2"} {
+		var record triggerRecord
+		if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", id), "-", &record); err != nil || !record.Active || len(record.Channels) != 1 || record.Channels[0] != ask["channels"].([]string)[i] {
+			t.Fatalf("%s routes %v", id, record.Channels)
+		}
+	}
+	// A DM door: no channel filter upstream, its DM ids route delivery.
+	ask = map[string]any{"account": g.Account, "slug": "SLACKBOT_DIRECT_MESSAGE_RECEIVED", "channels": []string{"DOWNER01", "DOWNER02"}}
+	if st, out := e.do("POST", path, ask, e.phone, ""); st != 201 || len(out["triggers"].([]any)) != 1 {
+		t.Fatalf("direct messages: %d %v", st, out)
+	}
+	if len(f.configs) != 3 || len(f.configs[2]) != 0 {
+		t.Fatalf("a DM subscription takes no channel filter: %v", f.configs[2])
+	}
+	saved, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if len(saved.TriggerIDs) != 3 {
+		t.Fatalf("grant names %v", saved.TriggerIDs)
+	}
+}
+
+func TestDoorSubscriptionFailureTakesBackWhatItMade(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate = 3
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CONE0001", "CTWO0002", "CTHREE03"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused third subscription answered %d", st)
+	}
+	if !slices.Equal(f.deleted, []string{"trigger_events", "trigger_events_2"}) {
+		t.Fatalf("upstream subscriptions left listening: deleted %v", f.deleted)
+	}
+	for _, id := range []string{"trigger_events", "trigger_events_2"} {
+		var record triggerRecord
+		if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", id), "-", &record); err != nil || record.Active {
+			t.Fatalf("%s still routes deliveries", id)
+		}
+	}
+	saved, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if len(saved.TriggerIDs) != 0 || saved.HeldUntil.IsZero() {
+		t.Fatal("a failed approval changed the connection")
+	}
+	// The channel event of a taken-back subscription goes nowhere.
+	if st := f.event(t, func(v map[string]any) { v["data"].(map[string]any)["channel"] = "CONE0001" }, false); st != 202 || f.sends != 0 {
+		t.Fatal("a taken-back subscription forwarded")
+	}
+}
+
+func TestDoorEventReadsAreTheConnectionsOwnAgents(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.enable(t, g)
+	e.kiff.Keys["k_stranger"] = kiff.Me{APIKey: true, TenantID: tenant, AgentID: "agt_stranger"}
+	e.kiff.Keys["k_account"] = kiff.Me{APIKey: true, TenantID: tenant}
+	base := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	for _, path := range []string{base, base + "/types?slug=SLACKBOT_CHANNEL_MESSAGE_RECEIVED"} {
+		for _, key := range []string{"k_stranger", "k_account"} {
+			if st, _ := e.do("GET", path, nil, nil, key); st != 403 {
+				t.Fatalf("%s read %s: %d", key, path, st)
+			}
+		}
+		for _, key := range []string{"k_taf", "k_setup"} {
+			if st, out := e.do("GET", path, nil, nil, key); st != 200 {
+				t.Fatalf("%s read %s: %d %v", key, path, st, out)
+			}
+		}
+	}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/grt_missing/triggers", nil, nil, "k_taf"); st != 404 {
+		t.Fatal("a missing grant was not 404")
+	}
+}
+
+func TestChannelsListThroughTheConnectionsReadOnlyAction(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/channels"
+	if st, _ := e.do("GET", path, nil, nil, "k_taf"); st != 401 || f.listCalls != 0 {
+		t.Fatal("channels listed without the device's signature")
+	}
+	st, out := e.do("GET", path, nil, e.phone, "")
+	if st != 200 || f.listCalls != 2 {
+		t.Fatalf("channels: %d %v (%d pages)", st, out, f.listCalls)
+	}
+	raw, _ := json.Marshal(out["channels"])
+	if string(raw) != `[{"id":"CSALES01","name":"sales","private":false},{"id":"GSECRET1","name":"leads","private":true}]` {
+		t.Fatalf("channels: %s", raw)
+	}
+	f.listReadOnly = false
+	time.Sleep(1100 * time.Millisecond) // a signed request is told apart by its second
+	if st, out := e.do("GET", path, nil, e.phone, ""); st != 503 || f.listCalls != 2 {
+		t.Fatalf("a list action that is no longer read-only was run: %d %v", st, out)
+	}
+}
+
+func TestGrantViewNamesItsEntryAndProvider(t *testing.T) {
+	e, _, g := newEventFixture(t)
+	v := e.s.view(g)
+	if v.Entry != "connector:composio:slackbot" || v.Provider != "composio" {
+		t.Fatalf("view: entry %q provider %q", v.Entry, v.Provider)
+	}
+	g.Request.CatalogEntry = "connector:composio:slackbot"
+	if v := e.s.view(g); v.Entry != "connector:composio:slackbot" {
+		t.Fatalf("view entry %q", v.Entry)
 	}
 }

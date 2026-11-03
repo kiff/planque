@@ -595,6 +595,11 @@ type grantView struct {
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
 	Status string `json:"status"`
+	// Entry is the catalog entry the grant was asked from, and Provider the
+	// connection provider behind it, so an app knows which connection this
+	// is without reading the request.
+	Entry    string `json:"entry,omitempty"`
+	Provider string `json:"provider,omitempty"`
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
@@ -630,7 +635,13 @@ type approvalView struct {
 func (s *Server) view(g *Grant) grantView {
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusWords(g), Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
-		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil}
+		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: g.Request.CatalogEntry}
+	if c := g.Request.Connector; c != nil {
+		v.Provider = c.Provider
+		if v.Entry == "" {
+			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
+		}
+	}
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
 	}

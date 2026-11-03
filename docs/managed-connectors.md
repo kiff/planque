@@ -130,22 +130,41 @@ credential reference.
 
 After the approving device has confirmed the connection:
 
+- Device-signed `GET /v1/accounts/{tenant}/grants/{id}/channels` lists the
+  channels a door may be set on, through the connection's own pinned
+  `SLACKBOT_LIST_ALL_CHANNELS` action (refused unless it is read-only):
+  `{channels: [{id, name, private}]}`, public and private, not archived, at
+  most 200, no content.
 - `GET /v1/accounts/{tenant}/grants/{id}/triggers/types?slug=...` reads the
-  current definition and exact account, authenticated with the account's
-  KIFF key. Supported slugs are `SLACKBOT_CHANNEL_MESSAGE_RECEIVED` and
+  current definition and exact account, authenticated with the KIFF key of
+  the connection's own agent or of the agent that asked for it. Supported
+  slugs are `SLACKBOT_CHANNEL_MESSAGE_RECEIVED` and
   `SLACKBOT_DIRECT_MESSAGE_RECEIVED`.
 - Device-signed `POST /v1/accounts/{tenant}/grants/{id}/triggers` takes
-  `{account, definition, config, channels}`. `definition` is the complete
-  returned object; `config` is its upstream configuration, and `channels`
-  names 1–100 exact allowed Slack conversation IDs. The signature covers
-  all fields. The approval is limited to 64 KB. The adapter independently
-  rechecks account ownership and the pinned trigger definition before
-  registering an instance. No listener is created without device approval.
-- `GET .../triggers` lists this connection's records. Device-signed
-  `DELETE .../triggers/{trigger}` takes `{account}` and disables local
-  delivery before deleting the upstream listener. Disconnecting stops
-  listeners and revokes the connection. Active door subscriptions keep a
-  confirmed sign-in in use, even when no business action has been selected.
+  `{account, slug, channels}`: a supported slug, and 1–100 distinct exact
+  Slack conversation IDs. planque resolves the definition and pins its
+  version, and builds each upstream config itself, so no subscription
+  covers more than the approved channels. A channel-message door makes one
+  subscription per channel, `{channel_id, is_bot_message: false}` (never a
+  null `channel_id`, which would mean every channel). A direct-message door
+  takes DM IDs (`D…`) and makes one subscription with no upstream filter;
+  delivery is routed to its DM IDs only. Any other slug is 400. The answer is
+  `{id, trigger, triggers, account, channels, definition}`, `id` and
+  `trigger` naming the first subscription. If any step fails after an
+  upstream subscription was made, every subscription of the request is
+  deleted upstream and its record disabled. The approval is limited to
+  64 KB. The adapter independently rechecks account ownership and the
+  pinned trigger definition before registering an instance. No listener is
+  created without device approval.
+- `GET .../triggers` lists this connection's records, for the same agents as
+  `.../triggers/types`. Device-signed `DELETE .../triggers/{trigger}` takes an
+  optional `{account}` (the connection's own account when left out) and
+  disables local delivery before deleting the upstream listener.
+  Disconnecting stops listeners and revokes the connection. Active door
+  subscriptions keep a confirmed sign-in in use, even when no business
+  action has been selected.
+- A grant's view names its catalog `entry` (`connector:{provider}:{toolkit}`)
+  and `provider`.
 
 The first approved subscription registers this installation's fixed
 `/connectors/composio/webhook` as the project webhook. An existing subscription
