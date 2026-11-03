@@ -308,7 +308,7 @@ func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, ca
 	body := map[string]any{"user_id": id.User, "toolkits": map[string]any{"enable": []string{id.Toolkit}},
 		"manage_connections": map[string]any{"enable": true, "enable_wait_for_connections": false, "enable_connection_removal": false},
 		"multi_account":      map[string]any{"enable": true, "require_explicit_selection": true},
-		"execute":            map[string]any{"enable_multi_execute": false}, "workbench": map[string]any{"enable": false, "proxy_execution_enabled": false}}
+		"execute":            map[string]any{"enable_multi_execute": false}, "workbench": map[string]any{"enable": false}}
 	if id.AuthConfig != "" {
 		body["auth_configs"] = map[string]string{id.Toolkit: id.AuthConfig}
 	}

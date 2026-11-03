@@ -5,6 +5,11 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- Connecting a managed app works again. The hosted session no longer sends
+  a workbench setting the connection service now refuses.
+
 ### Changed
 
 - Managed API-key and bearer-token apps explain that the owner enters their
