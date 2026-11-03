@@ -32,6 +32,10 @@ type triggerRecord struct {
 	Channels   []string              `json:"channels"`
 	Approval   Approval              `json:"approval"`
 	Active     bool                  `json:"active"`
+	// Removing: a sweep or a failed approval has claimed this subscription to
+	// delete it upstream. It routes nothing, and no approval reuses it until
+	// the deletion is done.
+	Removing bool `json:"removing,omitempty"`
 }
 type webhookRecord struct {
 	ID     string `json:"id"`
@@ -185,17 +189,17 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 	}
 	// Any failure takes back every upstream subscription this request made:
 	// nothing listens upstream that planque keeps no active record of.
-	var made []triggerRecord
+	var made []madeTrigger
 	undo := func(err error) {
 		s.takeBack(r.Context(), p, made)
 		s.fail(w, r, err)
 	}
 	ids := []string{}
 	for _, sub := range subscriptions {
-		record, kept, err := s.subscribe(r.Context(), g, p, definition, sub, sr.approval)
+		record, ver, kept, err := s.subscribe(r.Context(), g, p, definition, sub, sr.approval)
 		// A subscription that was already on before this request stays on.
 		if record.ID != "" && !kept {
-			made = append(made, record)
+			made = append(made, madeTrigger{record, ver})
 		}
 		if err != nil {
 			undo(err)
@@ -219,7 +223,9 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 
 // triggerCleanupPK holds upstream subscriptions a failed approval made and
 // could not delete at once: the sweep deletes them later. Each names only
-// the provider, the subscription and whose approval made it.
+// the provider, the subscription, whose approval made it, and Fence: the
+// version of its record when it was noted (0 for none). A record written
+// after that is a newer approval, which the note never undoes.
 const triggerCleanupPK = "CONNECTOR#TRIGGER_CLEANUP"
 const takeBackTimeout = 20 * time.Second
 
@@ -228,35 +234,95 @@ type triggerCleanup struct {
 	Trigger  string `json:"trigger"`
 	Tenant   string `json:"tenant"`
 	Grant    string `json:"grant"`
+	Fence    int64  `json:"fence"`
+}
+
+// madeTrigger is a subscription a request turned on, and the version of
+// its record that request is answerable for (0 for none).
+type madeTrigger struct {
+	record triggerRecord
+	ver    int64
 }
 
 // takeBack undoes the subscriptions a failed approval made, even when its
-// request is gone: each record stops routing, each one is noted for the
-// sweep, then deleted upstream, and the note goes only once it is.
-func (s *Server) takeBack(ctx context.Context, p connector.EventProvider, made []triggerRecord) {
+// request is gone: each is noted for the sweep, then removed as the sweep
+// would remove it, and the note goes only once it is.
+func (s *Server) takeBack(ctx context.Context, p connector.EventProvider, made []madeTrigger) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), takeBackTimeout)
 	defer cancel()
-	for _, record := range made {
-		if record.Active {
-			record.Active = false
-			if err := putDoc(ctx, s.KV, store.Item{PK: triggerPK(record.Provider, record.ID), SK: "-"}, record, store.Cond{}); err != nil {
-				s.log().WarnContext(ctx, "an undone subscription still routes", "trigger", record.ID, "err", err.Error())
-			}
+	for _, m := range made {
+		note := triggerCleanup{Provider: m.record.Provider, Trigger: m.record.ID, Tenant: m.record.Tenant, Grant: m.record.Grant, Fence: m.ver}
+		if err := putDoc(ctx, s.KV, store.Item{PK: triggerCleanupPK, SK: note.Provider + "#" + note.Trigger}, note, store.Cond{}); err != nil {
+			s.log().WarnContext(ctx, "an undone subscription was not noted for the sweep", "trigger", note.Trigger, "err", err.Error())
 		}
-		note := store.Item{PK: triggerCleanupPK, SK: record.Provider + "#" + record.ID}
-		if err := putDoc(ctx, s.KV, note, triggerCleanup{Provider: record.Provider, Trigger: record.ID, Tenant: record.Tenant, Grant: record.Grant}, store.Cond{}); err != nil {
-			s.log().WarnContext(ctx, "an undone subscription was not noted for the sweep", "trigger", record.ID, "err", err.Error())
+		if _, err := s.removeTrigger(ctx, p, note); err != nil {
+			s.log().WarnContext(ctx, "an undone subscription is left for the sweep", "trigger", note.Trigger, "err", err.Error())
 		}
-		if err := p.DeleteTrigger(ctx, record.ID); err != nil {
-			s.log().WarnContext(ctx, "an undone subscription is left for the sweep", "trigger", record.ID, "err", err.Error())
-			continue
-		}
-		_, _, _ = s.KV.Delete(ctx, note.PK, note.SK)
 	}
 }
 
-// cleanTriggers deletes upstream the subscriptions takeBack could not, and
-// drops each note once its subscription is gone.
+// removeTrigger deletes a noted subscription upstream, once it holds the
+// claim on its record: a write conditioned on the version the note was taken
+// at. A newer record is a newer approval: the note is dropped and nothing is
+// deleted. While the claim is held, the record routes nothing and an
+// approval that reuses the id is refused, so a subscription is never deleted
+// under an approval made meanwhile. done says the note is settled.
+func (s *Server) removeTrigger(ctx context.Context, p connector.EventProvider, note triggerCleanup) (done bool, err error) {
+	key := store.Item{PK: triggerPK(note.Provider, note.Trigger), SK: "-"}
+	noteKey := [2]string{triggerCleanupPK, note.Provider + "#" + note.Trigger}
+	var record triggerRecord
+	it, err := getDoc(ctx, s.KV, key.PK, key.SK, &record)
+	created := false
+	switch {
+	case errors.Is(err, errNotFound):
+		// No record (never written, or erased): claim with one that routes nothing.
+		record = triggerRecord{Tenant: note.Tenant, Grant: note.Grant, Provider: note.Provider, ID: note.Trigger, Removing: true}
+		key.Ver = 1
+		if err := putDoc(ctx, s.KV, key, record, store.Cond{NotExists: true}); err != nil {
+			return false, ignoreCondition(err)
+		}
+		created = true
+	case err != nil:
+		return false, err
+	case record.Removing:
+		key.Ver = it.Ver // claimed already, and not finished: finish it
+	case it.Ver > note.Fence:
+		_, _, err := s.KV.Delete(ctx, noteKey[0], noteKey[1])
+		return err == nil, err
+	default:
+		record.Active, record.Removing = false, true
+		key.Ver = it.Ver + 1
+		if err := putDoc(ctx, s.KV, key, record, store.Cond{Ver: &it.Ver}); err != nil {
+			return false, ignoreCondition(err)
+		}
+	}
+	if err := p.DeleteTrigger(ctx, note.Trigger); err != nil {
+		return false, err
+	}
+	if created {
+		if _, _, err := s.KV.Delete(ctx, key.PK, key.SK); err != nil {
+			return false, err
+		}
+	} else {
+		record.Removing = false
+		key.Ver++
+		if err := putDoc(ctx, s.KV, key, record, store.Cond{}); err != nil {
+			return false, err
+		}
+	}
+	_, _, err = s.KV.Delete(ctx, noteKey[0], noteKey[1])
+	return err == nil, err
+}
+
+// ignoreCondition: a lost race is no error; the next sweep reads again.
+func ignoreCondition(err error) error {
+	if errors.Is(err, store.ErrCondition) {
+		return nil
+	}
+	return err
+}
+
+// cleanTriggers removes the subscriptions takeBack could not.
 func (s *Server) cleanTriggers(ctx context.Context) (int, error) {
 	items, err := s.KV.Query(ctx, triggerCleanupPK, "")
 	if err != nil {
@@ -273,24 +339,13 @@ func (s *Server) cleanTriggers(ctx context.Context) (int, error) {
 		if !ok {
 			continue
 		}
-		// Approved again since: the subscription routes, so it stays upstream.
-		var record triggerRecord
-		if _, err := getDoc(ctx, s.KV, triggerPK(note.Provider, note.Trigger), "-", &record); err == nil && record.Active {
-			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
-			continue
-		} else if err != nil && !errors.Is(err, errNotFound) {
+		done, err := s.removeTrigger(ctx, p, note)
+		if err != nil {
 			errs = append(errs, err)
-			continue
 		}
-		if err := p.DeleteTrigger(ctx, note.Trigger); err != nil {
-			errs = append(errs, err)
-			continue
+		if done {
+			cleaned++
 		}
-		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		cleaned++
 	}
 	return cleaned, errors.Join(errs...)
 }
@@ -352,14 +407,16 @@ func doorSubscriptions(slug string, channels []string) ([]subscription, error) {
 // index after the record: an index never names a record that isn't there. The
 // provider may answer an id planque already has: for this connection it is
 // reused, and kept says it was already on before this request: its record
-// stays as it was, and a failure later in the request leaves it on. Reusing an id drops any sweep note to
-// delete it. The record it returns carries the upstream id whenever planque
-// made one, even with an error, so the caller can take it back; one that
-// belongs to another connection is never returned to be taken back.
-func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvider, definition connector.TriggerType, sub subscription, approval Approval) (record triggerRecord, kept bool, err error) {
+// stays as it was, and a failure later in the request leaves it on. One being
+// removed is refused until it is gone. The record it returns carries the
+// upstream id whenever planque made one, even with an error, and ver the
+// version of its record this request is answerable for, so the caller can
+// take it back; one that belongs to another connection, or is being removed,
+// is never returned to be taken back.
+func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvider, definition connector.TriggerType, sub subscription, approval Approval) (record triggerRecord, ver int64, kept bool, err error) {
 	id, err := p.CreateTrigger(ctx, s.connectorIdentity(g), g.Connector.Account, definition, sub.config)
 	if err != nil {
-		return triggerRecord{}, false, err
+		return triggerRecord{}, 0, false, err
 	}
 	record = triggerRecord{Tenant: g.Tenant, Grant: g.ID, Provider: g.Request.Connector.Provider, Account: g.Connector.Account, User: s.connectorIdentity(g).User, ID: id, Definition: definition, Config: sub.config, Channels: sub.channels, Approval: approval}
 	key := store.Item{PK: triggerPK(record.Provider, id), SK: "-", Ver: 1}
@@ -367,31 +424,37 @@ func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvi
 	old, err := getDoc(ctx, s.KV, key.PK, key.SK, &prior)
 	cond := store.Cond{NotExists: true}
 	if err == nil {
-		if prior.Tenant != g.Tenant || prior.Grant != g.ID || prior.Account != record.Account {
-			return triggerRecord{}, false, apiError{http.StatusConflict, "that upstream event belongs to another approved connection"}
+		if prior.Tenant != g.Tenant || prior.Grant != g.ID || prior.Account != record.Account && !prior.Removing {
+			return triggerRecord{}, 0, false, apiError{http.StatusConflict, "that upstream event belongs to another approved connection"}
+		}
+		if prior.Removing {
+			return triggerRecord{}, 0, false, apiError{http.StatusConflict, "this channel's previous door is still being removed: try again in a few minutes"}
 		}
 		if prior.Active {
 			// Already on: its record, and the approval that turned it on, stay
-			// as they were, whatever happens to the rest of this request.
-			return prior, true, nil
+			// as they were, whatever happens to the rest of this request. The
+			// provider reuses an instance only for the same config; any other
+			// answer is not this channel's door, and the request fails.
+			if !bytes.Equal(prior.Config, sub.config) {
+				return prior, old.Ver, true, apiError{http.StatusBadGateway, "the provider answered another channel's door for this channel"}
+			}
+			return prior, old.Ver, true, nil
 		}
+		ver = old.Ver
 		cond = store.Cond{Ver: &old.Ver}
 		key.Ver = old.Ver + 1
-		if _, _, err := s.KV.Delete(ctx, triggerCleanupPK, record.Provider+"#"+id); err != nil {
-			return record, false, err
-		}
 	} else if !errors.Is(err, errNotFound) {
-		return record, false, err
+		return record, 0, false, err
 	}
 	record.Active = true
 	if err := putDoc(ctx, s.KV, key, record, cond); err != nil {
 		record.Active = false
-		return record, false, err
+		return record, ver, false, err
 	}
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "TRIGGER#" + record.Provider + "#" + record.ID}, map[string]string{"provider": record.Provider, "trigger": record.ID}, store.Cond{}); err != nil {
-		return record, false, err
+		return record, key.Ver, false, err
 	}
-	return record, false, nil
+	return record, key.Ver, false, nil
 }
 
 func (s *Server) listTriggers(w http.ResponseWriter, r *http.Request) {

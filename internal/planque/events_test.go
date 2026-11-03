@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -533,7 +534,7 @@ func TestAFailedApprovalLeavesSubscriptionsThatWereAlreadyOn(t *testing.T) {
 	}
 }
 
-func TestReapprovalRetiresTheSweepsNoteToDelete(t *testing.T) {
+func TestReapprovalWaitsForARemovalAndANewerApprovalRetiresTheNote(t *testing.T) {
 	e, f, g := newEventFixture(t)
 	f.failCreate, f.failDeletes = 2, 1
 	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
@@ -544,26 +545,115 @@ func TestReapprovalRetiresTheSweepsNoteToDelete(t *testing.T) {
 	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 1 {
 		t.Fatal("the kept subscription was not noted")
 	}
-	// Approved again: the provider answers the subscription it kept.
+	// Approved again while its removal is unfinished: refused, nothing deleted or routed.
 	f.reuse = map[int]string{3: "trigger_events"}
 	time.Sleep(1100 * time.Millisecond) // a signed request is told apart by its second
 	ask["channels"] = []string{"CDEMO123"}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st != 409 || len(f.deleted) != 0 {
+		t.Fatalf("a reapproval during a removal answered %d, deleted %v", st, f.deleted)
+	}
+	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 1 || !slices.Equal(f.deleted, []string{"trigger_events"}) {
+		t.Fatalf("sweep: %d %v %v", n, err, f.deleted)
+	}
+	// Once removed, the same id can be approved again and routes.
+	f.reuse = map[int]string{4: "trigger_events"}
+	time.Sleep(1100 * time.Millisecond)
 	if st, out := e.do("POST", path, ask, e.phone, ""); st != 201 || out["id"] != "trigger_events" {
 		t.Fatalf("reapproval: %d %v", st, out)
 	}
-	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
-		t.Fatal("the reapproved subscription is still noted for deletion")
-	}
-	// Even a note that outlived its reapproval never deletes a routing subscription.
-	_ = putDoc(context.Background(), e.kv, store.Item{PK: triggerCleanupPK, SK: "composio#trigger_events"}, triggerCleanup{Provider: "composio", Trigger: "trigger_events", Tenant: tenant, Grant: g.ID}, store.Cond{})
-	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 0 || len(f.deleted) != 0 {
-		t.Fatalf("sweep deleted a reapproved subscription: %d %v %v", n, err, f.deleted)
+	// A note older than that approval never deletes it.
+	_ = putDoc(context.Background(), e.kv, store.Item{PK: triggerCleanupPK, SK: "composio#trigger_events"}, triggerCleanup{Provider: "composio", Trigger: "trigger_events", Tenant: tenant, Grant: g.ID, Fence: 1}, store.Cond{})
+	if _, err := e.s.cleanTriggers(context.Background()); err != nil || len(f.deleted) != 1 {
+		t.Fatalf("sweep deleted a reapproved subscription: %v %v", err, f.deleted)
 	}
 	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
 		t.Fatal("an obsolete note stayed")
 	}
 	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
 		t.Fatal("the reapproved door does not deliver")
+	}
+}
+
+// hookKV runs after once the first time a read or write matches, and can fail one write.
+type hookKV struct {
+	store.KV
+	after   func()
+	onGet   string
+	failPut func(store.Item) bool
+}
+
+func (h *hookKV) Get(ctx context.Context, pk, sk string) (store.Item, bool, error) {
+	it, ok, err := h.KV.Get(ctx, pk, sk)
+	if h.after != nil && pk == h.onGet {
+		after := h.after
+		h.after = nil
+		after()
+	}
+	return it, ok, err
+}
+func (h *hookKV) Put(ctx context.Context, it store.Item, c store.Cond) error {
+	if h.failPut != nil && h.failPut(it) {
+		h.failPut = nil
+		return errors.New("synthetic write failure")
+	}
+	return h.KV.Put(ctx, it, c)
+}
+
+func TestASweepPausedByAReapprovalDeletesNothing(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.failCreate, f.failDeletes = 2, 1
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	if _, err := e.s.cleanTriggers(context.Background()); err != nil || len(f.deleted) != 1 {
+		t.Fatalf("first removal: %v %v", err, f.deleted)
+	}
+	// A stale note for the same id, read by a sweep that pauses while the owner approves it again.
+	_ = putDoc(context.Background(), e.kv, store.Item{PK: triggerCleanupPK, SK: "composio#trigger_events"}, triggerCleanup{Provider: "composio", Trigger: "trigger_events", Tenant: tenant, Grant: g.ID, Fence: 3}, store.Cond{})
+	hook := &hookKV{KV: e.s.KV, onGet: triggerPK("composio", "trigger_events")}
+	e.s.KV = hook
+	f.reuse = map[int]string{3: "trigger_events"}
+	hook.after = func() {
+		time.Sleep(1100 * time.Millisecond)
+		ask["channels"] = []string{"CDEMO123"}
+		if st, out := e.do("POST", path, ask, e.phone, ""); st != 201 {
+			t.Errorf("reapproval during the sweep: %d %v", st, out)
+		}
+	}
+	if _, err := e.s.cleanTriggers(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.deleted) != 1 {
+		t.Fatalf("the paused sweep deleted the reapproved door: %v", f.deleted)
+	}
+	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
+		t.Fatal("the reapproved door does not deliver")
+	}
+}
+
+func TestAFailedUndoWriteKeepsTheNote(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	// The claim that would turn the record off fails, so the undo deletes nothing yet.
+	f.failCreate = 2
+	e.s.KV = &hookKV{KV: e.s.KV, failPut: func(it store.Item) bool {
+		return it.PK == triggerPK("composio", "trigger_events") && bytes.Contains(it.Doc, []byte(`"removing":true`))
+	}}
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"CDEMO123", "CTWO0002"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st < 400 {
+		t.Fatalf("a refused second subscription answered %d", st)
+	}
+	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 1 || len(f.deleted) != 0 {
+		t.Fatal("the note of an unfinished undo was lost")
+	}
+	if n, err := e.s.cleanTriggers(context.Background()); err != nil || n != 1 || !slices.Equal(f.deleted, []string{"trigger_events"}) {
+		t.Fatalf("the sweep did not finish the undo: %d %v %v", n, err, f.deleted)
+	}
+	var record triggerRecord
+	if _, err := getDoc(context.Background(), e.kv, triggerPK("composio", "trigger_events"), "-", &record); err != nil || record.Active || record.Removing {
+		t.Fatalf("after the sweep: %+v", record)
 	}
 }
 
@@ -578,5 +668,25 @@ func TestARootSlackMessageCarriesItsOwnTS(t *testing.T) {
 	_ = json.Unmarshal(raw, &handoff)
 	if handoff["ts"] != "1800000000.001" || handoff["thread"] != nil {
 		t.Fatalf("a root message's handoff cannot be replied under: %s", raw)
+	}
+}
+
+func TestAnIDReusedForAnotherChannelChangesNothing(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.enable(t, g) // CDEMO123 is on as trigger_events
+	before, _, _ := e.kv.Get(context.Background(), triggerPK("composio", "trigger_events"), "-")
+	f.reuse = map[int]string{2: "trigger_events"}
+	time.Sleep(1100 * time.Millisecond)
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "channels": []string{"COTHER01"}}
+	if st, _ := e.do("POST", path, ask, e.phone, ""); st != 502 || len(f.deleted) != 0 {
+		t.Fatalf("another channel's id answered %d, deleted %v", st, f.deleted)
+	}
+	after, _, _ := e.kv.Get(context.Background(), triggerPK("composio", "trigger_events"), "-")
+	if !bytes.Equal(before.Doc, after.Doc) || before.Ver != after.Ver {
+		t.Fatal("the record of the door that was on changed")
+	}
+	if st := f.event(t, nil, false); st != 202 || f.sends != 1 {
+		t.Fatal("the door that was on stopped delivering")
 	}
 }
