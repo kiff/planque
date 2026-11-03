@@ -215,7 +215,10 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		return
 	}
 	id := s.connectorIdentity(g)
-	auth, err := p.Authorize(r.Context(), id, g.ID, s.BaseURL+"/connectors/callback?state="+url.QueryEscape(state))
+	// Each attempt names its connection afresh: the provider keeps a name
+	// once a link is made, so an attempt that failed after that point must
+	// not block the next one.
+	auth, err := p.Authorize(r.Context(), id, g.ID+"_"+oauth.Random(6), s.BaseURL+"/connectors/callback?state="+url.QueryEscape(state))
 	if err != nil {
 		_, _, _ = s.KV.Delete(r.Context(), pkSignIn(state), "-")
 		s.fail(w, r, err)

@@ -290,6 +290,10 @@ func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	return app, err
 }
 
+// linkHosts serve the provider's hosted sign-in page; it moved from app. to
+// connect. and both are accepted.
+var linkHosts = map[string]bool{"app.composio.dev": true, "connect.composio.dev": true}
+
 func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, callback string) (connector.Authorization, error) {
 	if !identifier.MatchString(id.User) || !identifier.MatchString(id.Toolkit) || !identifier.MatchString(alias) || id.AuthConfig != "" && !identifier.MatchString(id.AuthConfig) {
 		return connector.Authorization{}, connector.ErrDefinition
@@ -329,7 +333,7 @@ func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, ca
 		return connector.Authorization{}, err
 	}
 	target, err := url.Parse(link.URL)
-	if err != nil || target.Scheme != "https" || target.User != nil || target.Host != "app.composio.dev" || !strings.HasPrefix(target.Path, "/link/") || !identifier.MatchString(link.Account) {
+	if err != nil || target.Scheme != "https" || target.User != nil || !linkHosts[target.Host] || !strings.HasPrefix(target.Path, "/link/") || !identifier.MatchString(link.Account) {
 		return connector.Authorization{}, connector.ErrDefinition
 	}
 	return connector.Authorization{Session: s.ID, Account: link.Account, URL: link.URL}, nil

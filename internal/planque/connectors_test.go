@@ -28,9 +28,10 @@ type connectorFixture struct {
 	user, callback, accountStatus           string
 	authScheme, authConfig                  string
 	links                                   int
-	foreign, changed, lost                  bool
+	foreign, changed, lost, strayLink       bool
 	authorizations, executions, revocations int
 	sent                                    map[string]json.RawMessage
+	aliases                                 map[string]bool // names already used, refused again as upstream does
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -75,7 +76,17 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			f.t.Fatal("wrong hosted connection request")
 		}
 		f.callback = in["callback_url"]
-		body = `{"connected_account_id":"account_demo","redirect_url":"https://app.composio.dev/link/demo"}`
+		if f.aliases == nil {
+			f.aliases = map[string]bool{}
+		}
+		if in["alias"] == "" || f.aliases[in["alias"]] {
+			return profileResponse(400, `{"error":{"message":"alias already in use"}}`), nil
+		}
+		f.aliases[in["alias"]] = true
+		body = `{"connected_account_id":"account_demo","redirect_url":"https://connect.composio.dev/link/demo"}`
+		if f.strayLink {
+			body = `{"connected_account_id":"account_demo","redirect_url":"https://elsewhere.example/link/demo"}`
+		}
 	case path == "/connected_accounts/account_demo" && r.Method == "DELETE":
 		if r.URL.Query().Get("revoke_on_delete") != "true" {
 			f.t.Error("no upstream revocation requested")
@@ -347,6 +358,26 @@ func TestConnectorConcurrentReplayAndAbandonedSignIn(t *testing.T) {
 			t.Fatal("abandoned connection was not disabled with accurate revocation status")
 		}
 	})
+}
+
+// An approval that failed after the provider made its link can be approved
+// again: each attempt names its connection afresh, since the provider keeps
+// a name it has seen. A link to anywhere but its sign-in page is refused.
+func TestConnectorApprovalRetriesAfterALinkWasMade(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	v := requestConnector(t, e)
+	path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string) + "/approve"
+	f.strayLink = true
+	if st, _ := e.do("POST", path, map[string]any{"digest": v["digest"]}, e.phone, ""); st == 200 {
+		t.Fatal("a link off the provider's sign-in page was accepted")
+	}
+	f.strayLink = false
+	// The phone signs the retry anew; its signature carries the second.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	st, out := e.do("POST", path, map[string]any{"digest": v["digest"]}, e.phone, "")
+	if st != 200 || out["sign_in_url"] != "https://connect.composio.dev/link/demo" || f.links != 2 || len(f.aliases) != 2 {
+		t.Fatalf("retry: %d %v, %d links", st, out, f.links)
+	}
 }
 
 // A managed connection's words name the app by its title and the taf by its

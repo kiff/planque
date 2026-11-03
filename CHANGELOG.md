@@ -7,6 +7,9 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- The connection service's sign-in page moved to a new host; planque accepts
+  it. Each sign-in attempt names its connection afresh, so an approval that
+  failed after the service made its link can be approved again.
 - Connecting a managed app works again. The hosted session no longer sends
   a workbench setting the connection service now refuses.
 
