@@ -94,8 +94,8 @@ func (c *Client) Tools(ctx context.Context, toolkit, cursor string) (connector.P
 		q.Set("cursor", cursor)
 	}
 	var page struct {
-		Items []wireTool `json:"items"`
-		Next  string     `json:"next_cursor"`
+		Items []json.RawMessage `json:"items"`
+		Next  string            `json:"next_cursor"`
 	}
 	if _, err := c.request(ctx, "GET", "/tools", q, nil, &page); err != nil {
 		return connector.Page[connector.Tool]{}, err
@@ -104,10 +104,16 @@ func (c *Client) Tools(ctx context.Context, toolkit, cursor string) (connector.P
 	if len(page.Items) > 100 || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
 		return result, connector.ErrDefinition
 	}
-	for _, wire := range page.Items {
+	for _, raw := range page.Items {
+		var wire wireTool
+		if json.Unmarshal(raw, &wire) != nil {
+			result.Skipped++
+			continue
+		}
 		t, err := wire.tool()
 		if err != nil || t.Toolkit != toolkit {
-			return result, connector.ErrDefinition
+			result.Skipped++
+			continue
 		}
 		result.Items = append(result.Items, t)
 	}

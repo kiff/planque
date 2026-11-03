@@ -302,3 +302,53 @@ func TestPermitExpiryDuringPreflightNeverExecutes(t *testing.T) {
 		t.Fatalf("expired during secret resolution: err=%v sends=%d", err, sends)
 	}
 }
+
+func TestDiscoveryRetainsUnderscoreSlugsAndSkipsOddEntries(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/toolkits":
+			return response(200, `{"items":[{"slug":"_1password","name":"1Password"},{"slug":"_21risk","name":"21Risk"},{"slug":"_2chat","name":"2Chat"},{"slug":"../bad","name":"Bad"},{"slug":42,"name":"Wrong type"},{"slug":"empty_name","name":""},{"slug":"desk","name":"Desk"}],"next_cursor":"next_page"}`), nil
+		case "/api/v3.1/toolkits/_1password":
+			return response(200, `{"slug":"_1password","name":"1Password"}`), nil
+		case "/api/v3.1/tools":
+			if r.URL.Query().Get("toolkit_slug") != "_1password" {
+				t.Fatal("underscore toolkit query changed")
+			}
+			valid := strings.ReplaceAll(strings.ReplaceAll(toolJSON, "DESK_REPLY", "_1PASSWORD_GET_ITEM"), `"desk"`, `"_1password"`)
+			wrong := strings.ReplaceAll(valid, `"_1password"`, `"another_app"`)
+			meta := strings.ReplaceAll(valid, "_1PASSWORD_GET_ITEM", "COMPOSIO_EXECUTE_TOOL")
+			return response(200, `{"items":[null,{"slug":42},`+wrong+`,`+meta+`,`+valid+`],"next_cursor":"tool_page"}`), nil
+		case "/api/v3.1/tools/_1PASSWORD_GET_ITEM":
+			return response(200, strings.ReplaceAll(strings.ReplaceAll(toolJSON, "DESK_REPLY", "_1PASSWORD_GET_ITEM"), `"desk"`, `"_1password"`)), nil
+		default:
+			t.Fatalf("unexpected request: %s", r.URL)
+			return nil, nil
+		}
+	})
+	page, err := c.Catalog(context.Background(), "", "")
+	if err != nil || len(page.Items) != 4 || page.Skipped != 3 || page.Next != "next_page" {
+		t.Fatalf("discovery page: %+v %v", page, err)
+	}
+	for i, slug := range []string{"_1password", "_21risk", "_2chat", "desk"} {
+		if page.Items[i].Slug != slug {
+			t.Fatal("valid app was discarded")
+		}
+	}
+	app, err := c.App(context.Background(), "_1password")
+	if err != nil || app.Slug != "_1password" {
+		t.Fatal("direct underscore app lookup failed")
+	}
+	tools, err := c.Tools(context.Background(), app.Slug, "")
+	if err != nil || len(tools.Items) != 1 || tools.Skipped != 4 || tools.Next != "tool_page" || tools.Items[0].Validate() != nil {
+		t.Fatalf("tool page: %+v %v", tools, err)
+	}
+	tool, err := c.Tool(context.Background(), tools.Items[0].Slug, tools.Items[0].Version)
+	if err != nil || tool.Toolkit != "_1password" || tool.Slug != "_1PASSWORD_GET_ITEM" {
+		t.Fatal("direct underscore tool lookup failed")
+	}
+	for _, bad := range []string{"../escape", "%2Fescape", "with space", "", strings.Repeat("_", 257)} {
+		if _, err := c.App(context.Background(), bad); err == nil {
+			t.Fatal("unsafe app identifier accepted")
+		}
+	}
+}

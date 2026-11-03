@@ -54,12 +54,14 @@ func TestLiveComposioDiscovery(t *testing.T) {
 	cursors := map[string]bool{}
 	cursor := ""
 	pages := 0
+	skippedApps := 0
 	for {
 		page, err := provider.Catalog(ctx, "", cursor)
 		if err != nil {
 			t.Fatal("live catalog discovery failed; no credentials or response bodies are logged")
 		}
 		pages++
+		skippedApps += page.Skipped
 		for _, app := range page.Items {
 			apps[app.Slug] = true
 		}
@@ -91,12 +93,14 @@ func TestLiveComposioDiscovery(t *testing.T) {
 	tools := map[string]bool{}
 	var sample *connector.Tool
 	toolPages := 0
+	skippedTools := 0
 	for {
 		page, err := provider.Tools(ctx, toolkit, cursor)
 		if err != nil {
 			t.Fatal("live tool discovery failed conformance")
 		}
 		toolPages++
+		skippedTools += page.Skipped
 		for _, tool := range page.Items {
 			if tool.Validate() != nil || tool.Toolkit != toolkit {
 				t.Fatal("live tool definition was not concrete and versioned")
@@ -128,5 +132,5 @@ func TestLiveComposioDiscovery(t *testing.T) {
 	if e1 != nil || e2 != nil || expected != actual {
 		t.Fatal("live pinned input schema differed from discovery")
 	}
-	t.Logf("Read-only conformance: %d apps in %d pages; %d concrete tools in %d pages; pinned schema matched. No authentication session or vendor action was created.", len(apps), pages, len(tools), toolPages)
+	t.Logf("Read-only conformance: %d apps in %d pages (%d skipped); %d concrete tools in %d pages (%d skipped); pinned schema matched. No authentication session or vendor action was created.", len(apps), pages, skippedApps, len(tools), toolPages, skippedTools)
 }

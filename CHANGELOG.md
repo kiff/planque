@@ -22,6 +22,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- Managed discovery accepts app and tool slugs beginning with an underscore.
+  Unsupported catalog entries are counted and skipped without losing valid
+  entries or the next-page cursor; direct lookup and execution stay strict.
+
 - A read of planque's store is sent again when the connection drops before an
   answer, so one dropped connection no longer fails the owner's request. Writes
   are never sent again.

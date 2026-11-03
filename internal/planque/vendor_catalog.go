@@ -203,6 +203,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	next := ""
+	skipped := 0
 	if providerID != "" {
 		provider := s.Connectors[providerID]
 		if provider == nil {
@@ -215,6 +216,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		next = page.Next
+		skipped = page.Skipped
 		for _, app := range page.Items {
 			id := "connector:" + providerID + ":" + app.Slug
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
@@ -225,7 +227,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped})
 }
 
 func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {

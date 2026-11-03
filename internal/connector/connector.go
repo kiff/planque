@@ -33,8 +33,9 @@ type App struct {
 }
 
 type Page[T any] struct {
-	Items []T    `json:"items"`
-	Next  string `json:"next_cursor,omitempty"`
+	Items   []T    `json:"items"`
+	Next    string `json:"next_cursor,omitempty"`
+	Skipped int    `json:"skipped,omitempty"`
 }
 
 // Tool is one concrete, versioned upstream action. Platform meta-executors
@@ -50,7 +51,7 @@ type Tool struct {
 	Scopes      []string        `json:"scopes,omitempty"`
 }
 
-var slug = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,255}$`)
+var slug = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$`)
 var version = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
 func (t Tool) Validate() error {

@@ -47,7 +47,9 @@ The account-authenticated catalog endpoints include upstream discovery:
 
 1. `GET /v1/accounts/{tenant}/catalog?provider=composio&q=...` returns
    `entries`, `provider` and `next_cursor`. Pass the same search/provider and
-   `cursor=...` for the next page. Configured reviewed entries remain available.
+   `cursor=...` for the next page. `skipped` counts entries that fail adapter
+   validation; they do not discard valid entries or the next-page cursor.
+   Configured reviewed entries remain available.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts only `{"agent":"..."}`. It returns a pending grant and no sign-in
    link. Its text explains that the provider holds the vendor credentials.

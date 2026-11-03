@@ -30,7 +30,7 @@ func (c *Client) Platform() connector.Platform { return connector.Platform{Name:
 
 var _ connector.Provider = (*Client)(nil)
 
-var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$`)
+var identifier = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$`)
 
 func (c *Client) request(ctx context.Context, method, path string, q url.Values, body, out any) (int, error) {
 	return c.requestGuard(ctx, method, path, q, body, out, nil)
@@ -125,8 +125,8 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 		q.Set("cursor", cursor)
 	}
 	var page struct {
-		Items []wireApp `json:"items"`
-		Next  string    `json:"next_cursor"`
+		Items []json.RawMessage `json:"items"`
+		Next  string            `json:"next_cursor"`
 	}
 	if _, err := c.request(ctx, "GET", "/toolkits", q, nil, &page); err != nil {
 		return connector.Page[connector.App]{}, err
@@ -135,10 +135,16 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 	if len(page.Items) > 100 || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
 		return result, connector.ErrDefinition
 	}
-	for _, a := range page.Items {
+	for _, raw := range page.Items {
+		var a wireApp
+		if json.Unmarshal(raw, &a) != nil {
+			result.Skipped++
+			continue
+		}
 		app, err := a.app()
 		if err != nil {
-			return result, err
+			result.Skipped++
+			continue
 		}
 		result.Items = append(result.Items, app)
 	}
