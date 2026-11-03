@@ -331,3 +331,27 @@ func TestConnectorConcurrentReplayAndAbandonedSignIn(t *testing.T) {
 		}
 	})
 }
+
+// A managed connection's words name the app by its title and the taf by its
+// name, and no connection provider: what the owner reads and signs. Without a
+// name, the taf is named by its agent; a name that isn't one line is refused.
+func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	path := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
+	st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	g := out["grant"].(map[string]any)
+	text, vendor := g["text"].(string), g["vendor"].(string)
+	if vendor == "" || !strings.HasPrefix(text, "Connect "+vendor+" for Refunds. ") || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "desk_demo") {
+		t.Fatalf("words: %q (vendor %q)", text, vendor)
+	}
+	st, out = e.do("POST", path, map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+	if st != 201 || !strings.Contains(out["grant"].(map[string]any)["text"].(string), " for the taf agt_taf. ") {
+		t.Fatalf("without a name: %d %v", st, out)
+	}
+	if st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds\nand more"}, nil, "k_setup"); st != 400 {
+		t.Fatalf("a name on two lines: %d %v", st, out)
+	}
+}
