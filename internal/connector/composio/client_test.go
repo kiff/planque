@@ -437,3 +437,42 @@ func TestOnlyAppsWithAnEnabledSignInAreOffered(t *testing.T) {
 		t.Fatalf("a failed read still offered apps: %v", err)
 	}
 }
+
+// Connect apps opens on one upstream read of the whole catalog, kept with the
+// sign-ins it was filtered by: a second open reads nothing; a search, or new
+// sign-ins after the cache, read again.
+func TestTheFirstPageIsOneReadAndKept(t *testing.T) {
+	toolkits, configs := 0, 0
+	now := time.Unix(1800000000, 0)
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			configs++
+			return response(200, `{"items":[{"status":"ENABLED","toolkit":{"slug":"gmail"}}]}`), nil
+		case "/api/v3.1/toolkits":
+			toolkits++
+			if r.URL.Query().Get("limit") != "1000" {
+				t.Errorf("limit = %s", r.URL.Query().Get("limit"))
+			}
+			return response(200, `{"items":[{"slug":"gmail","name":"Gmail"},{"slug":"hubspot","name":"HubSpot"}]}`), nil
+		}
+		t.Fatalf("unexpected request: %s", r.URL)
+		return nil, nil
+	})
+	c.Now = func() time.Time { return now }
+	for range 2 {
+		if page, err := c.Catalog(context.Background(), "", ""); err != nil || len(page.Items) != 1 || page.Items[0].Slug != "gmail" {
+			t.Fatalf("first page: %+v %v", page, err)
+		}
+	}
+	if toolkits != 1 || configs != 1 {
+		t.Fatalf("two opens read the catalog %d and the sign-ins %d times", toolkits, configs)
+	}
+	if _, err := c.Catalog(context.Background(), "gm", ""); err != nil || toolkits != 2 {
+		t.Fatalf("a search wasn't read: %v (%d)", err, toolkits)
+	}
+	now = now.Add(configuredFor + time.Second)
+	if _, err := c.Catalog(context.Background(), "", ""); err != nil || toolkits != 3 || configs != 2 {
+		t.Fatalf("after the sign-ins expired: %v (%d, %d)", err, toolkits, configs)
+	}
+}
