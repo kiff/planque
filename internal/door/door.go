@@ -36,6 +36,28 @@ type Message struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// AppEvent is any connected app's event, for a taf that wakes on it
+// (planque.event.v1): the subscription the owner approved, and the event's
+// data as the provider sent it. Receiving one never grants an action.
+type AppEvent struct {
+	V            string          `json:"v"`
+	ID           string          `json:"id"`
+	Tenant       string          `json:"tenant"`
+	Agent        string          `json:"agent"`
+	Grant        string          `json:"grant"`
+	Provider     string          `json:"provider"`
+	Account      string          `json:"account"`
+	Subscription string          `json:"subscription"`
+	Event        string          `json:"event"`
+	Payload      json.RawMessage `json:"payload"`
+	Timestamp    string          `json:"timestamp"`
+}
+
+// EventSink takes app events, as Sink takes door messages.
+type EventSink interface {
+	DeliverEvent(context.Context, AppEvent) (Result, error)
+}
+
 type Result struct {
 	Taken  bool
 	Retry  bool
@@ -54,16 +76,39 @@ type HTTP struct {
 var ErrUnavailable = errors.New("the door receiver is unavailable")
 
 func (c *HTTP) Deliver(ctx context.Context, m Message) (Result, error) {
+	if m.V != "planque.door.v1" || m.ID == "" {
+		return Result{}, ErrUnavailable
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return Result{}, ErrUnavailable
+	}
+	return c.post(ctx, m.ID, raw)
+}
+
+// DeliverEvent sends an app event as Deliver sends a door message: signed
+// with the same secret, retried on the same answers.
+func (c *HTTP) DeliverEvent(ctx context.Context, e AppEvent) (Result, error) {
+	if e.V != "planque.event.v1" || e.ID == "" || !json.Valid(e.Payload) {
+		return Result{}, ErrUnavailable
+	}
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return Result{}, ErrUnavailable
+	}
+	return c.post(ctx, e.ID, raw)
+}
+
+func (c *HTTP) post(ctx context.Context, id string, raw []byte) (Result, error) {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || c.Secret == nil {
 		return Result{}, ErrUnavailable
 	}
-	secret, err := c.Secret(ctx)
-	if err != nil || secret == "" {
+	if len(raw) > 256<<10 {
 		return Result{}, ErrUnavailable
 	}
-	raw, err := json.Marshal(m)
-	if err != nil || len(raw) > 256<<10 || m.V != "planque.door.v1" || m.ID == "" {
+	secret, err := c.Secret(ctx)
+	if err != nil || secret == "" {
 		return Result{}, ErrUnavailable
 	}
 	req, err := http.NewRequestWithContext(ctx, "POST", c.URL, bytes.NewReader(raw))
@@ -76,9 +121,9 @@ func (c *HTTP) Deliver(ctx context.Context, m Message) (Result, error) {
 	}
 	ts := strconv.FormatInt(now.Unix(), 10)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Planque-Event-Id", m.ID)
+	req.Header.Set("Planque-Event-Id", id)
 	req.Header.Set("Planque-Event-Timestamp", ts)
-	req.Header.Set("Planque-Event-Signature", connector.SignWebhook(secret, m.ID, ts, raw))
+	req.Header.Set("Planque-Event-Signature", connector.SignWebhook(secret, id, ts, raw))
 	hc := c.Client
 	if hc == nil {
 		hc = &http.Client{Timeout: 10 * time.Second}
@@ -91,7 +136,7 @@ func (c *HTTP) Deliver(ctx context.Context, m Message) (Result, error) {
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-	// The receiver deduplicates m.ID. Only 5xx/no-answer deliveries may be
+	// The receiver deduplicates the id. Only 5xx/no-answer deliveries may be
 	// retried; authorization failures, closed doors and redirects are terminal.
 	return Result{Taken: response.StatusCode == http.StatusAccepted, Retry: response.StatusCode >= 500, Status: response.StatusCode}, nil
 }

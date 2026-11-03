@@ -26,7 +26,13 @@ type eventDelivery struct {
 	State    string `json:"state"`
 	Attempts int    `json:"attempts"`
 	Status   int    `json:"status,omitempty"`
+	// Kind is "app_event" for planque.event.v1; empty for a door message.
+	Kind string `json:"kind,omitempty"`
 }
+
+// maxEventPayload bounds an app event's data. A larger one is dropped, and
+// the grant notes it: a cut payload would not be the app's event.
+const maxEventPayload = 64 << 10
 
 func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
@@ -85,25 +91,46 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "the approved event route is still being registered")
 		return
 	}
-	message, ok := slackDoorMessage(g, route, event)
-	if !ok {
-		w.WriteHeader(202)
-		return
+	var id, kind string
+	var body []byte
+	if route.AppEvent {
+		e, ok := appEvent(g, route, event)
+		if !ok {
+			if len(event.Data) > maxEventPayload {
+				g.event(s.now(), "an app event over 64 KB was dropped ("+route.Definition.Slug+")")
+				if err := s.saveGrant(r.Context(), g); err != nil {
+					s.fail(w, r, err)
+					return
+				}
+			}
+			w.WriteHeader(202)
+			return
+		}
+		id, kind = e.ID, "app_event"
+		body, _ = json.Marshal(e)
+	} else {
+		message, ok := slackDoorMessage(g, route, event)
+		if !ok {
+			w.WriteHeader(202)
+			return
+		}
+		id = message.ID
+		body, _ = json.Marshal(message)
 	}
-	key := store.Item{PK: deliveryPK, SK: message.ID, Ver: 1, TTL: s.now().Add(7 * 24 * time.Hour).Unix()}
-	body, _ := json.Marshal(message)
-	sealed, err := s.Sealer.Seal(r.Context(), body, map[string]string{"kind": "door_event", "id": message.ID})
+	key := store.Item{PK: deliveryPK, SK: id, Ver: 1, TTL: s.now().Add(7 * 24 * time.Hour).Unix()}
+	sealed, err := s.Sealer.Seal(r.Context(), body, sealContext(kind, id))
+	clear(body)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	record := eventDelivery{Tenant: g.Tenant, Grant: g.ID, Provider: provider, Trigger: route.ID, Sealed: sealed, State: "pending"}
-	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "DOOR_EVENT#" + message.ID, TTL: key.TTL}, map[string]string{"event": message.ID}, store.Cond{}); err != nil {
+	record := eventDelivery{Tenant: g.Tenant, Grant: g.ID, Provider: provider, Trigger: route.ID, Sealed: sealed, State: "pending", Kind: kind}
+	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "DOOR_EVENT#" + id, TTL: key.TTL}, map[string]string{"event": id}, store.Cond{}); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	stamp, _ := json.Marshal(pendingStamp{At: s.now().UnixMilli()})
-	if err := s.KV.Put(r.Context(), store.Item{PK: pendingEventsPK, SK: message.ID, Doc: stamp, TTL: key.TTL}, store.Cond{}); err != nil {
+	if err := s.KV.Put(r.Context(), store.Item{PK: pendingEventsPK, SK: id, Doc: stamp, TTL: key.TTL}, store.Cond{}); err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -113,11 +140,36 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	retry, err := s.deliverEvent(r.Context(), key.SK)
 	if err != nil || retry {
-		writeErr(w, 503, "the door event is pending delivery")
+		writeErr(w, 503, "the event is pending delivery")
 		return
 	}
 	w.WriteHeader(202)
 }
+
+// sealContext binds a sealed delivery to its kind and id.
+func sealContext(kind, id string) map[string]string {
+	if kind == "app_event" {
+		return map[string]string{"kind": "app_event", "id": id}
+	}
+	return map[string]string{"kind": "door_event", "id": id}
+}
+
+// appEvent is a connected app's event for the taf whose agent the grant
+// names (planque.event.v1). Its id is the same for the provider's
+// redelivery of the same event, so tafs starts nothing twice.
+func appEvent(g *Grant, route triggerRecord, e connector.Event) (door.AppEvent, bool) {
+	if !route.AppEvent || len(e.Data) > maxEventPayload || !json.Valid(e.Data) || route.Definition.Slug != e.Metadata.Slug {
+		return door.AppEvent{}, false
+	}
+	sum := sha256.Sum256([]byte("app_event\n" + route.Provider + "\n" + g.Tenant + "\n" + g.ID + "\n" + route.ID + "\n" + e.ID))
+	at := e.Timestamp
+	if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
+		at = ""
+	}
+	return door.AppEvent{V: "planque.event.v1", ID: "evt_" + hex.EncodeToString(sum[:]), Tenant: g.Tenant, Agent: g.Request.Agent, Grant: g.ID,
+		Provider: route.Provider, Account: route.Account, Subscription: route.ID, Event: route.Definition.Slug, Payload: e.Data, Timestamp: at}, true
+}
+
 func slackDoorMessage(g *Grant, route triggerRecord, e connector.Event) (door.Message, bool) {
 	if !supportedTrigger(route.Definition) {
 		return door.Message{}, false
@@ -192,13 +244,20 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 	} else if err != nil {
 		return true, err
 	}
-	cleartext, err := s.Sealer.Open(ctx, delivery.Sealed, map[string]string{"kind": "door_event", "id": id})
+	cleartext, err := s.Sealer.Open(ctx, delivery.Sealed, sealContext(delivery.Kind, id))
 	if err != nil {
 		return true, err
 	}
 	defer clear(cleartext)
 	var message door.Message
-	if json.Unmarshal(cleartext, &message) != nil || message.ID != id || message.Tenant != g.Tenant || message.Agent != g.Request.Agent || message.Account != route.Account || message.Trigger != route.ID || !slices.Contains(route.Channels, message.Channel) {
+	var app door.AppEvent
+	var valid bool
+	if delivery.Kind == "app_event" {
+		valid = json.Unmarshal(cleartext, &app) == nil && app.ID == id && app.Tenant == g.Tenant && app.Agent == g.Request.Agent && app.Account == route.Account && app.Subscription == route.ID && route.AppEvent
+	} else {
+		valid = json.Unmarshal(cleartext, &message) == nil && message.ID == id && message.Tenant == g.Tenant && message.Agent == g.Request.Agent && message.Account == route.Account && message.Trigger == route.ID && slices.Contains(route.Channels, message.Channel)
+	}
+	if !valid {
 		delivery.State = "dropped"
 		delivery.Sealed = nil
 		previous = it.Ver
@@ -211,11 +270,14 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	result := door.Result{Retry: true}
-	if s.DoorSink != nil {
+	switch {
+	case delivery.Kind == "app_event" && s.EventSink != nil:
+		result, err = s.EventSink.DeliverEvent(ctx, app)
+	case delivery.Kind != "app_event" && s.DoorSink != nil:
 		result, err = s.DoorSink.Deliver(ctx, message)
-		if err != nil {
-			result.Retry = true
-		}
+	}
+	if err != nil {
+		result.Retry = true
 	}
 	delivery.Attempts++
 	delivery.Status = result.Status

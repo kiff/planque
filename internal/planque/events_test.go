@@ -38,6 +38,7 @@ type eventFixture struct {
 	listReadOnly                         bool
 	status                               int
 	message                              door.Message
+	app                                  door.AppEvent
 	definition                           connector.TriggerType
 }
 
@@ -63,7 +64,11 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 			if connector.VerifyWebhook("synthetic-handoff", r.Header.Get("Planque-Event-Id"), r.Header.Get("Planque-Event-Timestamp"), r.Header.Get("Planque-Event-Signature"), raw, f.now) != nil {
 				t.Error("handoff signature failed")
 			}
-			if err := json.Unmarshal(raw, &f.message); err != nil {
+			target := any(&f.message)
+			if r.URL.Path == "/v1/events/planque" {
+				target = &f.app
+			}
+			if err := json.Unmarshal(raw, target); err != nil {
 				t.Error(err)
 			}
 			f.sends++
@@ -152,6 +157,7 @@ func newEventFixture(t *testing.T) (*env, *eventFixture, *Grant) {
 	})}
 	e.s.Connectors = map[string]connector.Provider{"composio": &composio.Client{HTTP: client, Secret: func(context.Context) (string, error) { return "synthetic-project-key", nil }}}
 	e.s.DoorSink = &door.HTTP{URL: "https://receiver.example/v1/doors/planque", Secret: func(context.Context) (string, error) { return "synthetic-handoff", nil }, Client: client, Now: func() time.Time { return f.now }}
+	e.s.EventSink = &door.HTTP{URL: "https://receiver.example/v1/events/planque", Secret: func(context.Context) (string, error) { return "synthetic-handoff", nil }, Client: client, Now: func() time.Time { return f.now }}
 	return e, f, g
 }
 func (f *eventFixture) enable(t *testing.T, g *Grant) {
@@ -770,5 +776,86 @@ func TestALapsedRemovalClaimIsTakenOverAndItsHolderSettlesNothing(t *testing.T) 
 	}
 	if notes, _ := e.kv.Query(context.Background(), triggerCleanupPK, ""); len(notes) != 0 {
 		t.Fatal("the settled note stayed")
+	}
+}
+
+// Any event the connection's app lists can wake a taf: the owner's filters
+// are checked against the event's schema and subscribed exactly as signed,
+// one subscription, and each event goes to tafs as planque.event.v1, once.
+func TestAppEventsSubscribeExactlyTheSignedFiltersAndReachTafsOnce(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	f.definition.Slug = "SLACKBOT_REACTION_ADDED"
+	f.definition.Config = json.RawMessage(`{"type":"object","properties":{"channel_id":{"type":"string"},"emoji":{"type":"string","enum":["eyes","white_check_mark"]},"limit":{"type":"integer"}},"required":["channel_id"]}`)
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID + "/triggers"
+	ask := func(config any) map[string]any {
+		return map[string]any{"account": g.Account, "slug": "SLACKBOT_REACTION_ADDED", "config": config}
+	}
+	for name, config := range map[string]any{
+		"a field the event doesn't have": map[string]any{"channel_id": "CDEMO123", "everything": true},
+		"no required field":              map[string]any{"emoji": "eyes"},
+		"a value outside its list":       map[string]any{"channel_id": "CDEMO123", "emoji": "fire"},
+		"a value of another type":        map[string]any{"channel_id": "CDEMO123", "limit": "ten"},
+		"not an object":                  []string{"CDEMO123"},
+	} {
+		if st, out := e.do("POST", path, ask(config), e.phone, ""); st != 400 || f.creates != 0 {
+			t.Fatalf("%s: %d %v (creates %d)", name, st, out, f.creates)
+		}
+	}
+	if st, out := e.do("POST", path, map[string]any{"account": g.Account, "slug": "SLACKBOT_REACTION_ADDED", "channels": []string{"CDEMO123"}}, e.phone, ""); st != 400 || f.creates != 0 {
+		t.Fatalf("an app event approved as a door: %d %v", st, out)
+	}
+	if st, out := e.do("POST", path, map[string]any{"account": g.Account, "slug": "SLACKBOT_CHANNEL_MESSAGE_RECEIVED", "config": map[string]any{}}, e.phone, ""); st != 400 || f.creates != 0 {
+		t.Fatalf("a door's event approved without its channels: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", path, ask(map[string]any{"channel_id": "CDEMO123", "emoji": "eyes"}), nil, ""); st != 401 || f.creates != 0 {
+		t.Fatal("an app event was subscribed without the owner's signature")
+	}
+	st, out := e.do("POST", path, ask(map[string]any{"channel_id": "CDEMO123", "emoji": "eyes"}), e.phone, "")
+	if st != 201 || out["subscription"] != "trigger_events" || out["event"] != "SLACKBOT_REACTION_ADDED" {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	if f.creates != 1 || len(f.configs) != 1 || len(f.configs[0]) != 2 || f.configs[0]["channel_id"] != "CDEMO123" || f.configs[0]["emoji"] != "eyes" {
+		t.Fatalf("upstream config is not exactly the signed one: %v", f.configs)
+	}
+	data := map[string]any{"channel": "CDEMO123", "reaction": "eyes", "item": map[string]any{"ts": "1800000000.001"}}
+	send := func(id string, data any) int {
+		return f.event(t, func(v map[string]any) { v["id"] = id; v["data"] = data }, false)
+	}
+	if st := send("upstream_reaction", data); st != 202 || f.sends != 1 {
+		t.Fatalf("event: %d sends %d", st, f.sends)
+	}
+	a := f.app
+	payload, _ := json.Marshal(data)
+	if a.V != "planque.event.v1" || a.Tenant != tenant || a.Agent != "agt_taf" || a.Grant != g.ID || a.Provider != "composio" || a.Account != "account_events" ||
+		a.Subscription != "trigger_events" || a.Event != "SLACKBOT_REACTION_ADDED" || !jsonEqual(a.Payload, payload) || !strings.HasPrefix(a.ID, "evt_") || f.message.ID != "" {
+		t.Fatalf("wrong app event: %+v (door %+v)", a, f.message)
+	}
+	if st := send("upstream_reaction", data); st != 202 || f.sends != 1 {
+		t.Fatal("a redelivered event reached tafs twice")
+	}
+	var record eventDelivery
+	if _, err := getDoc(context.Background(), e.kv, deliveryPK, a.ID, &record); err != nil || record.State != "delivered" || record.Kind != "app_event" || len(record.Sealed) != 0 {
+		t.Fatalf("delivery record: %+v %v", record, err)
+	}
+	big := map[string]any{"text": strings.Repeat("x", maxEventPayload)}
+	if st := send("upstream_big", big); st != 202 || f.sends != 1 {
+		t.Fatalf("an oversized event was sent: %d", st)
+	}
+	saved, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if !slices.ContainsFunc(saved.Events, func(ev Event) bool { return strings.Contains(ev.What, "over 64 KB") }) {
+		t.Fatal("the dropped event wasn't noted on the connection")
+	}
+	f.status = 503
+	if st := send("upstream_later", data); st != 503 || f.sends != 2 {
+		t.Fatalf("a receiver that's down: %d sends %d", st, f.sends)
+	}
+	f.status = 404
+	f.now = f.now.Add(2 * time.Minute)
+	if retry, err := e.s.deliverEvent(context.Background(), f.app.ID); retry || err != nil || f.sends != 3 {
+		t.Fatalf("a refused event was kept for retry: %v %v sends %d", retry, err, f.sends)
+	}
+	e.s.EventSink = nil
+	if st, out := e.do("POST", path, ask(map[string]any{"channel_id": "CDEMO124"}), e.phone, ""); st != 503 {
+		t.Fatalf("approved with no receiver: %d %v", st, out)
 	}
 }

@@ -32,6 +32,8 @@ type triggerRecord struct {
 	Channels   []string              `json:"channels"`
 	Approval   Approval              `json:"approval"`
 	Active     bool                  `json:"active"`
+	// AppEvent: any app's event for a taf (planque.event.v1), not a door.
+	AppEvent bool `json:"app_event,omitempty"`
 	// Removing: a sweep or a failed approval has claimed this subscription to
 	// delete it upstream. It routes nothing, and no approval reuses it until
 	// the deletion is done.
@@ -100,8 +102,8 @@ func (s *Server) triggerType(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if g.Request.Connector == nil || g.Request.Connector.Toolkit != "slackbot" {
-		writeErr(w, 400, "this connection has no supported door events")
+	if g.Request.Connector == nil {
+		writeErr(w, 400, "this connection has no app events")
 		return
 	}
 	p, err := s.eventProvider(g)
@@ -114,11 +116,11 @@ func (s *Server) triggerType(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if !supportedTrigger(definition) {
-		writeErr(w, 400, "this event type is not supported for a door")
+	if definition.Validate() != nil || definition.Toolkit != g.Request.Connector.Toolkit {
+		writeErr(w, 400, "this event type is not one this connection offers")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"definition": definition, "account": g.Account})
+	writeJSON(w, 200, map[string]any{"definition": definition, "account": g.Account, "door": supportedTrigger(definition)})
 }
 
 // createTrigger subscribes channels of the grant's connected account to a
@@ -129,11 +131,18 @@ func (s *Server) triggerType(w http.ResponseWriter, r *http.Request) {
 // subscription per channel (a null channel_id would mean every channel), a
 // direct-message door one subscription with no channel filter, its DM ids
 // gating delivery. It answers the subscriptions' ids and the pinned definition.
+//
+// Any other event the connection's app lists is an app event for a taf:
+// {account, slug, config}, config being the owner's filters exactly as
+// signed, checked against the event's config schema (eventConfig). It gets
+// one upstream subscription with exactly that config, and its events go to
+// tafs as planque.event.v1.
 func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	var ask struct {
-		Account  string   `json:"account"`
-		Slug     string   `json:"slug"`
-		Channels []string `json:"channels"`
+		Account  string          `json:"account"`
+		Slug     string          `json:"slug"`
+		Channels []string        `json:"channels"`
+		Config   json.RawMessage `json:"config"`
 	}
 	if len(sr.body) > 64<<10 {
 		writeErr(w, 400, "the event approval exceeds 64 KB")
@@ -143,14 +152,26 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		s.fail(w, r, err)
 		return
 	}
-	if s.DoorSink == nil {
-		writeErr(w, 503, "the door receiver is not configured")
+	appEvent := ask.Channels == nil
+	if appEvent && s.EventSink == nil {
+		writeErr(w, 503, "the app event receiver is not configured")
 		return
 	}
-	subscriptions, err := doorSubscriptions(ask.Slug, ask.Channels)
-	if err != nil {
-		s.fail(w, r, err)
+	if !appEvent && (s.DoorSink == nil || ask.Config != nil) {
+		if s.DoorSink == nil {
+			writeErr(w, 503, "the door receiver is not configured")
+		} else {
+			writeErr(w, 400, "a door is approved by its channels, without filters")
+		}
 		return
+	}
+	var subscriptions []subscription
+	if !appEvent {
+		var err error
+		if subscriptions, err = doorSubscriptions(ask.Slug, ask.Channels); err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 	g, err := s.loadGrant(r.Context(), sr.tenant, r.PathValue("id"))
 	if err != nil {
@@ -179,9 +200,21 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		s.fail(w, r, err)
 		return
 	}
-	if definition.Validate() != nil || !supportedTrigger(definition) || definition.Slug != ask.Slug || definition.Toolkit != g.Request.Connector.Toolkit {
-		writeErr(w, 400, "this event type is not supported for a door")
+	if definition.Validate() != nil || supportedTrigger(definition) == appEvent || definition.Slug != ask.Slug || definition.Toolkit != g.Request.Connector.Toolkit {
+		if appEvent {
+			writeErr(w, 400, "this event type is not one this connection offers for a taf")
+		} else {
+			writeErr(w, 400, "this event type is not supported for a door")
+		}
 		return
+	}
+	if appEvent {
+		config, err := eventConfig(definition.Config, ask.Config)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		subscriptions = []subscription{{config: config, appEvent: true}}
 	}
 	if err := s.ensureProjectWebhook(r.Context(), g.Request.Connector.Provider, p); err != nil {
 		s.fail(w, r, err)
@@ -213,9 +246,17 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		}
 	}
 	g.HeldUntil = time.Time{}
-	g.event(s.now(), "door events approved "+sr.approval.Who())
+	if appEvent {
+		g.event(s.now(), "app event "+definition.Slug+" approved "+sr.approval.Who())
+	} else {
+		g.event(s.now(), "door events approved "+sr.approval.Who())
+	}
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		undo(err)
+		return
+	}
+	if appEvent {
+		writeJSON(w, 201, map[string]any{"id": ids[0], "trigger": ids[0], "subscription": ids[0], "triggers": ids, "account": ask.Account, "event": definition.Slug, "config": subscriptions[0].config, "definition": definition})
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": ids[0], "trigger": ids[0], "triggers": ids, "account": ask.Account, "channels": ask.Channels, "definition": definition})
@@ -381,6 +422,7 @@ var directID = regexp.MustCompile(`^D[A-Z0-9]{2,40}$`)
 type subscription struct {
 	config   json.RawMessage
 	channels []string
+	appEvent bool
 }
 
 // doorSubscriptions are the upstream subscriptions for an approved slug and
@@ -438,7 +480,7 @@ func (s *Server) subscribe(ctx context.Context, g *Grant, p connector.EventProvi
 	if err != nil {
 		return triggerRecord{}, 0, false, err
 	}
-	record = triggerRecord{Tenant: g.Tenant, Grant: g.ID, Provider: g.Request.Connector.Provider, Account: g.Connector.Account, User: s.connectorIdentity(g).User, ID: id, Definition: definition, Config: sub.config, Channels: sub.channels, Approval: approval}
+	record = triggerRecord{Tenant: g.Tenant, Grant: g.ID, Provider: g.Request.Connector.Provider, Account: g.Connector.Account, User: s.connectorIdentity(g).User, ID: id, Definition: definition, Config: sub.config, Channels: sub.channels, Approval: approval, AppEvent: sub.appEvent}
 	key := store.Item{PK: triggerPK(record.Provider, id), SK: "-", Ver: 1}
 	var prior triggerRecord
 	old, err := getDoc(ctx, s.KV, key.PK, key.SK, &prior)
