@@ -44,6 +44,9 @@ func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
 // deadline is when g must be confirmed (a sign-in) or its tools approved (a
 // held sign-in), as expire reads them; zero when it has none.
 func (g *Grant) deadline() time.Time {
+	if g.Request.Connector != nil && g.Status == StatusApproved {
+		return g.HeldUntil
+	}
 	if g.Status == StatusSignedIn && !g.ConfirmBy.IsZero() {
 		return g.ConfirmBy
 	}
@@ -161,6 +164,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if _, err := s.deliverEvents(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: door events pending", "err", err.Error())
+	}
+	if _, err := s.cleanTriggers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {

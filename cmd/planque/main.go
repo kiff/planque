@@ -15,11 +15,17 @@
 //	KIFF_GATEWAY       default https://mcp.kiff.dev
 //	KIFF_ISSUER        the permit issuer, default KIFF_API
 //	KIFF_JWKS_URL      default KIFF_ISSUER/.well-known/kiff-permit-keys.json
+//	PLANQUE_DOOR_URL fixed HTTPS receiver for approved incoming door events
+//	PLANQUE_DOOR_SECRET Secrets Manager reference containing {secret}
+//	PLANQUE_COMPOSIO_SECRET optional Secrets Manager reference for {api_key}
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
+//	PLANQUE_APPS_FILE  optional credential-free registered app definitions
+//	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
 package main
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"log"
 	"log/slog"
@@ -29,7 +35,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/awsapi"
+	"github.com/kiff/planque/internal/connector"
+	"github.com/kiff/planque/internal/connector/composio"
+	"github.com/kiff/planque/internal/door"
 	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/lambda"
@@ -39,6 +50,7 @@ import (
 	"github.com/kiff/planque/internal/planque"
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
+	"github.com/kiff/planque/internal/secretstore"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -87,23 +99,73 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	default:
 		return nil, errors.New("set PLANQUE_KMS_KEY or PLANQUE_LOCAL_KEY")
 	}
+	applications := map[string]appconfig.Application{}
+	if path := os.Getenv("PLANQUE_APPS_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, errors.New("the registered application definitions could not be read")
+		}
+		applications, err = appconfig.Decode(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	catalog := map[string]planque.CatalogEntry{}
+	if path := os.Getenv("PLANQUE_CATALOG_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, errors.New("the vendor catalog could not be read")
+		}
+		catalog, err = planque.DecodeCatalog(raw, applications)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
+	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
+		var references map[string]string
+		if json.Unmarshal([]byte(raw), &references) != nil || len(references) == 0 {
+			return nil, errors.New("PLANQUE_APP_SECRETS must map application ids to secret references")
+		}
+		applicationCredentials = &appcredentials.SecretsManager{References: references, API: &awsapi.Client{
+			Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+	}
 	api := cmp.Or(os.Getenv("KIFF_API"), "https://api.kiff.dev")
 	issuer := cmp.Or(os.Getenv("KIFF_ISSUER"), api)
 	// KIFF is configured here; vendors are named by agents and servers, so
 	// they are reached only at public addresses.
 	hc := &http.Client{Timeout: 30 * time.Second}
 	vendors := egress.Client(30 * time.Second)
+	connectors := map[string]connector.Provider{}
+	if reference := strings.TrimSpace(os.Getenv("PLANQUE_COMPOSIO_SECRET")); reference != "" {
+		connectors["composio"] = &composio.Client{HTTP: vendors, Secret: composio.SecretFromStore(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, reference)}
+	}
+	var doorSink door.Sink
+	doorURL, doorSecret := strings.TrimSpace(os.Getenv("PLANQUE_DOOR_URL")), strings.TrimSpace(os.Getenv("PLANQUE_DOOR_SECRET"))
+	if doorURL != "" || doorSecret != "" {
+		u, err := url.Parse(doorURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || doorSecret == "" {
+			return nil, errors.New("PLANQUE_DOOR_URL and PLANQUE_DOOR_SECRET must name the fixed HTTPS receiver and its secret reference")
+		}
+		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
+		doorSink = &door.HTTP{URL: doorURL, Secret: reader, Client: egress.Client(10 * time.Second)}
+	}
 	return &planque.Server{
-		BaseURL:   base,
-		AppReturn: appReturn,
-		KV:        kv,
-		Sealer:    sealer,
-		KIFF:      &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
+		DoorSink:   doorSink,
+		Connectors: connectors,
+		BaseURL:    base,
+		AppReturn:  appReturn,
+		KV:         kv,
+		Sealer:     sealer,
+		KIFF:       &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
-		OAuth:  &oauth.Client{HTTP: vendors},
-		MCP:    &mcp.Client{HTTP: vendors},
-		REST:   &rest.Client{HTTP: vendors},
-		Logger: logger,
+		OAuth:                  &oauth.Client{HTTP: vendors},
+		MCP:                    &mcp.Client{HTTP: vendors},
+		REST:                   &rest.Client{HTTP: vendors},
+		Logger:                 logger,
+		CatalogEntries:         catalog,
+		Applications:           applications,
+		ApplicationCredentials: applicationCredentials,
 	}, nil
 }

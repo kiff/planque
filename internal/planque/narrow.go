@@ -63,8 +63,14 @@ func checkNarrowing(t ToolRequest) string {
 		if _, set := t.Arguments[t.AmountArg]; set {
 			return "amount_argument " + t.AmountArg + " is read by amount_lookup, so it can't also be one of the tool's arguments"
 		}
-	} else if t.AmountArg != "" && len(t.Arguments) > 0 && t.Arguments[t.AmountArg].Type != "integer" {
-		return "amount_argument " + t.AmountArg + " must be one of the tool's integer arguments"
+	} else if t.AmountArg != "" && len(t.Arguments) > 0 {
+		want := "integer"
+		if t.AmountFormat == "decimal_string" {
+			want = "string"
+		}
+		if t.Arguments[t.AmountArg].Type != want {
+			return "amount_argument " + t.AmountArg + " must be one of the tool's " + want + " arguments"
+		}
 	}
 	if r := t.ResourceArg; r != "" {
 		switch {

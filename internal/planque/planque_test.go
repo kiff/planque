@@ -43,6 +43,7 @@ type env struct {
 	s      *Server
 	url    string
 	kv     *store.Memory
+	client *http.Client // optional in-process transport for protocol tests
 	// enrolled: enrol has run, so a helper that needs it can call it again.
 	enrolled bool
 }
@@ -103,7 +104,11 @@ func (e *env) do(method, path string, body any, phone *fakes.Phone, key string) 
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := e.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -167,7 +172,11 @@ func (a *app) code() string {
 // returns the confirmation code the app received.
 func (e *env) signIn(link string) string {
 	e.t.Helper()
-	resp, err := http.Get(link)
+	client := e.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Get(link)
 	if err != nil {
 		e.t.Fatal(err)
 	}

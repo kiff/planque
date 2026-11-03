@@ -22,6 +22,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- Managed discovery accepts app and tool slugs beginning with an underscore.
+  Unsupported catalog entries are counted and skipped without losing valid
+  entries or the next-page cursor; direct lookup and execution stay strict.
+
 - A read of planque's store is sent again when the connection drops before an
   answer, so one dropped connection no longer fails the owner's request. Writes
   are never sent again.
@@ -30,6 +34,52 @@ version headings refer to releases, not merely to merged pull requests.
   still never sends again.
 
 ### Added
+
+- Device-approved Slackbot event subscriptions bind exact accounts, versioned
+  definitions and allowed conversations. Signed project webhooks feed a fixed,
+  signed door receiver, with durable replay suppression, transient delivery
+  retries and cancellation on disconnect. Oversight exports include the
+  approvals; account deletion removes the associated event records.
+
+- An optional Composio connection provider reuses upstream app discovery and
+  hosted authentication. Device-approved grants pin each selected account,
+  concrete tool version and schema; exact-call permits and once-only operation
+  records govern execution. Discovery is paginated, project credentials are
+  resolved server-side, and disconnect distinguishes disabled access from
+  pending upstream credential revocation.
+
+- Reviewed REST definitions can name a version header. Profile approval pins
+  its value in the grant and every request; callers cannot replace the header
+  definition or overwrite authentication with it.
+
+- An operator-installed, versioned vendor catalog lists account connection
+  state and requests reviewed operations for a chosen taf. Catalog grants
+  freeze their profile and final tool names before device approval. API-key
+  entries refuse a source description changed since review.
+
+- **Device-approved connection profiles:** a grant's digest covers its
+  profile, and `/approve` and `/key` accept the phone-signed profile/words
+  digests. Tools use the profile's measurements, including decimal-string
+  amounts. The relay waits for KIFF to confirm the profile; a failed
+  application rolls back registration. Required arguments and permit-derived
+  markers are checked before sending, and operation records keep the profile
+  revision used for their replay.
+
+- **Registered vendor applications:** operator-configured MCP and REST
+  applications use credentials from a sealed store or configured Secrets
+  Manager references. The owner's approval pins the client identity,
+  endpoints, access descriptions and reviewed operations. Secret rotation
+  for that client works without changing the approval; replacing the
+  client identity needs a new approval.
+
+- **MCP client metadata documents:** a vendor that supports CIMD can use
+  planque's public HTTPS client document instead of a registration request.
+  The document contains only the configured client identity and redirect.
+- **Larger API descriptions and selected operations:** descriptions may be
+  up to 16 MB. `api.operations` selects up to 500 operations from a larger
+  description; the selection and the complete source digest are included
+  in the request the owner approves. An operation fingerprint distinguishes
+  request changes from wording changes.
 
 - **A write's amount read from its resource:** a tool may name `amount_lookup` (`{tool, argument,
   path}`), a read-only tool of the same request, the read's string argument that takes the call's

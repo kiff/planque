@@ -53,6 +53,10 @@ func (s *Server) storeToken(ctx context.Context, g *Grant, tok oauth.Token, prev
 }
 
 func (s *Server) openToken(ctx context.Context, g *Grant) (oauth.Token, store.Item, error) {
+	if g.Request.Connector != nil {
+		err := s.checkConnector(ctx, g)
+		return oauth.Token{}, store.Item{}, err
+	}
 	var rec tokenRecord
 	it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skToken(tokenOwner(g)), &rec)
 	if err != nil {
@@ -84,6 +88,9 @@ var errNoToken = errors.New("planque holds no token for this grant")
 // the record it came from. stale, when not 0, is a version the vendor
 // refused: the token is refreshed unless someone already replaced it.
 func (s *Server) accessToken(ctx context.Context, g *Grant, stale int64) (string, int64, error) {
+	if g.Request.Connector != nil {
+		return "", 0, s.checkConnector(ctx, g)
+	}
 	if g.signedOut() {
 		return "", 0, signedOutErr(g)
 	}
@@ -134,7 +141,7 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 		s.releaseLease(ctx, it, ver)
 		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token", "no_refresh_token")
 	}
-	next, err := s.OAuth.Refresh(ctx, g.Vendor, g.ClientID, tok.Refresh)
+	next, err := s.refreshToken(ctx, g, tok.Refresh)
 	if err != nil {
 		s.releaseLease(ctx, it, ver)
 		if errors.Is(err, oauth.ErrInvalidGrant) {

@@ -20,7 +20,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/appcredentials"
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/device"
+	"github.com/kiff/planque/internal/door"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
@@ -47,9 +51,16 @@ type Server struct {
 	OAuth   *oauth.Client
 	MCP     *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
-	REST   *rest.Client
-	Logger *slog.Logger
-	Now    func() time.Time
+	REST *rest.Client
+	// Application definitions are reviewed public protocol facts; their
+	// client credentials are resolved separately from an operator store.
+	CatalogEntries         map[string]CatalogEntry
+	Connectors             map[string]connector.Provider
+	DoorSink               door.Sink
+	Applications           map[string]appconfig.Application
+	ApplicationCredentials appcredentials.Reader
+	Logger                 *slog.Logger
+	Now                    func() time.Time
 	// AppReturn is where the browser that completed a vendor sign-in is
 	// sent, with the code that confirms it: the owner's app (tafs), for
 	// example tafs://planque/signed-in. The operator sets it; no request
@@ -85,6 +96,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/catalog/{entry}/grants", s.requestCatalogGrant)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)
@@ -111,8 +124,29 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/finish", s.finishDeletion)
 	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
+	mux.HandleFunc("GET /connectors/callback", s.connectorCallback)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/channels", s.signed(s.listChannels))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers/types", s.triggerType)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers", s.listTriggers)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers", s.signed(s.createTrigger))
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signed(s.deleteTrigger))
+	mux.HandleFunc("POST /connectors/{provider}/webhook", s.connectorWebhook)
+	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux
+}
+
+// clientMetadata is the same document whose URL is sent as client_id when
+// a vendor supports CIMD. No tenant or sign-in data belongs in this response.
+func (s *Server) clientMetadata(w http.ResponseWriter, _ *http.Request) {
+	doc, err := oauth.NewClientDocument(s.BaseURL+"/oauth/client-metadata.json", ClientName, s.redirect())
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "this installation's public client metadata is not configured")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(doc)
 }
 
 type apiError struct {

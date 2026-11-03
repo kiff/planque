@@ -77,7 +77,7 @@ func (c *Client) Fetch(ctx context.Context, raw string) ([]byte, error) {
 		return nil, fmt.Errorf("it couldn't be read: %w", err)
 	}
 	if len(b) > openapi.MaxBytes {
-		return nil, &openapi.Refused{Why: "it is over 2 MB"}
+		return nil, &openapi.Refused{Why: "it is over 16 MB"}
 	}
 	return b, nil
 }
@@ -100,7 +100,7 @@ func (e *CallError) Error() string { return e.Err.Error() }
 func (e *CallError) Unwrap() error { return e.Err }
 
 // Call makes one request, with the key where auth says.
-func (c *Client) Call(ctx context.Context, method, target string, body []byte, auth openapi.Auth, key string) (Answer, error) {
+func (c *Client) Call(ctx context.Context, method, target string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
 	if err := c.CheckURL(target); err != nil {
 		return Answer{}, &CallError{Err: err}
 	}
@@ -125,6 +125,18 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	}
 	if auth.In == "header" {
 		req.Header.Set(auth.Name, auth.Prefix+key)
+	}
+	for _, pin := range pins {
+		if pin == nil {
+			continue
+		}
+		if err := pin.Validate(); err != nil {
+			return Answer{}, &CallError{Err: err}
+		}
+		if auth.In == "header" && strings.EqualFold(pin.Name, auth.Name) {
+			return Answer{}, &CallError{Err: errors.New("the version header cannot replace authentication")}
+		}
+		req.Header.Set(pin.Name, pin.Value)
 	}
 	res, err := c.http().Do(req)
 	if err != nil {

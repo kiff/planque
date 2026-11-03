@@ -2,8 +2,9 @@
 
 **The safe place for your agents' keys.** An agent asks to act in a vendor
 account (Stripe, Shopify, Gmail, any API). The owner approves on their own
-phone, seeing exactly what will be granted. The vendor's keys stay in the
-planque, in Europe or on the owner's own servers. Every call is made only
+phone, seeing exactly what will be granted. Direct connections keep vendor keys in planque, in Europe or on the owner's
+own servers. Optional managed connections keep vendor credentials at the
+configured connection provider. Every call is made only
 with a permit for that exact call.
 
 *Planque* is French slang for a safe hiding place.
@@ -17,11 +18,16 @@ People who let AI agents work in their business tools and need to know:
 
 ## How it works
 
-planque is small on purpose. It doesn't keep a catalogue of vendors. It
-follows the standard that modern vendors' MCP servers already speak:
+planque follows the standard that modern vendors' MCP servers speak:
 OAuth 2.1 with discovery (RFC 9728, RFC 8414), dynamic client
 registration (RFC 7591) and PKCE. Stripe's MCP server, for one, does all of
 it.
+
+An MCP authorization server can also use a **Client ID Metadata Document**
+instead of dynamic registration. When it advertises that support, planque
+uses its configured HTTPS `/oauth/client-metadata.json` URL as the client id.
+That public document names this installation and its exact callback; it
+contains no account, grant or credential data.
 
 1. **Ask.** An agent sends a grant request that says exactly what it wants:
    which vendor, what access, for which agent.
@@ -37,12 +43,20 @@ it.
    example from KIFF, RFC 046), then calls the vendor itself. The agent never
    receives a token.
 
+An optional [managed connection provider](docs/managed-connectors.md) adds
+paginated app discovery and hosted authentication without an app-specific
+adapter for every vendor. The first provider is Composio. The same device
+approval, exact-call permits and once-only relay govern each selected action.
+Slackbot incoming messages use separately approved subscriptions and a signed
+door handoff; receiving a message grants no reply authority.
+
 ## Two ways to run it
 
 - **Hosted:** we run it in the EU (AWS eu-west-1 to start). The owner runs
   nothing.
-- **Self-hosted:** one container, on any cloud or server. For full
-  sovereignty, the keys never leave the owner.
+- **Self-hosted:** one container, on any cloud or server. Direct connections
+  keep credentials on the owner's infrastructure; managed connections use
+  the configured provider's credential custody.
 
 It's the same code either way.
 
@@ -74,9 +88,11 @@ It's the same code either way.
 | `POST /v1/accounts/{tenant}/grants/{id}/tools` | the agent that asked, body `{"tools": […]}` | sets a listed grant's tools, from its catalog; new text and digest, `pending` again. A tool name another of the account's connections holds (at any step but failed or disconnected) is refused (409), so the agent names it anew before the owner approves; a tool left unnamed gets planque's per-grant name |
 | `POST /v1/accounts/{tenant}/grants/{id}/tools` on a **connected** grant | the agent that asked, body `{"tools": […]}`: only the tools to add | adds them to what it has (kiff/tafs#138): `pending` with the sign-in held, and the owner's text says what's added and that its tools keep working meanwhile. They do: the relay serves the grant's connected tools until the owner approves, which needs **no second sign-in** and registers only the added tools in KIFF, with a transport credential of their own. Not approved within a day, or refused by KIFF, the addition goes and the grant stays connected with what it had. A tool it already has is refused (409) |
 | `GET /v1/accounts/{tenant}/agents/{agent}/grants` | the agent that asked | the grants it asked for that agent, not failed or disconnected: id, vendor, server, status, account and tools, so Setup, improving a taf, adds to the connection the taf has instead of asking for another |
+| `GET /v1/accounts/{tenant}/catalog?q=…` | a bearer KIFF key for the account | searches configured entries and optional provider catalogs, with pagination and this account’s connection state; see [catalog configuration](docs/connections.md#reviewed-vendor-catalog) |
+| `POST /v1/accounts/{tenant}/catalog/{entry}/grants` | a bearer KIFF key, body `{"agent": …}` | requests reviewed entry tools or a managed app sign-in for the taf, with names allocated before approval; returns `{grant, needs_key}`, with no sign-in link before device approval |
 | `GET /v1/accounts/{tenant}/asked-grants` | the agent that asked | every grant it asked for, for any taf's agent, each with its agent and when it was asked: so Setup that lost a taf's agent id finds its connection again instead of asking for another |
 | `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link. For tools set on a grant whose sign-in is held, it connects at once, with no link. On a `needs_reconnect` grant, the same digest signed again returns a new sign-in link: the reconnect (below) |
-| `POST /v1/accounts/{tenant}/grants` with `"kind": "api_key"` | an agent, with its KIFF key | a vendor with a REST API and no MCP server (kiff/planque#64). `api`: `{"url": its OpenAPI description, "auth": {"in": "header"\|"query", "name", "prefix"?}, "base"?}`. planque reads the description once (JSON, OpenAPI 3.0 or 3.1, at most 2 MB and 500 operations) and keeps it as the grant's snapshot: the owner signs its SHA-256 with the server and where the key goes, and every call uses the snapshot, whatever the URL serves later. Refused, with the reason: YAML, external `$ref`s, servers set per path or operation, an operation secured otherwise than the key, callbacks and links, and any way of sending the key but a header or the query. Each operation is a tool (its `operationId`, else its method and path), with its path, query and JSON body as arguments; `GET`/`HEAD` are reads. A vendor's refusal is never taken as evidence that nothing happened: the call stays counted in KIFF |
+| `POST /v1/accounts/{tenant}/grants` with `"kind": "api_key"` | an agent, with its KIFF key | a vendor with a REST API and no MCP server (kiff/planque#64). `api`: `{"url": its OpenAPI description, "auth": {"in": "header"\|"query", "name", "prefix"?}, "base"?}`. planque reads the description once (JSON, OpenAPI 3.0 or 3.1, at most 16 MB and 500 operations per snapshot; `api.operations` may select a subset from a larger catalog) and keeps it as the grant's snapshot: the owner signs its SHA-256 with the server and where the key goes, and every call uses the snapshot, whatever the URL serves later. Refused, with the reason: YAML, external `$ref`s, servers set per path or operation, an operation secured otherwise than the key, callbacks and links, and any way of sending the key but a header or the query. Each operation is a tool (its `operationId`, else its method and path), with its path, query and JSON body as arguments; `GET`/`HEAD` are reads. A vendor's refusal is never taken as evidence that nothing happened: the call stays counted in KIFF |
 | `POST /v1/accounts/{tenant}/grants/{id}/key` | the phone, signed, body `{"digest", "key_sha256"}`, the key in `Planque-Vendor-Key` | the owner's approval of an API-key grant, with the key: the signed body holds only the key's SHA-256, so the approval kept as evidence never holds the key. The key is sealed like a sign-in's token and never shown again. With no tools the grant is `listed` (its catalog is the snapshot's operations, each with its method and path); with tools it connects at once. Tools set later are approved with `…/approve`, with no second key. A `needs_reconnect` grant takes a new key the same way. Disconnecting deletes the key and the snapshot |
 | `POST /v1/accounts/{tenant}/grants` with `"reuse": "<grant id>"` | an agent, with its KIFF key | a second grant to the same vendor and account uses a connected grant's sign-in or key (kiff/planque#36): the owner's text says so, and approving needs no second sign-in or key. The token isn't copied: both grants use one, refreshed once. A grant that isn't connected, of another account or to another server can't be reused (409). When the first is disconnected, the second is `needs_reconnect` and signs in, or takes a key, on its own |
 | `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed with KMS, unused, and the browser goes on to the owner's app with a confirmation code |

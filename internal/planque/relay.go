@@ -178,12 +178,16 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	} else if !errors.Is(err, errNotFound) {
 		return refused("planque could not read the operation's record")
 	}
+	if !profileReady(g) {
+		return refused("the owner-approved profile has not been applied by KIFF")
+	}
 	now := s.now()
 	if !p.Live(now) {
 		return refused("the permit has expired")
 	}
 	// Claim the op: only the claimer may send.
 	op := operation{Tool: name, ArgsHash: p.ArgsHash, State: OpStarted, StartedAt: now.UTC(), Decision: p.Decision}
+	op.Profile, op.ProfileRevision = activeProfile(g), g.ProfileRevision
 	claim := key
 	claim.Ver, claim.Lease = 1, now.Add(opLease).UnixMilli()
 	if err := putDoc(ctx, s.KV, claim, op, store.Cond{NotExists: true}); errors.Is(err, store.ErrCondition) {
@@ -196,16 +200,27 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return refused("planque could not record the operation")
 	}
 	delete(args, IdempotencyArg)
+	if err := profileArguments(g, name, args); err != nil {
+		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
+	}
 	vendorArgs, err := tool.vendorArgs(args)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 	}
+	vendorArgs, err = profileMarker(g, name, p.Op, vendorArgs)
+	if err != nil {
+		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
+	}
 
+	if g.Request.Connector != nil {
+		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
+		return s.finish(ctx, claim, op, state, res)
+	}
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: "+err.Error(), true))
 	}
-	if g.Request.Kind == KindAPIKey {
+	if g.Request.API != nil {
 		// The vendor's REST API, from the grant's snapshot, with its key
 		// (kiff/planque#64): the same permit, halt and once-only record.
 		var callArgs map[string]any

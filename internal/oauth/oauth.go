@@ -32,6 +32,15 @@ type Metadata struct {
 	Registration  string   `json:"registration_endpoint"`
 	Revocation    string   `json:"revocation_endpoint,omitempty"`
 	Scopes        []string `json:"scopes,omitempty"`
+	// ClientMetadata lets planque use its HTTPS metadata document as its
+	// client id, without registering a separate public client at each server.
+	ClientMetadata bool `json:"client_id_metadata_document_supported,omitempty"`
+	// Registered REST apps may use scopes rather than RFC 8707 resource
+	// indicators, and confidential providers may not offer PKCE. These
+	// options come from operator-reviewed app definitions, never discovery.
+	NoResourceParameter bool              `json:"no_resource_parameter,omitempty"`
+	NoPKCE              bool              `json:"no_pkce,omitempty"`
+	AuthorizationParams map[string]string `json:"authorization_params,omitempty"`
 	// IssParameter: the server always names itself in its answer (RFC 9207).
 	IssParameter bool `json:"iss_parameter,omitempty"`
 }
@@ -84,15 +93,16 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 		return Metadata{}, err
 	}
 	var as struct {
-		Issuer        string   `json:"issuer"`
-		Authorization string   `json:"authorization_endpoint"`
-		Token         string   `json:"token_endpoint"`
-		Registration  string   `json:"registration_endpoint"`
-		Revocation    string   `json:"revocation_endpoint"`
-		Challenge     []string `json:"code_challenge_methods_supported"`
-		AuthMethods   []string `json:"token_endpoint_auth_methods_supported"`
-		Grants        []string `json:"grant_types_supported"`
-		IssParameter  bool     `json:"authorization_response_iss_parameter_supported"`
+		Issuer         string   `json:"issuer"`
+		Authorization  string   `json:"authorization_endpoint"`
+		Token          string   `json:"token_endpoint"`
+		Registration   string   `json:"registration_endpoint"`
+		Revocation     string   `json:"revocation_endpoint"`
+		Challenge      []string `json:"code_challenge_methods_supported"`
+		AuthMethods    []string `json:"token_endpoint_auth_methods_supported"`
+		Grants         []string `json:"grant_types_supported"`
+		IssParameter   bool     `json:"authorization_response_iss_parameter_supported"`
+		ClientMetadata bool     `json:"client_id_metadata_document_supported"`
 	}
 	if err := c.getJSON(ctx, wellKnown(issuer, "oauth-authorization-server"), &as); err != nil {
 		if err2 := c.getJSON(ctx, trim(issuer)+"/.well-known/openid-configuration", &as); err2 != nil {
@@ -106,15 +116,20 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 	switch {
 	case !slices.Contains(as.Challenge, "S256"):
 		return Metadata{}, errors.New("the authorization server does not offer PKCE with S256")
-	case as.Registration == "":
-		return Metadata{}, errors.New("the authorization server does not offer dynamic client registration")
+	case as.Registration == "" && !as.ClientMetadata:
+		return Metadata{}, errors.New("the authorization server offers neither client metadata documents nor dynamic registration")
 	case len(as.AuthMethods) > 0 && !slices.Contains(as.AuthMethods, "none"):
 		return Metadata{}, errors.New("the authorization server does not accept public clients")
 	case len(as.Grants) > 0 && !slices.Contains(as.Grants, "authorization_code"):
 		return Metadata{}, errors.New("the authorization server does not offer the authorization code grant")
 	}
-	for _, u := range []string{as.Authorization, as.Token, as.Registration} {
+	for _, u := range []string{as.Authorization, as.Token} {
 		if err := c.checkURL(u); err != nil {
+			return Metadata{}, err
+		}
+	}
+	if as.Registration != "" {
+		if err := c.checkURL(as.Registration); err != nil {
 			return Metadata{}, err
 		}
 	}
@@ -124,7 +139,8 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 		}
 	}
 	return Metadata{Resource: prm.Resource, Issuer: as.Issuer, Authorization: as.Authorization, Token: as.Token,
-		Registration: as.Registration, Revocation: as.Revocation, Scopes: prm.Scopes, IssParameter: as.IssParameter}, nil
+		Registration: as.Registration, Revocation: as.Revocation, Scopes: prm.Scopes,
+		IssParameter: as.IssParameter, ClientMetadata: as.ClientMetadata}, nil
 }
 
 // challenge makes an unauthenticated MCP request and reads the
@@ -294,6 +310,19 @@ func AuthURL(m Metadata, clientID, redirect, state, challenge string) string {
 	if len(m.Scopes) > 0 {
 		q.Set("scope", strings.Join(m.Scopes, " "))
 	}
+	if m.NoResourceParameter {
+		q.Del("resource")
+	}
+	if m.NoPKCE {
+		q.Del("code_challenge")
+		q.Del("code_challenge_method")
+	}
+	for name, value := range m.AuthorizationParams {
+		switch name {
+		case "access_type", "prompt", "include_granted_scopes", "audience":
+			q.Set(name, value)
+		}
+	}
 	sep := "?"
 	if strings.Contains(m.Authorization, "?") {
 		sep = "&"
@@ -317,7 +346,7 @@ type Token struct {
 var ErrInvalidGrant = errors.New("oauth: invalid_grant")
 
 // Exchange trades an authorization code for a token.
-func (c *Client) Exchange(ctx context.Context, m Metadata, clientID, redirect, code, verifier string) (Token, error) {
+func (c *Client) Exchange(ctx context.Context, m Metadata, clientID, redirect, code, verifier string, registrations ...Registration) (Token, error) {
 	return c.token(ctx, m, url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -325,30 +354,34 @@ func (c *Client) Exchange(ctx context.Context, m Metadata, clientID, redirect, c
 		"client_id":     {clientID},
 		"code_verifier": {verifier},
 		"resource":      {m.Resource},
-	})
+	}, registrations...)
 }
 
 // accountPattern is what a vendor's account id may be: short, one word.
 var accountPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+-]{1,64}$`)
 
 // Refresh trades a refresh token for a new token.
-func (c *Client) Refresh(ctx context.Context, m Metadata, clientID, refresh string) (Token, error) {
+func (c *Client) Refresh(ctx context.Context, m Metadata, clientID, refresh string, registrations ...Registration) (Token, error) {
 	return c.token(ctx, m, url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refresh},
 		"client_id":     {clientID},
 		"resource":      {m.Resource},
-	})
+	}, registrations...)
 }
 
-func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.Token, strings.NewReader(form.Encode()))
+func (c *Client) token(ctx context.Context, m Metadata, form url.Values, registrations ...Registration) (Token, error) {
+	if m.NoResourceParameter {
+		form.Del("resource")
+	}
+	if m.NoPKCE {
+		form.Del("code_verifier")
+	}
+	req, err := c.formRequest(ctx, m.Token, form, false, registrations)
 	if err != nil {
 		return Token{}, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.hc().Do(req)
+	resp, err := c.credentialHTTP().Do(req)
 	if err != nil {
 		return Token{}, err
 	}
@@ -363,11 +396,13 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
 	}
-	_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&r)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&r); err != nil {
+		return Token{}, fmt.Errorf("token endpoint (%d): not a JSON token response", resp.StatusCode)
+	}
 	if r.Error == "invalid_grant" {
 		return Token{}, ErrInvalidGrant
 	}
-	if resp.StatusCode != http.StatusOK || r.Access == "" {
+	if resp.StatusCode != http.StatusOK || r.Access == "" || r.Error != "" {
 		return Token{}, fmt.Errorf("token endpoint (%d): %s", resp.StatusCode, short(r.Error))
 	}
 	if r.Type != "" && !strings.EqualFold(r.Type, "bearer") {
@@ -386,17 +421,16 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values) (Token,
 }
 
 // Revoke revokes token at the vendor (RFC 7009), when it offers that.
-func (c *Client) Revoke(ctx context.Context, m Metadata, clientID, token, hint string) error {
+func (c *Client) Revoke(ctx context.Context, m Metadata, clientID, token, hint string, registrations ...Registration) error {
 	if m.Revocation == "" {
 		return nil
 	}
 	form := url.Values{"token": {token}, "token_type_hint": {hint}, "client_id": {clientID}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.Revocation, strings.NewReader(form.Encode()))
+	req, err := c.formRequest(ctx, m.Revocation, form, true, registrations)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := c.hc().Do(req)
+	resp, err := c.credentialHTTP().Do(req)
 	if err != nil {
 		return err
 	}

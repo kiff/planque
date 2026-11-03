@@ -181,6 +181,8 @@ type Connection struct {
 	Tool           string `json:"tool"`
 	Description    string `json:"description,omitempty"`
 	AmountArg      string `json:"amount_argument,omitempty"`
+	AmountPath     string `json:"amount_path,omitempty"`
+	AmountFormat   string `json:"amount_format,omitempty"`
 	AmountUnit     string `json:"amount_unit,omitempty"`
 	AmountScale    *int   `json:"amount_scale,omitempty"`
 	IdempotencyArg string `json:"idempotency_argument"`
@@ -194,8 +196,9 @@ type Connection struct {
 	Credential      string `json:"credential"` // the relay's transport credential
 	// ResourceArg names the string argument a call acts on, and UnitLookup
 	// the read that says a call's currency (kiff/kiff-cloud#1299).
-	ResourceArg string      `json:"resource_argument,omitempty"`
-	UnitLookup  *UnitLookup `json:"unit_lookup,omitempty"`
+	ResourceArg  string      `json:"resource_argument,omitempty"`
+	ResourcePath string      `json:"resource_path,omitempty"`
+	UnitLookup   *UnitLookup `json:"unit_lookup,omitempty"`
 	// AmountLookup is the read that says a call's amount from its resource
 	// (a dispute's): the call carries no amount, and KIFF's Card counts the
 	// one read (kiff/kiff-cloud#1460).

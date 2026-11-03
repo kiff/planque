@@ -118,15 +118,16 @@ func (s *Server) dropSnapshot(ctx context.Context, tenant, grant string) {
 
 // apiAsk is what a grant request says about the API it calls.
 type apiAsk struct {
-	URL  string       `json:"url"`
-	Base string       `json:"base"`
-	Auth openapi.Auth `json:"auth"`
+	URL        string       `json:"url"`
+	Base       string       `json:"base"`
+	Auth       openapi.Auth `json:"auth"`
+	Operations []string     `json:"operations,omitempty"`
 }
 
 // readAPI reads the description an API-key grant names, checks the tools
 // asked for against it and keeps it as the grant's snapshot. msg is the
 // refusal in words, for the agent; err is planque's own failure.
-func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, tools []ToolRequest) (*APIRequest, *openapi.Snapshot, string, error) {
+func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, tools []ToolRequest, expectedDigest ...string) (*APIRequest, *openapi.Snapshot, string, error) {
 	a.URL, a.Base = strings.TrimSpace(a.URL), strings.TrimSpace(a.Base)
 	a.Auth.In, a.Auth.Name = strings.TrimSpace(a.Auth.In), strings.TrimSpace(a.Auth.Name)
 	if a.URL == "" {
@@ -136,7 +137,18 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if err != nil {
 		return nil, nil, "Couldn't read the API description at " + a.URL + ": " + err.Error(), nil
 	}
-	snap, err := openapi.Parse(raw, a.Auth)
+	if len(expectedDigest) > 0 && expectedDigest[0] != "" {
+		sum := sha256.Sum256(raw)
+		if hex.EncodeToString(sum[:]) != expectedDigest[0] {
+			return nil, nil, "the vendor description changed since this catalog entry was reviewed", nil
+		}
+	}
+	var snap *openapi.Snapshot
+	if len(a.Operations) > 0 {
+		snap, err = openapi.ParseOperations(raw, a.Auth, a.Operations)
+	} else {
+		snap, err = openapi.Parse(raw, a.Auth)
+	}
 	if err != nil {
 		return nil, nil, err.Error(), nil
 	}
@@ -155,7 +167,8 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if err := s.saveSnapshot(ctx, tenant, grant, snap); err != nil {
 		return nil, nil, "", err
 	}
-	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth}, snap, "", nil
+	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth,
+		Operations: slices.Clone(a.Operations)}, snap, "", nil
 }
 
 // apiToolsCheck says why tools can't be asked for from snap, "" when they can.
@@ -184,6 +197,8 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 		return nil, "", err
 	}
 	switch {
+	case g.Request.Connector != nil:
+		return nil, "request a new connector grant or add tools to this connection", nil
 	case g.Status != StatusConnected || !g.SignedIn:
 		return nil, "connection " + id + " isn't connected now (" + g.Status + "), so its sign-in can't be reused: ask for a new one", nil
 	case kind != "" && kind != g.Request.Kind:
@@ -200,7 +215,10 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 // vendorTools are the tools g's vendor offers, as an MCP server lists them:
 // listed by its MCP server, or read from an API-key grant's snapshot.
 func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mcpTool, mcp.Server, error) {
-	if g.Request.Kind != KindAPIKey {
+	if g.Request.Connector != nil {
+		return s.connectorTools(ctx, g)
+	}
+	if g.Request.API == nil {
 		return s.MCP.ListTools(ctx, g.Request.Server, access)
 	}
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
@@ -237,8 +255,9 @@ func withOperations(g *Grant, snap *openapi.Snapshot) {
 // taking the key for (needs_reconnect) takes a new one the same way.
 func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	var req struct {
-		Digest    string `json:"digest"`
-		KeySHA256 string `json:"key_sha256"`
+		Digest    string          `json:"digest"`
+		KeySHA256 string          `json:"key_sha256"`
+		Profile   *ProfileDigests `json:"kiff_profile,omitempty"`
 	}
 	if err := decodeStrict(sr.body, &req); err != nil {
 		s.fail(w, r, err)
@@ -279,6 +298,10 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	a := sr.approval
+	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	reconnect := g.Status == StatusNeedsReconnect
 	var prev *int64
 	if reconnect {
@@ -343,7 +366,7 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if hostOf(target) != host {
 		return OpNotSent, toolResult("Refused by planque: the call would leave "+host+". Nothing was sent.", true)
 	}
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key)
+	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	var ce *rest.CallError
 	switch {
 	case errors.As(err, &ce) && !ce.Sent:
