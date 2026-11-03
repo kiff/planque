@@ -32,6 +32,15 @@ The reference enables the Composio provider; without it, existing direct
 MCP, registered OAuth and API-key connections continue to work independently.
 No agent request can enable a provider or supply its project key.
 
+For the AWS deployment, pass the same reference as `PLANQUE_COMPOSIO_SECRET`
+to `deploy/aws.sh up`. The script resolves the existing secret's exact ARN,
+grants the function only `secretsmanager:GetSecretValue` on that resource,
+and sets the runtime variable. It does not create or read the secret value.
+The deployment identity needs permission to describe that secret and update
+the function's existing role/configuration. Fake-service deployments receive
+no connector-secret permission or runtime setting.
+
+
 ## Connect an app
 
 The account-authenticated catalog endpoints include upstream discovery:
@@ -84,3 +93,21 @@ Protocol references:
 - [Versioned tool definitions](https://docs.composio.dev/reference/api-reference/tools/getToolsByToolSlug)
 - [Concrete execution](https://docs.composio.dev/reference/api-reference/tools/postToolsExecuteByToolSlug)
 - [Account deletion and upstream revocation](https://docs.composio.dev/reference/api-reference/connected-accounts/deleteConnectedAccountsByNanoid)
+
+## Read-only live discovery check
+
+With an operator-controlled project already configured, run:
+
+```sh
+LIVE_COMPOSIO_SECRET=your-secret-reference go test -tags live -run '^TestLiveComposioDiscovery$' -v ./live
+```
+
+This resolves the project credential from Secrets Manager, follows all public
+app catalog pages, checks one toolkit's paginated concrete tool definitions,
+and compares an exact version's schema with discovery. `LIVE_COMPOSIO_TOOLKIT`
+selects the public toolkit (default `github`). AWS credentials come from the
+environment or the operator's AWS CLI profile; neither credentials nor raw
+provider responses are printed. The check creates no sign-in sessions or
+connected accounts and executes no vendor action. Passing it establishes
+live discovery/definition conformance only; owner-confirmed authentication,
+a permitted test action and revocation still need separate evidence.
