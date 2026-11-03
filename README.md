@@ -2,8 +2,9 @@
 
 **The safe place for your agents' keys.** An agent asks to act in a vendor
 account (Stripe, Shopify, Gmail, any API). The owner approves on their own
-phone, seeing exactly what will be granted. The vendor's keys stay in the
-planque, in Europe or on the owner's own servers. Every call is made only
+phone, seeing exactly what will be granted. Direct connections keep vendor keys in planque, in Europe or on the owner's
+own servers. Optional managed connections keep vendor credentials at the
+configured connection provider. Every call is made only
 with a permit for that exact call.
 
 *Planque* is French slang for a safe hiding place.
@@ -42,12 +43,18 @@ contains no account, grant or credential data.
    example from KIFF, RFC 046), then calls the vendor itself. The agent never
    receives a token.
 
+An optional [managed connection provider](docs/managed-connectors.md) adds
+paginated app discovery and hosted authentication without an app-specific
+adapter for every vendor. The first provider is Composio. The same device
+approval, exact-call permits and once-only relay govern each selected action.
+
 ## Two ways to run it
 
 - **Hosted:** we run it in the EU (AWS eu-west-1 to start). The owner runs
   nothing.
-- **Self-hosted:** one container, on any cloud or server. For full
-  sovereignty, the keys never leave the owner.
+- **Self-hosted:** one container, on any cloud or server. Direct connections
+  keep credentials on the owner's infrastructure; managed connections use
+  the configured provider's credential custody.
 
 It's the same code either way.
 
@@ -79,8 +86,8 @@ It's the same code either way.
 | `POST /v1/accounts/{tenant}/grants/{id}/tools` | the agent that asked, body `{"tools": […]}` | sets a listed grant's tools, from its catalog; new text and digest, `pending` again. A tool name another of the account's connections holds (at any step but failed or disconnected) is refused (409), so the agent names it anew before the owner approves; a tool left unnamed gets planque's per-grant name |
 | `POST /v1/accounts/{tenant}/grants/{id}/tools` on a **connected** grant | the agent that asked, body `{"tools": […]}`: only the tools to add | adds them to what it has (kiff/tafs#138): `pending` with the sign-in held, and the owner's text says what's added and that its tools keep working meanwhile. They do: the relay serves the grant's connected tools until the owner approves, which needs **no second sign-in** and registers only the added tools in KIFF, with a transport credential of their own. Not approved within a day, or refused by KIFF, the addition goes and the grant stays connected with what it had. A tool it already has is refused (409) |
 | `GET /v1/accounts/{tenant}/agents/{agent}/grants` | the agent that asked | the grants it asked for that agent, not failed or disconnected: id, vendor, server, status, account and tools, so Setup, improving a taf, adds to the connection the taf has instead of asking for another |
-| `GET /v1/accounts/{tenant}/catalog?q=…` | a bearer KIFF key for the account | searches installed reviewed entries and returns this account’s connection state; see [catalog configuration](docs/connections.md#reviewed-vendor-catalog) |
-| `POST /v1/accounts/{tenant}/catalog/{entry}/grants` | a bearer KIFF key, body `{"agent": …}` | requests the entry’s reviewed tools and profile for the taf, with names allocated before approval; returns `{grant, needs_key}`, with no sign-in link before device approval |
+| `GET /v1/accounts/{tenant}/catalog?q=…` | a bearer KIFF key for the account | searches configured entries and optional provider catalogs, with pagination and this account’s connection state; see [catalog configuration](docs/connections.md#reviewed-vendor-catalog) |
+| `POST /v1/accounts/{tenant}/catalog/{entry}/grants` | a bearer KIFF key, body `{"agent": …}` | requests reviewed entry tools or a managed app sign-in for the taf, with names allocated before approval; returns `{grant, needs_key}`, with no sign-in link before device approval |
 | `GET /v1/accounts/{tenant}/asked-grants` | the agent that asked | every grant it asked for, for any taf's agent, each with its agent and when it was asked: so Setup that lost a taf's agent id finds its connection again instead of asking for another |
 | `POST /v1/accounts/{tenant}/grants/{id}/approve` | the phone, signed, body `{"digest": …}` | the owner's approval of exactly that request; returns the vendor's own sign-in link. For tools set on a grant whose sign-in is held, it connects at once, with no link. On a `needs_reconnect` grant, the same digest signed again returns a new sign-in link: the reconnect (below) |
 | `POST /v1/accounts/{tenant}/grants` with `"kind": "api_key"` | an agent, with its KIFF key | a vendor with a REST API and no MCP server (kiff/planque#64). `api`: `{"url": its OpenAPI description, "auth": {"in": "header"\|"query", "name", "prefix"?}, "base"?}`. planque reads the description once (JSON, OpenAPI 3.0 or 3.1, at most 16 MB and 500 operations per snapshot; `api.operations` may select a subset from a larger catalog) and keeps it as the grant's snapshot: the owner signs its SHA-256 with the server and where the key goes, and every call uses the snapshot, whatever the URL serves later. Refused, with the reason: YAML, external `$ref`s, servers set per path or operation, an operation secured otherwise than the key, callbacks and links, and any way of sending the key but a header or the query. Each operation is a tool (its `operationId`, else its method and path), with its path, query and JSON body as arguments; `GET`/`HEAD` are reads. A vendor's refusal is never taken as evidence that nothing happened: the call stays counted in KIFF |

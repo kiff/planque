@@ -430,6 +430,9 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 }
 
 func connectionText(q Request, held bool, account string, catalog ...CatalogTool) string {
+	if q.Connector != nil {
+		return connectorText(q)
+	}
 	if q.Kind == KindAPIKey {
 		return apiKeyText(q, held, account, catalog...)
 	}
@@ -717,6 +720,10 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant's deadline passed: its sign-in is being revoked")
 		return
 	}
+	if g.Request.Connector != nil {
+		s.connectorCatalog(w, r, g)
+		return
+	}
 	if len(g.Catalog) == 0 || g.Status == StatusFailed || g.Status == StatusDisconnected {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
@@ -774,7 +781,13 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
-	if len(g.Catalog) == 0 {
+	if g.Request.Connector != nil {
+		if err := s.selectConnectorTools(r.Context(), g, req.Tools); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if g.Request.Connector == nil && len(g.Catalog) == 0 {
 		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it has no catalog to choose from; connect first (request with no tools)")
 		return
 	}
@@ -792,6 +805,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := append(slices.Clone(has), req.Tools...)
+	if g.Request.Connector != nil && len(req.Profile) == 0 {
+		writeErr(w, http.StatusBadRequest, "a connector connection requires an owner-approved profile")
+		return
+	}
 	if req.Profile, err = profileFields(req.Profile, all); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -864,6 +881,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	if adding && g.Status == StatusConnected {
 		g.ConnectedProfile = slices.Clone(g.Request.Profile)
 	}
+	if g.Request.Connector != nil {
+		if err := bindConnectorTools(g, all); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	g.Request.Profile = req.Profile
 	if !adding {
 		g.Request.Tools = req.Tools
@@ -908,6 +931,12 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		was := *g
 		g.Request.Tools, g.Connected = g.Connected, nil
 		g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
+		if g.Request.Connector != nil {
+			if err := bindConnectorTools(g, g.Request.Tools); err != nil {
+				*g = was
+				return false, err
+			}
+		}
 		g.Text = requestText(g.Request, true, g.Account, g.Catalog...)
 		if g.Digest, err = digest(g.Request); err != nil {
 			*g = was
@@ -924,6 +953,8 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
 	switch {
+	case g.Request.Connector != nil && g.Status == StatusApproved && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil):
+		reason = "the sign-in deadline passed; the connector was disabled"
 	case held && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil):
 		reason = "its tools were not approved within a day; the sign-in was revoked"
 	case g.Status == StatusSignedIn && g.Reconnect && s.now().After(g.ConfirmBy):
@@ -949,6 +980,9 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	if err := s.revokeNow(ctx, g); err != nil {
 		return false, err
 	}
+	if g.Request.Connector != nil {
+		reason = "the connection deadline passed; provider access is disabled and upstream credential revocation is pending"
+	}
 	was := *g
 	g.HeldUntil, g.ConfirmHash, g.ConfirmBy = time.Time{}, "", time.Time{}
 	g.Status, g.Reason = StatusFailed, reason
@@ -966,6 +1000,9 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 // so revoking can be tried again: dropping it would leave it live at the
 // vendor with no way to revoke it.
 func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
+	if g.Request.Connector != nil {
+		return s.revokeConnector(ctx, g)
+	}
 	// A reused sign-in is the other grant's to revoke; a key has no
 	// revocation at the vendor, so it's deleted here (kiff/planque#64).
 	if g.TokenOf != "" {
@@ -1051,6 +1088,10 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 
+	if g.Request.Connector != nil {
+		s.approveConnector(w, r, sr, g)
+		return
+	}
 	if g.SignedIn && g.Status == StatusPending {
 		// Tools set on a grant whose sign-in is held: approving them
 		// connects at once, with no second sign-in.
@@ -1320,6 +1361,19 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 	}
 	g.ConfirmHash, g.ConfirmBy = "", time.Time{}
 	g.event(s.now(), "sign-in confirmed "+sr.approval.Who())
+	if g.Request.Connector != nil {
+		if err := s.checkConnector(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		g.SignedIn = true
+		if err := s.list(r.Context(), g, ""); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.view(g))
+		return
+	}
 	tok, _, err := s.openToken(r.Context(), g)
 	if err != nil {
 		s.fail(w, r, err)
@@ -1467,6 +1521,18 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 		title = label(listed[i].Label())
 	}
 	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+	if g.Request.Connector != nil {
+		for _, definition := range g.Request.Connector.Tools {
+			if definition.Alias() == t.Tool {
+				copy := definition
+				gt.Connector = &copy
+				break
+			}
+		}
+		if gt.Connector == nil {
+			return GrantedTool{}, "the connector tool is not in the approved snapshot"
+		}
+	}
 	if err := profileVendorSchema(g, t.Name, listed[i].InputSchema); err != nil {
 		return GrantedTool{}, err.Error()
 	}
@@ -1602,6 +1668,15 @@ func accountNote(a string) string {
 // here, whatever the vendor answers. It returns what the vendor did not
 // confirm.
 func (s *Server) revoke(ctx context.Context, g *Grant) []string {
+	if g.Request.Connector != nil {
+		if err := s.revokeConnector(ctx, g); err != nil {
+			return []string{err.Error()}
+		}
+		if g.Connector != nil && g.Connector.Revocation != nil && g.Connector.Revocation.Pending {
+			return []string{"the connection is disabled; upstream credential revocation is pending"}
+		}
+		return nil
+	}
 	var problems []string
 	if g.TokenOf != "" {
 		return nil // the other grant's sign-in: it stays

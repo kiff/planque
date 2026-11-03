@@ -15,6 +15,7 @@
 //	KIFF_GATEWAY       default https://mcp.kiff.dev
 //	KIFF_ISSUER        the permit issuer, default KIFF_API
 //	KIFF_JWKS_URL      default KIFF_ISSUER/.well-known/kiff-permit-keys.json
+//	PLANQUE_COMPOSIO_SECRET optional Secrets Manager reference for {api_key}
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
 //	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
@@ -35,6 +36,8 @@ import (
 	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/awsapi"
+	"github.com/kiff/planque/internal/connector"
+	"github.com/kiff/planque/internal/connector/composio"
 	"github.com/kiff/planque/internal/egress"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/lambda"
@@ -129,12 +132,17 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	// they are reached only at public addresses.
 	hc := &http.Client{Timeout: 30 * time.Second}
 	vendors := egress.Client(30 * time.Second)
+	connectors := map[string]connector.Provider{}
+	if reference := strings.TrimSpace(os.Getenv("PLANQUE_COMPOSIO_SECRET")); reference != "" {
+		connectors["composio"] = &composio.Client{HTTP: vendors, Secret: composio.SecretFromStore(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, reference)}
+	}
 	return &planque.Server{
-		BaseURL:   base,
-		AppReturn: appReturn,
-		KV:        kv,
-		Sealer:    sealer,
-		KIFF:      &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
+		Connectors: connectors,
+		BaseURL:    base,
+		AppReturn:  appReturn,
+		KV:         kv,
+		Sealer:     sealer,
+		KIFF:       &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
 		OAuth:                  &oauth.Client{HTTP: vendors},

@@ -31,6 +31,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- An optional Composio connection provider reuses upstream app discovery and
+  hosted authentication. Device-approved grants pin each selected account,
+  concrete tool version and schema; exact-call permits and once-only operation
+  records govern execution. Discovery is paginated, project credentials are
+  resolved server-side, and disconnect distinguishes disabled access from
+  pending upstream credential revocation.
+
 - Reviewed REST definitions can name a version header. Profile approval pins
   its value in the grant and every request; callers cannot replace the header
   definition or overwrite authentication with it.

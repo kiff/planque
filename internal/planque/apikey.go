@@ -197,6 +197,8 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 		return nil, "", err
 	}
 	switch {
+	case g.Request.Connector != nil:
+		return nil, "request a new connector grant or add tools to this connection", nil
 	case g.Status != StatusConnected || !g.SignedIn:
 		return nil, "connection " + id + " isn't connected now (" + g.Status + "), so its sign-in can't be reused: ask for a new one", nil
 	case kind != "" && kind != g.Request.Kind:
@@ -213,6 +215,9 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 // vendorTools are the tools g's vendor offers, as an MCP server lists them:
 // listed by its MCP server, or read from an API-key grant's snapshot.
 func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mcpTool, mcp.Server, error) {
+	if g.Request.Connector != nil {
+		return s.connectorTools(ctx, g)
+	}
 	if g.Request.API == nil {
 		return s.MCP.ListTools(ctx, g.Request.Server, access)
 	}

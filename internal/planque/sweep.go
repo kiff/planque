@@ -44,6 +44,9 @@ func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
 // deadline is when g must be confirmed (a sign-in) or its tools approved (a
 // held sign-in), as expire reads them; zero when it has none.
 func (g *Grant) deadline() time.Time {
+	if g.Request.Connector != nil && g.Status == StatusApproved {
+		return g.HeldUntil
+	}
 	if g.Status == StatusSignedIn && !g.ConfirmBy.IsZero() {
 		return g.ConfirmBy
 	}

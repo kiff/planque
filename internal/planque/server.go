@@ -22,6 +22,7 @@ import (
 
 	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/appcredentials"
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
@@ -53,6 +54,7 @@ type Server struct {
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries         map[string]CatalogEntry
+	Connectors             map[string]connector.Provider
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger
@@ -120,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/finish", s.finishDeletion)
 	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
+	mux.HandleFunc("GET /connectors/callback", s.connectorCallback)
 	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux

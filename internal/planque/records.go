@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
@@ -103,8 +104,9 @@ type Request struct {
 	Application *ApplicationApproval `json:"application,omitempty"`
 	// Profile is the exact public profile the device approves. Keeping the
 	// original JSON preserves the same canonical digest the phone checks.
-	Profile      json.RawMessage `json:"profile,omitempty"`
-	CatalogEntry string          `json:"catalog_entry,omitempty"`
+	Profile      json.RawMessage   `json:"profile,omitempty"`
+	CatalogEntry string            `json:"catalog_entry,omitempty"`
+	Connector    *ConnectorRequest `json:"connector,omitempty"`
 }
 
 // APIRequest is the API an API-key grant calls.
@@ -168,6 +170,7 @@ type GrantedTool struct {
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	Connector   *connector.Tool `json:"connector,omitempty"`
 }
 
 // CatalogTool is one tool the vendor's server lists: its own words and
@@ -261,6 +264,7 @@ type Grant struct {
 	// ProfileRevision is KIFF's accepted revision, never the proposing key's
 	// assertion that an approval applied.
 	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
+	Connector       *ConnectorState       `json:"connector,omitempty"`
 	// ConfirmHash is the SHA-256 of the code the vendor sign-in handed to
 	// the browser that completed it; the approving phone presents it to
 	// confirm, by ConfirmBy.

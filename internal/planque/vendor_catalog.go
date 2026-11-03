@@ -141,8 +141,8 @@ type catalogEntryView struct {
 	Grant  string `json:"grant,omitempty"`
 }
 
-// vendorCatalog reads only this account's connection state. It neither
-// contacts a vendor nor returns another account's grant or approval data.
+// vendorCatalog combines configured entries with paginated provider discovery.
+// Connection state is read only for the authenticated account.
 func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
 	if _, err := s.agentKey(r, tenant); err != nil {
@@ -191,8 +191,41 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, v)
 	}
+	providerID := r.URL.Query().Get("provider")
+	if providerID == "" {
+		ids := make([]string, 0, len(s.Connectors))
+		for id := range s.Connectors {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if len(ids) > 0 {
+			providerID = ids[0]
+		}
+	}
+	next := ""
+	if providerID != "" {
+		provider := s.Connectors[providerID]
+		if provider == nil {
+			writeErr(w, http.StatusBadRequest, "no such catalog provider")
+			return
+		}
+		page, err := provider.Catalog(r.Context(), r.URL.Query().Get("q"), r.URL.Query().Get("cursor"))
+		if err != nil {
+			writeErr(w, http.StatusServiceUnavailable, "the connection catalog is unavailable")
+			return
+		}
+		next = page.Next
+		for _, app := range page.Items {
+			id := "connector:" + providerID + ":" + app.Slug
+			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
+			if state, ok := states[id]; ok {
+				v.State, v.Grant = state.State, state.Grant
+			}
+			entries = append(entries, v)
+		}
+	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next})
 }
 
 func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +237,10 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("entry")
 	entry, ok := s.CatalogEntries[id]
 	if !ok {
+		if provider, toolkit, match := connectorEntry(id); match {
+			s.requestConnectorGrant(w, r, provider, toolkit)
+			return
+		}
 		writeErr(w, http.StatusNotFound, "no such catalog entry")
 		return
 	}

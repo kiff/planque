@@ -212,6 +212,10 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 	}
 
+	if g.Request.Connector != nil {
+		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
+		return s.finish(ctx, claim, op, state, res)
+	}
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: "+err.Error(), true))

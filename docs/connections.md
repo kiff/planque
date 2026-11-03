@@ -173,7 +173,9 @@ The full snapshot is still frozen and signed with the grant.
 Both catalog endpoints require a bearer KIFF key for the account:
 
 - `GET /v1/accounts/{tenant}/catalog?q=...` searches vendor names and titles,
-  without contacting a vendor. It returns `{entries, by_key: true}`. Each
+  without calling a vendor business action. Optional managed discovery contacts
+  the configured connection provider. It returns `{entries, by_key: true}`
+  and provider pagination when configured. Each
   entry has `entry`, `vendor`, `title`, optional `icon`, `how` (`oauth` or
   `key`), `state` (`available`, `connected` or `needs_reconnect`) and, for an
   active connection, `grant`. State comes only from that account's grants.
@@ -184,7 +186,9 @@ Both catalog endpoints require a bearer KIFF key for the account:
   request creates no sign-in link and grants no tools. The existing signed
   approval or key flow, including KIFF's profile and words digests, follows.
 
-The catalog starts empty when no file is configured. Installing definitions
+The catalog starts empty when neither a file nor a managed provider is configured.
+Optional [managed connections](managed-connectors.md) add paginated upstream app
+and tool discovery with their own credential custody and device-approved grants. Installing definitions
 alone does not establish live vendor evidence; each supported entry needs
 reviewed vendor documentation and a measured connection with test accounts.
 
