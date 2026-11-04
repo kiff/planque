@@ -18,28 +18,29 @@ import (
 // latest halt even once resumed, whatever the permit's lifetime. When KIFF
 // can't say, it refuses: a halt is never assumed lifted.
 
-// haltRefusal is why nothing may be sent for agent of tenant now, or "".
-// issued is the permit's issue time; zero for a send with no permit.
-func (s *Server) haltRefusal(ctx context.Context, tenant, agent string, issued time.Time) string {
+// haltRefusal is why nothing may be sent for agent of tenant now, with its
+// refusal code, or "". issued is the permit's issue time; zero for a send
+// with no permit.
+func (s *Server) haltRefusal(ctx context.Context, tenant, agent string, issued time.Time) (code, why string) {
 	key, err := s.connectorKey(ctx, tenant)
 	if err != nil {
 		// Its own enrolment unread or unsealed: KIFF was never asked. Logged
 		// so the refusal names its reason, as KIFF's own answer does below.
 		s.log().WarnContext(ctx, "halt unknown: the connector key couldn't be read; refusing", slog.String("tenant", tenant), slog.String("agent", agent), slog.String("err", err.Error()))
-		return "planque couldn't check whether the owner halted this agent"
+		return CodeHaltUnknown, "planque couldn't check whether the owner halted this agent"
 	}
 	h, err := s.KIFF.HaltOf(ctx, key, agent)
 	if err != nil {
 		s.log().WarnContext(ctx, "halt unknown; refusing", slog.String("tenant", tenant), slog.String("agent", agent), slog.String("err", err.Error()))
-		return "planque couldn't check whether the owner halted this agent"
+		return CodeHaltUnknown, "planque couldn't check whether the owner halted this agent"
 	}
 	if h.Halted {
-		return "the owner halted this agent, or the whole account"
+		return CodeHalted, "the owner halted this agent, or the whole account"
 	}
 	if h.HaltedAt != nil && !issued.IsZero() && !issued.After(*h.HaltedAt) {
-		return "this permit was issued before the owner's halt"
+		return CodeHaltedBefore, "this permit was issued before the owner's halt"
 	}
-	return ""
+	return "", ""
 }
 
 // confirmHalt is KIFF asking planque to confirm a halt: planque reads it back
