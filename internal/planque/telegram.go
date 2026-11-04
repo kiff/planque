@@ -109,6 +109,12 @@ type TelegramBot struct {
 	Hook string `json:"hook"`
 }
 
+// telegramBotView is the bot as a grant's view shows it.
+type telegramBotView struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+}
+
 // telegramHook is one webhook's record: whose it is, and its secret, sealed.
 type telegramHook struct {
 	Tenant string `json:"tenant"`

@@ -150,8 +150,14 @@ func TestATelegramBotEndToEnd(t *testing.T) {
 	if hooks, _ := e.kv.Query(context.Background(), telegramHookPK, ""); len(hooks) != 0 || f.hookURL != "" {
 		t.Fatal("a refused token left a webhook")
 	}
-	if st, out := e.giveKey(id, digest, f.token); st != 200 || out["status"] != StatusListed {
+	st, out = e.giveKey(id, digest, f.token)
+	if st != 200 || out["status"] != StatusListed {
 		t.Fatalf("token: %d %v", st, out)
+	}
+	// The view says it's a Telegram bot, and which, never its webhook.
+	if bot, _ := out["telegram"].(map[string]any); out["provider"] != "telegram" || out["entry"] != "api:telegram" || bot["username"] != "shop_help_bot" ||
+		bot["id"] != float64(777) || bot["hook"] != nil || strings.Contains(mustJSONString(out), "/telegram/") {
+		t.Fatalf("view: %v", out)
 	}
 	if !strings.HasPrefix(f.hookURL, e.url+"/telegram/") || len(f.secret) < 20 {
 		t.Fatalf("webhook: %q", f.hookURL)

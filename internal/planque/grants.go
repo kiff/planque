@@ -603,6 +603,9 @@ type grantView struct {
 	// is without reading the request.
 	Entry    string `json:"entry,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Telegram is a Telegram grant's bot, once its token is given: its @name
+	// for the door, never its webhook.
+	Telegram *telegramBotView `json:"telegram,omitempty"`
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
@@ -643,6 +646,16 @@ func (s *Server) view(g *Grant) grantView {
 		v.Provider = c.Provider
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
+		}
+	}
+	if isTelegram(g) {
+		// An app knows a Telegram bot by these, not by planque's description URL.
+		v.Provider = "telegram"
+		if v.Entry == "" {
+			v.Entry = "api:telegram"
+		}
+		if b := g.Telegram; b != nil {
+			v.Telegram = &telegramBotView{ID: b.ID, Username: b.Username}
 		}
 	}
 	for _, t := range g.Tools {
