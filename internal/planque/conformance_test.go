@@ -173,13 +173,21 @@ func TestConformanceEveryKindKeepsItsGrantToItsAccount(t *testing.T) {
 			e, g, tool, args, sent := kind.connect(t)
 			before := sent()
 			at := "/v1/accounts/" + tenant + "/grants/" + g.ID
-			for _, c := range []struct{ method, path string }{
-				{"GET", at}, {"GET", at + "/catalog"}, {"POST", at + "/tools"}, {"DELETE", at},
-				{"GET", "/v1/accounts/" + tenant + "/grants"},
-				{"GET", "/v1/accounts/tnt_other/grants/" + g.ID},
+			// k_other is a valid key for another account. A route a key may
+			// use refuses it for this grant (403/404); a route that takes
+			// only the owner's device signature answers 401 to any key. A
+			// 401 elsewhere would mean the key wasn't read at all, and the
+			// test would pass on a broken fixture.
+			for _, c := range []struct {
+				method, path string
+				deviceOnly   bool
+			}{
+				{"GET", at, false}, {"GET", at + "/catalog", false}, {"POST", at + "/tools", false}, {"DELETE", at, true},
+				{"GET", "/v1/accounts/" + tenant + "/grants", true},
+				{"GET", "/v1/accounts/tnt_other/grants/" + g.ID, false},
 			} {
 				st, out := e.do(c.method, c.path, map[string]any{"tools": []any{map[string]any{"tool": tool}}}, nil, "k_other")
-				if st != 401 && st != 403 && st != 404 {
+				if c.deviceOnly && st != 401 || !c.deviceOnly && st != 403 && st != 404 {
 					t.Errorf("another account's %s %s: %d %v", c.method, c.path, st, out)
 				}
 				if b, _ := json.Marshal(out); strings.Contains(string(b), g.ID) || strings.Contains(string(b), tool) {
