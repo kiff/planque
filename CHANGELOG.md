@@ -5,6 +5,17 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Added
+
+- A Telegram bot as a connection: an API-key grant whose `api.url` is
+  `https://core.telegram.org/bots/api`. The bot's token is checked with
+  Telegram before it is kept, and planque sets the bot's webhook with a
+  secret of its own. People's text messages to the bot (private chats, and
+  group messages that mention it) go to tafs as `planque.door.v1` with
+  `"app": "telegram"`, once per update. The taf answers with `send_message`,
+  a governed call that splits text over 4,096 characters. Disconnecting
+  deletes the webhook.
+
 ### Fixed
 
 - A connection an account key asked for (an app's own Connect apps screen)

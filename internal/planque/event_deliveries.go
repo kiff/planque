@@ -117,29 +117,13 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 		id = message.ID
 		body, _ = json.Marshal(message)
 	}
-	key := store.Item{PK: deliveryPK, SK: id, Ver: 1, TTL: s.now().Add(7 * 24 * time.Hour).Unix()}
-	sealed, err := s.Sealer.Seal(r.Context(), body, sealContext(kind, id))
+	retry, err := s.enqueueDoor(r.Context(), g, provider, route.ID, id, kind, body)
 	clear(body)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	record := eventDelivery{Tenant: g.Tenant, Grant: g.ID, Provider: provider, Trigger: route.ID, Sealed: sealed, State: "pending", Kind: kind}
-	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: "DOOR_EVENT#" + id, TTL: key.TTL}, map[string]string{"event": id}, store.Cond{}); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	stamp, _ := json.Marshal(pendingStamp{At: s.now().UnixMilli()})
-	if err := s.KV.Put(r.Context(), store.Item{PK: pendingEventsPK, SK: id, Doc: stamp, TTL: key.TTL}, store.Cond{}); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	if err := putDoc(r.Context(), s.KV, key, record, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
-		s.fail(w, r, err)
-		return
-	}
-	retry, err := s.deliverEvent(r.Context(), key.SK)
-	if err != nil || retry {
+	if retry {
 		writeErr(w, 503, "the event is pending delivery")
 		return
 	}
@@ -148,8 +132,8 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 
 // sealContext binds a sealed delivery to its kind and id.
 func sealContext(kind, id string) map[string]string {
-	if kind == "app_event" {
-		return map[string]string{"kind": "app_event", "id": id}
+	if kind == "app_event" || kind == "telegram" {
+		return map[string]string{"kind": kind, "id": id}
 	}
 	return map[string]string{"kind": "door_event", "id": id}
 }
@@ -222,10 +206,16 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 		return true, err
 	}
 	var route triggerRecord
-	if _, err := getDoc(ctx, s.KV, triggerPK(delivery.Provider, delivery.Trigger), "-", &route); err != nil {
+	closed := false
+	if delivery.Kind == "telegram" {
+		// A Telegram door's route is its grant's current hook.
+		closed = s.telegramClosed(g, delivery.Trigger)
+	} else if _, err := getDoc(ctx, s.KV, triggerPK(delivery.Provider, delivery.Trigger), "-", &route); err != nil {
 		return true, err
+	} else {
+		closed = !route.Active || route.Tenant != g.Tenant || route.Grant != g.ID || g.Status == StatusDisconnected || g.Status == StatusFailed || g.Status == StatusNeedsReconnect || !g.SignedIn || s.overdue(g)
 	}
-	if !route.Active || route.Tenant != g.Tenant || route.Grant != g.ID || g.Status == StatusDisconnected || g.Status == StatusFailed || g.Status == StatusNeedsReconnect || !g.SignedIn || s.overdue(g) {
+	if closed {
 		delivery.State = "dropped"
 		delivery.Sealed = nil
 		it.Ver++
@@ -251,8 +241,11 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 	defer clear(cleartext)
 	var message door.Message
 	var app door.AppEvent
+	var tg door.TelegramMessage
 	var valid bool
-	if delivery.Kind == "app_event" {
+	if delivery.Kind == "telegram" {
+		valid = json.Unmarshal(cleartext, &tg) == nil && tg.ID == id && tg.Tenant == g.Tenant && tg.Agent == g.Request.Agent && tg.Grant == g.ID
+	} else if delivery.Kind == "app_event" {
 		valid = json.Unmarshal(cleartext, &app) == nil && app.ID == id && app.Tenant == g.Tenant && app.Agent == g.Request.Agent && app.Account == route.Account && app.Subscription == route.ID && route.AppEvent
 	} else {
 		valid = json.Unmarshal(cleartext, &message) == nil && message.ID == id && message.Tenant == g.Tenant && message.Agent == g.Request.Agent && message.Account == route.Account && message.Trigger == route.ID && slices.Contains(route.Channels, message.Channel)
@@ -270,10 +263,12 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	result := door.Result{Retry: true}
-	switch {
+	switch tgSink, _ := s.DoorSink.(door.TelegramSink); {
+	case delivery.Kind == "telegram" && tgSink != nil:
+		result, err = tgSink.DeliverTelegram(ctx, tg)
 	case delivery.Kind == "app_event" && s.EventSink != nil:
 		result, err = s.EventSink.DeliverEvent(ctx, app)
-	case delivery.Kind != "app_event" && s.DoorSink != nil:
+	case delivery.Kind == "" && s.DoorSink != nil:
 		result, err = s.DoorSink.Deliver(ctx, message)
 	}
 	if err != nil {

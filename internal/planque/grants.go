@@ -503,6 +503,9 @@ func toolLines(q Request, held bool, account string, catalog ...CatalogTool) str
 // apiKeyText is what the owner reads for an API-key grant: the key they give
 // and where it goes, the API as it was read, and the tools.
 func apiKeyText(q Request, held bool, account string, catalog ...CatalogTool) string {
+	if q.API.URL == TelegramDescription {
+		return telegramText(q, held, account, catalog...)
+	}
 	where := "in the " + q.API.Auth.Name + " header"
 	if q.API.Auth.In == "query" {
 		where = "as the " + q.API.Auth.Name + " query parameter"
@@ -600,6 +603,9 @@ type grantView struct {
 	// is without reading the request.
 	Entry    string `json:"entry,omitempty"`
 	Provider string `json:"provider,omitempty"`
+	// Telegram is a Telegram grant's bot, once its token is given: its @name
+	// for the door, never its webhook.
+	Telegram *telegramBotView `json:"telegram,omitempty"`
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
@@ -640,6 +646,16 @@ func (s *Server) view(g *Grant) grantView {
 		v.Provider = c.Provider
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
+		}
+	}
+	if isTelegram(g) {
+		// An app knows a Telegram bot by these, not by planque's description URL.
+		v.Provider = "telegram"
+		if v.Entry == "" {
+			v.Entry = "api:telegram"
+		}
+		if b := g.Telegram; b != nil {
+			v.Telegram = &telegramBotView{ID: b.ID, Username: b.Username}
 		}
 	}
 	for _, t := range g.Tools {
@@ -1704,6 +1720,8 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	if g.TokenOf != "" {
 		return nil // the other grant's sign-in: it stays
 	}
+	// A Telegram bot's webhook goes while its token can still delete it.
+	problems = append(problems, s.dropTelegramHook(ctx, g)...)
 	if tok, _, err := s.openToken(ctx, g); err == nil && g.Request.Kind != KindAPIKey {
 		for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 			if t.tok == "" {

@@ -50,6 +50,44 @@ locations, argument schema and request-body form. Descriptions and titles
 are excluded. Argument names, including an argument named `description`,
 and schema constants remain part of the fingerprint.
 
+## Telegram bots
+
+A Telegram bot connects as an API-key grant with planque's own description of
+the Bot API, so nothing is fetched:
+
+```json
+{"kind": "api_key", "agent": "support", "tools": [], "api": {"url": "https://core.telegram.org/bots/api"}}
+```
+
+The key is the bot's token from BotFather. Before keeping it, planque calls
+`getMe`, and a token Telegram refuses keeps nothing. planque then calls
+`setWebhook` with an opaque per-grant URL (`/telegram/{hook}`), a random
+secret token and `allowed_updates: ["message"]`. Telegram keeps one webhook
+per bot, so the newest grant for a bot receives its messages.
+
+Each delivery must carry the secret in `X-Telegram-Bot-Api-Secret-Token`,
+compared before the body is read. A missing or wrong secret is answered 401.
+planque hands over a person's text in a private chat with the bot, or a group
+message whose entities mention it, as a door message:
+
+```json
+{"v": "planque.door.v1", "app": "telegram", "id": "evt_…", "tenant": "…", "agent": "…",
+ "grant": "…", "provider": "telegram", "chat": "-100200300", "sender": "5001",
+ "thread": "77", "message_id": "42", "name": "Ana Ruiz", "text": "…", "timestamp": 1800000000}
+```
+
+Ids are numeric strings, and a username is never a key. `thread` is present
+only in a forum topic. The id is derived from the grant and the update's
+`update_id`, so a redelivered update reaches tafs once. Every other update
+is answered 200 and dropped, so Telegram does not retry it.
+
+`send_message` takes `chat_id`, `text`, and optionally `message_thread_id`
+and `reply_to_message_id`. Text over 4,096 characters (UTF-16 code units) is
+sent as several messages, cut at a line break or space where possible, with
+the reply on the first part. If a later part fails, the result says how many
+parts were sent. Disconnecting the grant calls `deleteWebhook` before the
+token is deleted.
+
 ## Registered OAuth clients
 
 The OAuth transport supports a configured public client, `client_secret_post`,

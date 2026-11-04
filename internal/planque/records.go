@@ -288,7 +288,9 @@ type Grant struct {
 	// asked for with reuse: its token is that grant's, never a copy, so a
 	// refresh happens once for both. Cleared when that sign-in is gone.
 	TokenOf string `json:"token_of,omitempty"`
-	ver     int64
+	// Telegram is the bot a Telegram grant's token is, and its webhook.
+	Telegram *TelegramBot `json:"telegram,omitempty"`
+	ver      int64
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.
