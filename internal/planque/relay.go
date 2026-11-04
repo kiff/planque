@@ -44,6 +44,30 @@ func toolResult(text string, isError bool) map[string]any {
 	return map[string]any{"content": []map[string]string{{"type": "text", "text": text}}, "isError": isError}
 }
 
+// The codes a relayed call is refused with, before anything is sent: stable,
+// for KIFF and the apps to say who refused and why without reading the text.
+const (
+	CodeNotGranted        = "not_granted"         // the grant doesn't include the tool
+	CodePermitInvalid     = "permit_invalid"      // the permit doesn't verify for this call
+	CodePermitExpired     = "permit_expired"      // the permit expired before the call left
+	CodeHaltUnknown       = "halt_unknown"        // the owner's halt couldn't be checked
+	CodeHalted            = "halted"              // the agent or its account is halted
+	CodeHaltedBefore      = "halted_before"       // the permit was issued before the latest halt
+	CodeBadArguments      = "bad_arguments"       // the arguments aren't a JSON object
+	CodeRecordUnavailable = "record_unavailable"  // the operation's record couldn't be read or written
+	CodeProfileNotApplied = "profile_not_applied" // KIFF hasn't applied the owner-approved profile
+	CodeDefinitionInvalid = "definition_invalid"  // the action names a field its operation doesn't take
+	CodeDefinitionUnread  = "definition_unread"   // the operation's fields couldn't be read to check the action
+)
+
+// refusal is a call refused by planque before anything was sent: its text,
+// and in structuredContent who refused it, its code, and that nothing went.
+func refusal(code, text string) map[string]any {
+	r := toolResult(text, true)
+	r["structuredContent"] = map[string]any{"refused_by": "connection", "code": code, "sent": false}
+	return r
+}
+
 // relay is planque's MCP endpoint for one grant, which KIFF's gateway
 // calls in relay mode. It is stateless and speaks the 2025 revisions;
 // the gateway's server/discover gets "method not found", which tells it
@@ -142,13 +166,13 @@ func relayTools(g *Grant) []mcp.Tool {
 // call runs one tools/call: the permit first, then the operation's
 // record, then the vendor, at most once per op (RFC 046 D5).
 func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMessage, token string) any {
-	refused := func(why string) any {
-		s.log().InfoContext(ctx, "call refused", slog.String("grant", g.ID), slog.String("tool", name), slog.String("why", why))
-		return toolResult("Refused by planque: "+why+". Nothing was sent to "+hostOf(g.Request.Server)+".", true)
+	refused := func(code, why string) any {
+		s.log().InfoContext(ctx, "call refused", slog.String("grant", g.ID), slog.String("tool", name), slog.String("code", code), slog.String("why", why))
+		return refusal(code, "Refused by planque: "+why+". Nothing was sent to "+hostOf(g.Request.Server)+".")
 	}
 	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name })
 	if i < 0 {
-		return refused("this grant does not include " + name)
+		return refused(CodeNotGranted, "this grant does not include "+name)
 	}
 	tool := g.Tools[i]
 	if len(raw) == 0 {
@@ -156,34 +180,40 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	p, err := s.Permits.Verify(ctx, token, permit.Want{Audience: g.Audience, Tenant: g.Tenant, Tool: name, Args: raw})
 	if err != nil {
-		return refused(err.Error())
+		return refused(CodePermitInvalid, err.Error())
 	}
 	// The owner's halt, asked of KIFF before anything is sent (kiff-cloud#1061).
-	if why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
-		return refused(why)
+	if code, why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
+		return refused(code, why)
+	}
+	// A narrowed write defined before planque checked its fields is checked
+	// once, here, so an action naming a field its operation doesn't take is
+	// refused by planque, not sent for the vendor to reject on every call.
+	if code, why := s.fieldsHold(ctx, g, i); why != "" {
+		return refused(code, why)
 	}
 	var args map[string]any
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if dec.Decode(&args) != nil {
-		return refused("the arguments are not a JSON object")
+		return refused(CodeBadArguments, "the arguments are not a JSON object")
 	}
 	if op, _ := args[IdempotencyArg].(string); op != p.Op {
-		return refused("the permit's operation is not this call's " + IdempotencyArg)
+		return refused(CodePermitInvalid, "the permit's operation is not this call's "+IdempotencyArg)
 	}
 	key := store.Item{PK: tenantPK(g.Tenant), SK: skOp(g.ID, p.Op)}
 	var prev operation
 	if it, err := getDoc(ctx, s.KV, key.PK, key.SK, &prev); err == nil {
 		return s.recorded(ctx, g, it, prev, p)
 	} else if !errors.Is(err, errNotFound) {
-		return refused("planque could not read the operation's record")
+		return refused(CodeRecordUnavailable, "planque could not read the operation's record")
 	}
 	if !profileReady(g) {
-		return refused("the owner-approved profile has not been applied by KIFF")
+		return refused(CodeProfileNotApplied, "the owner-approved profile has not been applied by KIFF")
 	}
 	now := s.now()
 	if !p.Live(now) {
-		return refused("the permit has expired")
+		return refused(CodePermitExpired, "the permit has expired")
 	}
 	// Claim the op: only the claimer may send.
 	op := operation{Tool: name, ArgsHash: p.ArgsHash, State: OpStarted, StartedAt: now.UTC(), Decision: p.Decision}
@@ -193,11 +223,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err := putDoc(ctx, s.KV, claim, op, store.Cond{NotExists: true}); errors.Is(err, store.ErrCondition) {
 		it, err := getDoc(ctx, s.KV, key.PK, key.SK, &prev)
 		if err != nil {
-			return refused("planque could not read the operation's record")
+			return refused(CodeRecordUnavailable, "planque could not read the operation's record")
 		}
 		return s.recorded(ctx, g, it, prev, p)
 	} else if err != nil {
-		return refused("planque could not record the operation")
+		return refused(CodeRecordUnavailable, "planque could not record the operation")
 	}
 	delete(args, IdempotencyArg)
 	if err := profileArguments(g, name, args); err != nil {

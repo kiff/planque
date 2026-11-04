@@ -174,6 +174,10 @@ type GrantedTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	Connector   *connector.Tool `json:"connector,omitempty"`
+	// FieldsChecked says planque read this narrowed write's operation and
+	// found every field it names there: set at its first call once checked,
+	// so a tool defined before the check (kiff/planque#61) is checked too.
+	FieldsChecked bool `json:"fields_checked,omitempty"`
 }
 
 // CatalogTool is one tool the vendor's server lists: its own words and

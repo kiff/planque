@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"regexp"
 	"slices"
@@ -233,4 +234,33 @@ func (s *Server) describe(ctx context.Context, g *Grant, d describer, op string,
 		return nil, fmt.Sprintf("%s doesn't describe %s: %s", hostOf(g.Request.Server), op, strings.TrimSpace(text.String())), nil
 	}
 	return parseFields(text.String()), "", nil
+}
+
+// fieldsHold checks g's i-th tool, once, when it is a narrowed write not yet
+// checked: against its operation's fields, read with the describing tool
+// the owner approved on g, as adding it is checked now. It returns the
+// refusal's code and reason, or "". A tool that holds is marked so; that
+// mark failing to save only means it is checked again next time.
+func (s *Server) fieldsHold(ctx context.Context, g *Grant, i int) (code, why string) {
+	t := g.Tools[i]
+	if _, _, write, ok := narrowedTo(t.ToolRequest); !ok || !write || t.FieldsChecked {
+		return "", ""
+	}
+	approved := make([]ToolRequest, len(g.Tools))
+	for j, gt := range g.Tools {
+		approved[j] = gt.ToolRequest
+	}
+	msg, err := s.operationsCheck(ctx, g, approved, []ToolRequest{t.ToolRequest})
+	if err != nil {
+		s.log().WarnContext(ctx, "fields unread; refusing", slog.String("grant", g.ID), slog.String("tool", t.Name), slog.String("err", err.Error()))
+		return CodeDefinitionUnread, "planque couldn't read the operation's fields to check " + t.Name
+	}
+	if msg != "" {
+		return CodeDefinitionInvalid, t.Name + " needs changing: " + msg
+	}
+	g.Tools[i].FieldsChecked = true
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().WarnContext(ctx, "fields checked; mark not saved", slog.String("grant", g.ID), slog.String("tool", t.Name), slog.String("err", err.Error()))
+	}
+	return "", ""
 }

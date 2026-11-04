@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -170,5 +171,66 @@ func TestParseFields(t *testing.T) {
 	}
 	if !f["metadata"].open || f["submit"].open {
 		t.Fatalf("open: metadata %v, submit %v", f["metadata"].open, f["submit"].open)
+	}
+}
+
+// A narrowed write defined before planque checked its fields is checked at
+// its first call: an action naming a field its operation doesn't take (the
+// Chargebacks answer's amount_to_counter) is refused definition_invalid,
+// with the reason, instead of going to the vendor to fail on every call. One
+// that holds is marked, and isn't read again.
+func TestANarrowedWriteFromBeforeTheCheckIsCheckedAtItsFirstCall(t *testing.T) {
+	arg := func(path, typ string) map[string]any { return map[string]any{"path": path, "type": typ} }
+	refund := map[string]any{"tool": "stripe_api_write", "name": "refund_cd34", "title": "Refund a payment", "amount_argument": "amount",
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "PostRefunds"},
+		"arguments":       map[string]any{"charge": arg("parameters.charge", "string"), "amount": arg("parameters.amount", "integer")}}
+	e := newEnv(t)
+	id, out := e.addToDetails(refund)
+	e.approveAddition(id, out)
+	ctx := context.Background()
+	load := func() (*Grant, int) {
+		g, err := e.s.loadGrant(ctx, tenant, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g, slices.IndexFunc(g.Tools, func(gt GrantedTool) bool { return gt.Name == "refund_cd34" })
+	}
+
+	// As before the check: a made-up field, never checked.
+	g, i := load()
+	g.Tools[i].Arguments["amount_to_counter"] = Argument{Path: "parameters.amount_to_counter", Type: "integer"}
+	g.Tools[i].FieldsChecked = false
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	g, i = load()
+	if code, why := e.s.fieldsHold(ctx, g, i); code != CodeDefinitionInvalid || !strings.Contains(why, "refund_cd34 needs changing: PostRefunds takes no field amount_to_counter") {
+		t.Fatalf("a made-up field: %q %q", code, why)
+	}
+	if g, i = load(); g.Tools[i].FieldsChecked {
+		t.Fatal("a tool that doesn't hold was marked checked")
+	}
+
+	// Its own fields: it holds, is marked, and the next call reads nothing.
+	g, i = load()
+	delete(g.Tools[i].Arguments, "amount_to_counter")
+	g.Tools[i].FieldsChecked = false
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	g, i = load()
+	if code, why := e.s.fieldsHold(ctx, g, i); code != "" || why != "" {
+		t.Fatalf("its own fields: %q %q", code, why)
+	}
+	g, i = load()
+	if !g.Tools[i].FieldsChecked {
+		t.Fatal("a tool that holds wasn't marked")
+	}
+	reads := strings.Count(string(mustJSON(g.Events)), "read PostRefunds's fields")
+	if code, _ := e.s.fieldsHold(ctx, g, i); code != "" {
+		t.Fatalf("checked: %q", code)
+	}
+	if g, _ = load(); strings.Count(string(mustJSON(g.Events)), "read PostRefunds's fields") != reads {
+		t.Fatal("a checked tool was read again")
 	}
 }

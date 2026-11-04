@@ -33,7 +33,7 @@ func TestAHaltStopsTheRelayAtDispatch(t *testing.T) {
 
 	early := mint("op_early", time.Now().Add(-10*time.Second))
 	e.kiff.Halt(tenant, "agt_taf", time.Now().Add(-5*time.Second))
-	if out := e.relayCall(g, "create_refund", args("op_now"), mint("op_now", time.Now())); !strings.Contains(out, "Refused by planque: the owner halted this agent") {
+	if out := e.relayCall(g, "create_refund", args("op_now"), mint("op_now", time.Now())); !strings.Contains(out, "Refused by planque: the owner halted this agent") || !strings.Contains(out, `"code":"halted"`) {
 		t.Fatalf("a call while halted: %s", out)
 	}
 	e.kiff.Resume(tenant, "agt_taf")
@@ -55,7 +55,8 @@ func TestAHaltStopsTheRelayAtDispatch(t *testing.T) {
 	e.kiff.Resume(tenant, "")
 	// KIFF can't say: nothing is sent.
 	e.kiff.HaltsDown(true)
-	if out := e.relayCall(g, "create_refund", args("op_down"), mint("op_down", time.Now().Add(2*time.Second))); !strings.Contains(out, "couldn't check whether the owner halted") {
+	if out := e.relayCall(g, "create_refund", args("op_down"), mint("op_down", time.Now().Add(2*time.Second))); !strings.Contains(out, "couldn't check whether the owner halted") ||
+		!strings.Contains(out, `"code":"halt_unknown"`) || !strings.Contains(out, `"refused_by":"connection"`) || !strings.Contains(out, `"sent":false`) {
 		t.Fatalf("a call with KIFF's halt unreadable: %s", out)
 	}
 	if e.vendor.CallCount() != sent+1 {
