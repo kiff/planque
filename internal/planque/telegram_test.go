@@ -147,6 +147,14 @@ func TestATelegramBotEndToEnd(t *testing.T) {
 	if st, out := e.giveKey(id, digest, "999:not-a-token"); st != 400 || !strings.Contains(out["error"].(string), "Telegram didn't take that token") {
 		t.Fatalf("bad token: %d %v", st, out)
 	}
+	// A token of the wrong form is refused before any call, and the
+	// answer never carries it (an invalid escape once came back in a URL).
+	for _, bad := range []string{"123456:SECRETpart%zz", "123456:SECRET/../x", "SECRETpart"} {
+		st, out := e.giveKey(id, digest, bad)
+		if body := mustJSONString(out); st != 400 || strings.Contains(body, "SECRET") || !strings.Contains(body, "nothing was kept") {
+			t.Fatalf("%q: %d %s", bad, st, body)
+		}
+	}
 	if hooks, _ := e.kv.Query(context.Background(), telegramHookPK, ""); len(hooks) != 0 || f.hookURL != "" {
 		t.Fatal("a refused token left a webhook")
 	}
@@ -341,5 +349,15 @@ func TestSplitTelegramKeepsEachPartUnderTheLimitInUTF16(t *testing.T) {
 	}
 	if parts := splitTelegram(strings.Repeat("a", 3000) + "\n" + strings.Repeat("b", 3000)); len(parts) != 2 || !strings.HasSuffix(parts[0], "\n") {
 		t.Fatalf("not cut at the line break: %d parts", len(parts))
+	}
+}
+
+// Whatever an error says, the token isn't in it, as it is or escaped.
+func TestHideTokenTakesTheTokenOutInEveryForm(t *testing.T) {
+	token := "123456:AB-c_d"
+	for _, text := range []string{"post http://x/bot123456:AB-c_d/getMe: refused", "http://x/bot123456%3AAB-c_d/getMe", "q=123456%3AAB-c_d"} {
+		if got := hideToken(text, token); strings.Contains(got, "AB-c_d") {
+			t.Fatalf("%q -> %q", text, got)
+		}
 	}
 }

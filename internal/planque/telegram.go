@@ -12,6 +12,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -129,6 +131,15 @@ func telegramHookContext(hook string) map[string]string {
 	return map[string]string{"kind": "telegram_hook", "hook": hook}
 }
 
+// telegramTokenForm is a BotFather token's form; nothing else is put in a URL.
+var telegramTokenForm = regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{1,200}$`)
+
+// hideToken is text without token, as it is or URL-escaped.
+func hideToken(text, token string) string {
+	text = rest.HideKey(text, token)
+	return rest.HideKey(rest.HideKey(text, url.PathEscape(token)), url.QueryEscape(token))
+}
+
 // telegramCall is one Bot API method with the token, and what Telegram
 // answered: its result, or its description of the refusal.
 func (s *Server) telegramCall(ctx context.Context, token, method string, body any) (json.RawMessage, int, error) {
@@ -138,7 +149,13 @@ func (s *Server) telegramCall(ctx context.Context, token, method string, body an
 	}
 	ans, err := s.REST.Call(ctx, "POST", s.telegramAPIBase()+"/bot"+token+"/"+method, raw, openapi.Auth{}, token)
 	if err != nil {
-		return nil, 0, err
+		// The token is in the URL, and some errors carry the URL: none
+		// leaves here with it, whatever its form.
+		var ce *rest.CallError
+		if errors.As(err, &ce) {
+			return nil, 0, &rest.CallError{Sent: ce.Sent, Err: errors.New(hideToken(ce.Err.Error(), token))}
+		}
+		return nil, 0, errors.New(hideToken(err.Error(), token))
 	}
 	var r struct {
 		OK          bool            `json:"ok"`
@@ -146,7 +163,7 @@ func (s *Server) telegramCall(ctx context.Context, token, method string, body an
 		Description string          `json:"description"`
 	}
 	if json.Unmarshal(ans.Body, &r) != nil || !r.OK {
-		why := rest.HideKey(r.Description, token)
+		why := hideToken(r.Description, token)
 		if why == "" {
 			why = fmt.Sprintf("answered %d", ans.Status)
 		}
@@ -159,6 +176,9 @@ func (s *Server) telegramCall(ctx context.Context, token, method string, body an
 // at a new hook of g's, with a secret only Telegram and planque hold. On
 // any failure nothing is kept and the bot's webhook is as it was.
 func (s *Server) setTelegramHook(ctx context.Context, g *Grant, token string) (*TelegramBot, string, error) {
+	if !telegramTokenForm.MatchString(token) {
+		return nil, "that isn't a Telegram bot token's form (digits, a colon, then letters, digits, - or _): nothing was kept", nil
+	}
 	me, _, err := s.telegramCall(ctx, token, "getMe", map[string]any{})
 	if err != nil {
 		return nil, "Telegram didn't take that token (" + err.Error() + "): nothing was kept", nil
@@ -451,7 +471,7 @@ func (s *Server) callTelegram(ctx context.Context, g *Grant, tool GrantedTool, t
 			return OpUnknown, toolResult("Sent to Telegram, but its answer was lost: the message may or may not be in the chat. planque will not send it again.", true)
 		}
 		return OpDone, toolResult(fmt.Sprintf("Sent %d of %d parts (messages %s); part %d failed: %s. planque will not send the rest again.",
-			len(sent), len(parts), strings.Join(sent, ", "), i+1, rest.HideKey(err.Error(), token)), true)
+			len(sent), len(parts), strings.Join(sent, ", "), i+1, err.Error()), true)
 	}
 	out, _ := json.Marshal(map[string]any{"ok": true, "chat_id": chat, "message_ids": sent, "parts": len(parts)})
 	return OpDone, toolResult(string(out), false)
