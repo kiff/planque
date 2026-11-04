@@ -133,8 +133,13 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if a.URL == "" {
 		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON", nil
 	}
-	raw, err := s.REST.Fetch(ctx, a.URL)
-	if err != nil {
+	var raw []byte
+	var err error
+	if a.URL == TelegramDescription {
+		// A Telegram bot (kiff/planque#83): planque's own description of
+		// the Bot API, its server and where the token goes.
+		raw, a.Base, a.Auth, a.Operations = []byte(telegramAPI), s.telegramAPIBase(), telegramAuth, nil
+	} else if raw, err = s.REST.Fetch(ctx, a.URL); err != nil {
 		return nil, nil, "Couldn't read the API description at " + a.URL + ": " + err.Error(), nil
 	}
 	if len(expectedDigest) > 0 && expectedDigest[0] != "" {
@@ -303,6 +308,21 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	reconnect := g.Status == StatusNeedsReconnect
+	if isTelegram(g) {
+		bot, msg, err := s.setTelegramHook(r.Context(), g, key)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		if g.Telegram != nil && g.Telegram.Hook != bot.Hook {
+			_, _, _ = s.KV.Delete(r.Context(), telegramHookPK, g.Telegram.Hook)
+		}
+		g.Telegram = bot
+	}
 	var prev *int64
 	if reconnect {
 		if _, it, err := s.openToken(r.Context(), g); err == nil {
@@ -350,6 +370,9 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 // vendor's refusal, done; a 5xx or a lost answer unknown, never sent again;
 // a call that never reached the vendor, not sent.
 func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key string, args map[string]any) (state string, res any) {
+	if isTelegram(g) {
+		return s.callTelegram(ctx, g, tool, key, args)
+	}
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
 	if err != nil {
 		return OpNotSent, toolResult("Not sent: planque couldn't read this connection's API description.", true)

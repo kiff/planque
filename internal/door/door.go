@@ -53,6 +53,32 @@ type AppEvent struct {
 	Timestamp    string          `json:"timestamp"`
 }
 
+// TelegramMessage is a message to a Telegram bot connected here, handed to
+// tafs as a door message (planque.door.v1, "app": "telegram"). Ids are
+// Telegram's numeric ids as strings; a @username is never a key.
+type TelegramMessage struct {
+	V        string `json:"v"`
+	App      string `json:"app"`
+	ID       string `json:"id"`
+	Tenant   string `json:"tenant"`
+	Agent    string `json:"agent"`
+	Grant    string `json:"grant"`
+	Provider string `json:"provider"`
+	Chat     string `json:"chat"`
+	Sender   string `json:"sender"`
+	// Thread is the forum topic's message_thread_id, only in a forum group.
+	Thread    string `json:"thread,omitempty"`
+	MessageID string `json:"message_id"`
+	Name      string `json:"name,omitempty"`
+	Text      string `json:"text"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// TelegramSink takes Telegram messages, as Sink takes Slack's.
+type TelegramSink interface {
+	DeliverTelegram(context.Context, TelegramMessage) (Result, error)
+}
+
 // EventSink takes app events, as Sink takes door messages.
 type EventSink interface {
 	DeliverEvent(context.Context, AppEvent) (Result, error)
@@ -77,6 +103,19 @@ var ErrUnavailable = errors.New("the door receiver is unavailable")
 
 func (c *HTTP) Deliver(ctx context.Context, m Message) (Result, error) {
 	if m.V != "planque.door.v1" || m.ID == "" {
+		return Result{}, ErrUnavailable
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return Result{}, ErrUnavailable
+	}
+	return c.post(ctx, m.ID, raw)
+}
+
+// DeliverTelegram sends a Telegram message as Deliver sends Slack's: to the
+// same receiver, signed with the same secret, retried on the same answers.
+func (c *HTTP) DeliverTelegram(ctx context.Context, m TelegramMessage) (Result, error) {
+	if m.V != "planque.door.v1" || m.App != "telegram" || m.ID == "" {
 		return Result{}, ErrUnavailable
 	}
 	raw, err := json.Marshal(m)

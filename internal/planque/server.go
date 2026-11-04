@@ -52,6 +52,8 @@ type Server struct {
 	MCP     *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
 	REST *rest.Client
+	// TelegramBase is the Telegram Bot API; empty, Telegram's own.
+	TelegramBase string
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
@@ -134,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers", s.signed(s.createTrigger))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signed(s.deleteTrigger))
 	mux.HandleFunc("POST /connectors/{provider}/webhook", s.connectorWebhook)
+	mux.HandleFunc("POST /telegram/{hook}", s.telegramWebhook)
 	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
 	mux.HandleFunc("POST /mcp/{tenant}/{id}", s.relay)
 	return mux
