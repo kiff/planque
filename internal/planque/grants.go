@@ -719,6 +719,9 @@ func (s *Server) view(g *Grant) grantView {
 
 // statusWords is a grant's status as the owner reads it, one line for any app.
 func statusWords(g *Grant) string {
+	if g.Paused != nil && g.Status != StatusDisconnected && g.Status != StatusFailed {
+		return "Paused · " + g.Paused.Why + " · connect again to approve it"
+	}
 	switch g.Status {
 	case StatusConnected:
 		return "Connected"
@@ -1619,7 +1622,8 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 	if title == "" {
 		title = label(listed[i].Label())
 	}
-	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema,
+		VendorSchemaSHA256: vendorSchemaSHA256(listed[i].InputSchema)}
 	if g.Request.Connector != nil {
 		for _, definition := range g.Request.Connector.Tools {
 			if definition.Alias() == t.Tool {

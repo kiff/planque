@@ -291,7 +291,8 @@ func TestConnectorSignedGrantPermitReplayAndDisconnect(t *testing.T) {
 	if second := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit)); second != first || f.executions != 1 {
 		t.Fatal("replay resent or changed result")
 	}
-	for _, failure := range []string{"foreign", "expired", "changed"} {
+	// A changed definition pauses the grant: TestAChangedConnectorToolPausesItsGrant.
+	for _, failure := range []string{"foreign", "expired"} {
 		f.foreign = failure == "foreign"
 		f.changed = failure == "changed"
 		f.accountStatus = "ACTIVE"
