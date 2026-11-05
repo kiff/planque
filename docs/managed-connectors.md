@@ -137,6 +137,8 @@ The account-authenticated catalog endpoints include upstream discovery:
    carries `account_name`, the provider's name for the vendor account, and
    `mode`: `live` or `test` once a permitted call returned an object that
    says (`livemode`), `unknown` until then. Unknown is treated as live.
+   `mode_words` says it for every app: "Live", "Test", or "Mode not known
+   yet: treated as live".
    planque never calls the vendor outside a permit to find out, and an
    empty list says nothing. The first mode seen is kept.
 

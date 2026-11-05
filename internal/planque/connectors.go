@@ -58,6 +58,13 @@ type ConnectorState struct {
 // account's mode; it is treated as live.
 const ModeUnknown = "unknown"
 
+// modeWords say a grant's mode to the owner, the same in every app.
+var modeWords = map[string]string{
+	"live":      "Live",
+	"test":      "Test",
+	ModeUnknown: "Mode not known yet: treated as live",
+}
+
 // modeOf finds the first "livemode" a vendor's answer carries, at its top or
 // in the objects it lists (a list with none says nothing), at most three
 // levels down: "live", "test" or "".
@@ -120,7 +127,6 @@ func (s *Server) noteAccount(ctx context.Context, g *Grant, r connector.Result) 
 	}
 	_ = s.saveGrant(ctx, g)
 }
-
 
 func connectorEntry(id string) (string, string, bool) {
 	p := strings.Split(id, ":")
@@ -682,7 +688,7 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, args json.RawMessage, live func() bool) (string, map[string]any) {
 	p, err := s.provider(g)
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
-		return OpNotSent, toolResult("Not sent: the approved connector definition or account is unavailable.", true)
+		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {
@@ -691,10 +697,19 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		// (kiff/planque#71). A definition that couldn't be read or checked
 		// (ErrDefinition alone) pauses nothing: it's "Not sent" below.
 		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
-		return OpNotSent, toolResult("Not sent: "+why+".", true)
+		return OpNotSent, refusal(CodeOperationChanged, "Not sent: "+why+".")
 	}
 	if err != nil {
-		return OpNotSent, toolResult("Not sent: "+err.Error(), true)
+		// Every error here is before the provider ran the action: a refusal
+		// with its code, so KIFF never reads it as the vendor's.
+		code := CodeConnectionDown
+		switch {
+		case errors.Is(err, connector.ErrPermit):
+			code = CodePermitExpired
+		case errors.Is(err, connector.ErrDefinition):
+			code = CodeDefinitionUnread
+		}
+		return OpNotSent, refusal(code, "Not sent: "+err.Error())
 	}
 	s.noteAccount(ctx, g, result)
 	if result.Unknown {
@@ -705,6 +720,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	}
 	return OpDone, toolResult(string(result.Data), false)
 }
+
 // refusedWords says who refused a connector call and why, so the taf can
 // tell the owner: the vendor's own answer ("Stripe refused it: No such
 // invoice: 'in_1'.") or the connection provider's ("The connection provider

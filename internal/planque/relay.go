@@ -47,18 +47,19 @@ func toolResult(text string, isError bool) map[string]any {
 // The codes a relayed call is refused with, before anything is sent: stable,
 // for KIFF and the apps to say who refused and why without reading the text.
 const (
-	CodeNotGranted        = "not_granted"         // the grant doesn't include the tool
-	CodePermitInvalid     = "permit_invalid"      // the permit doesn't verify for this call
-	CodePermitExpired     = "permit_expired"      // the permit expired before the call left
-	CodeHaltUnknown       = "halt_unknown"        // the owner's halt couldn't be checked
-	CodeHalted            = "halted"              // the agent or its account is halted
-	CodeHaltedBefore      = "halted_before"       // the permit was issued before the latest halt
-	CodeBadArguments      = "bad_arguments"       // the arguments aren't a JSON object
-	CodeRecordUnavailable = "record_unavailable"  // the operation's record couldn't be read or written
-	CodeProfileNotApplied = "profile_not_applied" // KIFF hasn't applied the owner-approved profile
-	CodeDefinitionInvalid = "definition_invalid"  // the action names a field its operation doesn't take
-	CodeDefinitionUnread  = "definition_unread"   // the operation's fields couldn't be read to check the action
-	CodeOperationChanged  = "operation_changed"   // a tool the owner approved changed at the vendor; the grant is paused
+	CodeNotGranted        = "not_granted"            // the grant doesn't include the tool
+	CodePermitInvalid     = "permit_invalid"         // the permit doesn't verify for this call
+	CodePermitExpired     = "permit_expired"         // the permit expired before the call left
+	CodeHaltUnknown       = "halt_unknown"           // the owner's halt couldn't be checked
+	CodeHalted            = "halted"                 // the agent or its account is halted
+	CodeHaltedBefore      = "halted_before"          // the permit was issued before the latest halt
+	CodeBadArguments      = "bad_arguments"          // the arguments aren't a JSON object
+	CodeRecordUnavailable = "record_unavailable"     // the operation's record couldn't be read or written
+	CodeProfileNotApplied = "profile_not_applied"    // KIFF hasn't applied the owner-approved profile
+	CodeDefinitionInvalid = "definition_invalid"     // the action names a field its operation doesn't take
+	CodeDefinitionUnread  = "definition_unread"      // the operation's fields couldn't be read to check the action
+	CodeOperationChanged  = "operation_changed"      // a tool the owner approved changed at the vendor; the grant is paused
+	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
 )
 
 // refusal is a call refused by planque before anything was sent: its text,

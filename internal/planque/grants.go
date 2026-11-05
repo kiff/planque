@@ -683,6 +683,9 @@ type grantView struct {
 	// that says. Only on a managed connection.
 	AccountName string `json:"account_name,omitempty"`
 	Mode        string `json:"mode,omitempty"`
+	// ModeWords is Mode in the owner's words, so every app says the same,
+	// planque's rule for an unknown mode included.
+	ModeWords string `json:"mode_words,omitempty"`
 }
 
 // Who holds a grant's sign-in.
@@ -717,6 +720,7 @@ func (s *Server) view(g *Grant) grantView {
 				v.Mode = st.Mode
 			}
 		}
+		v.ModeWords = modeWords[v.Mode]
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
 		}
