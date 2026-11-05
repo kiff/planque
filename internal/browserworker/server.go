@@ -27,7 +27,8 @@ import (
 //	POST   /sessions/{id}/screenshot                        → {png (base64)}
 //	DELETE /sessions/{id}                                   → {state}
 type Server struct {
-	Local *Local
+	// Local runs the sessions: the in-process worker.
+	Local browser.Worker
 	// KeySHA256 is the SHA-256, hex, of the key planque presents in
 	// KeyHeader. The key itself is only in planque's environment.
 	KeySHA256 string
@@ -151,13 +152,14 @@ func (s *Server) reapLater(id string) {
 				s.mu.Unlock()
 				return
 			}
-			if time.Since(h.last) < idle {
+			// A session in a call is never idle, however long the call
+			// takes: idle time counts from the end of the last call.
+			if time.Since(h.last) < idle || !h.mu.TryLock() {
 				s.mu.Unlock()
 				continue
 			}
 			delete(s.sessions, id)
 			s.mu.Unlock()
-			h.mu.Lock()
 			_, _ = h.sess.Close(context.Background())
 			h.mu.Unlock()
 			s.log().Info("idle session ended", slog.String("session", id))
@@ -166,20 +168,28 @@ func (s *Server) reapLater(id string) {
 	}()
 }
 
-// take is the session, held for one call.
+// take is the session, held for one call; release ends the call and
+// starts its idle time.
 func (s *Server) take(w http.ResponseWriter, r *http.Request) (*held, bool) {
 	s.mu.Lock()
 	h, ok := s.sessions[r.PathValue("id")]
-	if ok {
-		h.last = time.Now()
-	}
 	s.mu.Unlock()
 	if !ok {
 		writeErr(w, http.StatusNotFound, "no such session")
 		return nil, false
 	}
 	h.mu.Lock()
+	s.mu.Lock()
+	h.last = time.Now()
+	s.mu.Unlock()
 	return h, true
+}
+
+func (s *Server) release(h *held) {
+	s.mu.Lock()
+	h.last = time.Now()
+	s.mu.Unlock()
+	h.mu.Unlock()
 }
 
 func (s *Server) open(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +204,7 @@ func (s *Server) open(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer h.mu.Unlock()
+	defer s.release(h)
 	p, err := h.sess.Open(r.Context(), in.URL)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
@@ -215,7 +225,7 @@ func (s *Server) step(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer h.mu.Unlock()
+	defer s.release(h)
 	p, err := h.sess.Do(r.Context(), in.Step)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
@@ -229,7 +239,7 @@ func (s *Server) screenshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer h.mu.Unlock()
+	defer s.release(h)
 	png, err := h.sess.Screenshot(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
