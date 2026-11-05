@@ -427,9 +427,11 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		return OpNotSent, toolResult("Not sent: the approved connector definition or account is unavailable.", true)
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
-	if errors.Is(err, connector.ErrDefinition) {
-		// The provider's definition of an approved tool changed: the grant is
-		// paused until the owner approves it again (kiff/planque#71).
+	if errors.Is(err, connector.ErrChanged) {
+		// The provider's definition of an approved tool was read and changed:
+		// the grant is paused until the owner approves it again
+		// (kiff/planque#71). A definition that couldn't be read or checked
+		// (ErrDefinition alone) pauses nothing: it's "Not sent" below.
 		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
 		return OpNotSent, toolResult("Not sent: "+why+".", true)
 	}

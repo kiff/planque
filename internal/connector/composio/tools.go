@@ -173,8 +173,11 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 	}
 	want, e1 := toolDigest(approved)
 	got, e2 := toolDigest(current)
-	if e1 != nil || e2 != nil || want != got {
+	if e1 != nil || e2 != nil {
 		return connector.Result{}, connector.ErrDefinition
+	}
+	if want != got {
+		return connector.Result{}, connector.ErrChanged
 	}
 	if live == nil || !live() {
 		return connector.Result{}, connector.ErrPermit

@@ -180,3 +180,39 @@ func TestAChangedConnectorToolPausesItsGrant(t *testing.T) {
 		t.Fatalf("a call on the paused grant: %s, executions %d", out, f.executions)
 	}
 }
+
+// A connector tool definition the provider answers but planque can't read
+// or check (an unparseable body, another tool or version) pauses nothing:
+// the call isn't sent, says so, and the grant stays as it was. Only a
+// definition read and found different from the approved one pauses.
+func TestAnUnreadableConnectorDefinitionDoesntPause(t *testing.T) {
+	for name, body := range map[string]string{
+		"unparseable":     `{"slug":"DESK_DEMO_REPLY","toolkit":`,
+		"another version": `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261102_00","name":"Reply to a ticket","input_parameters":{"type":"object"}}`,
+		"another tool":    `{"slug":"DESK_DEMO_OTHER","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Other","input_parameters":{"type":"object"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, f := newConnectorFixture(t)
+			g := connectConnector(t, e, f)
+			ctx := context.Background()
+			call := func(op string) string {
+				raw := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"` + op + `"}`)
+				p := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: g.Request.Agent, Op: op, Args: raw})
+				return mustJSONString(e.s.call(ctx, g, "reply_ticket", raw, p))
+			}
+			f.toolBody = body
+			if out := call("op_unread"); !strings.Contains(out, "Not sent") || strings.Contains(out, "since you approved it") || f.executions != 0 {
+				t.Fatalf("a call whose definition can't be read: %s, executions %d", out, f.executions)
+			}
+			g, _ = e.s.loadGrant(ctx, tenant, g.ID)
+			if g.Paused != nil || strings.Contains(statusWords(g), "Paused") {
+				t.Fatalf("the grant was paused: %+v %q", g.Paused, statusWords(g))
+			}
+			// Once the definition reads as approved, the next call is sent.
+			f.toolBody = ""
+			if out := call("op_next"); strings.Contains(out, "Not sent") || strings.Contains(out, "Refused") || f.executions != 1 {
+				t.Fatalf("the next call: %s, executions %d", out, f.executions)
+			}
+		})
+	}
+}

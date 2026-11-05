@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -43,6 +44,12 @@ var ErrAccount = errors.New("the selected connection is not active for this acco
 // enabled sign-in set up for it), so it isn't offered.
 var ErrNotSetUp = errors.New("this app can't be connected here yet")
 var ErrDefinition = errors.New("the connector tool definition changed; approve its current definition")
+
+// ErrChanged is ErrDefinition when the provider's current definition of an
+// approved tool was read and differs from what the owner approved. Only
+// this one means the tool changed: a definition that can't be read or
+// checked is ErrDefinition alone, and says nothing about a change.
+var ErrChanged = fmt.Errorf("%w", ErrDefinition)
 
 // Identity is allocated by planque, never selected in a tool call.
 type Identity struct {

@@ -268,8 +268,11 @@ owner didn't approve:
   `vendor_schema_sha256`). A tool gone, or with another schema, pauses the
   grant. If the list can't be read, nothing is paused and the call goes on
   to its usual handling (a sign-out, an unreachable server).
-- **Managed connectors:** the provider reporting a changed definition for
-  an approved tool pauses the grant.
+- **Managed connectors:** before each call, planque reads the provider's
+  definition of the approved tool at its pinned version. One that reads
+  and differs from the approved one pauses the grant. One that can't be
+  read or checked (an unparseable answer, another tool or version) pauses
+  nothing: the call isn't sent and says so, and the next call reads again.
 - **REST grants** send only from the approved operation snapshot, so a
   vendor change can't alter what is sent.
 
