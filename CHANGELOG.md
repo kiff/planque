@@ -25,6 +25,11 @@ version headings refer to releases, not merely to merged pull requests.
   every later grant on it. At most ten such set-ups an account a day. Every
   grant view says who holds the sign-in (`custody`). A catalog read that
   stops with pages left says `partial: true`.
+- Tools found by words across the provider's apps
+  (`GET /v1/accounts/{tenant}/catalog/tools?q=…`), each with its app as it
+  stands, and an app's events listed before and after a connection
+  (`…/catalog/{entry}/events`, `…/grants/{id}/events`), so Coach proposes
+  apps and events before connecting any (kiff/planque#87).
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a

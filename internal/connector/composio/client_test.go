@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -583,5 +584,97 @@ func TestSetUpMakesOneManagedSignInAndOffersTheApp(t *testing.T) {
 	c2 := testClient(c.HTTP.Transport.(transport))
 	if _, err := c2.SetUp(context.Background(), "mail"); !errors.Is(err, connector.ErrDefinition) {
 		t.Fatalf("an unmanaged sign-in was taken: %v", err)
+	}
+}
+
+// A search by words asks the provider's text search, narrows to one app
+// upstream and to several here, never returns a platform meta tool, and
+// brings each tool's app as it stands, read once per app.
+func TestSearchFindsToolsAcrossAppsAndSaysHowEachAppStands(t *testing.T) {
+	appReads := map[string]int{}
+	var seen url.Values
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v3.1/auth_configs":
+			return response(200, `{"items":[{"id":"ac_desk","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
+		case r.URL.Path == "/api/v3.1/tools":
+			seen = r.URL.Query()
+			return response(200, `{"items":[`+toolJSON+`,`+
+				`{"slug":"MAIL_SEND","name":"Send an email","toolkit":{"slug":"mail"},"version":"20300101_00","input_parameters":{"type":"object","properties":{"to":{"type":"string"}}},"tags":[]},`+
+				`{"slug":"COMPOSIO_SEARCH_TOOLS","name":"Search tools","toolkit":{"slug":"composio"},"version":"20300101_00","input_parameters":{"type":"object","properties":{}},"tags":[]},`+
+				`{"slug":"OWN_READ","name":"Read","toolkit":{"slug":"own"},"version":"20300101_00","input_parameters":{"type":"object","properties":{}},"tags":["readOnlyHint"]}],"next_cursor":"p2"}`), nil
+		case strings.HasPrefix(r.URL.Path, "/api/v3.1/toolkits/"):
+			slug := strings.TrimPrefix(r.URL.Path, "/api/v3.1/toolkits/")
+			appReads[slug]++
+			managed := `,"composio_managed_auth_schemes":["OAUTH2"]`
+			if slug == "own" {
+				managed = `,"auth_schemes":["OAUTH2"]`
+			}
+			return response(200, `{"slug":"`+slug+`","name":"The `+slug+` app"`+managed+`}`), nil
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+	found, err := c.Search(context.Background(), " reply ticket ", nil, "")
+	if err != nil || found.Next != "p2" || found.Skipped != 1 {
+		t.Fatalf("search: %+v err=%v", found, err)
+	}
+	if seen.Get("query") != "reply ticket" || seen.Get("limit") != "50" || seen.Has("toolkit_slug") {
+		t.Fatalf("asked with %v", seen)
+	}
+	slugs := []string{}
+	for _, tl := range found.Tools {
+		slugs = append(slugs, tl.Slug)
+	}
+	if strings.Join(slugs, " ") != "DESK_REPLY MAIL_SEND OWN_READ" || !found.Tools[2].ReadOnly {
+		t.Fatalf("tools: %v", slugs)
+	}
+	if found.Apps["desk"].Setup != connector.SetupReady || found.Apps["mail"].Setup != connector.SetupOnDemand || found.Apps["own"].Setup != connector.SetupNeedsSetup || found.Apps["own"].Name != "The own app" {
+		t.Fatalf("apps: %+v", found.Apps)
+	}
+	if appReads["desk"] != 1 || appReads["mail"] != 1 || appReads["own"] != 1 || len(appReads) != 3 {
+		t.Fatalf("app reads: %v", appReads)
+	}
+	// One app narrows upstream; several narrow here.
+	one, err := c.Search(context.Background(), "reply", []string{"desk"}, "")
+	if err != nil || seen.Get("toolkit_slug") != "desk" || len(one.Tools) != 1 || one.Tools[0].Slug != "DESK_REPLY" {
+		t.Fatalf("one app: %+v %v err=%v", one.Tools, seen, err)
+	}
+	two, err := c.Search(context.Background(), "reply", []string{"desk", "own"}, "")
+	if err != nil || seen.Has("toolkit_slug") || len(two.Tools) != 2 {
+		t.Fatalf("two apps: %+v err=%v", two.Tools, err)
+	}
+	for _, bad := range [][]string{{"../x"}, make([]string, 21)} {
+		if _, err := c.Search(context.Background(), "reply", bad, ""); !errors.Is(err, connector.ErrDefinition) {
+			t.Fatalf("bad apps %v: %v", bad, err)
+		}
+	}
+	if _, err := c.Search(context.Background(), "  ", nil, ""); !errors.Is(err, connector.ErrDefinition) {
+		t.Fatalf("no words: %v", err)
+	}
+}
+
+// An app's events are listed a page at a time, each pinned to a version;
+// one that isn't a definition is left out and counted.
+func TestTriggerTypesListsAnAppsEvents(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/v3.1/triggers_types" || r.URL.Query().Get("toolkit_slugs") != "desk" || r.URL.Query().Get("limit") != "50" {
+			t.Fatalf("unexpected request %s", r.URL)
+		}
+		return response(200, `{"items":[`+
+			`{"slug":"DESK_NEW_TICKET","name":"New ticket","description":"A ticket was opened.","version":"20300101_00","toolkit":{"slug":"desk"},"config":{"type":"object","properties":{"queue":{"type":"string"}}},"payload":{"type":"object"}},`+
+			`{"slug":"DESK_LATEST","name":"Latest","version":"latest","toolkit":{"slug":"desk"},"config":{},"payload":{}},`+
+			`{"slug":"OTHER_EVENT","name":"Elsewhere","version":"20300101_00","toolkit":{"slug":"other"},"config":{},"payload":{}}],"next_cursor":"p2"}`), nil
+	})
+	page, err := c.TriggerTypes(context.Background(), "desk", "")
+	if err != nil || len(page.Items) != 1 || page.Skipped != 2 || page.Next != "p2" {
+		t.Fatalf("events: %+v err=%v", page, err)
+	}
+	if e := page.Items[0]; e.Slug != "DESK_NEW_TICKET" || e.Description != "A ticket was opened." || e.Version != "20300101_00" || !strings.Contains(string(e.Config), "queue") {
+		t.Fatalf("event: %+v", e)
+	}
+	if _, err := c.TriggerTypes(context.Background(), "../x", ""); !errors.Is(err, connector.ErrDefinition) {
+		t.Fatalf("bad app: %v", err)
 	}
 }
