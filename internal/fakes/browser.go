@@ -35,6 +35,10 @@ type Browser struct {
 	States [][]byte
 	// Inputs are the owner's acts in the live view, in order.
 	Inputs []browser.Input
+	// BeforeClose, when set, runs as a session closes, before its state is
+	// handed back: a test interleaves another act there (the owner's Done
+	// while a call is still running).
+	BeforeClose func()
 	// held are the open sessions by id, for Resume.
 	held map[string]*browserSession
 	seq  int
@@ -289,6 +293,9 @@ func (s *browserSession) Input(ctx context.Context, in browser.Input) error {
 }
 
 func (s *browserSession) Close(context.Context) ([]byte, error) {
+	if s.b.BeforeClose != nil {
+		s.b.BeforeClose()
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	s.closed = true
