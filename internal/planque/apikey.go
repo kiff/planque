@@ -223,6 +223,9 @@ func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mc
 	if g.Request.Connector != nil {
 		return s.connectorTools(ctx, g)
 	}
+	if g.Request.Kind == KindBrowser {
+		return browserMCPTools(), mcp.Server{Name: browserVendorName(g.Request.Browser)}, nil
+	}
 	if g.Request.API == nil {
 		return s.MCP.ListTools(ctx, g.Request.Server, access)
 	}

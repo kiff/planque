@@ -39,6 +39,13 @@ var conformanceKinds = []conformanceKind{
 			return map[string]any{"charge": "ch_2", "amount": 100, IdempotencyArg: op}
 		}, func() int { return len(v.seen()) }
 	}},
+	{"browser", func(t *testing.T) (*env, *Grant, string, func(string) map[string]any, func() int) {
+		e := newBrowserEnv(t)
+		g := e.connect()
+		return e.env, g, "browse_act", func(op string) map[string]any {
+			return map[string]any{"url": fakes.ShopItem, "steps": []map[string]any{{"fill": "qty", "value": "2"}}, IdempotencyArg: op}
+		}, e.b.Sent
+	}},
 	{"managed_connector", func(t *testing.T) (*env, *Grant, string, func(string) map[string]any, func() int) {
 		e, f := newConnectorFixture(t)
 		g := connectConnector(t, e, f)

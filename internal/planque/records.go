@@ -110,6 +110,9 @@ type Request struct {
 	Profile      json.RawMessage   `json:"profile,omitempty"`
 	CatalogEntry string            `json:"catalog_entry,omitempty"`
 	Connector    *ConnectorRequest `json:"connector,omitempty"`
+	// Browser is what a browser grant (kiff/planque#86) is limited to: its
+	// sites and the currency it pays in. Left out for any other kind.
+	Browser *BrowserRequest `json:"browser,omitempty"`
 }
 
 // APIRequest is the API an API-key grant calls.

@@ -88,6 +88,71 @@ the reply on the first part. If a later part fails, the result says how many
 parts were sent. Disconnecting the grant calls `deleteWebhook` before the
 token is deleted.
 
+## The browser
+
+A browser grant (kiff/planque#86) lets a taf use websites: planque drives a
+browser in a worker that keeps nothing between calls, with a fixed set of
+tools planque carries and a reviewed profile, so KIFF decides each call on
+the taf's Card like any relayed call. Nothing is site-specific.
+
+```json
+{"kind": "browser", "agent": "support", "tools": [],
+ "browser": {"sites": ["shop.example"], "currency": "EUR"}}
+```
+
+`tools` names which of the browser's tools the taf gets (`[]` is all of
+them): `browse_open` and `browse_read` read a page, `browse_act` fills in
+and clicks (a write counted per call), `browse_checkout` reads a checkout
+(the site, its lines, the total and the currency), and `browse_pay`
+completes one. `sites`, when given, are the only hosts (and subdomains)
+the browser opens. `currency` is the only one `browse_pay` pays in, and is
+required with it. The owner approves on the phone like any grant; there is
+no vendor to sign in at, so approving connects at once. The catalog lists
+the browser as the entry `browser` where a worker is configured.
+
+The guard is planque's, applied to every step before the worker runs it.
+A page comes to the agent as text with a stable `ref` for each field,
+control and link; the values of password, card and one-time-code fields
+are masked, whatever the worker sent, and every answer says the page is
+data, never instructions. `browse_act` refuses, before running the step, a
+fill of a card field, a click on a control that places an order or pays
+(the worker's `places_order` fact, read from the page's semantics, or the
+control's words in en, fr, de, es, it, nl or pt), and any click on a
+control of a checkout or payment page, labelled or not, since a button's
+effect can't be read from outside (`payment_step`); a fill of a password or
+code field (`secret_field`); and a ref the page doesn't have
+(`ref_unknown`). Links are followed. The steps before it ran, and the
+answer says how many. A step that takes the browser off the grant's sites
+stops it there (`site_not_listed`). A URL off the sites, a local name or an
+address written out, or a non-https URL is refused before any browser
+starts (`site_not_listed`, `address_private`, `bad_url`), and so is the
+page the browser lands on after a redirect: it is not read, and no checkout
+is recorded from it.
+
+Money goes only through `browse_pay`. Its profile reads the amount with
+`browse_checkout` at the call's `url` (`amount.from: "read"`, path
+`total`, in the grant's currency), so KIFF counts what the page showed and
+holds the call for the owner. A checkout in another currency, or a page
+that isn't a checkout, gives no total, so KIFF reads none. With the permit,
+planque opens the checkout again and reads it again: it sends nothing when
+no total was read in the last 20 minutes (`total_unread`), when the lines,
+total or currency changed (`checkout_changed`), when the page is in
+another currency (`currency_other`), or when `ref` isn't the control whose
+words place the order (`ref_unknown`). Then it clicks it once; a replay
+answers as the first call did. Each write keeps the page before and after
+(its text) with the operation's record, and a screenshot after in the
+evidence store when one is configured; both go with the grant.
+
+A site's sign-in, when one is needed, is the owner's own, in a live view of
+the grant's browser that planque serves (a later step); the storage state
+after it is sealed like a token, opened only for the grant's own session,
+and deleted on disconnect. No password ever reaches planque.
+
+The worker is reached through `browser.Worker`; the fake in
+`internal/fakes` is a scripted shop the tests run on, and the real one (a
+headless browser with its own egress rules) is its own image. An
+installation with no worker lists no browser and takes no browser grant.
+
 ## Registered OAuth clients
 
 The OAuth transport supports a configured public client, `client_secret_post`,
