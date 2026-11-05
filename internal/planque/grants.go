@@ -22,6 +22,7 @@ import (
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
+	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -713,12 +714,9 @@ func (s *Server) view(g *Grant) grantView {
 	if c := g.Request.Connector; c != nil {
 		v.Provider = c.Provider
 		v.Custody = CustodyProvider
-		v.Mode = ModeUnknown
+		v.Mode = connectorMode(g)
 		if st := g.Connector; st != nil {
 			v.AccountName = st.AccountName
-			if st.Mode != "" {
-				v.Mode = st.Mode
-			}
 		}
 		v.ModeWords = modeWords[v.Mode]
 		if v.Entry == "" {
@@ -1964,6 +1962,40 @@ func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[str
 	return out, nil
 }
 
+// How a grant reaches its vendor (Setup's grant listings).
+const (
+	// KindVendorSignIn: the vendor's own MCP server, signed in on the
+	// vendor's page.
+	KindVendorSignIn = "vendor_sign_in"
+	// KindProvider: a connection provider's managed app.
+	KindProvider = "provider"
+	// KindKey: the vendor's REST API, with a key the owner gave.
+	KindKey = "key"
+)
+
+// connectionKind is how g reaches its vendor: KindVendorSignIn,
+// KindProvider, KindKey or KindBrowser.
+func connectionKind(g *Grant) string {
+	switch {
+	case g.Request.Connector != nil:
+		return KindProvider
+	case g.Request.Kind == KindBrowser:
+		return KindBrowser
+	case g.Request.API != nil:
+		return KindKey
+	}
+	return KindVendorSignIn
+}
+
+// connectorMode is a provider's connection's mode: "live" or "test" once a
+// permitted call showed it, else ModeUnknown (treated as live).
+func connectorMode(g *Grant) string {
+	if st := g.Connector; st != nil && st.Mode != "" {
+		return st.Mode
+	}
+	return ModeUnknown
+}
+
 // agentGrants are the grants the asking agent asked for a taf's agent, by
 // its key: so Setup, improving a taf, finds the connection it already has
 // to a vendor and adds to it, instead of asking for another (kiff/tafs#138).
@@ -2000,6 +2032,13 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 		Title    string `json:"title,omitempty"`
 		ReadOnly bool   `json:"read_only,omitempty"`
 	}
+	// The public facts of a key grant's API, to ask for the same again: the
+	// key itself is planque's and never here.
+	type api struct {
+		URL  string       `json:"url"`
+		Base string       `json:"base"`
+		Auth openapi.Auth `json:"auth"`
+	}
 	type grant struct {
 		ID      string `json:"id"`
 		Agent   string `json:"agent"`
@@ -2008,7 +2047,17 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 		Status  string `json:"status"`
 		Account string `json:"account,omitempty"`
 		Created string `json:"created,omitempty"`
-		Tools   []tool `json:"tools"`
+		// Kind is how the grant reaches its vendor, so Setup offers a new
+		// taf the kind the account already uses for that vendor; Entry is a
+		// provider's app to ask for again, API a key grant's.
+		Kind  string `json:"kind"`
+		Entry string `json:"entry,omitempty"`
+		API   *api   `json:"api,omitempty"`
+		// Mode and ModeWords: a provider's connection only, as the phone's
+		// view says them. A vendor's own sign-in has no mode planque knows.
+		Mode      string `json:"mode,omitempty"`
+		ModeWords string `json:"mode_words,omitempty"`
+		Tools     []tool `json:"tools"`
 	}
 	out := []grant{}
 	for _, it := range items {
@@ -2022,7 +2071,20 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 			continue
 		}
 		v := grant{ID: g.ID, Agent: g.Request.Agent, Vendor: vendorName(&g), Server: g.Request.Server, Status: g.Status, Account: g.Account,
-			Created: g.Request.CreatedAt, Tools: []tool{}}
+			Created: g.Request.CreatedAt, Kind: connectionKind(&g), Tools: []tool{}}
+		switch v.Kind {
+		case KindProvider:
+			c := g.Request.Connector
+			v.Entry, v.Mode = g.Request.CatalogEntry, connectorMode(&g)
+			if v.Entry == "" {
+				v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
+			}
+			v.ModeWords = modeWords[v.Mode]
+		case KindKey:
+			if a := g.Request.API; a != nil {
+				v.API = &api{URL: a.URL, Base: a.Base, Auth: a.Auth}
+			}
+		}
 		for _, t := range g.Request.Tools {
 			v.Tools = append(v.Tools, tool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
 		}

@@ -5,6 +5,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Added
+
+- Setup's listings of the connections it asked for say how each reaches
+  its vendor (`kind`): the vendor's own sign-in (`vendor_sign_in`), a
+  provider's app (`provider`, with its `entry`, `mode` and `mode_words`),
+  a REST key (`key`, with its API's URL, base and where the key goes,
+  never the key) or a browser. So Coach can offer a new taf the kind of
+  connection the account already uses for that vendor.
+
 ### Fixed
 
 - A refused call through a managed connection says who refused it and why:
