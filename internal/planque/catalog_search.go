@@ -149,6 +149,11 @@ func (s *Server) grantEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeEvents(w http.ResponseWriter, r *http.Request, p connector.EventProvider, toolkit string) {
+	// The platform's own toolkit has no app behind it: never an app's events.
+	if strings.EqualFold(toolkit, "composio") {
+		writeErr(w, http.StatusBadRequest, "that isn't an app the catalog names")
+		return
+	}
 	page, err := p.TriggerTypes(r.Context(), toolkit, r.URL.Query().Get("cursor"))
 	if err != nil {
 		if err == connector.ErrDefinition {

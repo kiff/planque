@@ -664,6 +664,10 @@ func TestConnectorToolsAndEventsAreFoundBeforeConnecting(t *testing.T) {
 	if st, _ := e.do("GET", base+"/support-desk@1/events", nil, nil, "k_setup"); st != 404 {
 		t.Fatalf("a reviewed entry's events: %d", st)
 	}
+	// The platform's own toolkit is no app: its events are refused, and the provider isn't asked.
+	if st, out := e.do("GET", base+"/connector:composio:composio/events", nil, nil, "k_setup"); st != 400 || !strings.Contains(out["error"].(string), "isn't an app") {
+		t.Fatalf("the platform's own events: %d %v", st, out)
+	}
 	// And after: the connection's own events, for its agent only.
 	id := listConnector(t, e, f)
 	path := "/v1/accounts/" + tenant + "/grants/" + id + "/events"
