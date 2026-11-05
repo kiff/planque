@@ -139,6 +139,10 @@ func pending(res any, c *profile.Completes, grant string) any {
 	if isErr, _ := m["isError"].(bool); isErr {
 		return res
 	}
+	// The vendor's own pending keys are never taken for planque's.
+	if sc, _ := m["structuredContent"].(map[string]any); sc != nil {
+		stripReserved(sc)
+	}
 	key := atPath(any(resultJSON(res)), c.Key)
 	var text string
 	if key == "" {
@@ -198,7 +202,43 @@ func (s *Server) completed(ctx context.Context, g *Grant, name string, claim sto
 	if state == OpDone {
 		if c := completesOf(g, name); c != nil {
 			res = pending(res, c, g.ID)
+		} else {
+			res = unpending(res)
 		}
 	}
 	return s.finish(ctx, claim, op, state, res)
+}
+
+// reservedKeys are the structured content's keys that say a call waits for
+// an event: kiff/agents pauses a run on them, so only planque writes them,
+// from the profile the owner approved.
+var reservedKeys = []string{"pending", "wait_for"}
+
+// unpending is a vendor's answer without the reserved keys in its
+// structured content: a vendor that writes them itself never pauses a run
+// on an event or key it chose. Any other answer is returned as it was.
+func unpending(res any) any {
+	var m map[string]any
+	raw, err := json.Marshal(res)
+	if err != nil || decodeNumbers(raw, &m) != nil || m == nil {
+		return res
+	}
+	sc, _ := m["structuredContent"].(map[string]any)
+	if !stripReserved(sc) {
+		return res
+	}
+	return m
+}
+
+// stripReserved removes the reserved keys from sc, saying whether there
+// were any.
+func stripReserved(sc map[string]any) bool {
+	found := false
+	for _, k := range reservedKeys {
+		if _, ok := sc[k]; ok {
+			delete(sc, k)
+			found = true
+		}
+	}
+	return found
 }

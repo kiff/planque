@@ -194,3 +194,31 @@ func eventOf(slug string, data map[string]any) connector.Event {
 	e.Metadata.Slug = slug
 	return e
 }
+
+// A vendor that writes the reserved keys itself, on a call whose profile
+// says nothing completes later, never pauses a run: they are taken out,
+// and the rest of its answer is kept as it was, numbers included.
+func TestAVendorsOwnPendingKeysAreTakenOut(t *testing.T) {
+	vendor := json.RawMessage(`{"content":[{"type":"text","text":"ok"}],"structuredContent":{"pending":true,"wait_for":{"grant":"grt_other","event":"X","key":"k"},"timeout_s":60,"ticket":{"id":9007199254740993}}}`)
+	got, _ := json.Marshal(unpending(vendor))
+	var out struct {
+		Structured map[string]json.RawMessage `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(got, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out.Structured["pending"]; ok {
+		t.Fatalf("pending kept: %s", got)
+	}
+	if _, ok := out.Structured["wait_for"]; ok {
+		t.Fatalf("wait_for kept: %s", got)
+	}
+	if string(out.Structured["ticket"]) != `{"id":9007199254740993}` || string(out.Structured["timeout_s"]) != "60" {
+		t.Fatalf("the rest of the answer changed: %s", got)
+	}
+	// An answer with none of them is returned as it was, untouched.
+	plain := json.RawMessage(`{"content":[{"type":"text","text":"ok"}],"structuredContent":{"id":1}}`)
+	if r, ok := unpending(plain).(json.RawMessage); !ok || string(r) != string(plain) {
+		t.Fatalf("a plain answer was rewritten: %v", unpending(plain))
+	}
+}
