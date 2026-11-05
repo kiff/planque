@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,12 @@ var ErrAccount = errors.New("the selected connection is not active for this acco
 var ErrNotSetUp = errors.New("this app can't be connected here yet")
 var ErrDefinition = errors.New("the connector tool definition changed; approve its current definition")
 
+// ErrChanged is ErrDefinition when the provider's current definition of an
+// approved tool was read and differs from what the owner approved. Only
+// this one means the tool changed: a definition that can't be read or
+// checked is ErrDefinition alone, and says nothing about a change.
+var ErrChanged = fmt.Errorf("%w", ErrDefinition)
+
 // Identity is allocated by planque, never selected in a tool call.
 type Identity struct {
 	User    string
@@ -61,12 +68,32 @@ type App struct {
 	// Provider metadata for a new grant, not catalog display fields.
 	AuthConfig string `json:"-"`
 	AuthScheme string `json:"-"`
+	// Setup says whether the provider can sign someone in to the app now
+	// (SetupReady), can once the sign-in is set up on the owner's pick
+	// (SetupOnDemand), or needs an operator's own developer credentials first
+	// (SetupNeedsSetup).
+	Setup string `json:"-"`
 }
+
+// How an app's sign-in stands at the provider (kiff/planque#87).
+const (
+	// SetupReady: the project has an enabled sign-in for the app.
+	SetupReady = "ready"
+	// SetupOnDemand: the provider signs people in with its own credentials,
+	// so the sign-in is set up the moment an owner picks the app (SetUp).
+	SetupOnDemand = "on_demand"
+	// SetupNeedsSetup: the app needs an operator's own developer app or
+	// credentials before anyone can sign in; it's listed, and not started.
+	SetupNeedsSetup = "needs_setup"
+)
 
 type Page[T any] struct {
 	Items   []T    `json:"items"`
 	Next    string `json:"next_cursor,omitempty"`
 	Skipped int    `json:"skipped,omitempty"`
+	// Partial: the read stopped at its bound with pages left, so an app
+	// that wasn't seen isn't absent.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // Tool is one concrete, versioned upstream action. Platform meta-executors
@@ -106,6 +133,16 @@ func (t Tool) Validate() error {
 func (t Tool) Alias() string {
 	sum := sha256.Sum256([]byte(t.Toolkit + "\n" + t.Slug))
 	return "connector_" + hex.EncodeToString(sum[:16])
+}
+
+// Search is what a search by words found: the tools, and each tool's app as
+// it stands, so the caller can say which app is set up, on demand or needs
+// setting up before anything is connected.
+type Search struct {
+	Tools   []Tool         `json:"tools"`
+	Apps    map[string]App `json:"apps"`
+	Next    string         `json:"next_cursor,omitempty"`
+	Skipped int            `json:"skipped,omitempty"`
 }
 
 type Account struct {
@@ -150,11 +187,21 @@ type Platform struct {
 // preflight, immediately before sending, and never retry an uncertain write.
 type Provider interface {
 	Platform() Platform
+	// Catalog with no search lists the apps with a sign-in set up; with one,
+	// every app matching it, each saying how it can be set up (App.Setup).
 	Catalog(context.Context, string, string) (Page[App], error)
 	App(context.Context, string) (App, error)
+	// SetUp sets up the sign-in for an app the provider can sign people in
+	// to with its own credentials (SetupOnDemand), once, and returns the app
+	// ready, with the sign-in to pin. It never takes a credential.
+	SetUp(context.Context, string) (App, error)
 	Authorize(context.Context, Identity, string, string) (Authorization, error)
 	Account(context.Context, string) (Account, error)
 	Tools(context.Context, string, string) (Page[Tool], error)
+	// Search finds tools across apps by words (kiff/planque#87): the
+	// provider's own text search over names and descriptions, narrowed to
+	// the apps named when any are, with each tool's app as it stands.
+	Search(context.Context, string, []string, string) (Search, error)
 	Tool(context.Context, string, string) (Tool, error)
 	Execute(context.Context, Identity, string, Tool, json.RawMessage, func() bool) (Result, error)
 	Revoke(context.Context, Identity, string) (Revocation, error)

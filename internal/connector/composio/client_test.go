@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -408,6 +409,8 @@ func TestOnlyAppsWithAnEnabledSignInAreOffered(t *testing.T) {
 			return response(200, `{"items":[{"slug":"gmail","name":"Gmail"},{"slug":"notion","name":"Notion"},{"slug":"slack","name":"Slack"},{"slug":"hubspot","name":"HubSpot"}]}`), nil
 		case "/api/v3.1/toolkits/gmail":
 			return response(200, `{"slug":"gmail","name":"Gmail"}`), nil
+		case "/api/v3.1/toolkits/notion", "/api/v3.1/toolkits/hubspot":
+			return response(200, `{"slug":"`+strings.TrimPrefix(r.URL.Path, "/api/v3.1/toolkits/")+`","name":"An app","auth_schemes":["OAUTH2"]}`), nil
 		}
 		t.Fatalf("unexpected request: %s", r.URL)
 		return nil, nil
@@ -417,12 +420,13 @@ func TestOnlyAppsWithAnEnabledSignInAreOffered(t *testing.T) {
 	if err != nil || len(page.Items) != 2 || page.Items[0].Slug != "gmail" || page.Items[1].Slug != "slack" {
 		t.Fatalf("catalog: %+v %v", page, err)
 	}
-	if _, err := c.App(context.Background(), "gmail"); err != nil {
-		t.Fatalf("gmail: %v", err)
+	if app, err := c.App(context.Background(), "gmail"); err != nil || app.Setup != connector.SetupReady || app.AuthConfig != "ac_gmail" {
+		t.Fatalf("gmail: %+v %v", app, err)
 	}
+	// An app with no enabled sign-in and no managed one is known, and needs setting up.
 	for _, id := range []string{"notion", "hubspot"} {
-		if _, err := c.App(context.Background(), id); !errors.Is(err, connector.ErrNotSetUp) {
-			t.Fatalf("%s: %v", id, err)
+		if app, err := c.App(context.Background(), id); err != nil || app.Setup != connector.SetupNeedsSetup || app.AuthConfig != "" {
+			t.Fatalf("%s: %+v %v", id, app, err)
 		}
 	}
 	if reads != 2 {
@@ -471,5 +475,206 @@ func TestTheFirstPageIsOneReadAndKept(t *testing.T) {
 	now = now.Add(configuredFor + time.Second)
 	if _, err := c.Catalog(context.Background(), "", ""); err != nil || toolkits != 3 || configs != 2 {
 		t.Fatalf("after the sign-ins expired: %v (%d, %d)", err, toolkits, configs)
+	}
+}
+
+// A search lists every app the provider has, each saying how its sign-in
+// stands; the unsearched first page keeps to the apps set up already. A read
+// that stops at its bound with pages left says so (kiff/planque#87).
+func TestCatalogSaysHowEachAppIsSetUpAndWhenARegionWasNotRead(t *testing.T) {
+	pages := 0
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			return response(200, `{"items":[{"id":"ac_desk","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
+		case "/api/v3.1/toolkits":
+			pages++
+			items := `{"slug":"desk","name":"Desk","auth_schemes":["OAUTH2"]},` +
+				`{"slug":"mail","name":"Mail","composio_managed_auth_schemes":["OAUTH2"],"auth_schemes":["OAUTH2","API_KEY"]},` +
+				`{"slug":"keyed","name":"Keyed","auth_schemes":["API_KEY"]},` +
+				`{"slug":"open","name":"Open","no_auth":true},` +
+				`{"slug":"own","name":"Own app","auth_schemes":["OAUTH2"]}`
+			next := ""
+			if r.URL.Query().Get("search") == "endless" {
+				next = fmt.Sprintf(`,"next_cursor":"p%d"`, pages)
+			}
+			return response(200, `{"items":[`+items+`]`+next+`}`), nil
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+	first, err := c.Catalog(context.Background(), "", "")
+	if err != nil || len(first.Items) != 1 || first.Items[0].Slug != "desk" || first.Items[0].Setup != connector.SetupReady || first.Partial {
+		t.Fatalf("first page: %+v err=%v", first, err)
+	}
+	all, err := c.Catalog(context.Background(), "app", "")
+	if err != nil || len(all.Items) != 5 || all.Partial {
+		t.Fatalf("search: %+v err=%v", all, err)
+	}
+	want := map[string][2]string{"desk": {connector.SetupReady, "OAUTH2"}, "mail": {connector.SetupOnDemand, "OAUTH2"}, "keyed": {connector.SetupOnDemand, "API_KEY"}, "open": {connector.SetupOnDemand, "NO_AUTH"}, "own": {connector.SetupNeedsSetup, "OAUTH2"}}
+	for _, a := range all.Items {
+		if w := want[a.Slug]; a.Setup != w[0] || a.AuthScheme != w[1] || (a.Setup == connector.SetupReady) != (a.AuthConfig != "") {
+			t.Errorf("%s: setup %q scheme %q config %q", a.Slug, a.Setup, a.AuthScheme, a.AuthConfig)
+		}
+	}
+	pages = 0
+	endless, err := c.Catalog(context.Background(), "endless", "")
+	if err != nil || !endless.Partial || endless.Next == "" || pages != catalogPages {
+		t.Fatalf("an endless catalog: partial=%v next=%q pages=%d err=%v", endless.Partial, endless.Next, pages, err)
+	}
+}
+
+// Setting an app up asks the provider for one managed sign-in, takes it only
+// when the provider says it manages it, and offers the app from then on.
+func TestSetUpMakesOneManagedSignInAndOffersTheApp(t *testing.T) {
+	made := 0
+	managed := true
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "GET":
+			// The provider lists a sign-in once made, as the fresh read before a set-up sees it.
+			if made > 0 {
+				return response(200, `{"items":[{"id":"ac_mail_new","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"mail"}}]}`), nil
+			}
+			return response(200, `{"items":[]}`), nil
+		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "POST":
+			made++
+			var body map[string]json.RawMessage
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if len(body) != 2 || string(body["toolkit"]) != `{"slug":"mail"}` || string(body["auth_config"]) != `{"type":"use_composio_managed_auth"}` {
+				t.Fatalf("set-up request: %s", mustJSON(body))
+			}
+			return response(201, fmt.Sprintf(`{"toolkit":{"slug":"mail"},"auth_config":{"id":"ac_mail_new","auth_scheme":"oauth2","is_composio_managed":%v}}`, managed)), nil
+		case r.URL.Path == "/api/v3.1/toolkits/mail":
+			return response(200, `{"slug":"mail","name":"Mail","composio_managed_auth_schemes":["OAUTH2"]}`), nil
+		case r.URL.Path == "/api/v3.1/toolkits/own":
+			return response(200, `{"slug":"own","name":"Own app","auth_schemes":["OAUTH2"]}`), nil
+		case r.URL.Path == "/api/v3.1/toolkits/gone":
+			return response(404, `{"error":{"message":"no such toolkit"}}`), nil
+		case r.URL.Path == "/api/v3.1/toolkits":
+			return response(200, `{"items":[{"slug":"mail","name":"Mail","composio_managed_auth_schemes":["OAUTH2"]}]}`), nil
+		default:
+			t.Fatalf("unexpected path %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+	if _, err := c.SetUp(context.Background(), "own"); !errors.Is(err, connector.ErrNotSetUp) || made != 0 {
+		t.Fatalf("an app that needs setup was set up: %v (%d)", err, made)
+	}
+	if _, err := c.App(context.Background(), "gone"); !errors.Is(err, connector.ErrNotSetUp) {
+		t.Fatalf("an app the provider doesn't have: %v", err)
+	}
+	app, err := c.SetUp(context.Background(), "mail")
+	if err != nil || made != 1 || app.Setup != connector.SetupReady || app.AuthConfig != "ac_mail_new" || app.AuthScheme != "OAUTH2" {
+		t.Fatalf("set up: %+v err=%v made=%d", app, err, made)
+	}
+	// From now on the app is offered without a search, and set up again asks nothing.
+	first, err := c.Catalog(context.Background(), "", "")
+	if err != nil || len(first.Items) != 1 || first.Items[0].AuthConfig != "ac_mail_new" {
+		t.Fatalf("offered after set-up: %+v err=%v", first, err)
+	}
+	if again, err := c.SetUp(context.Background(), "mail"); err != nil || made != 1 || again.AuthConfig != "ac_mail_new" {
+		t.Fatalf("set up twice: %+v err=%v made=%d", again, err, made)
+	}
+	// An answer the provider doesn't manage is refused, and nothing is pinned.
+	managed, made = false, 0
+	c2 := testClient(c.HTTP.Transport.(transport))
+	if _, err := c2.SetUp(context.Background(), "mail"); !errors.Is(err, connector.ErrDefinition) {
+		t.Fatalf("an unmanaged sign-in was taken: %v", err)
+	}
+}
+
+// A search by words asks the provider's text search, narrows to one app
+// upstream and to several here, never returns a platform meta tool, and
+// brings each tool's app as it stands, read once per app.
+func TestSearchFindsToolsAcrossAppsAndSaysHowEachAppStands(t *testing.T) {
+	appReads := map[string]int{}
+	var seen url.Values
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v3.1/auth_configs":
+			return response(200, `{"items":[{"id":"ac_desk","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"desk"}}]}`), nil
+		case r.URL.Path == "/api/v3.1/tools":
+			seen = r.URL.Query()
+			return response(200, `{"items":[`+toolJSON+`,`+
+				`{"slug":"MAIL_SEND","name":"Send an email","toolkit":{"slug":"mail"},"version":"20300101_00","input_parameters":{"type":"object","properties":{"to":{"type":"string"}}},"tags":[]},`+
+				`{"slug":"COMPOSIO_SEARCH_TOOLS","name":"Search tools","toolkit":{"slug":"composio"},"version":"20300101_00","input_parameters":{"type":"object","properties":{}},"tags":[]},`+
+				`{"slug":"OWN_READ","name":"Read","toolkit":{"slug":"own"},"version":"20300101_00","input_parameters":{"type":"object","properties":{}},"tags":["readOnlyHint"]}],"next_cursor":"p2"}`), nil
+		case strings.HasPrefix(r.URL.Path, "/api/v3.1/toolkits/"):
+			slug := strings.TrimPrefix(r.URL.Path, "/api/v3.1/toolkits/")
+			appReads[slug]++
+			managed := `,"composio_managed_auth_schemes":["OAUTH2"]`
+			if slug == "own" {
+				managed = `,"auth_schemes":["OAUTH2"]`
+			}
+			return response(200, `{"slug":"`+slug+`","name":"The `+slug+` app"`+managed+`}`), nil
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+			return nil, nil
+		}
+	})
+	found, err := c.Search(context.Background(), " reply ticket ", nil, "")
+	if err != nil || found.Next != "p2" || found.Skipped != 1 {
+		t.Fatalf("search: %+v err=%v", found, err)
+	}
+	if seen.Get("query") != "reply ticket" || seen.Get("limit") != "50" || seen.Has("toolkit_slug") {
+		t.Fatalf("asked with %v", seen)
+	}
+	slugs := []string{}
+	for _, tl := range found.Tools {
+		slugs = append(slugs, tl.Slug)
+	}
+	if strings.Join(slugs, " ") != "DESK_REPLY MAIL_SEND OWN_READ" || !found.Tools[2].ReadOnly {
+		t.Fatalf("tools: %v", slugs)
+	}
+	if found.Apps["desk"].Setup != connector.SetupReady || found.Apps["mail"].Setup != connector.SetupOnDemand || found.Apps["own"].Setup != connector.SetupNeedsSetup || found.Apps["own"].Name != "The own app" {
+		t.Fatalf("apps: %+v", found.Apps)
+	}
+	if appReads["desk"] != 1 || appReads["mail"] != 1 || appReads["own"] != 1 || len(appReads) != 3 {
+		t.Fatalf("app reads: %v", appReads)
+	}
+	// One app narrows upstream; several narrow here.
+	one, err := c.Search(context.Background(), "reply", []string{"desk"}, "")
+	if err != nil || seen.Get("toolkit_slug") != "desk" || len(one.Tools) != 1 || one.Tools[0].Slug != "DESK_REPLY" {
+		t.Fatalf("one app: %+v %v err=%v", one.Tools, seen, err)
+	}
+	two, err := c.Search(context.Background(), "reply", []string{"desk", "own"}, "")
+	if err != nil || seen.Has("toolkit_slug") || len(two.Tools) != 2 {
+		t.Fatalf("two apps: %+v err=%v", two.Tools, err)
+	}
+	for _, bad := range [][]string{{"../x"}, make([]string, 21)} {
+		if _, err := c.Search(context.Background(), "reply", bad, ""); !errors.Is(err, connector.ErrDefinition) {
+			t.Fatalf("bad apps %v: %v", bad, err)
+		}
+	}
+	if _, err := c.Search(context.Background(), "  ", nil, ""); !errors.Is(err, connector.ErrDefinition) {
+		t.Fatalf("no words: %v", err)
+	}
+}
+
+// An app's events are listed a page at a time, each pinned to a version;
+// one that isn't a definition is left out and counted.
+func TestTriggerTypesListsAnAppsEvents(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/v3.1/triggers_types" || r.URL.Query().Get("toolkit_slugs") != "desk" || r.URL.Query().Get("limit") != "50" {
+			t.Fatalf("unexpected request %s", r.URL)
+		}
+		return response(200, `{"items":[`+
+			`{"slug":"DESK_NEW_TICKET","name":"New ticket","description":"A ticket was opened.","version":"20300101_00","toolkit":{"slug":"desk"},"config":{"type":"object","properties":{"queue":{"type":"string"}}},"payload":{"type":"object"}},`+
+			`{"slug":"DESK_LATEST","name":"Latest","version":"latest","toolkit":{"slug":"desk"},"config":{},"payload":{}},`+
+			`{"slug":"OTHER_EVENT","name":"Elsewhere","version":"20300101_00","toolkit":{"slug":"other"},"config":{},"payload":{}}],"next_cursor":"p2"}`), nil
+	})
+	page, err := c.TriggerTypes(context.Background(), "desk", "")
+	if err != nil || len(page.Items) != 1 || page.Skipped != 2 || page.Next != "p2" {
+		t.Fatalf("events: %+v err=%v", page, err)
+	}
+	if e := page.Items[0]; e.Slug != "DESK_NEW_TICKET" || e.Description != "A ticket was opened." || e.Version != "20300101_00" || !strings.Contains(string(e.Config), "queue") {
+		t.Fatalf("event: %+v", e)
+	}
+	if _, err := c.TriggerTypes(context.Background(), "../x", ""); !errors.Is(err, connector.ErrDefinition) {
+		t.Fatalf("bad app: %v", err)
 	}
 }

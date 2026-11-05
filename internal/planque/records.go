@@ -177,6 +177,10 @@ type GrantedTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	Connector   *connector.Tool `json:"connector,omitempty"`
+	// VendorSchemaSHA256 is the canonical hash of the tool's input schema as
+	// the vendor listed it when the owner approved it (kiff/planque#71): a
+	// different one later pauses the grant.
+	VendorSchemaSHA256 string `json:"vendor_schema_sha256,omitempty"`
 	// FieldsChecked says planque read this narrowed write's operation and
 	// found every field it names there: set at its first call once checked,
 	// so a tool defined before the check (kiff/planque#61) is checked too.
@@ -247,6 +251,10 @@ type Grant struct {
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
+	// OnDemand: the app's sign-in was set up at the provider on this
+	// owner's pick (kiff/planque#87). Coach drafts such an app's writes and
+	// money to ask the owner by default.
+	OnDemand bool `json:"on_demand,omitempty"`
 	// Reconnect: the owner approved a new sign-in for a grant the vendor
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.
@@ -286,7 +294,13 @@ type Grant struct {
 	ConfirmBy   time.Time `json:"confirm_by,omitzero"`
 	Audience    string    `json:"audience"`
 	Reason      string    `json:"reason,omitempty"`
-	Events      []Event   `json:"events"`
+	// Paused: a tool the owner approved changed at the vendor; nothing is
+	// sent on the grant until the owner approves the tools again.
+	Paused *Pause `json:"paused,omitempty"`
+	// DefinitionsReadAt is when a direct MCP server's tools were last read
+	// to notice a change (checkDefinitions).
+	DefinitionsReadAt time.Time `json:"definitions_read_at,omitzero"`
+	Events            []Event   `json:"events"`
 	// TokenOf is the grant whose sign-in (or key) this one uses, for a grant
 	// asked for with reuse: its token is that grant's, never a copy, so a
 	// refresh happens once for both. Cleared when that sign-in is gone.

@@ -670,8 +670,20 @@ type grantView struct {
 	// approving its tools needs no second sign-in.
 	SignedIn  bool      `json:"signed_in,omitempty"`
 	HeldUntil time.Time `json:"held_until,omitzero"`
-	Events    []Event   `json:"events"`
+	// Custody says who holds the sign-in: the connection provider for a
+	// managed app, else planque, which keeps the token or key itself. The
+	// text the owner signs says the same in words (kiff/planque#87).
+	Custody string `json:"custody"`
+	// OnDemand: the app's sign-in was set up on this owner's pick.
+	OnDemand bool    `json:"on_demand,omitempty"`
+	Events   []Event `json:"events"`
 }
+
+// Who holds a grant's sign-in.
+const (
+	CustodyProvider = "provider"
+	CustodyPlanque  = "planque"
+)
 
 type approvalView struct {
 	Fingerprint string    `json:"device"`
@@ -687,9 +699,11 @@ type approvalView struct {
 func (s *Server) view(g *Grant) grantView {
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusWords(g), Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
-		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: g.Request.CatalogEntry}
+		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: g.Request.CatalogEntry,
+		Custody: CustodyPlanque, OnDemand: g.OnDemand}
 	if c := g.Request.Connector; c != nil {
 		v.Provider = c.Provider
+		v.Custody = CustodyProvider
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
 		}
@@ -719,6 +733,9 @@ func (s *Server) view(g *Grant) grantView {
 
 // statusWords is a grant's status as the owner reads it, one line for any app.
 func statusWords(g *Grant) string {
+	if g.Paused != nil && g.Status != StatusDisconnected && g.Status != StatusFailed {
+		return "Paused · " + g.Paused.Why + " · connect again to approve it"
+	}
 	switch g.Status {
 	case StatusConnected:
 		return "Connected"
@@ -1619,7 +1636,8 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 	if title == "" {
 		title = label(listed[i].Label())
 	}
-	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema}
+	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema,
+		VendorSchemaSHA256: vendorSchemaSHA256(listed[i].InputSchema)}
 	if g.Request.Connector != nil {
 		for _, definition := range g.Request.Connector.Tools {
 			if definition.Alias() == t.Tool {

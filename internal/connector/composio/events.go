@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/jcs"
@@ -163,4 +165,53 @@ func (c *Client) EnsureWebhook(ctx context.Context, callback string) (connector.
 		return connector.Webhook{}, err
 	}
 	return result.webhook(callback)
+}
+
+// triggerTypesLimit is the most trigger types the provider lists a page.
+const triggerTypesLimit = 50
+
+// TriggerTypes lists an app's events, a page at a time (kiff/planque#87):
+// the definitions as TriggerType reads them one by one, pinned to a version,
+// so Coach can pick an event as it picks an action.
+func (c *Client) TriggerTypes(ctx context.Context, toolkit, cursor string) (connector.Page[connector.TriggerType], error) {
+	if !identifier.MatchString(toolkit) || len(cursor) > 4096 {
+		return connector.Page[connector.TriggerType]{}, connector.ErrDefinition
+	}
+	q := url.Values{"toolkit_slugs": {toolkit}, "toolkit_versions": {"latest"}, "limit": {strconv.Itoa(triggerTypesLimit)}}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	var page struct {
+		Items []struct {
+			Slug        string `json:"slug"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Version     string `json:"version"`
+			Toolkit     struct {
+				Slug string `json:"slug"`
+			} `json:"toolkit"`
+			Config  json.RawMessage `json:"config"`
+			Payload json.RawMessage `json:"payload"`
+		} `json:"items"`
+		Next string `json:"next_cursor"`
+	}
+	if _, err := c.request(ctx, "GET", "/triggers_types", q, nil, &page); err != nil {
+		return connector.Page[connector.TriggerType]{}, err
+	}
+	result := connector.Page[connector.TriggerType]{Items: []connector.TriggerType{}, Next: page.Next}
+	if len(page.Items) > triggerTypesLimit || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
+		return connector.Page[connector.TriggerType]{}, connector.ErrDefinition
+	}
+	for _, w := range page.Items {
+		t := connector.TriggerType{Slug: w.Slug, Toolkit: w.Toolkit.Slug, Version: w.Version, Name: w.Name, Config: w.Config, Payload: w.Payload}
+		if len(w.Description) <= 20000 {
+			t.Description = w.Description
+		}
+		if t.Validate() != nil || !strings.EqualFold(t.Toolkit, toolkit) || !pinnedVersion.MatchString(t.Version) {
+			result.Skipped++
+			continue
+		}
+		result.Items = append(result.Items, t)
+	}
+	return result, nil
 }
