@@ -15,7 +15,16 @@ version headings refer to releases, not merely to merged pull requests.
   checkout page and holds for the owner; a step that would pay another way,
   or type a password, card number or code, is refused before it runs, and
   secret fields are masked in every page. Offered only where a browser
-  worker is configured; the worker itself follows.
+  worker is configured.
+- The browser worker (`cmd/browserworker`, its image in
+  `deploy/browserworker`): a headless Chromium planque drives over its
+  debugging pipe, one browser and one egress proxy per session, gone when
+  the session ends. The proxy resolves each name itself and connects only
+  to public addresses and the grant's sites, over https; downloads are
+  denied. The worker reads a page's facts in no language (field kinds,
+  controls that place an order, a checkout's total) with secrets masked at
+  the source. planque reaches it with `PLANQUE_BROWSER_URL` and
+  `PLANQUE_BROWSER_KEY`.
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a
