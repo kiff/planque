@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -275,8 +277,12 @@ func TestWorkerKeepsASignInAsTheState(t *testing.T) {
 // download is denied.
 func TestWorkerEgressHoldsInsideTheBrowser(t *testing.T) {
 	w, s := worker(t), shop(t)
+	// The proxy resolves from one goroutine per tunnel: the list is locked.
+	var mu sync.Mutex
 	var asked []string
 	w.Resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		asked = append(asked, host)
 		return []netip.Addr{netip.MustParseAddr("10.0.0.7")}, nil
 	}
@@ -294,12 +300,15 @@ func TestWorkerEgressHoldsInsideTheBrowser(t *testing.T) {
 	}
 	// The browser retries a refused tunnel, so the counts are floors; the
 	// unlisted site is never resolved at all.
-	for _, h := range asked {
+	mu.Lock()
+	seen := slices.Clone(asked)
+	mu.Unlock()
+	for _, h := range seen {
 		if h != "shop.example" {
 			t.Errorf("resolved %q: the unlisted site must not be resolved", h)
 		}
 	}
-	if len(asked) == 0 {
+	if len(seen) == 0 {
 		t.Error("the listed name wasn't resolved by the proxy")
 	}
 	if n := sess.(*session).proxy.Refused; n < 2 {
