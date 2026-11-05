@@ -428,6 +428,9 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		if mustHave(mustQuery(t, e), skToken(first.ID)) {
 			t.Fatal("the key outlived every connection on it")
 		}
+		if g, _ := e.s.loadGrant(ctx, tenant, id); !strings.Contains(g.Events[len(g.Events)-1].What, "the key it shared was deleted") {
+			t.Fatalf("the second's record: %+v", g.Events[len(g.Events)-1])
+		}
 		// A reuse of a grant that isn't connected is refused when asked.
 		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"reuse": first.ID, "agent": "agt_taf", "tools": []any{}}, nil, "k_setup"); st != 409 {
 			t.Fatalf("reuse of a disconnected grant: %d %v", st, out)
@@ -482,6 +485,10 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		}
 		if a, r := e.vendor.Live(); a != 0 || r != 0 {
 			t.Fatalf("the sign-in outlived every connection on it: %d access, %d refresh", a, r)
+		}
+		// Its record says what happened: the shared sign-in was revoked.
+		if g, _ := e.s.loadGrant(ctx, tenant, id); !strings.Contains(g.Events[len(g.Events)-1].What, "the sign-in it shared was revoked") {
+			t.Fatalf("the second's record: %+v", g.Events[len(g.Events)-1])
 		}
 	})
 }
