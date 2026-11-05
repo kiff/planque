@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -49,6 +50,9 @@ type Profile struct {
 	Operations []Operation `json:"operations"`
 }
 
+// RecordPlaceholder is what a record_url carries where the resource's id goes.
+const RecordPlaceholder = "{resource}"
+
 // Pin is how the profile is pinned to a vendor version.
 type Pin struct {
 	// Kind is "header" (a version header, such as Stripe-Version),
@@ -81,6 +85,17 @@ type Operation struct {
 	NoEffect   *NoEffect   `json:"no_effect,omitempty"`
 	// RequiredArguments are arguments planque requires before sending.
 	RequiredArguments []string `json:"required_arguments,omitempty"`
+	// RecordURL is where the owner looks at the vendor's record of this
+	// operation's resource ("https://dashboard.stripe.com/payments/{resource}"):
+	// an https address at the vendor, with the resource's id path-escaped
+	// into {resource}. Reviewed catalog only: a drafted profile carries none,
+	// so no link reaches the owner that no reviewer saw. KIFF shows it
+	// when it asks "Did this happen?".
+	RecordURL string `json:"record_url,omitempty"`
+	// LabelRead is a read of the same profile that gives the resource's own
+	// name (a customer's name, an invoice's number), for the words KIFF
+	// asks with; it needs a resource.
+	LabelRead *Read `json:"label_read,omitempty"`
 	// Completes says the write's outcome comes later, as one of the app's
 	// events: the run that made the call waits for it (kiff/planque#86's
 	// slow tools). Only a write.
@@ -394,6 +409,25 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 			return fmt.Errorf("required_arguments: %q isn't an argument name", a)
 		}
 	}
+	if u := o.RecordURL; u != "" {
+		if p.Source != "catalog" {
+			return errors.New("record_url comes only from a catalog entry merged by review (reviewed catalog only)")
+		}
+		if err := checkRecordURL(u); err != nil {
+			return fmt.Errorf("record_url: %w", err)
+		}
+	}
+	if l := o.LabelRead; l != nil {
+		if o.Resource == nil {
+			return errors.New("label_read names the resource's own name, so the operation needs a resource")
+		}
+		if err := readOf(l.Tool, l.Args, byTool); err != nil {
+			return fmt.Errorf("label_read: %w", err)
+		}
+		if !pathExpr.MatchString(l.Path) {
+			return errors.New("label_read.path is a dotted path")
+		}
+	}
 	if c := o.Completes; c != nil {
 		switch {
 		case !eventSlug.MatchString(c.Event):
@@ -409,6 +443,31 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 		}
 	}
 	return nil
+}
+
+// checkRecordURL accepts an https address at a host, with no credentials in
+// it and at most one {resource} placeholder, which is the only brace in it.
+func checkRecordURL(u string) error {
+	if len(u) > 512 || !strings.HasPrefix(u, "https://") {
+		return errors.New("an https address at the vendor, at most 512 characters")
+	}
+	parsed, err := url.Parse(strings.ReplaceAll(u, RecordPlaceholder, "resource"))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return errors.New("an https address at a host, with no credentials in it")
+	}
+	if strings.Count(u, RecordPlaceholder) > 1 || strings.Count(u, "{") != strings.Count(u, RecordPlaceholder) || strings.Count(u, "}") != strings.Count(u, RecordPlaceholder) {
+		return errors.New("{resource} is the only placeholder, at most once")
+	}
+	if strings.Contains(u, RecordPlaceholder) && !strings.Contains(parsed.EscapedPath(), "resource") {
+		return errors.New("{resource} goes in the address's path")
+	}
+	return nil
+}
+
+// RecordURL fills template with the resource's id, path-escaped, so an id
+// holding "/", "..", "?", "#" or "@" stays inside the vendor's host and path.
+func RecordURL(template, resource string) string {
+	return strings.ReplaceAll(template, RecordPlaceholder, url.PathEscape(resource))
 }
 
 func validateAmount(a Amount, byTool map[string]Operation) error {

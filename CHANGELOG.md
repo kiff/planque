@@ -7,6 +7,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- Two optional fields on a profile's operation, for KIFF's "Did this happen?"
+  ask: `record_url`, where the owner looks at the vendor's record of the
+  resource (an https address with the resource's id path-escaped into
+  `{resource}`, reviewed catalog only), and `label_read`, a read of the same
+  profile that gives the resource's own name (for an operation with a
+  `resource`). A profile that names neither is unchanged.
+
 - A call whose outcome comes later (the slow-tools design): a write's
   profile may say `completes: {event, key, event_key, timeout_s, words}`.
   The relay then refuses the call while the taf doesn't listen for that
