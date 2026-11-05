@@ -33,7 +33,8 @@
 # Environment: AWS_REGION (default eu-west-1), PLANQUE_NAME (default
 # planque), BROWSER_VPC_CIDR (default 10.42.0.0/16), BROWSER_NAMESPACE
 # (default planque.internal), BROWSER_CPU / BROWSER_MEMORY (default 1024 /
-# 2048), BROWSER_IMAGE_TAG (default the commit). Building the image needs
+# 2048), BROWSER_MAX_SESSIONS (default 3: what 2 GB holds with headroom),
+# BROWSER_IMAGE_TAG (default the commit). Building the image needs
 # docker with buildx (linux/arm64).
 set -euo pipefail
 
@@ -44,6 +45,8 @@ CIDR=${BROWSER_VPC_CIDR:-10.42.0.0/16}
 NS=${BROWSER_NAMESPACE:-planque.internal}
 CPU=${BROWSER_CPU:-1024}
 MEM=${BROWSER_MEMORY:-2048}
+MAX=${BROWSER_MAX_SESSIONS:-3}
+[[ "$MAX" =~ ^[1-9][0-9]*$ ]] || { echo "BROWSER_MAX_SESSIONS is a count of at least 1" >&2; exit 2; }
 W=$NAME-browser
 FN=$NAME
 LAMBDA_ROLE=$NAME-lambda
@@ -250,18 +253,18 @@ worker() {
     aws ecs create-cluster --cluster-name "$W" --query cluster.status >/dev/null
   fi
   local td=""
-  if step "register the task: arm64, $CPU CPU units, $MEM MB, no task role (it calls nothing in AWS), PLANQUE_WORKER_KEY_SHA256"; then
+  if step "register the task: arm64, $CPU CPU units, $MEM MB, at most $MAX sessions, no task role (it calls nothing in AWS), PLANQUE_WORKER_KEY_SHA256"; then
     td=$(python3 -c 'import json,sys
-img,logs,region,cpu,mem,port,ks,role,fam,health=sys.argv[1:]
+img,logs,region,cpu,mem,port,ks,role,fam,health,mx=sys.argv[1:]
 print(json.dumps({"family":fam,"requiresCompatibilities":["FARGATE"],"networkMode":"awsvpc","cpu":cpu,"memory":mem,
  "runtimePlatform":{"cpuArchitecture":"ARM64","operatingSystemFamily":"LINUX"},"executionRoleArn":role,
  "containerDefinitions":[{"name":"worker","image":img,"essential":True,"stopTimeout":30,
   "portMappings":[{"containerPort":int(port),"protocol":"tcp"}],
-  "environment":[{"name":"PLANQUE_WORKER_KEY_SHA256","value":ks}],
+  "environment":[{"name":"PLANQUE_WORKER_KEY_SHA256","value":ks},{"name":"PLANQUE_WORKER_MAX_SESSIONS","value":mx}],
   "healthCheck":{"command":["CMD","bash","-c",health],"interval":30,"timeout":5,"retries":3,"startPeriod":20},
   "logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":logs,"awslogs-region":region,"awslogs-stream-prefix":"worker"}}}]}))' \
       "$IMAGE" "$LOGS" "$REGION" "$CPU" "$MEM" "$PORT" "$KEY_SUM" \
-      "$(aws iam get-role --role-name "$EXEC_ROLE" --query Role.Arn)" "$W" "$HEALTH")
+      "$(aws iam get-role --role-name "$EXEC_ROLE" --query Role.Arn)" "$W" "$HEALTH" "$MAX")
     td=$(aws ecs register-task-definition --cli-input-json "$td" --query taskDefinition.taskDefinitionArn)
   fi
   local net="awsvpcConfiguration={subnets=[$PRIV_A,$PRIV_B],securityGroups=[$SG_W],assignPublicIp=DISABLED}"
