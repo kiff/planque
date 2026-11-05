@@ -193,15 +193,20 @@ func Secret(f Field) bool {
 	return false
 }
 
-// Mask is p with every secret field's value removed and said masked, and
-// its text cut at a size. The worker masks too; this holds whatever it
-// sent.
+// Mask is p with every secret field's value removed and said masked, a
+// card number shown anywhere in its text or a field's value replaced by
+// its last four digits, and its text cut at a size. The worker masks too;
+// this holds whatever it sent.
 func Mask(p Page, maxText int) Page {
 	out := p
+	out.Title = MaskText(p.Title)
+	out.Text = MaskText(p.Text)
 	out.Fields = make([]Field, len(p.Fields))
 	for i, f := range p.Fields {
 		if Secret(f) {
 			f.Value, f.Masked = "", true
+		} else {
+			f.Value = MaskText(f.Value)
 		}
 		out.Fields[i] = f
 	}
@@ -209,6 +214,51 @@ func Mask(p Page, maxText int) Page {
 		out.Text = out.Text[:maxText] + "\n(cut)"
 	}
 	return out
+}
+
+// cardRun is a run of 13 to 19 digits, spaces or dashes between groups
+// allowed, as a card number is written.
+var cardRun = regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`)
+
+// MaskText is text with every card number in it masked to its last four
+// digits: a run of 13 to 19 digits that passes the Luhn check, with or
+// without spaces or dashes. An order number or a phone number doesn't
+// pass, as a rule; one that does is masked all the same, which costs
+// nothing. A one-time code can't be told from any other number, so the
+// page's own masking of its field is what keeps it out.
+func MaskText(s string) string {
+	if s == "" {
+		return s
+	}
+	return cardRun.ReplaceAllStringFunc(s, func(run string) string {
+		digits := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, run)
+		if len(digits) < 13 || len(digits) > 19 || !luhn(digits) {
+			return run
+		}
+		return "•••• " + digits[len(digits)-4:]
+	})
+}
+
+// luhn says digits pass the Luhn check, as every card number does.
+func luhn(digits string) bool {
+	sum, double := 0, false
+	for i := len(digits) - 1; i >= 0; i-- {
+		d := int(digits[i] - '0')
+		if double {
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+		double = !double
+	}
+	return sum%10 == 0
 }
 
 // payWords are the words of a control that pays or places an order, in
@@ -348,9 +398,17 @@ func Allowed(raw string, sites []string) (code, why string) {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return CodeBadURL, "the URL must be https, with a host and no user info"
 	}
-	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+	// A browser reads another script's full stop as a dot (UTS 46), so a
+	// host is checked as it will read it; any other non-ASCII name is
+	// refused, a site's name being given in ASCII (its xn-- form).
+	host := strings.TrimSuffix(strings.ToLower(ideographicDots.Replace(u.Hostname())), ".")
+	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil || endsInANumber(host) {
 		return CodeAddressPrivate, "the browser opens sites by name, never an address"
+	}
+	for _, r := range host {
+		if r > 0x7f {
+			return CodeBadURL, "the site's name must be in ASCII (its xn-- form)"
+		}
 	}
 	if local(host) {
 		return CodeAddressPrivate, host + " is a local name, not a site"
@@ -364,6 +422,25 @@ func Allowed(raw string, sites []string) (code, why string) {
 		}
 	}
 	return CodeSiteNotListed, host + " isn't one of the sites this connection may use (" + strings.Join(sites, ", ") + ")"
+}
+
+// ideographicDots are the full stops a browser reads as a dot in a host.
+var ideographicDots = strings.NewReplacer("\u3002", ".", "\uff0e", ".", "\uff61", ".")
+
+// endsInANumber says a browser reads host as an IPv4 address, as the URL
+// standard does when its last label is a number: decimal, octal (a leading
+// 0) or hexadecimal (0x), so 127.1, 0x7f.1 and 0177.0.0.1 are addresses.
+func endsInANumber(host string) bool {
+	labels := strings.Split(host, ".")
+	last := labels[len(labels)-1]
+	if last == "" {
+		return false
+	}
+	if strings.HasPrefix(last, "0x") {
+		last = last[2:]
+		return strings.Trim(last, "0123456789abcdef") == ""
+	}
+	return strings.Trim(last, "0123456789") == ""
 }
 
 // Site is the host a URL names, lower case; "" when it isn't a URL.

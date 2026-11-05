@@ -15,7 +15,18 @@ version headings refer to releases, not merely to merged pull requests.
   checkout page and holds for the owner; a step that would pay another way,
   or type a password, card number or code, is refused before it runs, and
   secret fields are masked in every page. Offered only where a browser
-  worker is configured; the worker itself follows.
+  worker is configured.
+- The browser worker (`cmd/browserworker`, its image in
+  `deploy/browserworker`): a headless Chromium planque drives over its
+  debugging pipe, one browser and one egress proxy per session, gone when
+  the session ends. The proxy resolves each name itself and connects only
+  to public addresses and the grant's sites, over https; WebRTC is taken
+  away from every page, so no UDP leaves the browser; downloads are
+  denied. The worker reads a page's facts in no language (field kinds,
+  controls that place an order, a checkout's total) with secrets masked at
+  the source. planque reaches it with `PLANQUE_BROWSER_URL` and
+  `PLANQUE_BROWSER_KEY`. A card number shown in a page's text, or echoed
+  in a plain field, reaches the agent as its last four digits only.
 - Any app on demand (kiff/planque#87): a catalog search lists every app the
   managed provider has, each as it stands (`state: "needs_setup"` for one
   that needs our own developer credentials first); the unsearched list keeps
@@ -57,6 +68,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- The browser connection refuses every form a browser reads as an address,
+  not only a dotted one: a short or hexadecimal one (`127.1`, `0x7f.1`),
+  one with a leading zero, or one written with another script's full stop.
+  A site's name in another script is refused; its `xn--` form opens.
 - A connection an account key asked for (an app's own Connect apps screen)
   can be finished: the taf it is for and the account's Setup agent (KIFF
   role `setup_reader`) may list it, read its catalog and propose its tools.

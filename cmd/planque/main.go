@@ -40,6 +40,7 @@ import (
 	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/appcredentials"
 	"github.com/kiff/planque/internal/awsapi"
+	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/connector/composio"
 	"github.com/kiff/planque/internal/door"
@@ -161,7 +162,19 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
 		eventSink = &door.HTTP{URL: eventURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
+	// The browser worker (kiff/planque#86): where it listens, on a private
+	// address, and the key it checks. Without both, no browser is offered.
+	var browserWorker browser.Worker
+	workerURL, workerKey := strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_URL")), strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_KEY"))
+	if workerURL != "" || workerKey != "" {
+		u, err := url.Parse(workerURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || workerKey == "" {
+			return nil, errors.New("PLANQUE_BROWSER_URL and PLANQUE_BROWSER_KEY must name the browser worker and the key it checks")
+		}
+		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
+	}
 	return &planque.Server{
+		Browser:    browserWorker,
 		DoorSink:   doorSink,
 		EventSink:  eventSink,
 		Connectors: connectors,

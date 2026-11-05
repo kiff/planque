@@ -148,10 +148,64 @@ the grant's browser that planque serves (a later step); the storage state
 after it is sealed like a token, opened only for the grant's own session,
 and deleted on disconnect. No password ever reaches planque.
 
-The worker is reached through `browser.Worker`; the fake in
-`internal/fakes` is a scripted shop the tests run on, and the real one (a
-headless browser with its own egress rules) is its own image. An
-installation with no worker lists no browser and takes no browser grant.
+### The worker
+
+The worker (`cmd/browserworker`, `internal/browserworker`) is a headless
+Chromium driven over its remote-debugging pipe with the standard library
+alone: one browser process and one egress proxy per session, both gone when
+the session closes, so nothing of a site persists but the cookies planque
+seals. planque reaches it over its API with a shared key
+(`PLANQUE_BROWSER_URL`, `PLANQUE_BROWSER_KEY`; the worker holds only the
+key's SHA-256, `PLANQUE_WORKER_KEY_SHA256`), on a private address. An
+installation with neither lists no browser and takes no browser grant.
+
+```
+POST   /sessions                 {grant, state, sites} → {session}
+POST   /sessions/{id}/open       {url}                 → {page}
+POST   /sessions/{id}/step       {step}                → {page}
+POST   /sessions/{id}/screenshot                       → {png}
+DELETE /sessions/{id}                                  → {state}
+```
+
+The browser goes out only through the session's proxy, which resolves each
+name itself, connects only to public addresses (`egress.Public`, every
+answer of the name, by address so a rebind reaches nothing), only to the
+grant's sites when it has a list, over https on 443, and never to a name
+written as an address or a local name. WebRTC, whose UDP would go around
+an HTTP proxy, is taken away from every document the session loads before
+the page's own script runs: the page's target, and every child target the
+browser attaches with its debugger paused (a cross-site frame is its own
+process under site isolation, which the worker forces on; frames in
+frames; workers), each armed and only then released. The browser's policy
+flag confining WebRTC to the proxy is set too, but measured alone it still
+let STUN checks out. So a page, in any frame, opens no peer connection and
+probes no address. Downloads are denied. A session unused for two minutes is ended
+by the worker. Deployed, the worker runs in a network with no route to
+planque's or anyone's private addresses: a second line behind the proxy.
+
+The worker reports facts, in no language: each field's kind from its type
+and autocomplete (`password`; `card` for a number or a security code;
+`code` for a one-time code), its values masked at the source and again by
+planque; each control, whether it submits a form, and `places_order` when
+the page's semantics say so (a form with a card field, a form or button
+posting to an order, checkout or payment path, schema.org buy actions, a
+payment provider's button); links; a payment provider's frame; and a
+checkout's total, read as one amount next to a "total" word in one
+currency, in the languages above. Two different candidates, or none, is no
+total. The lines are not read yet.
+
+The limit of reading from outside: a one-click button wired only through
+script, with no words, no form and no telling attribute, on a page that
+isn't a checkout, reads as an ordinary control, and `browse_act` clicks
+it. An owner limits a grant to sites they know, and lists a site that can
+take money with one click knowingly; the Card's limit on `browse_act`
+calls bounds what such a click can do.
+
+The tests run the real browser against a shop in HTML served on loopback
+when a Chromium is found (`PLANQUE_CHROME`, or the usual names), and skip
+otherwise. The fake worker in `internal/fakes` scripts the same shop for
+planque's own tests. The image is `deploy/browserworker/Dockerfile`:
+Chromium and the binary, nothing else.
 
 ## Registered OAuth clients
 
