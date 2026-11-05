@@ -170,7 +170,9 @@ the worker ends its browser after two idle minutes. A sign-in that goes
 through another host (a separate identity provider) needs that host on
 the grant's sites too, or the browser's egress refuses it: Coach lists
 it with the site when it asks for the grant. While a view is open,
-the taf's calls on the grant are refused with `signing_in`. Disconnecting
+the taf's calls on the grant are refused with `signing_in`. Asking for a
+view again from the phone ends one still open (closed in the app before
+Done, say) and keeps nothing from it. Disconnecting
 ends an open view with the grant.
 
 The page is served with `Cache-Control: no-store`, a content security
