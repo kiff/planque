@@ -333,6 +333,7 @@ func (s *Server) dropBrowser(ctx context.Context, g *Grant) []string {
 		return nil
 	}
 	var problems []string
+	s.dropSignIn(ctx, g)
 	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skBrowserState(g.ID)); err != nil {
 		problems = append(problems, "the browser's sign-ins weren't deleted: "+err.Error())
 	}
@@ -405,6 +406,10 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	}
 	if code, why := browser.Allowed(a.URL, sites); code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
+	}
+	// The owner's sign-in view holds the browser: the taf waits.
+	if s.signingIn(ctx, g) {
+		return OpNotSent, browserRefusal(CodeSigningIn, "the owner is signing in to a site on this connection; try again when they're done", false)
 	}
 	for i, st := range a.Steps {
 		if err := st.Check(); err != nil {

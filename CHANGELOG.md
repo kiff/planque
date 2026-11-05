@@ -16,6 +16,16 @@ version headings refer to releases, not merely to merged pull requests.
   or type a password, card number or code, is refused before it runs, and
   secret fields are masked in every page. Offered only where a browser
   worker is configured.
+- The live sign-in view of a browser grant: the owner signs in to a site
+  themselves, on the phone, in a view of the grant's own browser that
+  planque serves (`POST …/grants/{id}/sign-in`, signed, answers a one-time
+  URL good for ten minutes). The page shows the browser as frames and
+  sends the owner's taps, typing and keys to it; a URL must be on the
+  grant's sites; nothing typed is seen by any agent and no frame is kept.
+  Done seals the cookies as the grant's sign-in; a view that lapses keeps
+  nothing; the taf's calls wait while a view is open (`signing_in`). The
+  worker takes input and frames for it, holds at most three sessions at
+  once (`PLANQUE_WORKER_MAX_SESSIONS`), and answers "busy" beyond that.
 - The browser worker (`cmd/browserworker`, its image in
   `deploy/browserworker`): a headless Chromium planque drives over its
   debugging pipe, one browser and one egress proxy per session, gone when

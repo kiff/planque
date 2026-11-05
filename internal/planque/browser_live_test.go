@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/netip"
@@ -138,4 +139,41 @@ func refByLabel(page map[string]any, kind, label string) string {
 		}
 	}
 	return ""
+}
+
+// The owner signs in to the real shop through the view planque serves:
+// Tab to the email field, type, Tab to the password (the shop's test page
+// fills it), Enter. Done seals the cookies, and the taf's next call is
+// signed in. No page is read for an agent along the way.
+func TestBrowserLiveSignInViewSignsTheShopIn(t *testing.T) {
+	e, _ := newLiveBrowserEnv(t)
+	g := e.connect()
+	st, out := e.startView(g.ID, map[string]any{"url": liveLogin})
+	if st != 200 {
+		t.Fatalf("start: %d %v", st, out)
+	}
+	viewURL := out["view"].(string)
+	st, hdr, frame := e.view("POST", viewURL+"/frame", nil)
+	if st != 200 || hdr.Get("Content-Type") != "image/jpeg" || !bytes.HasPrefix(frame, []byte{0xff, 0xd8}) {
+		t.Fatalf("frame: %d %s %d bytes: %s", st, hdr.Get("Content-Type"), len(frame), frame)
+	}
+	for _, in := range []map[string]any{
+		{"kind": "tap", "x": 640, "y": 450},
+		{"kind": "key", "key": "Tab"},
+		{"kind": "type", "text": "ana@example.com"},
+		{"kind": "key", "key": "Tab"},
+		{"kind": "key", "key": "Enter"},
+	} {
+		if st, _, raw := e.view("POST", viewURL+"/input", in); st != 200 {
+			t.Fatalf("input %v: %d %s", in, st, raw)
+		}
+	}
+	time.Sleep(700 * time.Millisecond)
+	if st, _, raw := e.view("POST", viewURL+"/done", nil); st != 200 {
+		t.Fatalf("done: %d %s", st, raw)
+	}
+	out2, sc := e.call(g, "browse_open", map[string]any{"url": liveItem})
+	if code(sc) != "" || !strings.Contains(out2, "Signed in as ana") {
+		t.Fatalf("the taf after the owner's sign-in: %s", out2)
+	}
 }

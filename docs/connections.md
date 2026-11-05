@@ -148,6 +148,34 @@ the grant's browser that planque serves (a later step); the storage state
 after it is sealed like a token, opened only for the grant's own session,
 and deleted on disconnect. No password ever reaches planque.
 
+### The live sign-in view
+
+A site's sign-in is the owner's own. From the connection in the app, the
+phone asks, signed, `POST /v1/accounts/{tenant}/grants/{id}/sign-in` with
+an optional start `url` (on the grant's sites; the first site's root by
+default). planque starts a session on the worker with the grant's kept
+sign-ins and answers `{view, expires, words}`: a one-time URL under
+`/browser/view/{token}`, good for ten minutes, which the app opens in a
+web view and nothing more; the page's words are planque's. The page shows
+the browser as JPEG frames taken about once a second and sends the
+owner's acts back: a tap at a point, text typed, Enter, Backspace or Tab,
+a scroll, or going to a URL, which must be on the grant's sites. The
+frames and the acts go to the worker as device events; nothing of the
+page is read for an agent, and no frame is kept anywhere. A one-time
+code works, since the owner types it. Tapping Done closes the session and
+seals its cookies as the grant's sign-in, which every later session starts
+with; the grant's record says a sign-in was made at the site, never what
+was typed. A view not finished in ten minutes lapses and keeps nothing;
+the worker ends its browser after two idle minutes. While a view is open,
+the taf's calls on the grant are refused with `signing_in`. Disconnecting
+ends an open view with the grant.
+
+The page is served with `Cache-Control: no-store`, a content security
+policy that allows nothing but its own frames and calls, and no referrer.
+The token in the URL is the only credential, as a sign-in link's is: it
+is random, hashed at rest, bound to one grant's one open view, and spent
+by Done or the lapse.
+
 ### The worker
 
 The worker (`cmd/browserworker`, `internal/browserworker`) is a headless

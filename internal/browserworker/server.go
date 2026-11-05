@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -64,6 +65,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /sessions/{id}/open", s.keyed(s.open))
 	mux.HandleFunc("POST /sessions/{id}/step", s.keyed(s.step))
 	mux.HandleFunc("POST /sessions/{id}/screenshot", s.keyed(s.screenshot))
+	mux.HandleFunc("POST /sessions/{id}/input", s.keyed(s.input))
+	mux.HandleFunc("POST /sessions/{id}/frame", s.keyed(s.frame))
 	mux.HandleFunc("DELETE /sessions/{id}", s.keyed(s.close))
 	return mux
 }
@@ -121,6 +124,10 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess, err := s.Local.Start(r.Context(), browser.Start{Grant: in.Grant, State: in.State, Sites: in.Sites})
+	if errors.Is(err, ErrBusy) {
+		writeErr(w, http.StatusServiceUnavailable, ErrBusy.Error())
+		return
+	}
 	if err != nil {
 		s.log().Warn("session not started", slog.String("err", err.Error()))
 		writeErr(w, http.StatusServiceUnavailable, "the browser couldn't be started")
@@ -246,6 +253,40 @@ func (s *Server) screenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"png": png})
+}
+
+func (s *Server) input(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Input browser.Input `json:"input"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	h, ok := s.take(w, r)
+	if !ok {
+		return
+	}
+	defer s.release(h)
+	if err := h.sess.Input(r.Context(), in.Input); err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
+	h, ok := s.take(w, r)
+	if !ok {
+		return
+	}
+	defer s.release(h)
+	jpeg, err := h.sess.Frame(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jpeg": jpeg})
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {
