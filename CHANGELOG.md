@@ -24,7 +24,8 @@ version headings refer to releases, not merely to merged pull requests.
   denied. The worker reads a page's facts in no language (field kinds,
   controls that place an order, a checkout's total) with secrets masked at
   the source. planque reaches it with `PLANQUE_BROWSER_URL` and
-  `PLANQUE_BROWSER_KEY`.
+  `PLANQUE_BROWSER_KEY`. A card number shown in a page's text, or echoed
+  in a plain field, reaches the agent as its last four digits only.
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a

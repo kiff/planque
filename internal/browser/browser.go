@@ -193,15 +193,20 @@ func Secret(f Field) bool {
 	return false
 }
 
-// Mask is p with every secret field's value removed and said masked, and
-// its text cut at a size. The worker masks too; this holds whatever it
-// sent.
+// Mask is p with every secret field's value removed and said masked, a
+// card number shown anywhere in its text or a field's value replaced by
+// its last four digits, and its text cut at a size. The worker masks too;
+// this holds whatever it sent.
 func Mask(p Page, maxText int) Page {
 	out := p
+	out.Title = MaskText(p.Title)
+	out.Text = MaskText(p.Text)
 	out.Fields = make([]Field, len(p.Fields))
 	for i, f := range p.Fields {
 		if Secret(f) {
 			f.Value, f.Masked = "", true
+		} else {
+			f.Value = MaskText(f.Value)
 		}
 		out.Fields[i] = f
 	}
@@ -209,6 +214,51 @@ func Mask(p Page, maxText int) Page {
 		out.Text = out.Text[:maxText] + "\n(cut)"
 	}
 	return out
+}
+
+// cardRun is a run of 13 to 19 digits, spaces or dashes between groups
+// allowed, as a card number is written.
+var cardRun = regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`)
+
+// MaskText is text with every card number in it masked to its last four
+// digits: a run of 13 to 19 digits that passes the Luhn check, with or
+// without spaces or dashes. An order number or a phone number doesn't
+// pass, as a rule; one that does is masked all the same, which costs
+// nothing. A one-time code can't be told from any other number, so the
+// page's own masking of its field is what keeps it out.
+func MaskText(s string) string {
+	if s == "" {
+		return s
+	}
+	return cardRun.ReplaceAllStringFunc(s, func(run string) string {
+		digits := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, run)
+		if len(digits) < 13 || len(digits) > 19 || !luhn(digits) {
+			return run
+		}
+		return "•••• " + digits[len(digits)-4:]
+	})
+}
+
+// luhn says digits pass the Luhn check, as every card number does.
+func luhn(digits string) bool {
+	sum, double := 0, false
+	for i := len(digits) - 1; i >= 0; i-- {
+		d := int(digits[i] - '0')
+		if double {
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+		double = !double
+	}
+	return sum%10 == 0
 }
 
 // payWords are the words of a control that pays or places an order, in

@@ -116,6 +116,31 @@ func TestPaymentPages(t *testing.T) {
 	}
 }
 
+// A card number shown in a page's text, or echoed in a plain field, is
+// masked to its last four digits (#86: a secret in a page's text); other
+// numbers stay.
+func TestMaskTextHidesCardNumbersInText(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"Paying with card 4242 4242 4242 4242 ending soon", "Paying with card •••• 4242 ending soon"},
+		{"card 4242424242424242.", "card •••• 4242."},
+		{"card 4242-4242-4242-4242", "card •••• 4242"},
+		{"Amex 3782 822463 10005", "Amex •••• 0005"},
+		{"Order 1001, total 2.50 EUR, ref 123456789012", "Order 1001, total 2.50 EUR, ref 123456789012"}, // fails Luhn
+		{"Phone +33 6 12 34 56 78", "Phone +33 6 12 34 56 78"},
+		{"IBAN-like 1234567890123456", "IBAN-like 1234567890123456"}, // fails Luhn
+		{"", ""},
+	} {
+		if got := MaskText(c.in); got != c.want {
+			t.Errorf("%q: %q, want %q", c.in, got, c.want)
+		}
+	}
+	p := Mask(Page{Title: "Receipt 4242 4242 4242 4242", Text: "Card 4242 4242 4242 4242 charged",
+		Fields: []Field{{Ref: "f1", Label: "Note", Kind: "text", Value: "paid with 4242424242424242"}}}, 0)
+	if strings.Contains(mustJSON(p), "4242 4242") || strings.Contains(mustJSON(p), "4242424242424242") {
+		t.Errorf("the card number shows: %s", mustJSON(p))
+	}
+}
+
 // A secret's value never reaches an agent, whatever the worker sent.
 func TestMaskHidesSecretsAndCutsText(t *testing.T) {
 	m := Mask(checkoutPage(), 0)
