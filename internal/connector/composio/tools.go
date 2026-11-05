@@ -197,10 +197,16 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 		return connector.Result{}, err
 	}
 	if err != nil {
-		if status < 300 || status >= 500 || status == 408 || status >= 300 && status < 400 {
-			return connector.Result{Unknown: true}, nil
+		// The provider itself answered with an error: its reason, if it gave one.
+		var call *connector.CallError
+		why := ""
+		if errors.As(err, &call) {
+			why = call.Message
 		}
-		return connector.Result{Refused: true}, nil
+		if status < 300 || status >= 500 || status == 408 || status >= 300 && status < 400 {
+			return connector.Result{Unknown: true, Reason: why, Status: status}, nil
+		}
+		return connector.Result{Refused: true, Reason: why, Status: status}, nil
 	}
 	refused := result.Successful != nil && !*result.Successful
 	if len(result.Error) > 0 && string(result.Error) != "null" && string(result.Error) != `""` {
@@ -209,7 +215,15 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 	if len(result.Data) == 0 {
 		result.Data = json.RawMessage(`{}`)
 	}
-	return connector.Result{Data: result.Data, Refused: refused}, nil
+	if !refused {
+		return connector.Result{Data: result.Data}, nil
+	}
+	// The provider ran the action and the vendor said no: the vendor's own words.
+	why := connector.Reason(result.Error)
+	if why == "" {
+		why = connector.Reason(result.Data)
+	}
+	return connector.Result{Data: result.Data, Refused: true, Reason: why, ByVendor: true}, nil
 }
 
 // searchLimit is how many tools one search answers at most.

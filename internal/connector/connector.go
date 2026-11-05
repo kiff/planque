@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 var ErrPermit = errors.New("the permit expired before the call could be sent")
@@ -26,6 +27,9 @@ type CallError struct {
 	Provider string
 	Call     string
 	Status   int
+	// Message is the provider's own reason for a refusal, as Reason makes it
+	// safe to show: one line, bounded, secrets redacted. Never in Error().
+	Message string
 }
 
 func (e *CallError) Error() string {
@@ -175,6 +179,57 @@ type Result struct {
 	// Refused is a provider error. It never establishes that no effect occurred.
 	Refused bool
 	Unknown bool
+	// Why a call was refused or left unknown, as Reason makes it safe to show,
+	// and who said it: the vendor's own answer passed on by the provider
+	// (ByVendor), or the provider, with its HTTP status when it gave one.
+	Reason   string
+	ByVendor bool
+	Status   int
+}
+
+// maxReason bounds a reason: one line the owner reads, never a payload.
+const maxReason = 300
+
+// secretShapes are what a reason must never carry, whatever the vendor
+// echoed: vendor keys, bearer tokens, webhook secrets and JWTs.
+var secretShapes = regexp.MustCompile(`(?i)\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]+|\bwhsec_[A-Za-z0-9]+|\bbearer\s+[A-Za-z0-9._~+/=-]+|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+
+// Reason is a provider's or vendor's error made safe to show the owner and
+// the taf: its message when the error is JSON ({"message"}, {"error":
+// {"message"}}, {"error": "…"} or a string), one line, control characters
+// gone, secrets in secretShapes and any of secrets redacted, at most
+// maxReason characters. Empty when there's nothing to say.
+func Reason(raw []byte, secrets ...string) string {
+	text := strings.TrimSpace(string(raw))
+	var v any
+	if json.Unmarshal(raw, &v) == nil {
+		text = messageOf(v)
+	}
+	for _, s := range secrets {
+		if s = strings.TrimSpace(s); s != "" {
+			text = strings.ReplaceAll(text, s, "[redacted]")
+		}
+	}
+	text = secretShapes.ReplaceAllString(text, "[redacted]")
+	text = strings.Join(strings.FieldsFunc(text, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+	if r := []rune(text); len(r) > maxReason {
+		text = string(r[:maxReason-1]) + "…"
+	}
+	return text
+}
+
+func messageOf(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case map[string]any:
+		for _, k := range []string{"message", "error", "detail", "error_description"} {
+			if m := messageOf(x[k]); m != "" {
+				return m
+			}
+		}
+	}
+	return ""
 }
 
 // Platform describes the operator-configured service, never a caller URL.

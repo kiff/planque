@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -620,13 +621,47 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		return OpNotSent, toolResult("Not sent: "+err.Error(), true)
 	}
 	if result.Unknown {
-		return OpUnknown, toolResult("The connector did not return a confirmed result. This operation will not be sent again.", true)
+		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
 	if result.Refused {
-		return OpDone, toolResult("The connector refused the operation. No claim is made about whether an effect occurred.", true)
+		return OpDone, toolResult(refusedWords(vendorName(g), result)+" No claim is made about whether an effect occurred.", true)
 	}
 	return OpDone, toolResult(string(result.Data), false)
 }
+// refusedWords says who refused a connector call and why, so the taf can
+// tell the owner: the vendor's own answer ("Stripe refused it: No such
+// invoice: 'in_1'.") or the connection provider's ("The connection provider
+// refused it (HTTP 403): …"). planque's own refusals are "Not sent: …" and
+// KIFF's never reach here, so the three read apart.
+func refusedWords(vendor string, r connector.Result) string {
+	if r.ByVendor {
+		if r.Reason == "" {
+			return vendor + " refused it and gave no reason."
+		}
+		return vendor + " refused it: " + sentence(r.Reason)
+	}
+	return "The connection provider refused it" + providerSaid(r) + "."
+}
+
+// providerSaid is the provider's status and reason, when it gave them.
+func providerSaid(r connector.Result) string {
+	out := ""
+	if r.Status != 0 {
+		out = fmt.Sprintf(" (HTTP %d)", r.Status)
+	}
+	if r.Reason != "" {
+		out += ": " + strings.TrimRight(r.Reason, ".")
+	}
+	return out
+}
+
+func sentence(s string) string {
+	if strings.HasSuffix(s, ".") || strings.HasSuffix(s, "…") {
+		return s
+	}
+	return s + "."
+}
+
 func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 	triggerErr := s.stopTriggers(ctx, g)
 	if g.Connector == nil {

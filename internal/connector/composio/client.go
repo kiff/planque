@@ -162,6 +162,7 @@ func (c *Client) requestGuard(ctx context.Context, method, path string, q url.Va
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		call.Status = res.StatusCode
+		call.Message = connector.Reason(b, key)
 		return res.StatusCode, call
 	}
 	encodedKey, _ := json.Marshal(key)

@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -34,6 +35,9 @@ type connectorFixture struct {
 	foreign, changed, lost, strayLink bool
 	// toolBody, when set, is the provider's answer for the pinned tool.
 	toolBody                                string
+	// executeStatus and executeBody, when set, are the provider's answer to an execution.
+	executeStatus int
+	executeBody   string
 	authorizations, executions, revocations int
 	// setUps are the apps whose sign-in planque asked the provider to set up, in order.
 	setUps  []string
@@ -183,6 +187,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			return nil, errors.New("synthetic lost answer")
 		}
 		body = `{"data":{"id":"reply_demo"},"successful":true}`
+		if f.executeBody != "" {
+			return profileResponse(cmp.Or(f.executeStatus, 200), f.executeBody), nil
+		}
 	default:
 		f.t.Fatalf("unexpected provider request %s %s", r.Method, r.URL)
 	}
@@ -723,5 +730,33 @@ func TestConnectorOnDemandCapHoldsUnderARace(t *testing.T) {
 	f.mu.Unlock()
 	if setUps > onDemandADay || made > onDemandADay || made+refused != 12 {
 		t.Fatalf("%d set up, %d made, %d refused, cap %d", setUps, made, refused, onDemandADay)
+	}
+}
+
+// A refused call tells the taf who refused it and why, so it can tell the
+// owner: the vendor's own reason, the provider's with its status, or a lost
+// answer with the provider's words, each still saying no claim is made about
+// an effect. Before, every refusal was one fixed line, the same for any id.
+func TestARefusedCallSaysWhoRefusedAndWhy(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	call := func(op string) string {
+		t.Helper()
+		args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"` + op + `"}`)
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: op, Args: args})
+		return mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit))
+	}
+	f.executeBody = `{"data":{},"successful":false,"error":"No such ticket: 'ticket_demo'"}`
+	if got := call("op_vendor"); !strings.Contains(got, "refused it: No such ticket: 'ticket_demo'. No claim is made about whether an effect occurred.") || !strings.Contains(got, `"isError":true`) {
+		t.Fatalf("the vendor's refusal: %s", got)
+	}
+	f.executeStatus, f.executeBody = 403, `{"error":{"message":"this account may not run that action"}}`
+	if got := call("op_provider"); !strings.Contains(got, "The connection provider refused it (HTTP 403): this account may not run that action. No claim is made") {
+		t.Fatalf("the provider's refusal: %s", got)
+	}
+	f.executeStatus, f.executeBody = 502, `{"message":"upstream timed out"}`
+	if got := call("op_unknown"); !strings.Contains(got, "The connector did not return a confirmed result (HTTP 502): upstream timed out. This operation will not be sent again.") {
+		t.Fatalf("no confirmed result: %s", got)
 	}
 }
