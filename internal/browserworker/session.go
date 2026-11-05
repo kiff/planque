@@ -130,6 +130,14 @@ func (s *session) attach(ctx context.Context, kept []byte) error {
 	if err := s.c.call(ctx, s.sid, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noWebRTC}, nil); err != nil {
 		return err
 	}
+	// A cross-site frame is a target of its own under site isolation, and
+	// the page's script doesn't run in it. Every child target (frames,
+	// frames in frames, workers) is attached with its debugger paused, gets
+	// the same script, and only then runs: no frame's script sees WebRTC.
+	s.c.handle(s.armChild)
+	if err := s.c.call(ctx, s.sid, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}, nil); err != nil {
+		return err
+	}
 	if len(kept) > 0 {
 		var st state
 		if err := json.Unmarshal(kept, &st); err != nil {
@@ -155,6 +163,39 @@ func (s *session) attach(ctx context.Context, kept []byte) error {
 		}
 	}
 	return nil
+}
+
+// armChild takes WebRTC away from a target the browser attached (a
+// cross-site frame, a worker) before its script runs, sets the same
+// auto-attach on it for its own children, and lets it run.
+func (s *session) armChild(m cdpMessage) {
+	if m.Method != "Target.attachedToTarget" {
+		return
+	}
+	var p struct {
+		SessionID  string `json:"sessionId"`
+		TargetInfo struct {
+			Type string `json:"type"`
+		} `json:"targetInfo"`
+		WaitingForDebugger bool `json:"waitingForDebugger"`
+	}
+	if json.Unmarshal(m.Params, &p) != nil || p.SessionID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// A worker has no Page domain; the script is for documents, and takes
+	// only once the domain is enabled on that target. The auto-attach and
+	// the release apply to every kind.
+	if p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page" {
+		if err := s.c.call(ctx, p.SessionID, "Page.enable", nil, nil); err == nil {
+			_ = s.c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noWebRTC}, nil)
+		}
+	}
+	_ = s.c.call(ctx, p.SessionID, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}, nil)
+	if p.WaitingForDebugger {
+		_ = s.c.call(ctx, p.SessionID, "Runtime.runIfWaitingForDebugger", nil, nil)
+	}
 }
 
 // Open navigates to u and returns the page once loaded.
