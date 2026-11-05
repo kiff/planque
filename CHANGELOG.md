@@ -24,8 +24,8 @@ version headings refer to releases, not merely to merged pull requests.
   away from every page, so no UDP leaves the browser; downloads are
   denied. The worker reads a page's facts in no language (field kinds,
   controls that place an order, a checkout's total) with secrets masked at
-  the source. planque reaches it with `PLANQUE_BROWSER_URL` and
-  `PLANQUE_BROWSER_KEY`. A card number shown in a page's text, or echoed
+  the source, and a checkout's lines (item, quantity, price). planque
+  reaches it with `PLANQUE_BROWSER_URL` and `PLANQUE_BROWSER_KEY`. A card number shown in a page's text, or echoed
   in a plain field, reaches the agent as its last four digits only.
 - Any app on demand (kiff/planque#87): a catalog search lists every app the
   managed provider has, each as it stands (`state: "needs_setup"` for one

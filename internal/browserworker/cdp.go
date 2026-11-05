@@ -74,7 +74,7 @@ func chromePath(configured string) (string, error) {
 
 // launch starts a Chromium that goes out only through proxy, with a fresh
 // profile directory it deletes on exit.
-func launch(ctx context.Context, path, proxy string) (*chrome, error) {
+func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, error) {
 	dir, err := os.MkdirTemp("", "planque-browser-")
 	if err != nil {
 		return nil, err
@@ -89,7 +89,12 @@ func launch(ctx context.Context, path, proxy string) (*chrome, error) {
 		os.RemoveAll(dir)
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, path, launchArgs(dir, proxy)...)
+	args := launchArgs(dir, proxy)
+	if testCerts {
+		// Tests only: the shop's certificate is a test one.
+		args = append([]string{"--ignore-certificate-errors"}, args...)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.ExtraFiles = []*os.File{toChrome, fromChrome}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+dir)
@@ -261,3 +266,7 @@ func (c *chrome) stop() {
 	c.w.Close()
 	_ = os.RemoveAll(c.dir)
 }
+
+// ChromePath is the browser the worker would run, or why none: for a test
+// elsewhere to skip when there is none.
+func ChromePath(configured string) (string, error) { return chromePath(configured) }

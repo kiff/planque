@@ -132,7 +132,36 @@
   const strongOnes = found.filter(a => a.strong);
   if (distinct(strongOnes).length === 1) total = strongOnes[0];
   else if (distinct(found).length === 1) total = found[0];
-  const checkout = total ? {lines: [], total: total.amount, currency: total.currency} : null;
+  // The lines: rows (table rows, list items) with an amount in the total's
+  // currency that aren't a total, a subtotal, shipping, tax or a discount;
+  // the quantity from "× 2", "x 2" or "qty 2", else 1; the item is the
+  // row's words before the amount.
+  const notLine = /\b(sub.?total|total|totale|gesamt|summe|totaal|montant|importe|shipping|delivery|livraison|versand|envío|envio|spedizione|verzend|tax|vat|tva|mwst|iva|btw|discount|coupon|rabatt|remise|descuento|sconto|korting|desconto)\b/i;
+  const qtyWord = /(?:×|x|qty\.?|quantity|menge|cantidad|quantité|quantità|aantal|qtd)\s*:?\s*(\d{1,4})|(\d{1,4})\s*(?:×|x)\b/i;
+  const lines = [];
+  if (total) {
+    const seen = new Set();
+    for (const row of document.querySelectorAll('tr, li, [class*="line"], [class*="item"]')) {
+      if (!visible(row) || row.querySelector('tr, li')) continue;
+      // Cells joined with a separator: a row's text content runs them
+      // together ("Blue pen × 2" and "2.50" would read as 22.50).
+      const text = row.children.length > 1 ? [...row.children].map(c => clean(c.textContent)).filter(Boolean).join(' | ') : clean(row.textContent);
+      if (text.length > 200 || notLine.test(text)) continue;
+      const found = amounts(text).filter(a => a.currency === total.currency);
+      if (found.length === 0) continue;
+      const price = found[found.length - 1];
+      const q = text.match(qtyWord);
+      const quantity = q ? parseInt(q[1] || q[2], 10) : 1;
+      let item = text.replace(money, '').replace(qtyWord, '').replace(/[—–\-:|]+\s*$/, '').replace(/^\s*[—–\-:|]+/, '');
+      item = clean(item).replace(/[—–\-:|,]+$/, '').trim();
+      if (!item) continue;
+      const key = item + '|' + quantity + '|' + price.amount;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push({item, quantity, price: price.amount});
+    }
+  }
+  const checkout = total ? {lines, total: total.amount, currency: total.currency} : null;
   return JSON.stringify({
     url: location.href, title: clean(document.title),
     text: (document.body ? document.body.innerText : '').slice(0, MAX_TEXT),

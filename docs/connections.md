@@ -176,7 +176,8 @@ an HTTP proxy, is taken away from every document the session loads before
 the page's own script runs: the page's target, and every child target the
 browser attaches with its debugger paused (a cross-site frame is its own
 process under site isolation, which the worker forces on; frames in
-frames; workers), each armed and only then released. The browser's policy
+frames; workers), each armed and only then released; a frame that can't
+be armed is closed and never runs. The browser's policy
 flag confining WebRTC to the proxy is set too, but measured alone it still
 let STUN checks out. So a page, in any frame, opens no peer connection and
 probes no address. Downloads are denied. A session unused for two minutes is ended
@@ -192,7 +193,12 @@ posting to an order, checkout or payment path, schema.org buy actions, a
 payment provider's button); links; a payment provider's frame; and a
 checkout's total, read as one amount next to a "total" word in one
 currency, in the languages above. Two different candidates, or none, is no
-total. The lines are not read yet.
+total. The lines are the rows (table rows, list items) with an amount in
+the total's currency that aren't a total, a subtotal, shipping, tax or a
+discount, in those languages: the item's words, the quantity from "× 2",
+"x 2" or "qty 2" (else 1), and the price. A page that shows them
+otherwise gives a total with no lines, which the owner's approval shows as
+such.
 
 The limit of reading from outside: a one-click button wired only through
 script, with no words, no form and no telling attribute, on a page that
@@ -201,11 +207,17 @@ it. An owner limits a grant to sites they know, and lists a site that can
 take money with one click knowingly; the Card's limit on `browse_act`
 calls bounds what such a click can do.
 
-The tests run the real browser against a shop in HTML served on loopback
-when a Chromium is found (`PLANQUE_CHROME`, or the usual names), and skip
-otherwise. The fake worker in `internal/fakes` scripts the same shop for
-planque's own tests. The image is `deploy/browserworker/Dockerfile`:
-Chromium and the binary, nothing else.
+The tests run the real browser against the shop in HTML (`internal/fakes`,
+served on loopback) when a Chromium is found (`PLANQUE_CHROME`, or the
+usual names), and skip otherwise; the scripted worker in `internal/fakes`
+fakes the same shop for planque's own tests. planque's end to end runs the
+whole path through its guard and the real browser: the shop served over
+TLS and reached as `https://shop.example` through the worker's proxy,
+which the test maps there; look up an item, put it in the cart, read the
+checkout, pay once with KIFF's permit, a replay that sends nothing, a
+changed total that pays nothing, a card number that never reaches the
+agent. The image is `deploy/browserworker/Dockerfile`: Chromium and the
+binary, nothing else.
 
 ## Registered OAuth clients
 

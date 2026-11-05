@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
@@ -13,95 +11,16 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
+	"github.com/kiff/planque/internal/fakes"
 )
 
-// shop is the test shop in HTML, for the real browser: the same pages the
-// fake worker scripts, served on loopback. It never touches a merchant.
+// shop is the test shop in HTML, from fakes: the same pages the scripted
+// Browser fakes, served on loopback for the real browser.
 func shop(t *testing.T) *httptest.Server {
 	t.Helper()
-	mux := http.NewServeMux()
-	page := func(title, body string) string {
-		return "<!doctype html><html><head><title>" + title + "</title></head><body>" + body + "</body></html>"
-	}
-	signed := func(r *http.Request) string {
-		if c, err := r.Cookie("session"); err == nil && c.Value == "signed-in" {
-			return "<p>Signed in as ana</p>"
-		}
-		return ""
-	}
-	mux.HandleFunc("/item/pen", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, page("Blue pen", signed(r)+`<h1>Blue pen</h1><p>1.25 EUR each. In stock.</p>
-<form method=post action=/cart><label>Quantity <input name=qty type=number value=1></label><button>Add to cart</button></form>
-<a href=/cart>Cart</a> <a href=/login>Sign in</a>`))
-	})
-	mux.HandleFunc("/cart", func(w http.ResponseWriter, r *http.Request) {
-		qty := "2"
-		if r.Method == http.MethodPost {
-			_ = r.ParseForm()
-			qty = r.Form.Get("qty")
-			http.Redirect(w, r, "/cart?qty="+qty, http.StatusSeeOther)
-			return
-		}
-		if q := r.URL.Query().Get("qty"); q != "" {
-			qty = q
-		}
-		fmt.Fprint(w, page("Your cart", `<p>Blue pen × `+qty+`: 2.50 EUR</p><a href=/checkout>Checkout</a>`))
-	})
-	mux.HandleFunc("/checkout", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, page("Checkout", `<h1>Checkout</h1><table><tr><td>Blue pen × 2</td><td>2.50 EUR</td></tr><tr><td>Subtotal</td><td>2.50 EUR</td></tr><tr><td>Total</td><td>2.50 EUR</td></tr></table>
-<form method=post action=/place>
-<label>Email <input name=email type=email></label>
-<label>Card number <input name=cardnumber autocomplete=cc-number value="4242 4242 4242 4242"></label>
-<label>Security code <input name=cvc autocomplete=cc-csc value=123></label>
-<label>Coupon <input name=coupon></label>
-<button formaction=/checkout>Apply coupon</button>
-<button>Place order</button></form>`))
-	})
-	mux.HandleFunc("/place", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/done", http.StatusSeeOther)
-	})
-	mux.HandleFunc("/done", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, page("Thank you", `<p>Order 1001 placed. Total 2.50 EUR.</p>`))
-	})
-	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			_ = r.ParseForm()
-			if r.Form.Get("pass") == "hunter2" {
-				http.SetCookie(w, &http.Cookie{Name: "session", Value: "signed-in", Path: "/"})
-			}
-			http.Redirect(w, r, "/item/pen", http.StatusSeeOther)
-			return
-		}
-		fmt.Fprint(w, page("Sign in", `<form method=post action=/login><label>Email <input name=user type=email></label>
-<label>Password <input name=pass type=password value=hunter2></label><button>Sign in</button></form>`))
-	})
-	mux.HandleFunc("/einklick", func(w http.ResponseWriter, r *http.Request) {
-		// A one-click buy with no words on it: an icon in a form that posts
-		// to /buy. Not a checkout page: no total, no card field.
-		fmt.Fprint(w, page("Blauer Stift", `<h1>Blauer Stift</h1><p>1,25 € pro Stück.</p>
-<form method=post action=/buy><button type=submit><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt=""></button></form>
-<form method=post action=/merken><button type=submit>Merken</button></form>`))
-	})
-	mux.HandleFunc("/commande", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, page("Commande", `<h1>Votre commande</h1><p>Stylo bleu × 2</p><p>Sous-total : 2,50 €</p><p>Montant total : 2,50 €</p>
-<form method=post action=/commande/valider><label>Courriel <input name=email type=email></label><button>Commander</button></form>`))
-	})
-	mux.HandleFunc("/frame", func(w http.ResponseWriter, r *http.Request) {
-		// A page embedding a frame from wherever src says: another site, to
-		// a browser, when its host differs.
-		fmt.Fprint(w, page("Framed", `<h1>Framed</h1><iframe id=f src="`+r.URL.Query().Get("src")+`" width=400 height=200></iframe>`))
-	})
-	mux.HandleFunc("/inner", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, page("Inner", `<p>Inner frame</p>`))
-	})
-	mux.HandleFunc("/file", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Disposition", "attachment; filename=secret.txt")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		fmt.Fprint(w, "a download")
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+	s := fakes.NewShop()
+	t.Cleanup(s.Close)
+	return s.Server
 }
 
 func worker(t *testing.T) *Local {
@@ -190,6 +109,10 @@ func TestWorkerReadsTheShopAndMasksSecrets(t *testing.T) {
 	}
 	if p.Title != "Checkout" || p.Checkout == nil || p.Checkout.Total != "2.50" || p.Checkout.Currency != "EUR" {
 		t.Fatalf("checkout: %+v", p)
+	}
+	// The lines: the item row, not the subtotal, shipping or total rows.
+	if len(p.Checkout.Lines) != 1 || p.Checkout.Lines[0] != (browser.Line{Item: "Blue pen", Quantity: 2, Price: "2.50"}) {
+		t.Errorf("lines: %+v", p.Checkout.Lines)
 	}
 	kinds := map[string]string{}
 	for _, f := range p.Fields {
@@ -284,7 +207,10 @@ func TestWorkerReadsPlacesOrderWithoutWords(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.Checkout == nil || p.Checkout.Total != "2.50" || p.Checkout.Currency != "EUR" {
-		t.Errorf("the French checkout: %+v", p.Checkout)
+		t.Fatalf("the French checkout: %+v", p.Checkout)
+	}
+	if len(p.Checkout.Lines) != 1 || p.Checkout.Lines[0] != (browser.Line{Item: "Stylo bleu", Quantity: 2, Price: "2.50"}) {
+		t.Errorf("the French lines: %+v", p.Checkout.Lines)
 	}
 	if c := find(p.Controls, "Commander"); c == nil || !c.PlacesOrder {
 		t.Errorf("commander: %+v", p.Controls)
