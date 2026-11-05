@@ -112,8 +112,12 @@ func (p *Proxy) serve(c net.Conn) {
 		return
 	}
 	addr, why := p.resolve(req.Context(), host, port, sites)
-	if to, ok := p.Map[req.Host]; ok && p.AllowLocal && isLoopback(to[:strings.LastIndex(to, ":")]) && (len(sites) == 0 || listed(strings.ToLower(host), sites)) {
-		addr, why = to, ""
+	// Tests only: a mapped host goes to its loopback address instead, a
+	// listed site still, and a value with no port is refused, not used.
+	if to, ok := p.Map[req.Host]; ok && p.AllowLocal && (len(sites) == 0 || listed(strings.ToLower(host), sites)) {
+		if toHost, _, err := net.SplitHostPort(to); err == nil && isLoopback(toHost) {
+			addr, why = to, ""
+		}
 	}
 	if why != "" {
 		p.log().Info("egress refused", slog.String("host", host), slog.String("why", why))
