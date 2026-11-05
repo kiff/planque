@@ -44,7 +44,83 @@ type ConnectorState struct {
 	Account    string                `json:"account"`
 	Tools      []connector.Tool      `json:"tools,omitempty"`
 	Revocation *connector.Revocation `json:"revocation,omitempty"`
+	// AccountName is the vendor account's name as the provider shows it.
+	AccountName string `json:"account_name,omitempty"`
+	// Mode is the vendor account's mode, "live" or "test", as the first
+	// object a permitted call returned said it (its "livemode"), and when.
+	// Empty is unknown, which every reader treats as live: planque never
+	// calls the vendor outside a permit to find out.
+	Mode       string    `json:"mode,omitempty"`
+	ModeSeenAt time.Time `json:"mode_seen_at,omitzero"`
 }
+
+// ModeUnknown is what a grant says before a permitted call has shown its
+// account's mode; it is treated as live.
+const ModeUnknown = "unknown"
+
+// modeOf finds the first "livemode" a vendor's answer carries, at its top or
+// in the objects it lists (a list with none says nothing), at most three
+// levels down: "live", "test" or "".
+func modeOf(data json.RawMessage) string {
+	var v any
+	if json.Unmarshal(data, &v) != nil {
+		return ""
+	}
+	var find func(any, int) string
+	find = func(v any, depth int) string {
+		if depth > 3 {
+			return ""
+		}
+		switch x := v.(type) {
+		case map[string]any:
+			if b, ok := x["livemode"].(bool); ok {
+				if b {
+					return "live"
+				}
+				return "test"
+			}
+			for _, k := range []string{"data", "response_data", "object", "result"} {
+				if m := find(x[k], depth+1); m != "" {
+					return m
+				}
+			}
+		case []any:
+			for _, e := range x {
+				if m := find(e, depth+1); m != "" {
+					return m
+				}
+			}
+		}
+		return ""
+	}
+	return find(v, 0)
+}
+
+// noteAccount keeps on the grant what a call showed of its account: the
+// provider's name for it, and the mode the first time an answer carried one.
+// Best effort: a grant changed meanwhile keeps its version, and the next
+// call notes it again.
+func (s *Server) noteAccount(ctx context.Context, g *Grant, r connector.Result) {
+	if g.Connector == nil {
+		return
+	}
+	mode := ""
+	if g.Connector.Mode == "" && !r.Refused && !r.Unknown {
+		mode = modeOf(r.Data)
+	}
+	name := r.AccountName
+	if mode == "" && (name == "" || name == g.Connector.AccountName) {
+		return
+	}
+	if mode != "" {
+		g.Connector.Mode, g.Connector.ModeSeenAt = mode, s.now()
+	}
+	if name != "" {
+		g.Connector.AccountName = name
+	}
+	_ = s.saveGrant(ctx, g)
+}
+
 
 func connectorEntry(id string) (string, string, bool) {
 	p := strings.Split(id, ":")
@@ -620,6 +696,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	if err != nil {
 		return OpNotSent, toolResult("Not sent: "+err.Error(), true)
 	}
+	s.noteAccount(ctx, g, result)
 	if result.Unknown {
 		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
@@ -631,7 +708,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 // refusedWords says who refused a connector call and why, so the taf can
 // tell the owner: the vendor's own answer ("Stripe refused it: No such
 // invoice: 'in_1'.") or the connection provider's ("The connection provider
-// refused it (HTTP 403): …"). planque's own refusals are "Not sent: …" and
+// refused it (it answered 403): …"). planque's own refusals are "Not sent: …" and
 // KIFF's never reach here, so the three read apart.
 func refusedWords(vendor string, r connector.Result) string {
 	if r.ByVendor {
@@ -643,11 +720,12 @@ func refusedWords(vendor string, r connector.Result) string {
 	return "The connection provider refused it" + providerSaid(r) + "."
 }
 
-// providerSaid is the provider's status and reason, when it gave them.
+// providerSaid is the provider's status and reason, when it gave them, in
+// the form KIFF's gateway reads a status from ("answered 403").
 func providerSaid(r connector.Result) string {
 	out := ""
 	if r.Status != 0 {
-		out = fmt.Sprintf(" (HTTP %d)", r.Status)
+		out = fmt.Sprintf(" (it answered %d)", r.Status)
 	}
 	if r.Reason != "" {
 		out += ": " + strings.TrimRight(r.Reason, ".")

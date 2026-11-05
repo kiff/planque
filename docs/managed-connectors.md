@@ -124,6 +124,21 @@ The account-authenticated catalog endpoints include upstream discovery:
    execute. Each action still requires an exact-call permit and the relay's
    once-only operation record. Permit expiry is checked again immediately
    before the provider execution request, after upstream preflight.
+7. **What a call says when it doesn't go through.** A refusal tells the taf
+   who refused it and why: the vendor's own answer the provider passed on
+   ("Stripe refused it: No such invoice: 'in_1'."), or the provider's own
+   refusal with its status ("The connection provider refused it (it answered
+   403): …"). An answer that never came says the provider's status and words
+   too. Each still makes no claim about whether an effect occurred. The
+   reason is one line of at most 300 characters, with keys, bearer tokens,
+   webhook secrets and JWTs redacted (`connector.Reason`). planque's own
+   refusals before the provider read "Not sent: …".
+8. **Which account, and which mode.** The grant view of a managed connection
+   carries `account_name`, the provider's name for the vendor account, and
+   `mode`: `live` or `test` once a permitted call returned an object that
+   says (`livemode`), `unknown` until then. Unknown is treated as live.
+   planque never calls the vendor outside a permit to find out, and an
+   empty list says nothing. The first mode seen is kept.
 
 Provider-managed key apps use the same hosted path as OAuth. The catalog's
 existing `how: "oauth"` value selects that path; it does not ask the phone for

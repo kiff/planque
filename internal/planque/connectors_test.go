@@ -138,7 +138,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.foreign {
 			user = "another_owner"
 		}
-		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"}})
+		// As the provider shows a vendor account: its name readable, its id and mode redacted.
+		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
+			"data": map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}})
 		body = string(b)
 	case path == "/tools" && r.URL.Query().Get("query") != "":
 		// A search by words: a tool of a set-up app, one of an app that needs setup,
@@ -752,11 +754,74 @@ func TestARefusedCallSaysWhoRefusedAndWhy(t *testing.T) {
 		t.Fatalf("the vendor's refusal: %s", got)
 	}
 	f.executeStatus, f.executeBody = 403, `{"error":{"message":"this account may not run that action"}}`
-	if got := call("op_provider"); !strings.Contains(got, "The connection provider refused it (HTTP 403): this account may not run that action. No claim is made") {
+	if got := call("op_provider"); !strings.Contains(got, "The connection provider refused it (it answered 403): this account may not run that action. No claim is made") {
 		t.Fatalf("the provider's refusal: %s", got)
 	}
 	f.executeStatus, f.executeBody = 502, `{"message":"upstream timed out"}`
-	if got := call("op_unknown"); !strings.Contains(got, "The connector did not return a confirmed result (HTTP 502): upstream timed out. This operation will not be sent again.") {
+	if got := call("op_unknown"); !strings.Contains(got, "The connector did not return a confirmed result (it answered 502): upstream timed out. This operation will not be sent again.") {
 		t.Fatalf("no confirmed result: %s", got)
+	}
+}
+
+// A managed connection's mode is what a permitted call showed, never a call
+// of planque's own: unknown (treated as live) until an answer carries
+// "livemode", then kept. An empty list says nothing. The account's name is
+// the provider's, and its redacted id and mode never pass for one.
+func TestAConnectionsModeIsWhatAPermittedCallShowed(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	call := func(op string) {
+		t.Helper()
+		args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"` + op + `"}`)
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: op, Args: args})
+		e.s.call(ctx, g, "reply_ticket", args, permit)
+	}
+	grant := func() map[string]any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("read the grant: %d %v", st, out)
+		}
+		return out
+	}
+	if v := grant(); v["mode"] != ModeUnknown {
+		t.Fatalf("before any call: %v", v["mode"])
+	}
+	executions := f.executions
+	f.executeBody = `{"data":{"object":"list","data":[],"has_more":false},"successful":true}`
+	call("op_empty")
+	if v := grant(); v["mode"] != ModeUnknown || v["account_name"] != "Demo Shop" {
+		t.Fatalf("after an empty list: mode %v, account %v", v["mode"], v["account_name"])
+	}
+	f.executeBody = `{"data":{"object":"list","data":[{"id":"in_1","object":"invoice","livemode":true}]},"successful":true}`
+	call("op_live")
+	if v := grant(); v["mode"] != "live" {
+		t.Fatalf("after a live object: %v", v["mode"])
+	}
+	// Kept: a later answer doesn't change it.
+	f.executeBody = `{"data":{"id":"in_2","livemode":false},"successful":true}`
+	call("op_test")
+	if v := grant(); v["mode"] != "live" {
+		t.Fatalf("a later answer changed the mode: %v", v["mode"])
+	}
+	// Only the three permitted calls reached the vendor: planque made none of its own.
+	if f.executions != executions+3 {
+		t.Fatalf("executions: %d, want %d", f.executions, executions+3)
+	}
+}
+
+func TestModeOf(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"livemode":false}`: "test",
+		`{"data":{"object":"list","data":[{"livemode":true}]}}`: "live",
+		`{"response_data":{"livemode":false}}`:                   "test",
+		`{"data":{"object":"list","data":[]}}`:                   "",
+		`{"livemode":"REDACTED"}`:                                "",
+		`not json`:                                               "",
+	} {
+		if got := modeOf(json.RawMessage(raw)); got != want {
+			t.Errorf("modeOf(%s) = %q, want %q", raw, got, want)
+		}
 	}
 }

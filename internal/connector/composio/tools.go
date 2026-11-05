@@ -204,9 +204,9 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 			why = call.Message
 		}
 		if status < 300 || status >= 500 || status == 408 || status >= 300 && status < 400 {
-			return connector.Result{Unknown: true, Reason: why, Status: status}, nil
+			return connector.Result{Unknown: true, Reason: why, Status: status, AccountName: a.Name}, nil
 		}
-		return connector.Result{Refused: true, Reason: why, Status: status}, nil
+		return connector.Result{Refused: true, Reason: why, Status: status, AccountName: a.Name}, nil
 	}
 	refused := result.Successful != nil && !*result.Successful
 	if len(result.Error) > 0 && string(result.Error) != "null" && string(result.Error) != `""` {
@@ -216,14 +216,14 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 		result.Data = json.RawMessage(`{}`)
 	}
 	if !refused {
-		return connector.Result{Data: result.Data}, nil
+		return connector.Result{Data: result.Data, AccountName: a.Name}, nil
 	}
 	// The provider ran the action and the vendor said no: the vendor's own words.
 	why := connector.Reason(result.Error)
 	if why == "" {
 		why = connector.Reason(result.Data)
 	}
-	return connector.Result{Data: result.Data, Refused: true, Reason: why, ByVendor: true}, nil
+	return connector.Result{Data: result.Data, Refused: true, Reason: why, ByVendor: true, AccountName: a.Name}, nil
 }
 
 // searchLimit is how many tools one search answers at most.

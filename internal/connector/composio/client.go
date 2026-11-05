@@ -473,6 +473,12 @@ func (c *Client) Account(ctx context.Context, id string) (connector.Account, err
 		Toolkit struct {
 			Slug string `json:"slug"`
 		} `json:"toolkit"`
+		// The vendor account's name, where the provider keeps it readable;
+		// its id and mode it redacts.
+		Data  map[string]json.RawMessage `json:"data"`
+		State struct {
+			Val map[string]json.RawMessage `json:"val"`
+		} `json:"state"`
 	}
 	if _, err := c.request(ctx, "GET", "/connected_accounts/"+id, nil, nil, &a); err != nil {
 		return connector.Account{}, err
@@ -480,7 +486,17 @@ func (c *Client) Account(ctx context.Context, id string) (connector.Account, err
 	if a.ID != id || !identifier.MatchString(a.User) || !identifier.MatchString(a.Toolkit.Slug) {
 		return connector.Account{}, connector.ErrAccount
 	}
-	return connector.Account{ID: a.ID, User: a.User, Toolkit: a.Toolkit.Slug, Status: a.Status}, nil
+	name := ""
+	for _, m := range []map[string]json.RawMessage{a.Data, a.State.Val} {
+		for _, k := range []string{"displayName", "display_name"} {
+			if v, ok := m[k]; ok && name == "" {
+				if n := connector.Reason(v); n != "REDACTED" {
+					name = n
+				}
+			}
+		}
+	}
+	return connector.Account{ID: a.ID, User: a.User, Toolkit: a.Toolkit.Slug, Status: a.Status, Name: name}, nil
 }
 
 func (c *Client) Revoke(ctx context.Context, id connector.Identity, account string) (connector.Revocation, error) {

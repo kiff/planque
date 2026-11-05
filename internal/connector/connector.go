@@ -154,6 +154,9 @@ type Account struct {
 	User    string `json:"user_id"`
 	Toolkit string `json:"toolkit"`
 	Status  string `json:"status"`
+	// Name is the vendor account's name as the provider shows it (a
+	// business's name), one safe line; empty when it shows none.
+	Name string `json:"name,omitempty"`
 }
 
 func (a Account) Matches(id Identity) bool {
@@ -185,6 +188,9 @@ type Result struct {
 	Reason   string
 	ByVendor bool
 	Status   int
+	// AccountName is the account's name as the provider read it before the
+	// call (Account.Name).
+	AccountName string
 }
 
 // maxReason bounds a reason: one line the owner reads, never a payload.
