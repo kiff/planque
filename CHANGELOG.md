@@ -12,8 +12,8 @@ version headings refer to releases, not merely to merged pull requests.
   one line. Before, every refusal was one fixed line, the same for any call,
   so nobody could tell a wrong account or mode from a broken tool.
 - A managed connection's grant shows its account's name and its mode
-  (`live`, `test`, or `unknown`, treated as live), the mode as the first
-  permitted call's answer showed it, with no call of planque's own.
+  (`live`, `test`, or `unknown`, treated as live), from the objects
+  permitted calls returned, live winning, with no call of planque's own.
 - Adding tools to a connection whose profile the owner approved: a profile
   of the new operations alone is merged into the approved one, which stays
   as it is. Before, every such addition was refused, since the caller has

@@ -46,10 +46,11 @@ type ConnectorState struct {
 	Revocation *connector.Revocation `json:"revocation,omitempty"`
 	// AccountName is the vendor account's name as the provider shows it.
 	AccountName string `json:"account_name,omitempty"`
-	// Mode is the vendor account's mode, "live" or "test", as the first
-	// object a permitted call returned said it (its "livemode"), and when.
-	// Empty is unknown, which every reader treats as live: planque never
-	// calls the vendor outside a permit to find out.
+	// Mode is the vendor account's mode, "live" or "test", as the objects
+	// permitted calls returned said it (their "livemode"), and when: live
+	// wins, so once any live object is seen it stays live. Empty is
+	// unknown, which every reader treats as live: planque never calls the
+	// vendor outside a permit to find out.
 	Mode       string    `json:"mode,omitempty"`
 	ModeSeenAt time.Time `json:"mode_seen_at,omitzero"`
 }
@@ -65,55 +66,67 @@ var modeWords = map[string]string{
 	ModeUnknown: "Mode not known yet: treated as live",
 }
 
-// modeOf finds the first "livemode" a vendor's answer carries, at its top or
-// in the objects it lists (a list with none says nothing), at most three
-// levels down: "live", "test" or "".
+// modeOf reads the "livemode" a vendor's answer carries, at its top and in
+// the objects it lists, at most three levels down: "live" if any object
+// read is live, "test" only if every one read is not, "" when none says (an
+// empty list says nothing). Live wins, so a test object never hides a live
+// one.
 func modeOf(data json.RawMessage) string {
 	var v any
 	if json.Unmarshal(data, &v) != nil {
 		return ""
 	}
-	var find func(any, int) string
-	find = func(v any, depth int) string {
-		if depth > 3 {
-			return ""
+	live, test := false, false
+	var walk func(any, int)
+	walk = func(v any, depth int) {
+		if depth > 3 || live {
+			return
 		}
 		switch x := v.(type) {
 		case map[string]any:
 			if b, ok := x["livemode"].(bool); ok {
 				if b {
-					return "live"
+					live = true
+					return
 				}
-				return "test"
+				test = true
 			}
 			for _, k := range []string{"data", "response_data", "object", "result"} {
-				if m := find(x[k], depth+1); m != "" {
-					return m
-				}
+				walk(x[k], depth+1)
 			}
 		case []any:
 			for _, e := range x {
-				if m := find(e, depth+1); m != "" {
-					return m
-				}
+				walk(e, depth+1)
 			}
 		}
-		return ""
 	}
-	return find(v, 0)
+	walk(v, 0)
+	switch {
+	case live:
+		return "live"
+	case test:
+		return "test"
+	}
+	return ""
 }
 
 // noteAccount keeps on the grant what a call showed of its account: the
-// provider's name for it, and the mode the first time an answer carried one.
-// Best effort: a grant changed meanwhile keeps its version, and the next
-// call notes it again.
+// provider's name for it, and its mode, where live wins: a live answer sets
+// live whatever was there, a test answer counts only while the mode is
+// unknown, so a test reading never hides a live one. Best effort: a grant
+// changed meanwhile keeps its version, and the next call notes it again.
 func (s *Server) noteAccount(ctx context.Context, g *Grant, r connector.Result) {
 	if g.Connector == nil {
 		return
 	}
 	mode := ""
-	if g.Connector.Mode == "" && !r.Refused && !r.Unknown {
-		mode = modeOf(r.Data)
+	if !r.Refused && !r.Unknown {
+		switch seen := modeOf(r.Data); {
+		case seen == "live" && g.Connector.Mode != "live":
+			mode = "live"
+		case seen == "test" && g.Connector.Mode == "":
+			mode = "test"
+		}
 	}
 	name := r.AccountName
 	if mode == "" && (name == "" || name == g.Connector.AccountName) {

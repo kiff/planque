@@ -763,10 +763,11 @@ func TestARefusedCallSaysWhoRefusedAndWhy(t *testing.T) {
 	}
 }
 
-// A managed connection's mode is what a permitted call showed, never a call
+// A managed connection's mode is what permitted calls showed, never a call
 // of planque's own: unknown (treated as live) until an answer carries
-// "livemode", then kept. An empty list says nothing. The account's name is
-// the provider's, and its redacted id and mode never pass for one.
+// "livemode". Live wins: a test answer never hides a live one, and once live
+// it stays live. An empty list says nothing. The account's name is the
+// provider's, and its redacted id and mode never pass for one.
 func TestAConnectionsModeIsWhatAPermittedCallShowed(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	g := connectConnector(t, e, f)
@@ -794,20 +795,26 @@ func TestAConnectionsModeIsWhatAPermittedCallShowed(t *testing.T) {
 	if v := grant(); v["mode"] != ModeUnknown || v["account_name"] != "Demo Shop" {
 		t.Fatalf("after an empty list: mode %v, account %v", v["mode"], v["account_name"])
 	}
-	f.executeBody = `{"data":{"object":"list","data":[{"id":"in_1","object":"invoice","livemode":true}]},"successful":true}`
+	f.executeBody = `{"data":{"id":"in_1","object":"invoice","livemode":false},"successful":true}`
+	call("op_test")
+	if v := grant(); v["mode"] != "test" || v["mode_words"] != "Test" {
+		t.Fatalf("after a test object: %v, %v", v["mode"], v["mode_words"])
+	}
+	// Live wins: a live object after a test one makes it live.
+	f.executeBody = `{"data":{"object":"list","data":[{"id":"in_2","livemode":false},{"id":"in_3","livemode":true}]},"successful":true}`
 	call("op_live")
 	if v := grant(); v["mode"] != "live" || v["mode_words"] != "Live" {
 		t.Fatalf("after a live object: %v, %v", v["mode"], v["mode_words"])
 	}
-	// Kept: a later answer doesn't change it.
-	f.executeBody = `{"data":{"id":"in_2","livemode":false},"successful":true}`
-	call("op_test")
+	// And stays live: a later test answer changes nothing.
+	f.executeBody = `{"data":{"id":"in_4","livemode":false},"successful":true}`
+	call("op_test_again")
 	if v := grant(); v["mode"] != "live" {
-		t.Fatalf("a later answer changed the mode: %v", v["mode"])
+		t.Fatalf("a test answer after live changed the mode: %v", v["mode"])
 	}
-	// Only the three permitted calls reached the vendor: planque made none of its own.
-	if f.executions != executions+3 {
-		t.Fatalf("executions: %d, want %d", f.executions, executions+3)
+	// Only the four permitted calls reached the vendor: planque made none of its own.
+	if f.executions != executions+4 {
+		t.Fatalf("executions: %d, want %d", f.executions, executions+4)
 	}
 }
 

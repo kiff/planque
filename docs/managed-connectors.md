@@ -140,7 +140,8 @@ The account-authenticated catalog endpoints include upstream discovery:
    `mode_words` says it for every app: "Live", "Test", or "Mode not known
    yet: treated as live".
    planque never calls the vendor outside a permit to find out, and an
-   empty list says nothing. The first mode seen is kept.
+   empty list says nothing. Live wins: any live object read makes it
+   `live` for good, and `test` only stands while no live one was seen.
 
 Provider-managed key apps use the same hosted path as OAuth. The catalog's
 existing `how: "oauth"` value selects that path; it does not ask the phone for
