@@ -7,6 +7,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- The hourly sweep revokes a sign-in kept for another connection once no
+  live connection uses it. A disconnect or expiry that keeps a shared
+  sign-in (a reused token, or a provider's connected account) indexes it,
+  so two connections on one sign-in disconnected at the same moment, each
+  seeing the other as live, no longer leave it live at the vendor. A
+  sign-in a live connection uses is never touched, and a provider account
+  is revoked once.
 - Setup's listings of the connections it asked for say how each reaches
   its vendor (`kind`): the vendor's own sign-in (`vendor_sign_in`), a
   provider's app (`provider`, with its `entry`, `mode` and `mode_words`),

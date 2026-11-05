@@ -1122,11 +1122,12 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 // so revoking can be tried again: dropping it would leave it live at the
 // vendor with no way to revoke it.
 func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
-	// A sign-in another grant uses is theirs too: it stays.
+	// A sign-in another grant uses is theirs too: it stays, indexed so the
+	// sweep revokes it once no live grant uses it.
 	if users, err := s.signInUsers(ctx, g); err != nil {
 		return fmt.Errorf("read the connections sharing its sign-in: %w", err)
 	} else if len(users) > 0 {
-		return nil
+		return s.markKept(ctx, g)
 	}
 	if g.Request.Connector != nil {
 		return s.revokeConnector(ctx, g)
@@ -1822,10 +1823,18 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	// signs another out.
 	users, err := s.signInUsers(ctx, g)
 	if err != nil {
+		// Kept, and indexed: the sweep revokes it once no live grant uses it.
+		if kerr := s.markKept(ctx, g); kerr != nil {
+			return []string{"the connections sharing its sign-in could not be read, so the sign-in was kept: " + err.Error(), kerr.Error()}
+		}
 		return []string{"the connections sharing its sign-in could not be read, so the sign-in was kept: " + err.Error()}
 	}
 	if len(users) > 0 {
 		g.keptFor = len(users)
+		// If they all end at once, each keeps it: the sweep revokes it then.
+		if err := s.markKept(ctx, g); err != nil {
+			return []string{err.Error()}
+		}
 		if g.Request.Connector != nil {
 			if err := s.stopTriggers(ctx, g); err != nil {
 				return []string{err.Error()}
