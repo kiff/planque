@@ -377,7 +377,12 @@ revision so a replay cannot adopt a later profile or send the write again.
 
 Profiles can require arguments before any vendor call. A marker must name a
 string field in the vendor schema; planque fills that field from the permit's
-operation id and refuses a caller-supplied value there. Agent proposals
+operation id and refuses a caller-supplied value there. An operation may say
+where the owner looks at the vendor's own record of its resource
+(`record_url`, an https address with the resource's id path-escaped into
+`{resource}`; reviewed catalog only, as `no_effect` is) and which read of the
+profile gives the resource's own name (`label_read`, for an operation with a
+`resource`): KIFF shows both when it asks the owner "Did this happen?". Agent proposals
 cannot claim reviewed catalog status or successful test calls. Profiles needing a nominal-currency lookup definition are refused until
 that definition is supported. Version-header pins use the reviewed
 configuration described below.
