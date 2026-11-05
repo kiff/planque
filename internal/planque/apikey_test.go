@@ -376,6 +376,9 @@ func TestAnAPIKeyGrantIsRefusedWithTheReason(t *testing.T) {
 // A second grant to the same vendor and account reuses the first one's key
 // or sign-in: one approval, no second key or sign-in. When the first is
 // disconnected, the second must sign in (or give a key) again.
+// A second grant reuses the first's sign-in or key. Disconnecting either
+// ends only that one: the sign-in stays for the other taf, and is revoked
+// once the last connection on it is disconnected.
 func TestASecondGrantReusesTheSignIn(t *testing.T) {
 	ctx := context.Background()
 	t.Run("api key", func(t *testing.T) {
@@ -405,16 +408,25 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		if mustHave(mustQuery(t, e), skToken(id)) {
 			t.Fatal("the reused key was copied")
 		}
-		// The first disconnected: the second can't call, and waits to be connected again.
+		// The first disconnected: only it ends. The second, another taf's,
+		// keeps the key and still calls.
 		if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, e.phone, ""); st != 200 {
 			t.Fatal("disconnect")
 		}
-		res, _ := e.kiff.Call(ctx, "k_taf", "list_charges_b", map[string]any{})
-		if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "Not sent") {
-			t.Fatalf("%s", text)
+		if res, _ := e.kiff.Call(ctx, "k_taf", "list_charges_b", map[string]any{}); res.Decision != "allowed" {
+			t.Fatalf("the second after the first was disconnected: %+v", res)
+		} else if text, isErr := resultText(t, res.Result); isErr {
+			t.Fatalf("the second after the first was disconnected: %s", text)
 		}
-		if g, _ := e.s.loadGrant(ctx, tenant, id); g.Status != StatusNeedsReconnect || g.TokenOf != "" {
+		if g, _ := e.s.loadGrant(ctx, tenant, id); g.Status != StatusConnected || g.TokenOf != first.ID {
 			t.Fatalf("%s %q", g.Status, g.TokenOf)
+		}
+		// The second disconnected too, the last on it: the key goes.
+		if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, e.phone, ""); st != 200 {
+			t.Fatal("disconnect the second")
+		}
+		if mustHave(mustQuery(t, e), skToken(first.ID)) {
+			t.Fatal("the key outlived every connection on it")
 		}
 		// A reuse of a grant that isn't connected is refused when asked.
 		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"reuse": first.ID, "agent": "agt_taf", "tools": []any{}}, nil, "k_setup"); st != 409 {
@@ -445,16 +457,31 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": "https://other.example/mcp", "reuse": first.ID, "agent": "agt_taf", "tools": []any{}}, nil, "k_setup"); st != 409 {
 			t.Fatalf("reuse for another server: %d", st)
 		}
-		// The first disconnected (its sign-in revoked): the second signs in again.
-		if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, e.phone, ""); st != 200 {
-			t.Fatal("disconnect")
+		// The first disconnected: only it ends. The sign-in stays live at the
+		// vendor for the second, another taf's, which still calls.
+		if st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, e.phone, ""); st != 200 || out["status"] != StatusDisconnected {
+			t.Fatalf("disconnect: %d %v", st, out)
 		}
-		res, _ := e.kiff.Call(ctx, "k_taf", "list_charges_b", map[string]any{})
-		if _, isErr := resultText(t, res.Result); !isErr {
-			t.Fatal("a call through a revoked sign-in")
+		if a, _ := e.vendor.Live(); a == 0 {
+			t.Fatal("disconnecting one taf revoked the sign-in another taf uses")
 		}
-		if g, _ := e.s.loadGrant(ctx, tenant, id); g.Status != StatusNeedsReconnect {
+		if res, _ := e.kiff.Call(ctx, "k_taf", "list_charges_b", map[string]any{}); res.Decision != "allowed" {
+			t.Fatalf("the second after the first was disconnected: %+v", res)
+		} else if text, isErr := resultText(t, res.Result); isErr {
+			t.Fatalf("the second after the first was disconnected: %s", text)
+		}
+		if g, _ := e.s.loadGrant(ctx, tenant, id); g.Status != StatusConnected {
 			t.Fatalf("%s", g.Status)
+		}
+		if g, _ := e.s.loadGrant(ctx, tenant, first.ID); !strings.Contains(g.Events[len(g.Events)-1].What, "the sign-in stays") {
+			t.Fatalf("the first's record: %+v", g.Events[len(g.Events)-1])
+		}
+		// The second disconnected too, the last on it: the sign-in is revoked.
+		if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, e.phone, ""); st != 200 {
+			t.Fatal("disconnect the second")
+		}
+		if a, r := e.vendor.Live(); a != 0 || r != 0 {
+			t.Fatalf("the sign-in outlived every connection on it: %d access, %d refresh", a, r)
 		}
 	})
 }

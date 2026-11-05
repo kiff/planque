@@ -314,6 +314,9 @@ type Grant struct {
 	// Telegram is the bot a Telegram grant's token is, and its webhook.
 	Telegram *TelegramBot `json:"telegram,omitempty"`
 	ver      int64
+	// keptFor is how many other live grants kept this one's sign-in when it
+	// was disconnected; not stored.
+	keptFor int
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.
