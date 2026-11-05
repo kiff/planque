@@ -28,7 +28,7 @@ func worker(t *testing.T) *Local {
 	if _, err := chromePath(""); err != nil {
 		t.Skip(err)
 	}
-	return &Local{Options{AllowLocal: true, NavigateWait: 20 * time.Second}}
+	return &Local{Options: Options{AllowLocal: true, NavigateWait: 20 * time.Second}}
 }
 
 // startFor is a session on the test shop, limited to sites when given.

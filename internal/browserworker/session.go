@@ -2,6 +2,7 @@ package browserworker
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
@@ -48,9 +50,52 @@ type Options struct {
 
 // Local is the worker in-process: planque's browser.Worker for tests, and
 // what Server runs behind its API. Each session is a Chromium of its own
-// with a proxy of its own, gone when the session closes.
+// with a proxy of its own, gone when the session closes. At most
+// MaxSessions run at once (measured: about 400 MB for the first, 270 to
+// 300 MB for each more, so three fit 2 GB with headroom); beyond it a
+// start is refused with ErrBusy.
 type Local struct {
 	Options
+	// MaxSessions bounds the sessions open at once; 0 is 3.
+	MaxSessions int
+
+	mu   sync.Mutex
+	open map[string]*session
+	seq  int
+}
+
+// ErrBusy: the worker runs its most sessions already.
+var ErrBusy = errors.New("the browser worker is busy: every session is in use")
+
+func (l *Local) limit() int {
+	if l.MaxSessions > 0 {
+		return l.MaxSessions
+	}
+	return 3
+}
+
+// Resume is the open session with that id.
+func (l *Local) Resume(_ context.Context, id string) (browser.Session, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, ok := l.open[id]
+	if !ok {
+		return nil, errors.New("no such session")
+	}
+	return s, nil
+}
+
+// Open is how many sessions run now.
+func (l *Local) Open() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.open)
+}
+
+func (l *Local) forget(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.open, id)
 }
 
 // Start begins a session: a proxy bound to the sites, a fresh browser
@@ -60,20 +105,34 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 	if err != nil {
 		return nil, err
 	}
+	l.mu.Lock()
+	if l.open == nil {
+		l.open = map[string]*session{}
+	}
+	if len(l.open) >= l.limit() {
+		l.mu.Unlock()
+		return nil, ErrBusy
+	}
+	l.seq++
+	id := fmt.Sprintf("s%d_%s", l.seq, rand.Text())
+	l.open[id] = nil // the slot is taken while the browser starts
+	l.mu.Unlock()
 	p := &Proxy{Sites: start.Sites, AllowLocal: l.AllowLocal, Map: l.Map, Logger: l.Logger}
 	if l.Resolve != nil {
 		p.Resolve = l.Resolve
 	}
 	addr, err := p.Start()
 	if err != nil {
+		l.forget(id)
 		return nil, err
 	}
 	c, err := launch(context.Background(), path, addr, l.AllowLocal)
 	if err != nil {
 		p.Close()
+		l.forget(id)
 		return nil, err
 	}
-	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger}
+	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger, id: id, owner: l}
 	if s.wait == 0 {
 		s.wait = 20 * time.Second
 	}
@@ -81,10 +140,15 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 		s.end()
 		return nil, err
 	}
+	l.mu.Lock()
+	l.open[id] = s
+	l.mu.Unlock()
 	return s, nil
 }
 
 type session struct {
+	id      string
+	owner   *Local
 	c       *chrome
 	proxy   *Proxy
 	target  string
@@ -413,4 +477,85 @@ func (s *session) end() {
 	s.closed = true
 	s.c.stop()
 	s.proxy.Close()
+	if s.owner != nil {
+		s.owner.forget(s.id)
+	}
+}
+
+func (s *session) ID() string { return s.id }
+
+// Frame is the page as shown, JPEG, for the live view: smaller than a
+// screenshot, taken often.
+func (s *session) Frame(ctx context.Context) ([]byte, error) {
+	if s.closed {
+		return nil, errors.New("the session is closed")
+	}
+	var shot struct {
+		Data string `json:"data"`
+	}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		// A frame during a navigation fails; the next moment it doesn't.
+		if err = s.c.call(ctx, s.sid, "Page.captureScreenshot", map[string]any{"format": "jpeg", "quality": 60}, &shot); err == nil {
+			break
+		}
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return base64.StdEncoding.DecodeString(shot.Data)
+}
+
+// Input is the owner's act in the live view, sent to the browser as the
+// device events it would get from a person: nothing of the page is read.
+func (s *session) Input(ctx context.Context, in browser.Input) error {
+	if s.closed {
+		return errors.New("the session is closed")
+	}
+	if err := in.Check(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	switch in.Kind {
+	case "tap":
+		for _, kind := range []string{"mousePressed", "mouseReleased"} {
+			if err := s.c.call(ctx, s.sid, "Input.dispatchMouseEvent", map[string]any{"type": kind, "x": in.X, "y": in.Y, "button": "left", "clickCount": 1}, nil); err != nil {
+				return err
+			}
+		}
+	case "type":
+		return s.c.call(ctx, s.sid, "Input.insertText", map[string]any{"text": in.Text}, nil)
+	case "key":
+		code := map[string]int{"Enter": 13, "Backspace": 8, "Tab": 9}[in.Key]
+		for _, kind := range []string{"keyDown", "keyUp"} {
+			params := map[string]any{"type": kind, "key": in.Key, "code": in.Key, "windowsVirtualKeyCode": code, "nativeVirtualKeyCode": code}
+			if in.Key == "Enter" && kind == "keyDown" {
+				params["text"] = "\r"
+			}
+			if err := s.c.call(ctx, s.sid, "Input.dispatchKeyEvent", params, nil); err != nil {
+				return err
+			}
+		}
+	case "scroll":
+		return s.c.call(ctx, s.sid, "Input.dispatchMouseEvent", map[string]any{"type": "mouseWheel", "x": in.X, "y": in.Y, "deltaX": 0, "deltaY": in.DeltaY}, nil)
+	case "go":
+		var nav struct {
+			ErrorText string `json:"errorText"`
+		}
+		if err := s.c.call(ctx, s.sid, "Page.navigate", map[string]any{"url": in.URL}, &nav); err != nil {
+			return err
+		}
+		if nav.ErrorText != "" {
+			return errors.New("the page couldn't be opened: " + navError(nav.ErrorText))
+		}
+		// Settled before the next frame, so the frame is the page asked for.
+		return s.settle(ctx)
+	}
+	return nil
 }

@@ -34,6 +34,9 @@ func (s *slowSession) Do(context.Context, browser.Step) (browser.Page, error) {
 	return browser.Page{Title: "stepped"}, nil
 }
 func (s *slowSession) Screenshot(context.Context) ([]byte, error) { return []byte("png"), nil }
+func (s *slowSession) Frame(context.Context) ([]byte, error)      { return []byte("jpeg"), nil }
+func (s *slowSession) Input(context.Context, browser.Input) error { return nil }
+func (s *slowSession) ID() string                                 { return "slow" }
 func (s *slowSession) Close(context.Context) ([]byte, error) {
 	s.w.closed.Add(1)
 	return []byte(`{"cookies":[]}`), nil

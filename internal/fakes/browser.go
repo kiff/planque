@@ -33,6 +33,11 @@ type Browser struct {
 	Orders []string
 	// States are the storage states sessions were started with.
 	States [][]byte
+	// Inputs are the owner's acts in the live view, in order.
+	Inputs []browser.Input
+	// held are the open sessions by id, for Resume.
+	held map[string]*browserSession
+	seq  int
 }
 
 // BrowserStep is one step a session ran.
@@ -134,17 +139,36 @@ func (b *Browser) Start(_ context.Context, start browser.Start) (browser.Session
 	}
 	b.Sessions++
 	b.States = append(b.States, start.State)
-	return &browserSession{b: b, grant: start.Grant, sites: start.Sites, state: start.State}, nil
+	b.seq++
+	s := &browserSession{b: b, id: fmt.Sprintf("fake_%d", b.seq), grant: start.Grant, sites: start.Sites, state: start.State}
+	if b.held == nil {
+		b.held = map[string]*browserSession{}
+	}
+	b.held[s.id] = s
+	return s, nil
+}
+
+// Resume is the open session with that id.
+func (b *Browser) Resume(_ context.Context, id string) (browser.Session, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s, ok := b.held[id]
+	if !ok || s.closed {
+		return nil, errors.New("no such session")
+	}
+	return s, nil
 }
 
 type browserSession struct {
-	b      *Browser
-	grant  string
-	sites  []string
-	state  []byte
-	page   browser.Page
-	opened bool
-	closed bool
+	b             *Browser
+	id            string
+	grant         string
+	sites         []string
+	state         []byte
+	page          browser.Page
+	opened        bool
+	closed        bool
+	typedPassword bool
 }
 
 func (s *browserSession) Open(_ context.Context, u string) (browser.Page, error) {
@@ -213,14 +237,62 @@ func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page,
 	return p, nil
 }
 
+func (s *browserSession) ID() string { return s.id }
+
 func (s *browserSession) Screenshot(context.Context) ([]byte, error) {
 	return []byte("\x89PNG " + s.page.URL), nil
+}
+
+// Frame is a JPEG stand-in naming the page.
+func (s *browserSession) Frame(context.Context) ([]byte, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.closed {
+		return nil, errors.New("the session is closed")
+	}
+	return []byte("\xff\xd8JPEG " + s.page.URL), nil
+}
+
+// Input records the owner's act. Typing "hunter2" then Enter on the login
+// page signs the shop in, as the real one would; "go" opens a page.
+func (s *browserSession) Input(ctx context.Context, in browser.Input) error {
+	if err := in.Check(); err != nil {
+		return err
+	}
+	s.b.mu.Lock()
+	if s.closed {
+		s.b.mu.Unlock()
+		return errors.New("the session is closed")
+	}
+	s.b.Inputs = append(s.b.Inputs, in)
+	s.b.mu.Unlock()
+	switch in.Kind {
+	case "go":
+		_, err := s.Open(ctx, in.URL)
+		return err
+	case "type":
+		s.b.mu.Lock()
+		if s.page.URL == ShopLogin && in.Text == "hunter2" {
+			s.typedPassword = true
+		}
+		s.b.mu.Unlock()
+	case "key":
+		s.b.mu.Lock()
+		if s.page.URL == ShopLogin && in.Key == "Enter" && s.typedPassword {
+			s.state = []byte(`{"cookies":[{"name":"session","value":"signed-in"}]}`)
+			p, _ := s.b.page(ShopItem)
+			s.page = p
+		}
+		s.b.mu.Unlock()
+	}
+	return nil
 }
 
 func (s *browserSession) Close(context.Context) ([]byte, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	s.closed = true
+	delete(s.b.held, s.id)
 	if s.state == nil {
 		return []byte(`{"cookies":[]}`), nil
 	}

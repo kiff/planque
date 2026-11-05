@@ -294,21 +294,28 @@ type browserStateRecord struct {
 	Sealed []byte `json:"sealed"`
 }
 
-// openBrowserState is the grant's storage state, or nil when none is kept.
-func (s *Server) openBrowserState(ctx context.Context, g *Grant) ([]byte, error) {
+// openBrowserState is the grant's storage state, or nil when none is
+// kept, with the record's version (0 for none): what a session started
+// from, so it seals only over that.
+func (s *Server) openBrowserState(ctx context.Context, g *Grant) ([]byte, int64, error) {
 	var rec browserStateRecord
-	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skBrowserState(g.ID), &rec); errors.Is(err, errNotFound) {
-		return nil, nil
+	it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skBrowserState(g.ID), &rec)
+	if errors.Is(err, errNotFound) {
+		return nil, 0, nil
 	} else if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return s.Sealer.Open(ctx, rec.Sealed, browserStateBinding(g))
+	state, err := s.Sealer.Open(ctx, rec.Sealed, browserStateBinding(g))
+	return state, it.Ver, err
 }
 
 // keepBrowserState seals the state a session ended with. An empty state
 // keeps nothing; one too large is dropped, said in the log, never kept
-// in part.
-func (s *Server) keepBrowserState(ctx context.Context, g *Grant, state []byte) {
+// in part. With from, the state is kept only if the record is still the
+// one the session started from (its version, 0 for none): a call that
+// ran across the owner's sign-in view never overwrites the fresh
+// sign-in with its older cookies. Without, it is kept as the newest.
+func (s *Server) keepBrowserState(ctx context.Context, g *Grant, state []byte, from *int64) {
 	if len(state) == 0 {
 		return
 	}
@@ -321,7 +328,20 @@ func (s *Server) keepBrowserState(ctx context.Context, g *Grant, state []byte) {
 		s.log().WarnContext(ctx, "browser state not sealed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		return
 	}
-	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skBrowserState(g.ID), Ver: 1}, browserStateRecord{Sealed: sealed}, store.Cond{}); err != nil {
+	it := store.Item{PK: tenantPK(g.Tenant), SK: skBrowserState(g.ID), Ver: 1}
+	cond := store.Cond{}
+	if from != nil {
+		if *from == 0 {
+			cond = store.Cond{NotExists: true}
+		} else {
+			it.Ver, cond = *from+1, store.Cond{Ver: from}
+		}
+	} else if cur, ok, err := s.KV.Get(ctx, it.PK, it.SK); err == nil && ok {
+		it.Ver = cur.Ver + 1
+	}
+	if err := putDoc(ctx, s.KV, it, browserStateRecord{Sealed: sealed}, cond); errors.Is(err, store.ErrCondition) {
+		s.log().InfoContext(ctx, "browser state not kept: a newer one was sealed meanwhile", slog.String("grant", g.ID))
+	} else if err != nil {
 		s.log().WarnContext(ctx, "browser state not kept", slog.String("grant", g.ID), slog.String("err", err.Error()))
 	}
 }
@@ -333,6 +353,7 @@ func (s *Server) dropBrowser(ctx context.Context, g *Grant) []string {
 		return nil
 	}
 	var problems []string
+	s.dropSignIn(ctx, g)
 	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skBrowserState(g.ID)); err != nil {
 		problems = append(problems, "the browser's sign-ins weren't deleted: "+err.Error())
 	}
@@ -406,6 +427,10 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if code, why := browser.Allowed(a.URL, sites); code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
 	}
+	// The owner's sign-in view holds the browser: the taf waits.
+	if s.signingIn(ctx, g) {
+		return OpNotSent, browserRefusal(CodeSigningIn, "the owner is signing in to a site on this connection; try again when they're done", false)
+	}
 	for i, st := range a.Steps {
 		if err := st.Check(); err != nil {
 			return OpNotSent, browserRefusal(CodeBadArguments, fmt.Sprintf("step %d: %s", i+1, err.Error()), false)
@@ -428,7 +453,7 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if s.Browser == nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "no browser worker is configured", false)
 	}
-	stateBefore, err := s.openBrowserState(ctx, g)
+	stateBefore, from, err := s.openBrowserState(ctx, g)
 	if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "the browser's sign-ins couldn't be opened", false)
 	}
@@ -436,7 +461,7 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
 	}
-	defer s.endSession(ctx, g, sess)
+	defer s.endSession(ctx, g, sess, from)
 	if !p.Live(s.now()) {
 		return OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true)
 	}
@@ -474,14 +499,15 @@ func checkoutName(g *Grant) string {
 	return browseCheckout
 }
 
-// endSession closes the session and seals the sign-ins it ended with.
-func (s *Server) endSession(ctx context.Context, g *Grant, sess browser.Session) {
+// endSession closes the session and seals the sign-ins it ended with,
+// over the state it started from (from), never over a newer one.
+func (s *Server) endSession(ctx context.Context, g *Grant, sess browser.Session, from int64) {
 	state, err := sess.Close(ctx)
 	if err != nil {
 		s.log().WarnContext(ctx, "browser session not closed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		return
 	}
-	s.keepBrowserState(ctx, g, state)
+	s.keepBrowserState(ctx, g, state, &from)
 }
 
 // browseCheckout answers what the page shows as a checkout. A total is
@@ -601,7 +627,7 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if g.Request.Browser != nil {
 		sites, currency = g.Request.Browser.Sites, g.Request.Browser.Currency
 	}
-	stateBefore, err := s.openBrowserState(ctx, g)
+	stateBefore, from, err := s.openBrowserState(ctx, g)
 	if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "the browser's sign-ins couldn't be opened", false)
 	}
@@ -609,7 +635,7 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
 	}
-	defer s.endSession(ctx, g, sess)
+	defer s.endSession(ctx, g, sess, from)
 	if !p.Live(s.now()) {
 		return OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true)
 	}

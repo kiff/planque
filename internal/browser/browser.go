@@ -152,13 +152,73 @@ type Worker interface {
 	Start(ctx context.Context, start Start) (Session, error)
 }
 
-// Session is one call's browser. Close returns the storage state after,
-// for planque to seal, and ends the browser.
+// Session is one call's browser, or the owner's sign-in view. Close
+// returns the storage state after, for planque to seal, and ends the
+// browser.
 type Session interface {
+	// ID names the session at the worker, for a Resumer to find it again.
+	ID() string
 	Open(ctx context.Context, url string) (Page, error)
 	Do(ctx context.Context, step Step) (Page, error)
 	Screenshot(ctx context.Context) ([]byte, error)
+	// Input is the owner's own act in the live sign-in view: a tap, text
+	// typed, a key, a scroll, or going to a URL. Nothing of the page comes
+	// back to planque from it but the next Frame.
+	Input(ctx context.Context, in Input) error
+	// Frame is the page as shown, JPEG, for the live view.
+	Frame(ctx context.Context) ([]byte, error)
 	Close(ctx context.Context) ([]byte, error)
+}
+
+// Resumer is a worker whose sessions outlive one planque request: the
+// sign-in view finds its session again by id on each frame and input.
+type Resumer interface {
+	Resume(ctx context.Context, id string) (Session, error)
+}
+
+// Input is one act of the owner in the live view.
+type Input struct {
+	// Kind is "tap", "type", "key", "scroll" or "go".
+	Kind string `json:"kind"`
+	// X and Y are a tap's or scroll's point, in the browser's own pixels
+	// (the frame's size).
+	X int `json:"x,omitempty"`
+	Y int `json:"y,omitempty"`
+	// Text is what is typed, for "type".
+	Text string `json:"text,omitempty"`
+	// Key is "Enter", "Backspace" or "Tab", for "key".
+	Key string `json:"key,omitempty"`
+	// DeltaY is how far a scroll goes, in pixels, for "scroll".
+	DeltaY int `json:"delta_y,omitempty"`
+	// URL is where to go, for "go".
+	URL string `json:"url,omitempty"`
+}
+
+// Check says the input is well formed.
+func (in Input) Check() error {
+	switch in.Kind {
+	case "tap", "scroll":
+		if in.X < 0 || in.Y < 0 || in.X > 10000 || in.Y > 10000 {
+			return errors.New("a point is within the frame")
+		}
+	case "type":
+		if in.Text == "" || len(in.Text) > 4096 {
+			return errors.New("type carries 1 to 4,096 characters")
+		}
+	case "key":
+		switch in.Key {
+		case "Enter", "Backspace", "Tab":
+		default:
+			return errors.New("key is Enter, Backspace or Tab")
+		}
+	case "go":
+		if in.URL == "" {
+			return errors.New("go names a URL")
+		}
+	default:
+		return errors.New("kind is tap, type, key, scroll or go")
+	}
+	return nil
 }
 
 // Evidence keeps a screenshot with an operation's record, encrypted at

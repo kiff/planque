@@ -9,6 +9,7 @@
 //	PLANQUE_WORKER_KEY_SHA256  SHA-256, hex, of the key planque presents
 //	PLANQUE_CHROME             the browser's path (default: looked up)
 //	PLANQUE_WORKER_IDLE        how long an unused session lives (default 2m)
+//	PLANQUE_WORKER_MAX_SESSIONS how many sessions run at once (default 3)
 package main
 
 import (
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -43,7 +45,16 @@ func main() {
 		}
 		idle = d
 	}
-	srv := &browserworker.Server{Local: &browserworker.Local{Options: browserworker.Options{Chrome: os.Getenv("PLANQUE_CHROME"), Logger: logger}},
+	maxSessions := 0
+	if v := os.Getenv("PLANQUE_WORKER_MAX_SESSIONS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			logger.Error("PLANQUE_WORKER_MAX_SESSIONS is a count of at least 1", slog.String("value", v))
+			os.Exit(2)
+		}
+		maxSessions = n
+	}
+	srv := &browserworker.Server{Local: &browserworker.Local{Options: browserworker.Options{Chrome: os.Getenv("PLANQUE_CHROME"), Logger: logger}, MaxSessions: maxSessions},
 		KeySHA256: keySum, Idle: idle, Logger: logger}
 	hs := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {

@@ -125,6 +125,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/key", s.signed(s.giveKey))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
+	// The live sign-in view of a browser grant (kiff/planque#86, step 4).
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/sign-in", s.signed(s.startBrowserSignIn))
+	mux.HandleFunc("GET /browser/view/{token}", s.browserView)
+	mux.HandleFunc("POST /browser/view/{token}/frame", s.browserViewFrame)
+	mux.HandleFunc("POST /browser/view/{token}/input", s.browserViewInput)
+	mux.HandleFunc("POST /browser/view/{token}/done", s.browserViewDone)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/agents/{agent}/grants", s.agentGrants)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
@@ -187,8 +193,21 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeErr(w, ae.status, ae.msg)
 		return
 	}
-	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", r.URL.Path), slog.String("err", err.Error()))
+	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", loggedPath(r.URL.Path)), slog.String("err", err.Error()))
 	writeErr(w, http.StatusInternalServerError, "planque could not complete this request")
+}
+
+// loggedPath is a request's path for the log, with a sign-in view's token
+// (its only credential) left out.
+func loggedPath(p string) string {
+	if rest, ok := strings.CutPrefix(p, "/browser/view/"); ok {
+		_, tail, _ := strings.Cut(rest, "/")
+		if tail != "" {
+			return "/browser/view/{token}/" + tail
+		}
+		return "/browser/view/{token}"
+	}
+	return p
 }
 
 func readBody(r *http.Request) ([]byte, error) {

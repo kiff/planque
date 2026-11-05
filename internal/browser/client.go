@@ -100,6 +100,29 @@ type remote struct {
 	id string
 }
 
+func (r *remote) ID() string { return r.id }
+
+// Resume is the session the worker holds under id, for the sign-in view's
+// next frame or input from another planque request.
+func (c *Client) Resume(_ context.Context, id string) (Session, error) {
+	if id == "" {
+		return nil, errors.New("no session")
+	}
+	return &remote{c: c, id: id}, nil
+}
+
+func (r *remote) Input(ctx context.Context, in Input) error {
+	return r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/input", map[string]any{"input": in}, nil)
+}
+
+func (r *remote) Frame(ctx context.Context) ([]byte, error) {
+	var out struct {
+		JPEG []byte `json:"jpeg"`
+	}
+	err := r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/frame", nil, &out)
+	return out.JPEG, err
+}
+
 func (r *remote) Open(ctx context.Context, url string) (Page, error) {
 	var out struct {
 		Page Page `json:"page"`
