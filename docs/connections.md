@@ -176,7 +176,8 @@ an HTTP proxy, is taken away from every document the session loads before
 the page's own script runs: the page's target, and every child target the
 browser attaches with its debugger paused (a cross-site frame is its own
 process under site isolation, which the worker forces on; frames in
-frames; workers), each armed and only then released. The browser's policy
+frames; workers), each armed and only then released; a frame that can't
+be armed is closed and never runs. The browser's policy
 flag confining WebRTC to the proxy is set too, but measured alone it still
 let STUN checks out. So a page, in any frame, opens no peer connection and
 probes no address. Downloads are denied. A session unused for two minutes is ended

@@ -73,7 +73,7 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 		p.Close()
 		return nil, err
 	}
-	s := &session{c: c, proxy: p, wait: l.NavigateWait}
+	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger}
 	if s.wait == 0 {
 		s.wait = 20 * time.Second
 	}
@@ -92,6 +92,7 @@ type session struct {
 	wait    time.Duration
 	closed  bool
 	grantID string
+	logger  *slog.Logger
 }
 
 // state is a session's storage state: its cookies, as the browser gives
@@ -168,6 +169,21 @@ func (s *session) attach(ctx context.Context, kept []byte) error {
 	return nil
 }
 
+// cdpCaller is what armTarget drives: the browser, or a fake in a test.
+type cdpCaller interface {
+	call(ctx context.Context, session, method string, params any, out any) error
+}
+
+// attachedTarget is a Target.attachedToTarget event's part that matters.
+type attachedTarget struct {
+	SessionID  string `json:"sessionId"`
+	TargetInfo struct {
+		TargetID string `json:"targetId"`
+		Type     string `json:"type"`
+	} `json:"targetInfo"`
+	WaitingForDebugger bool `json:"waitingForDebugger"`
+}
+
 // armChild takes WebRTC away from a target the browser attached (a
 // cross-site frame, a worker) before its script runs, sets the same
 // auto-attach on it for its own children, and lets it run.
@@ -175,30 +191,46 @@ func (s *session) armChild(m cdpMessage) {
 	if m.Method != "Target.attachedToTarget" {
 		return
 	}
-	var p struct {
-		SessionID  string `json:"sessionId"`
-		TargetInfo struct {
-			Type string `json:"type"`
-		} `json:"targetInfo"`
-		WaitingForDebugger bool `json:"waitingForDebugger"`
-	}
+	var p attachedTarget
 	if json.Unmarshal(m.Params, &p) != nil || p.SessionID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// A worker has no Page domain; the script is for documents, and takes
-	// only once the domain is enabled on that target. The auto-attach and
-	// the release apply to every kind.
+	armTarget(ctx, s.c, p, s.log())
+}
+
+// armTarget arms one attached target and releases it, or, when a frame
+// or page can't be armed, closes it instead: a target that would run with
+// WebRTC never runs (fail closed). A worker has no Page domain; the script
+// is for documents, and takes only once the domain is enabled on that
+// target. The auto-attach applies to every kind.
+func armTarget(ctx context.Context, c cdpCaller, p attachedTarget, logger *slog.Logger) (released bool) {
 	if p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page" {
-		if err := s.c.call(ctx, p.SessionID, "Page.enable", nil, nil); err == nil {
-			_ = s.c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noWebRTC}, nil)
+		err := c.call(ctx, p.SessionID, "Page.enable", nil, nil)
+		if err == nil {
+			err = c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noWebRTC}, nil)
+		}
+		if err != nil {
+			logger.Warn("a frame couldn't be armed against WebRTC: closed, never run", slog.String("target", p.TargetInfo.TargetID), slog.String("err", err.Error()))
+			if err := c.call(ctx, "", "Target.closeTarget", map[string]any{"targetId": p.TargetInfo.TargetID}, nil); err != nil {
+				_ = c.call(ctx, "", "Target.detachFromTarget", map[string]any{"sessionId": p.SessionID}, nil)
+			}
+			return false
 		}
 	}
-	_ = s.c.call(ctx, p.SessionID, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}, nil)
+	_ = c.call(ctx, p.SessionID, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}, nil)
 	if p.WaitingForDebugger {
-		_ = s.c.call(ctx, p.SessionID, "Runtime.runIfWaitingForDebugger", nil, nil)
+		_ = c.call(ctx, p.SessionID, "Runtime.runIfWaitingForDebugger", nil, nil)
 	}
+	return true
+}
+
+func (s *session) log() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return slog.Default()
 }
 
 // Open navigates to u and returns the page once loaded.
