@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -54,6 +55,11 @@ type Vendor struct {
 	// RevokeFails is how many revocations to answer 503 first, as a
 	// vendor's revocation endpoint that is down.
 	RevokeFails int
+	// ChangeTools, when set, rewrites the tools tools/list answers (a copy
+	// of each), as a vendor that changes a tool after it was approved.
+	ChangeTools func([]map[string]any) []map[string]any
+	// Lists counts this instance's tools/list requests.
+	Lists int
 }
 
 type code struct {
@@ -381,7 +387,19 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "notifications/initialized":
 		w.WriteHeader(202)
 	case "tools/list":
-		result(map[string]any{"tools": vendorTools})
+		v.mu.Lock()
+		v.Lists++
+		change := v.ChangeTools
+		v.mu.Unlock()
+		tools := vendorTools
+		if change != nil {
+			tools = make([]map[string]any, len(vendorTools))
+			for i, t := range vendorTools {
+				tools[i] = maps.Clone(t)
+			}
+			tools = change(tools)
+		}
+		result(map[string]any{"tools": tools})
 	case "tools/call":
 		// A read changes nothing, so it isn't one of the vendor's calls.
 		if out, ok := v.read(r.Context(), req.Params.Name, req.Params.Arguments); ok {

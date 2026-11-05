@@ -23,12 +23,14 @@ import (
 // The real adapter and real planque/KIFF handlers run in process. Only the
 // upstream service is synthetic; assertions inspect the outgoing wire request.
 type connectorFixture struct {
-	mu                                      sync.Mutex
-	t                                       *testing.T
-	user, callback, accountStatus           string
-	authScheme, authConfig                  string
-	links                                   int
-	foreign, changed, lost, strayLink       bool
+	mu                                sync.Mutex
+	t                                 *testing.T
+	user, callback, accountStatus     string
+	authScheme, authConfig            string
+	links                             int
+	foreign, changed, lost, strayLink bool
+	// toolBody, when set, is the provider's answer for the pinned tool.
+	toolBody                                string
 	authorizations, executions, revocations int
 	sent                                    map[string]json.RawMessage
 	aliases                                 map[string]bool // names already used, refused again as upstream does
@@ -113,6 +115,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 				f.t.Error("version was not pinned")
 			}
 			body = tool
+			if f.toolBody != "" {
+				body = f.toolBody
+			}
 		}
 	case path == "/tools/execute/DESK_DEMO_REPLY":
 		if r.Method != "POST" {
@@ -291,7 +296,8 @@ func TestConnectorSignedGrantPermitReplayAndDisconnect(t *testing.T) {
 	if second := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit)); second != first || f.executions != 1 {
 		t.Fatal("replay resent or changed result")
 	}
-	for _, failure := range []string{"foreign", "expired", "changed"} {
+	// A changed definition pauses the grant: TestAChangedConnectorToolPausesItsGrant.
+	for _, failure := range []string{"foreign", "expired"} {
 		f.foreign = failure == "foreign"
 		f.changed = failure == "changed"
 		f.accountStatus = "ACTIVE"

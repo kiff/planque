@@ -58,6 +58,7 @@ const (
 	CodeProfileNotApplied = "profile_not_applied" // KIFF hasn't applied the owner-approved profile
 	CodeDefinitionInvalid = "definition_invalid"  // the action names a field its operation doesn't take
 	CodeDefinitionUnread  = "definition_unread"   // the operation's fields couldn't be read to check the action
+	CodeOperationChanged  = "operation_changed"   // a tool the owner approved changed at the vendor; the grant is paused
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
@@ -182,6 +183,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err != nil {
 		return refused(CodePermitInvalid, err.Error())
 	}
+	// A tool the owner approved changed at the vendor: the grant is paused,
+	// and nothing is sent until the owner approves it again (kiff/planque#71).
+	if code, why := pausedRefusal(g); why != "" {
+		return refused(code, why)
+	}
 	// The owner's halt, asked of KIFF before anything is sent (kiff-cloud#1061).
 	if code, why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
 		return refused(code, why)
@@ -210,6 +216,9 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	if !profileReady(g) {
 		return refused(CodeProfileNotApplied, "the owner-approved profile has not been applied by KIFF")
+	}
+	if code, why := s.checkDefinitions(ctx, g); why != "" {
+		return refused(code, why)
 	}
 	now := s.now()
 	if !p.Live(now) {

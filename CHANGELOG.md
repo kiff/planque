@@ -24,6 +24,22 @@ version headings refer to releases, not merely to merged pull requests.
   `"app": "telegram"`, once per update. The taf answers with `send_message`,
   a governed call that splits text over 4,096 characters. Disconnecting
   deletes the webhook.
+- A tool the owner approved that changes at the vendor pauses its grant.
+  For a direct MCP connection, planque reads the server's tools again
+  before a call, at most every 10 minutes, and compares each approved
+  tool's input schema with the one approved (a canonical hash kept with
+  the tool from now on; a tool approved earlier is given one at its first
+  read). A tool gone or changed pauses the grant. For a managed connector,
+  a definition the provider answers that differs from the approved one
+  does; one that can't be read or checked pauses nothing. A paused grant
+  sends nothing: every call is refused with the code `operation_changed`,
+  its `status_words` say "Paused · …", and an event records it. The
+  grant's `status` stays `connected`: an app shows the pause through
+  `status_words`, and telling the owner in KIFF comes later. A pause stays
+  on that grant, through a new sign-in too; the owner connects again,
+  approving the current definitions. A tool list planque can't read
+  pauses nothing: the call goes on to its usual handling. REST grants are
+  unchanged: they send only from the approved snapshot.
 
 ### Fixed
 
