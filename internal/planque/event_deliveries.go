@@ -151,7 +151,8 @@ func appEvent(g *Grant, route triggerRecord, e connector.Event) (door.AppEvent, 
 		at = ""
 	}
 	return door.AppEvent{V: "planque.event.v1", ID: "evt_" + hex.EncodeToString(sum[:]), Tenant: g.Tenant, Agent: g.Request.Agent, Grant: g.ID,
-		Provider: route.Provider, Account: route.Account, Subscription: route.ID, Event: route.Definition.Slug, Payload: e.Data, Timestamp: at}, true
+		Provider: route.Provider, Account: route.Account, Subscription: route.ID, Event: route.Definition.Slug, Payload: e.Data, Timestamp: at,
+		Key: eventKey(g, route.Definition.Slug, e.Data)}, true
 }
 
 func slackDoorMessage(g *Grant, route triggerRecord, e connector.Event) (door.Message, bool) {

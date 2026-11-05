@@ -7,6 +7,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A call whose outcome comes later (the slow-tools design): a write's
+  profile may say `completes: {event, key, event_key, timeout_s, words}`.
+  The relay then refuses the call while the taf doesn't listen for that
+  event (`not_listening`), answers it as `pending` with the handle and the
+  deadline once sent, and delivers the completing event with the same
+  handle as its `key`, so the run that made the call can wait for it and
+  be resumed by it.
 - A browser as a connection (`"kind": "browser"`, kiff/planque#86): a taf
   uses websites in a browser planque runs for it alone, with planque's own
   tools (`browse_open`, `browse_read`, `browse_act`, `browse_checkout`,

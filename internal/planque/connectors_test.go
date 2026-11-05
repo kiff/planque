@@ -241,6 +241,12 @@ func listConnector(t *testing.T, e *env, f *connectorFixture) string {
 }
 func connectConnector(t *testing.T, e *env, f *connectorFixture) *Grant {
 	t.Helper()
+	return connectConnectorWith(t, e, f, profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}})
+}
+
+// connectConnectorWith is connectConnector with the profile given.
+func connectConnectorWith(t *testing.T, e *env, f *connectorFixture, p profile.Profile) *Grant {
+	t.Helper()
 	id := listConnector(t, e, f)
 	path := "/v1/accounts/" + tenant + "/grants/" + id
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
@@ -249,7 +255,6 @@ func connectConnector(t *testing.T, e *env, f *connectorFixture) *Grant {
 		t.Fatalf("tool catalog: %d %v", st, catalog)
 	}
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
-	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
 	st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("set tools: %d %v", st, out)

@@ -239,6 +239,17 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return refused(CodeRecordUnavailable, "planque could not record the operation")
 	}
 	delete(args, IdempotencyArg)
+	// A call whose outcome comes later as an event the taf doesn't listen
+	// for is refused before sending: nothing would ever resume the run.
+	if c := completesOf(g, name); c != nil {
+		listening, err := s.listening(ctx, g, c.Event)
+		if err != nil {
+			return s.finish(ctx, claim, op, OpNotSent, refusal(CodeRecordUnavailable, "Refused by planque: the taf's subscriptions couldn't be read. Nothing was sent."))
+		}
+		if !listening {
+			return s.finish(ctx, claim, op, OpNotSent, refusal(CodeNotListening, "Refused by planque: the taf doesn't listen for the event "+c.Event+" on this connection, which completes this call; subscribe to it first. Nothing was sent."))
+		}
+	}
 	if err := profileArguments(g, name, args); err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 	}
@@ -253,7 +264,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
-		return s.finish(ctx, claim, op, state, res)
+		return s.completed(ctx, g, name, claim, op, state, res)
 	}
 	if g.Request.Kind == KindBrowser {
 		// The browser (kiff/planque#86): no vendor token; the grant's
@@ -278,7 +289,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
 		}
 		state, res := s.callAPI(ctx, g, tool, access, callArgs)
-		return s.finish(ctx, claim, op, state, res)
+		return s.completed(ctx, g, name, claim, op, state, res)
 	}
 	var res json.RawMessage
 	for attempt := 0; ; attempt++ {
@@ -300,7 +311,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	var rpc *mcp.RPCError
 	switch {
 	case err == nil:
-		return s.finish(ctx, claim, op, OpDone, res)
+		return s.completed(ctx, g, name, claim, op, OpDone, res)
 	case errors.As(err, &rpc):
 		return s.finish(ctx, claim, op, OpDone, toolResult(hostOf(g.Request.Server)+" returned an error: "+rpc.Message, true))
 	case errors.Is(err, mcp.ErrUnauthorized), errors.As(err, &ce) && !ce.Sent:
