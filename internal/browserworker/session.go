@@ -34,8 +34,11 @@ const noWebRTC = `(() => {
 type Options struct {
 	// Chrome is the browser's path; empty, chromePath looks.
 	Chrome string
-	// AllowLocal lets tests run against a shop on loopback.
+	// AllowLocal lets tests run against a shop on loopback, and Map sends
+	// a host:port there ("shop.example:443" to the shop's TLS server), the
+	// browser taking the test certificate.
 	AllowLocal bool
+	Map        map[string]string
 	// Resolve is the proxy's resolver; nil, the system's.
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 	Logger  *slog.Logger
@@ -57,7 +60,7 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 	if err != nil {
 		return nil, err
 	}
-	p := &Proxy{Sites: start.Sites, AllowLocal: l.AllowLocal, Logger: l.Logger}
+	p := &Proxy{Sites: start.Sites, AllowLocal: l.AllowLocal, Map: l.Map, Logger: l.Logger}
 	if l.Resolve != nil {
 		p.Resolve = l.Resolve
 	}
@@ -65,7 +68,7 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 	if err != nil {
 		return nil, err
 	}
-	c, err := launch(context.Background(), path, addr)
+	c, err := launch(context.Background(), path, addr, l.AllowLocal)
 	if err != nil {
 		p.Close()
 		return nil, err

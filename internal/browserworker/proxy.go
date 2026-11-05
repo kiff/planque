@@ -35,7 +35,10 @@ type Proxy struct {
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 	// AllowLocal lets tests reach a shop on loopback, over plain http too.
 	AllowLocal bool
-	Logger     *slog.Logger
+	// Map, tests only with AllowLocal, sends a host:port to a loopback
+	// address instead: "shop.example:443" to the test shop's TLS server.
+	Map    map[string]string
+	Logger *slog.Logger
 
 	mu sync.Mutex
 	ln net.Listener
@@ -109,6 +112,9 @@ func (p *Proxy) serve(c net.Conn) {
 		return
 	}
 	addr, why := p.resolve(req.Context(), host, port, sites)
+	if to, ok := p.Map[req.Host]; ok && p.AllowLocal && isLoopback(to[:strings.LastIndex(to, ":")]) && (len(sites) == 0 || listed(strings.ToLower(host), sites)) {
+		addr, why = to, ""
+	}
 	if why != "" {
 		p.log().Info("egress refused", slog.String("host", host), slog.String("why", why))
 		p.refuse(c, http.StatusForbidden, why)
