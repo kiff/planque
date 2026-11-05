@@ -54,6 +54,11 @@ type Control struct {
 	Label string `json:"label"`
 	// Submits: the control submits a form.
 	Submits bool `json:"submits,omitempty"`
+	// PlacesOrder: the worker read, from the page's and the control's
+	// semantics (a checkout form's submit, structured data, a payment
+	// provider's button), that the control places an order or pays. A
+	// fact in no language; the words are the fallback.
+	PlacesOrder bool `json:"places_order,omitempty"`
 }
 
 // Link is a link on the page.
@@ -206,13 +211,31 @@ func Mask(p Page, maxText int) Page {
 	return out
 }
 
-// payWords are the words of a control that pays or places an order. The
-// detection errs to refusing: a page that only looks like it pays is one
-// browse_act won't submit.
-var payWords = regexp.MustCompile(`(?i)\b(pay|pay now|place (your |the |my )?order|buy( it)?( now)?|complete (the |your |my )?(purchase|order|payment)|confirm (and pay|purchase|order|payment)|purchase|subscribe|checkout now|order now)\b`)
+// payWords are the words of a control that pays or places an order, in
+// the languages of the sites tafs use most (en, fr, de, es, it, nl, pt).
+// The words are the fallback behind the worker's PlacesOrder fact, and
+// the detection errs to refusing: a page that only looks like it pays is
+// one browse_act won't submit.
+var payWords = regexp.MustCompile(`(?i)\b(` +
+	// en
+	`pay|pay now|place (your |the |my )?order|buy( it)?( now)?|complete (the |your |my )?(purchase|order|payment)|confirm (and pay|purchase|order|payment)|purchase|subscribe|checkout now|order now|` +
+	// fr
+	`commander|acheter|payer|payer maintenant|(confirmer|valider|passer|finaliser) (la |ma )?commande|r[ée]gler|` +
+	// de
+	`kaufen|jetzt kaufen|bestellen|bezahlen|jetzt bezahlen|(zahlungspflichtig|kostenpflichtig) bestellen|bestellung (abschicken|absenden|aufgeben)|kauf abschlie[sß]+en|` +
+	// es
+	`comprar|comprar ahora|pagar|pagar ahora|realizar (el )?pedido|confirmar (el |la )?(pedido|compra|pago)|finalizar (la )?compra|tramitar pedido|` +
+	// it
+	`acquista( ora)?|compra( ora)?|paga( ora)?|ordina( ora)?|(conferma|completa) (l'?)?(ordine|acquisto|pagamento)|procedi al pagamento|` +
+	// nl
+	`kopen|nu kopen|koop nu|betalen|nu betalen|afrekenen|bestelling (plaatsen|bevestigen)|` +
+	// pt
+	`comprar agora|pagar agora|(finalizar|concluir) (a )?compra|confirmar (o |a )?(pedido|compra|pagamento)|efetuar pagamento|fazer pedido` +
+	`)\b`)
 
-// Pays says the control's words say it pays or places an order.
-func Pays(c Control) bool { return payWords.MatchString(c.Label) }
+// Pays says the control places an order or pays: the worker read it from
+// the page, or its words say so.
+func Pays(c Control) bool { return c.PlacesOrder || payWords.MatchString(c.Label) }
 
 // Payment says p is a payment page: it has a card or security-code field,
 // embeds a payment frame, or has a control whose words place an order.
@@ -234,8 +257,10 @@ func Payment(p Page) bool {
 }
 
 // Refuse says why step may not run on p: its code and words, or "" when
-// it may. A fill or select of a secret field, a click that pays or that
-// submits on a payment page, and a ref the page doesn't have are refused.
+// it may. A fill or select of a secret field, a click that pays, any
+// click on a control of a checkout or payment page (labelled or not,
+// submitting or not: a button's effect can't be read from outside), and a
+// ref the page doesn't have are refused. Links are followed.
 func Refuse(p Page, step Step) (code, why string) {
 	ref := step.Ref()
 	if step.Click != "" {
@@ -246,8 +271,8 @@ func Refuse(p Page, step Step) (code, why string) {
 			switch {
 			case Pays(c):
 				return CodePaymentStep, "clicking " + quote(c.Label) + " would pay or place an order; only browse_pay may, held for the owner"
-			case c.Submits && Payment(p):
-				return CodePaymentStep, "clicking " + quote(c.Label) + " would submit a payment page; only browse_pay may, held for the owner"
+			case p.Checkout != nil || Payment(p):
+				return CodePaymentStep, "on a checkout or payment page the taf clicks no control (" + quote(c.Label) + "); only browse_pay may, held for the owner"
 			}
 			return "", ""
 		}

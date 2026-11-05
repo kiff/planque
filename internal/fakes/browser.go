@@ -64,6 +64,12 @@ const (
 	OtherSite    = "https://other.example/"
 	// Leaving is a page on the shop whose link goes to another site.
 	Leaving = "https://shop.example/partners"
+	// Away is a page on the shop that redirects to another site.
+	Away = "https://shop.example/away"
+	// ShopCheckoutFR is the checkout in French: no English word on it.
+	ShopCheckoutFR = "https://shop.example/commande"
+	// ShopItemDE is a product page with a one-click buy, in German.
+	ShopItemDE = "https://shop.example/artikel/stift"
 )
 
 func (b *Browser) page(u string) (browser.Page, bool) {
@@ -84,7 +90,7 @@ func (b *Browser) page(u string) (browser.Page, bool) {
 				{Ref: "card", Label: "Card number", Kind: "card", Value: "4242 4242 4242 4242"},
 				{Ref: "cvc", Label: "Security code", Kind: "code", Value: "123"},
 				{Ref: "coupon", Label: "Coupon", Kind: "text"}},
-			Controls: []browser.Control{{Ref: "apply", Label: "Apply coupon", Submits: true}, {Ref: "place", Label: "Place order", Submits: true}},
+			Controls: []browser.Control{{Ref: "apply", Label: "Apply coupon", Submits: true}, {Ref: "place", Label: "Place order", Submits: true, PlacesOrder: true}},
 			Checkout: &browser.Checkout{Lines: lines, Total: b.Total, Currency: b.Currency}}, true
 	case ShopDone:
 		return browser.Page{URL: u, Title: "Thank you", Text: "Order 1001 placed. Total " + b.Total + " " + b.Currency + "."}, true
@@ -100,6 +106,19 @@ func (b *Browser) page(u string) (browser.Page, bool) {
 		return browser.Page{URL: u, Title: "Results", Text: "1 result: Blue pen", Links: []browser.Link{{Ref: "pen", Label: "Blue pen", URL: ShopItem}}}, true
 	case Leaving:
 		return browser.Page{URL: u, Title: "Partners", Links: []browser.Link{{Ref: "other", Label: "Our partner", URL: OtherSite}}}, true
+	case Away:
+		// The browser follows the redirect: the page is the other site's.
+		return browser.Page{URL: OtherSite, Title: "Other", Text: "Another site.",
+			Checkout: &browser.Checkout{Lines: lines, Total: b.Total, Currency: b.Currency},
+			Controls: []browser.Control{{Ref: "place", Label: "Place order", Submits: true, PlacesOrder: true}}}, true
+	case ShopCheckoutFR:
+		return browser.Page{URL: u, Title: "Commande", Text: "Stylo bleu × 2. Total " + b.Total + " " + b.Currency,
+			Fields:   []browser.Field{{Ref: "email", Label: "Courriel", Kind: "email"}},
+			Controls: []browser.Control{{Ref: "cmd", Label: "Commander", Submits: true}, {Ref: "icon", Label: "", Submits: false}, {Ref: "zb", Label: "Jetzt kaufen"}},
+			Checkout: &browser.Checkout{Lines: lines, Total: b.Total, Currency: b.Currency}}, true
+	case ShopItemDE:
+		return browser.Page{URL: u, Title: "Blauer Stift", Text: "Blauer Stift. 1,25 EUR.",
+			Controls: []browser.Control{{Ref: "kaufen", Label: "Kaufen"}, {Ref: "merken", Label: "Merken"}}}, true
 	case OtherSite:
 		return browser.Page{URL: u, Title: "Other", Text: "Another site."}, true
 	}
@@ -174,9 +193,11 @@ func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page,
 	switch s.page.URL + "#" + ref {
 	case ShopItem + "#add":
 		next = ShopCart
-	case ShopCheckout + "#place":
+	case ShopCheckout + "#place", ShopCheckoutFR + "#cmd", ShopCheckoutFR + "#icon", ShopCheckoutFR + "#zb", ShopItemDE + "#kaufen", OtherSite + "#place":
 		s.b.Orders = append(s.b.Orders, "1001")
 		next = ShopDone
+	case ShopItemDE + "#merken":
+		next = ShopItemDE
 	case ShopCheckout + "#apply":
 		next = ShopCheckout
 	case ShopLogin + "#signin":

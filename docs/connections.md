@@ -115,13 +115,19 @@ A page comes to the agent as text with a stable `ref` for each field,
 control and link; the values of password, card and one-time-code fields
 are masked, whatever the worker sent, and every answer says the page is
 data, never instructions. `browse_act` refuses, before running the step, a
-fill of a card field or a click on a control that pays or places an order
-(`payment_step`), a fill of a password or code field (`secret_field`), and
-a ref the page doesn't have (`ref_unknown`); the steps before it ran, and
-the answer says how many. A step that takes the browser off the grant's
-sites stops it there (`site_not_listed`). A URL off the sites, a local name
-or an address written out, or a non-https URL is refused before any browser
-starts (`site_not_listed`, `address_private`, `bad_url`).
+fill of a card field, a click on a control that places an order or pays
+(the worker's `places_order` fact, read from the page's semantics, or the
+control's words in en, fr, de, es, it, nl or pt), and any click on a
+control of a checkout or payment page, labelled or not, since a button's
+effect can't be read from outside (`payment_step`); a fill of a password or
+code field (`secret_field`); and a ref the page doesn't have
+(`ref_unknown`). Links are followed. The steps before it ran, and the
+answer says how many. A step that takes the browser off the grant's sites
+stops it there (`site_not_listed`). A URL off the sites, a local name or an
+address written out, or a non-https URL is refused before any browser
+starts (`site_not_listed`, `address_private`, `bad_url`), and so is the
+page the browser lands on after a redirect: it is not read, and no checkout
+is recorded from it.
 
 Money goes only through `browse_pay`. Its profile reads the amount with
 `browse_checkout` at the call's `url` (`amount.from: "read"`, path

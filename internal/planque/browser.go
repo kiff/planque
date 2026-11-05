@@ -444,7 +444,12 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the page couldn't be opened: "+err.Error(), false)
 	}
-	site := browser.Site(a.URL)
+	// The page the browser landed on, not the URL asked for: a redirect
+	// off the sites is refused, and the page it reached is not read.
+	if code, why := browser.Allowed(page.URL, sites); code != "" {
+		return OpNotSent, browserRefusal(code, "the page redirected: "+why, false)
+	}
+	site := browser.Site(page.URL)
 	switch tool.Tool {
 	case browseOpen:
 		return OpDone, browserAnswer(map[string]any{"site": site, "page": browser.Mask(page, maxPageText)})
@@ -612,6 +617,9 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the checkout couldn't be opened: "+err.Error(), false)
 	}
+	if code, why := browser.Allowed(page.URL, sites); code != "" {
+		return OpNotSent, browserRefusal(code, "the checkout redirected: "+why, false)
+	}
 	co := page.Checkout
 	switch {
 	case co == nil || co.Total == "" || co.Currency == "":
@@ -626,9 +634,9 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if i < 0 {
 		return OpNotSent, browserRefusal(browser.CodeRefUnknown, "the checkout has no control "+a.Ref, false)
 	}
-	// Only a control whose words place the order: a submit that says
-	// something else (a coupon, a shipping choice) is browse_act's, and
-	// refused there on a payment page as well.
+	// Only the control that places the order, by the worker's fact or
+	// its words: a submit that says something else (a coupon, a shipping
+	// choice) is nobody's on a checkout.
 	if c := page.Controls[i]; !browser.Pays(c) {
 		return OpNotSent, browserRefusal(browser.CodeRefUnknown, "control "+a.Ref+" ("+c.Label+") doesn't say it places the order; name the one that does", false)
 	}

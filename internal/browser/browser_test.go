@@ -38,7 +38,7 @@ func TestRefuseKeepsMoneyAndSecretsOutOfSteps(t *testing.T) {
 		{"a field that isn't there", Step{Fill: "f9", Value: "x"}, CodeRefUnknown},
 		{"a control that isn't there", Step{Click: "c9"}, CodeRefUnknown},
 		{"typing an email", Step{Fill: "f1", Value: "b@example.com"}, ""},
-		{"a plain click", Step{Click: "c3"}, ""},
+		{"a plain click on a payment page", Step{Click: "c3"}, CodePaymentStep},
 		{"a link", Step{Click: "l1"}, ""},
 	} {
 		code, why := Refuse(p, c.step)
@@ -59,6 +59,31 @@ func TestRefuseKeepsMoneyAndSecretsOutOfSteps(t *testing.T) {
 	if code, _ := Refuse(buy, Step{Click: "c1"}); code != CodePaymentStep {
 		t.Errorf("buy now: %s", code)
 	}
+	// On a checkout, every control is refused, whatever it says and in
+	// whatever language, labelled or not; its links are followed.
+	fr := Page{Checkout: &Checkout{Total: "2.50", Currency: "EUR"},
+		Controls: []Control{{Ref: "cmd", Label: "Commander", Submits: true}, {Ref: "icon", Label: ""}, {Ref: "zb", Label: "Jetzt kaufen"}, {Ref: "cp", Label: "Code promo", Submits: true}},
+		Links:    []Link{{Ref: "cgv", Label: "CGV", URL: "https://shop.example/cgv"}}}
+	for _, ref := range []string{"cmd", "icon", "zb", "cp"} {
+		if code, _ := Refuse(fr, Step{Click: ref}); code != CodePaymentStep {
+			t.Errorf("checkout control %s: %s", ref, code)
+		}
+	}
+	if code, why := Refuse(fr, Step{Click: "cgv"}); code != "" {
+		t.Errorf("a checkout's link: %s %s", code, why)
+	}
+	// A one-click buy on a product page, in any of the languages.
+	for _, label := range []string{"Kaufen", "Comprar", "Acheter", "Acquista ora", "Koop nu", "Comprar agora", "Commander", "Bestellen", "Pagar"} {
+		one := Page{Controls: []Control{{Ref: "c1", Label: label}}}
+		if code, _ := Refuse(one, Step{Click: "c1"}); code != CodePaymentStep {
+			t.Errorf("one-click %q: %s", label, code)
+		}
+	}
+	// The worker's fact, with no words at all.
+	fact := Page{Controls: []Control{{Ref: "c1", Label: "", PlacesOrder: true}}}
+	if code, _ := Refuse(fact, Step{Click: "c1"}); code != CodePaymentStep {
+		t.Errorf("places_order fact: %s", code)
+	}
 }
 
 func TestPaymentPages(t *testing.T) {
@@ -77,6 +102,11 @@ func TestPaymentPages(t *testing.T) {
 	for _, label := range []string{"Pay now", "Place your order", "Buy", "Complete purchase", "Subscribe", "PAY"} {
 		if !Pays(Control{Label: label}) {
 			t.Errorf("%q doesn't pay", label)
+		}
+	}
+	for _, label := range []string{"Zur Kasse gehen", "Panier", "Suchen", "Añadir al carrito", "Aggiungi al carrello", "Weiter"} {
+		if Pays(Control{Label: label}) {
+			t.Errorf("%q pays", label)
 		}
 	}
 	for _, label := range []string{"Search", "Add to cart", "Payment methods", "Sign in", "Repay history"} {

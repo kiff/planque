@@ -10,6 +10,7 @@ import (
 	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/fakes"
 	"github.com/kiff/planque/internal/profile"
+	"github.com/kiff/planque/internal/store"
 )
 
 // browserEnv is an in-process planque with the fake browser worker, the
@@ -305,6 +306,11 @@ func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 		{"typing a security code", fakes.ShopCheckout, []map[string]any{{"fill": "cvc", "value": "999"}}, browser.CodeSecretField, 0},
 		{"typing a password", fakes.ShopLogin, []map[string]any{{"fill": "pass", "value": "hunter2"}}, browser.CodeSecretField, 0},
 		{"a ref that isn't there", fakes.ShopItem, []map[string]any{{"click": "buy_now"}}, browser.CodeRefUnknown, 0},
+		{"Commander on a French checkout", fakes.ShopCheckoutFR, []map[string]any{{"click": "cmd"}}, browser.CodePaymentStep, 0},
+		{"Jetzt kaufen on a checkout", fakes.ShopCheckoutFR, []map[string]any{{"click": "zb"}}, browser.CodePaymentStep, 0},
+		{"an unlabelled button on a checkout", fakes.ShopCheckoutFR, []map[string]any{{"fill": "email", "value": "a@example.com"}, {"click": "icon"}}, browser.CodePaymentStep, 1},
+		{"a one-click Kaufen on a product page", fakes.ShopItemDE, []map[string]any{{"click": "kaufen"}}, browser.CodePaymentStep, 0},
+		{"a redirect off the sites", fakes.Away, []map[string]any{{"click": "place"}}, browser.CodeSiteNotListed, 0},
 		{"leaving the sites", fakes.Leaving, []map[string]any{{"click": "other"}}, browser.CodeSiteNotListed, 1},
 		{"a malformed step", fakes.ShopItem, []map[string]any{{"fill": "qty", "click": "add"}}, CodeBadArguments, 0},
 	} {
@@ -323,6 +329,32 @@ func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 	}
 	if strings.Contains(e.b.StepsJSON(), "hunter2") || strings.Contains(e.b.StepsJSON(), "4000") {
 		t.Errorf("a secret was typed: %s", e.b.StepsJSON())
+	}
+}
+
+// A listed URL that redirects off the sites: every tool refuses the page
+// it landed on, nothing is read or recorded, and a pay clicks nothing.
+func TestBrowserRefusesARedirectOffTheSites(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	for _, tool := range []string{"browse_open", "browse_read", "browse_checkout"} {
+		out, sc := e.call(g, tool, map[string]any{"url": fakes.Away})
+		if code(sc) != browser.CodeSiteNotListed || sc["sent"] != false || strings.Contains(out, "Another site") || sc["total"] != nil {
+			t.Errorf("%s after a redirect: %s", tool, out)
+		}
+	}
+	if _, ok, _ := e.kv.Get(context.Background(), tenantPK(tenant), skCheckout(g.ID, fakes.Away)); ok {
+		t.Error("the other site's checkout was recorded")
+	}
+	// Even with a checkout record under that URL (read before the site
+	// started redirecting), a pay refuses the page it lands on.
+	rec := checkoutRecord{Site: "shop.example", Checkout: browser.Checkout{Lines: []browser.Line{{Item: "Blue pen", Quantity: 2, Price: "1.25"}}, Total: "2.50", Currency: "EUR"}, ReadAt: e.s.now()}
+	if err := putDoc(context.Background(), e.kv, store.Item{PK: tenantPK(tenant), SK: skCheckout(g.ID, fakes.Away), Ver: 1}, rec, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	out, sc := e.call(g, "browse_pay", map[string]any{"url": fakes.Away, "ref": "place"})
+	if code(sc) != browser.CodeSiteNotListed || len(e.b.Orders) != 0 || e.b.Sent() != 0 {
+		t.Errorf("pay after a redirect: %s (orders %v, steps %d)", out, e.b.Orders, e.b.Sent())
 	}
 }
 
