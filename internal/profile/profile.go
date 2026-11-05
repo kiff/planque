@@ -81,7 +81,31 @@ type Operation struct {
 	NoEffect   *NoEffect   `json:"no_effect,omitempty"`
 	// RequiredArguments are arguments planque requires before sending.
 	RequiredArguments []string `json:"required_arguments,omitempty"`
+	// Completes says the write's outcome comes later, as one of the app's
+	// events: the run that made the call waits for it (kiff/planque#86's
+	// slow tools). Only a write.
+	Completes *Completes `json:"completes,omitempty"`
 }
+
+// Completes is how a write that answers later is matched to the event
+// that completes it: the event's slug, where the call's answer carries
+// the handle (Key, a path in the result), where the event's payload
+// carries the same handle (EventKey), how long a run waits (TimeoutS, 60
+// seconds to 3 days), and the words the owner reads for the wait.
+type Completes struct {
+	Event    string `json:"event"`
+	Key      string `json:"key"`
+	EventKey string `json:"event_key"`
+	TimeoutS int    `json:"timeout_s"`
+	Words    string `json:"words"`
+}
+
+// Timeout bounds a wait: at least a minute, at most three days (a bank
+// settlement can take two business days), within a paused run's week.
+const (
+	MinTimeout = 60
+	MaxTimeout = 3 * 24 * 3600
+)
 
 // Resource is what a call acts on, bound by the vendor's id.
 type Resource struct {
@@ -177,8 +201,9 @@ func (o Operation) Money() bool {
 }
 
 var (
-	toolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
-	unitCode = regexp.MustCompile(`^[A-Z]{3}$`)
+	toolName  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+	eventSlug = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
+	unitCode  = regexp.MustCompile(`^[A-Z]{3}$`)
 	// pathExpr is a path in a vendor's answer, with [n] for an array
 	// index; argPath is one in the call's own arguments, which the
 	// gateway follows by name only.
@@ -272,8 +297,8 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 	}
 	switch o.Kind {
 	case "read":
-		if o.Effect != "" || o.Amount != nil || o.VerifyRead != nil || o.Marker != nil || o.StatusRead != nil || o.NoEffect != nil {
-			return errors.New("a read has no effect, amount, verify_read, marker, status_read or no_effect")
+		if o.Effect != "" || o.Amount != nil || o.VerifyRead != nil || o.Marker != nil || o.StatusRead != nil || o.NoEffect != nil || o.Completes != nil {
+			return errors.New("a read has no effect, amount, verify_read, marker, status_read, no_effect or completes")
 		}
 	case "write":
 		switch o.Effect {
@@ -367,6 +392,20 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 	for _, a := range o.RequiredArguments {
 		if !toolName.MatchString(a) {
 			return fmt.Errorf("required_arguments: %q isn't an argument name", a)
+		}
+	}
+	if c := o.Completes; c != nil {
+		switch {
+		case !eventSlug.MatchString(c.Event):
+			return errors.New("completes.event is the app's event slug")
+		case !pathExpr.MatchString(c.Key):
+			return errors.New("completes.key is a dotted path in the call's result")
+		case !pathExpr.MatchString(c.EventKey):
+			return errors.New("completes.event_key is a dotted path in the event's payload")
+		case c.TimeoutS < MinTimeout || c.TimeoutS > MaxTimeout:
+			return fmt.Errorf("completes.timeout_s is %d to %d seconds", MinTimeout, MaxTimeout)
+		case strings.TrimSpace(c.Words) == "" || len(c.Words) > 160 || strings.ContainsAny(c.Words, "\n\r"):
+			return errors.New("completes.words say what the wait is, on one line, at most 160 characters")
 		}
 	}
 	return nil

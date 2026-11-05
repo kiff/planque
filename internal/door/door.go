@@ -51,6 +51,10 @@ type AppEvent struct {
 	Event        string          `json:"event"`
 	Payload      json.RawMessage `json:"payload"`
 	Timestamp    string          `json:"timestamp"`
+	// Key is the handle a waiting call is matched by: the value the
+	// connection's profile names in the payload (completes.event_key), for
+	// an event that completes a call made earlier. Absent otherwise.
+	Key string `json:"key,omitempty"`
 }
 
 // TelegramMessage is a message to a Telegram bot connected here, handed to
