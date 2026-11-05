@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/kiff"
 )
 
 // asked is Setup's listing of every connection it asked for, by grant id.
@@ -83,4 +84,68 @@ func TestSetupsListingSaysEachConnectionsKind(t *testing.T) {
 			t.Fatalf("after a test object: %v", got)
 		}
 	})
+}
+
+// connections is the account's connections as tafs cloud reads them with a
+// person's session.
+func (e *env) connections(key string) (int, []map[string]any) {
+	e.t.Helper()
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, key)
+	var cs []map[string]any
+	if list, ok := out["connections"].([]any); ok {
+		for _, c := range list {
+			cs = append(cs, c.(map[string]any))
+		}
+	}
+	return st, cs
+}
+
+// Any of the account's keys or sessions reads how its tafs reach their
+// vendors, whoever asked for each connection, as it reads the catalog: each
+// one's agent, vendor, kind and what asks for the same again, with no grant
+// id, approval, text, tool or key. Another account's key reads nothing, and
+// a disconnected connection isn't listed.
+func TestTheAccountsConnectionsSayEachKind(t *testing.T) {
+	e := newEnv(t)
+	e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
+	g := e.connect()
+	v := newRESTVendor(t)
+	e.connectAPI(v)
+	for _, key := range []string{"k_person", "k_taf"} {
+		st, cs := e.connections(key)
+		if st != 200 || len(cs) != 2 {
+			t.Fatalf("%s: %d %v", key, st, cs)
+		}
+		kinds := map[string]map[string]any{}
+		for _, c := range cs {
+			for _, k := range []string{"id", "text", "approval", "tools", "digest"} {
+				if _, ok := c[k]; ok {
+					t.Fatalf("%s: a connection carries %s: %v", key, k, c)
+				}
+			}
+			kinds[c["kind"].(string)] = c
+		}
+		if c := kinds[KindVendorSignIn]; c == nil || c["agent"] != g.Request.Agent || c["server"] != e.vendor.MCPURL() || c["status"] != StatusConnected {
+			t.Fatalf("%s: the vendor's own sign-in: %v", key, kinds)
+		}
+		if c := kinds[KindKey]; c == nil || c["api"].(map[string]any)["url"] != v.URL+"/openapi.json" || c["server"] != nil {
+			t.Fatalf("%s: the key: %v", key, kinds)
+		}
+	}
+	_, raw := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_person")
+	if b, _ := json.Marshal(raw); strings.Contains(string(b), v.key) {
+		t.Fatal("the connections carry the key")
+	}
+	if st, _ := e.connections("k_other"); st != 403 {
+		t.Fatalf("another account's key: %d", st)
+	}
+	if st, _ := e.connections(""); st != 401 {
+		t.Fatalf("no key: %d", st)
+	}
+	if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, e.phone, ""); st != 200 {
+		t.Fatalf("disconnect: %d", st)
+	}
+	if _, cs := e.connections("k_person"); len(cs) != 1 || cs[0]["kind"] != KindKey {
+		t.Fatalf("after a disconnect: %v", cs)
+	}
 }

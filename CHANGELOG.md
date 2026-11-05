@@ -13,6 +13,11 @@ version headings refer to releases, not merely to merged pull requests.
   a REST key (`key`, with its API's URL, base and where the key goes,
   never the key) or a browser. So Coach can offer a new taf the kind of
   connection the account already uses for that vendor.
+- `GET /v1/accounts/{tenant}/connections`: how the account's tafs reach
+  their vendors (agent, vendor, kind, what asks for the same again, mode),
+  for any of the account's keys or sessions, as its catalog is. No grant id,
+  approval, text, tool or key. tafs cloud gives it to Coach when a
+  conversation starts.
 
 ### Fixed
 

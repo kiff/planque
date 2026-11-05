@@ -2026,40 +2026,7 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 		s.fail(w, r, err)
 		return
 	}
-	type tool struct {
-		Name     string `json:"name"`
-		Tool     string `json:"tool"`
-		Title    string `json:"title,omitempty"`
-		ReadOnly bool   `json:"read_only,omitempty"`
-	}
-	// The public facts of a key grant's API, to ask for the same again: the
-	// key itself is planque's and never here.
-	type api struct {
-		URL  string       `json:"url"`
-		Base string       `json:"base"`
-		Auth openapi.Auth `json:"auth"`
-	}
-	type grant struct {
-		ID      string `json:"id"`
-		Agent   string `json:"agent"`
-		Vendor  string `json:"vendor"`
-		Server  string `json:"server"`
-		Status  string `json:"status"`
-		Account string `json:"account,omitempty"`
-		Created string `json:"created,omitempty"`
-		// Kind is how the grant reaches its vendor, so Setup offers a new
-		// taf the kind the account already uses for that vendor; Entry is a
-		// provider's app to ask for again, API a key grant's.
-		Kind  string `json:"kind"`
-		Entry string `json:"entry,omitempty"`
-		API   *api   `json:"api,omitempty"`
-		// Mode and ModeWords: a provider's connection only, as the phone's
-		// view says them. A vendor's own sign-in has no mode planque knows.
-		Mode      string `json:"mode,omitempty"`
-		ModeWords string `json:"mode_words,omitempty"`
-		Tools     []tool `json:"tools"`
-	}
-	out := []grant{}
+	out := []setupGrant{}
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil || (agent != "" && g.Request.Agent != agent) || !mayAct(me, &g) {
@@ -2070,27 +2037,115 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 		if g.Status == StatusFailed || g.Status == StatusDisconnected {
 			continue
 		}
-		v := grant{ID: g.ID, Agent: g.Request.Agent, Vendor: vendorName(&g), Server: g.Request.Server, Status: g.Status, Account: g.Account,
-			Created: g.Request.CreatedAt, Kind: connectionKind(&g), Tools: []tool{}}
-		switch v.Kind {
-		case KindProvider:
-			c := g.Request.Connector
-			v.Entry, v.Mode = g.Request.CatalogEntry, connectorMode(&g)
-			if v.Entry == "" {
-				v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
-			}
-			v.ModeWords = modeWords[v.Mode]
-		case KindKey:
-			if a := g.Request.API; a != nil {
-				v.API = &api{URL: a.URL, Base: a.Base, Auth: a.Auth}
-			}
-		}
-		for _, t := range g.Request.Tools {
-			v.Tools = append(v.Tools, tool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
-		}
-		out = append(out, v)
+		out = append(out, setupGrantOf(&g))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grants": out})
+}
+
+// setupGrantTool is one of a grant's tools as Setup reads it.
+type setupGrantTool struct {
+	Name     string `json:"name"`
+	Tool     string `json:"tool"`
+	Title    string `json:"title,omitempty"`
+	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
+// grantAPI is the public facts of a key grant's API, to ask for the same
+// again: the key itself is planque's and never here.
+type grantAPI struct {
+	URL  string       `json:"url"`
+	Base string       `json:"base"`
+	Auth openapi.Auth `json:"auth"`
+}
+
+// connection is how a grant reaches its vendor, so Setup offers a new taf
+// the kind the account already uses for that vendor: its Kind, and what
+// asks for the same again (Server for the vendor's own sign-in, Entry for a
+// provider's app, API for a key). Mode and ModeWords: a provider's
+// connection only, as the grant's own view says them; a vendor's own
+// sign-in has no mode planque knows.
+type connection struct {
+	Agent     string    `json:"agent"`
+	Vendor    string    `json:"vendor"`
+	Kind      string    `json:"kind"`
+	Server    string    `json:"server,omitempty"`
+	Entry     string    `json:"entry,omitempty"`
+	API       *grantAPI `json:"api,omitempty"`
+	Status    string    `json:"status"`
+	Mode      string    `json:"mode,omitempty"`
+	ModeWords string    `json:"mode_words,omitempty"`
+}
+
+func connectionOf(g *Grant) connection {
+	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Kind: connectionKind(g), Status: g.Status}
+	switch c.Kind {
+	case KindVendorSignIn:
+		c.Server = g.Request.Server
+	case KindProvider:
+		p := g.Request.Connector
+		c.Entry, c.Mode = g.Request.CatalogEntry, connectorMode(g)
+		if c.Entry == "" {
+			c.Entry = "connector:" + p.Provider + ":" + p.Toolkit
+		}
+		c.ModeWords = modeWords[c.Mode]
+	case KindKey:
+		if a := g.Request.API; a != nil {
+			c.API = &grantAPI{URL: a.URL, Base: a.Base, Auth: a.Auth}
+		}
+	}
+	return c
+}
+
+// setupGrant is a grant as Setup's listings show it: no approval, no text.
+// Server is always the request's, as before kind was added.
+type setupGrant struct {
+	ID string `json:"id"`
+	connection
+	Server  string           `json:"server"`
+	Account string           `json:"account,omitempty"`
+	Created string           `json:"created,omitempty"`
+	Tools   []setupGrantTool `json:"tools"`
+}
+
+func setupGrantOf(g *Grant) setupGrant {
+	v := setupGrant{ID: g.ID, connection: connectionOf(g), Server: g.Request.Server, Account: g.Account, Created: g.Request.CreatedAt, Tools: []setupGrantTool{}}
+	for _, t := range g.Request.Tools {
+		v.Tools = append(v.Tools, setupGrantTool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
+	}
+	return v
+}
+
+// accountConnections is how the account's tafs reach their vendors, for any
+// of the account's keys or sessions, as its catalog is: each live grant's
+// taf agent, vendor, kind, what asks for the same again and its mode, with no
+// grant id, approval, text or tool. tafs cloud gives it to Coach when a
+// conversation starts, for the tafs the person may see, so a new taf is
+// offered the kind of connection the account already uses for a vendor.
+func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	if _, err := s.agentKey(r, tenant); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "GRANT#")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := []connection{}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.Request.Agent == "" {
+			continue
+		}
+		g.ver = it.Ver
+		_, _ = s.expire(r.Context(), &g)
+		if g.Status == StatusFailed || g.Status == StatusDisconnected {
+			continue
+		}
+		out = append(out, connectionOf(&g))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connections": out})
 }
 
 // listGrants is the account's grants and their signed approvals, for the
