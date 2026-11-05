@@ -143,6 +143,12 @@ type Approval struct {
 	Signature   string    `json:"signature"`
 	SignedAt    string    `json:"signed_at"`
 	ApprovedAt  time.Time `json:"approved_at"`
+	// Key is which key signed, as KIFF says it (kiff/tafs#494): "device" or
+	// "critical" (the approval key, behind the fingerprint); empty before
+	// KIFF said. Window is the approval window a device-key signature was
+	// made in, so an audit tells a tap from a fingerprint.
+	Key    string `json:"key,omitempty"`
+	Window string `json:"window,omitempty"`
 }
 
 // Who names who signed, for the grant's events: the person and their

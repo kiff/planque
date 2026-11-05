@@ -71,6 +71,13 @@ type Server struct {
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger
 	Now                    func() time.Time
+	// WindowRequired makes a routine signed call (approving a sign-in or a
+	// key, confirming, a trigger, enrolling) need either the phone's
+	// approval key or its device key inside an open approval window
+	// (kiff/tafs#494). Off, a device-key signature with no window is taken
+	// as before, for apps from before the window; a signature that names a
+	// window must name an open one either way.
+	WindowRequired bool
 	// AppReturn is where the browser that completed a vendor sign-in is
 	// sent, with the code that confirms it: the owner's app (tafs), for
 	// example tafs://planque/signed-in. The operator sets it; no request
@@ -124,17 +131,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/key", s.signed(s.giveKey))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
-	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signed(s.disconnect))
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signedSafe(s.disconnect))
 	// The live sign-in view of a browser grant (kiff/planque#86, step 4).
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/sign-in", s.signed(s.startBrowserSignIn))
 	mux.HandleFunc("GET /browser/view/{token}", s.browserView)
 	mux.HandleFunc("POST /browser/view/{token}/frame", s.browserViewFrame)
 	mux.HandleFunc("POST /browser/view/{token}/input", s.browserViewInput)
 	mux.HandleFunc("POST /browser/view/{token}/done", s.browserViewDone)
-	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signed(s.listGrants))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signedSafe(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/agents/{agent}/grants", s.agentGrants)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
-	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedFor(capExport, s.export))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedAs(kindSafe, capExport, s.export))
 	// Deleting the account (kiff/tafs#185): everything planque keeps for it.
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}", s.eraseAccount)
 	// Deleting it from one signed intent, which tafs cloud carries (deletions.go).
@@ -143,12 +150,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/account-deletions/status", s.deletionStatus)
 	mux.HandleFunc("GET /oauth/callback", s.callback)
 	mux.HandleFunc("GET /connectors/callback", s.connectorCallback)
-	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/channels", s.signed(s.listChannels))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/channels", s.signedSafe(s.listChannels))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers/types", s.triggerType)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/events", s.grantEvents)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers", s.listTriggers)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers", s.signed(s.createTrigger))
-	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signed(s.deleteTrigger))
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signedSafe(s.deleteTrigger))
 	mux.HandleFunc("POST /connectors/{provider}/webhook", s.connectorWebhook)
 	mux.HandleFunc("POST /telegram/{hook}", s.telegramWebhook)
 	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
@@ -176,6 +183,14 @@ type apiError struct {
 
 func (e apiError) Error() string { return e.msg }
 
+// apiCoded is an apiError with a code the app acts on (kiff/tafs#494):
+// critical_key_required, the approval key must sign; window_required, the
+// device key signed in no open window, so the app opens one and signs again.
+type apiCoded struct {
+	apiError
+	code string
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -188,6 +203,11 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
+	var ce apiCoded
+	if errors.As(err, &ce) {
+		writeJSON(w, ce.status, map[string]string{"error": ce.msg, "code": ce.code})
+		return
+	}
 	var ae apiError
 	if errors.As(err, &ae) {
 		writeErr(w, ae.status, ae.msg)
@@ -253,12 +273,30 @@ const (
 // capWords says what a capability lets the signer do, for a refusal.
 var capWords = map[string]string{capConnect: "connect tools", capExport: "export the account", capDelete: "delete the account"}
 
+// The kinds of a signed route (kiff/tafs#494), decided here, never by the
+// caller: safe takes authority away or reads, so the device key alone
+// signs it; routine gives a little (a sign-in, a key, a confirm, a
+// trigger), so inside an open approval window the device key signs it,
+// else the approval key; critical widens what a taf may do, so only the
+// approval key, behind the fingerprint, signs it. planque has no critical
+// route of its own: the account's deletion is KIFF's to check.
+const (
+	kindSafe     = "safe"
+	kindRoutine  = "routine"
+	kindCritical = "critical"
+)
+
 func (s *Server) verifySigned(r *http.Request, tenant, capability string, body []byte, connector func() (string, error)) (Approval, error) {
+	return s.verifySignedAs(r, kindRoutine, tenant, capability, body, connector)
+}
+
+// verifySignedAs is verifySigned for a route of this kind (kiff/tafs#494).
+func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string, body []byte, connector func() (string, error)) (Approval, error) {
 	sg, err := device.ParseHeader(r.Header.Get(device.Header))
 	if err != nil {
 		return Approval{}, apiError{http.StatusUnauthorized, "this request needs the owner's signature from their device (" + device.Header + ")"}
 	}
-	msg := device.Message(s.BaseURL, tenant, r.Method, r.URL.RequestURI(), body, sg.At)
+	msg := device.MessageWindow(s.BaseURL, tenant, r.Method, r.URL.RequestURI(), body, sg.At, sg.Window)
 	a := Approval{Message: string(msg), Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
 	// What the replay record names as the signer, with the message.
 	if sg.Device == "" {
@@ -275,7 +313,14 @@ func (s *Server) verifySigned(r *http.Request, tenant, capability string, body [
 		if err != nil {
 			return Approval{}, err
 		}
-		v, err := s.KIFF.VerifyDevice(r.Context(), key, sg.Device, msg, sg.Signature, capability)
+		// KIFF is asked about the window only where it counts: a routine
+		// route. A safe route takes the device key as it is, and a critical
+		// one takes no window at all.
+		window := ""
+		if kind == kindRoutine {
+			window = sg.Window
+		}
+		v, err := s.KIFF.VerifyDevice(r.Context(), key, sg.Device, msg, sg.Signature, capability, window)
 		if err != nil {
 			s.log().ErrorContext(r.Context(), "device check failed", slog.String("tenant", tenant), slog.String("err", err.Error()))
 			return Approval{}, apiError{http.StatusBadGateway, "KIFF could not check the device that signed"}
@@ -288,7 +333,15 @@ func (s *Server) verifySigned(r *http.Request, tenant, capability string, body [
 				slog.String("reason", v.Reason), slog.String("capability", capability))
 			return Approval{}, deviceRefused(v.Reason, capability)
 		}
-		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID
+		if err := keyFits(kind, v, sg.Window, s.WindowRequired); err != nil {
+			s.log().WarnContext(r.Context(), "device key short of the route", slog.String("tenant", tenant), slog.String("device", sg.Device),
+				slog.String("kind", kind), slog.String("key", v.Key), slog.String("window", sg.Window))
+			return Approval{}, err
+		}
+		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint, a.Key = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID, v.Key
+		if v.Key == kiff.KeyDevice && window != "" {
+			a.Window = window
+		}
 		signer = []byte("kiff-device\n" + v.DeviceID + "\n")
 	}
 	sum := sha256.Sum256(append(append([]byte{}, signer...), msg...))
@@ -302,6 +355,31 @@ func (s *Server) verifySigned(r *http.Request, tenant, capability string, body [
 		return Approval{}, err
 	}
 	return a, nil
+}
+
+// keyFits says whether the key KIFF found, and the window the signature
+// named, are enough for a route of this kind (kiff/tafs#494). The approval
+// key is enough for any kind. A signature that names a window counts only
+// while KIFF says that window is open. On a routine route, a device-key
+// signature naming no window is enough only until windowRequired, for apps
+// from before the window.
+func keyFits(kind string, v kiff.Verified, window string, windowRequired bool) error {
+	if v.Key == kiff.KeyCritical || kind == kindSafe {
+		return nil
+	}
+	if kind == kindCritical {
+		return apiCoded{apiError{http.StatusForbidden, "this widens what a taf may do: sign it with the phone's approval key, behind its fingerprint or face"}, "critical_key_required"}
+	}
+	if window != "" {
+		if v.Window == nil || !v.Window.Open || v.Window.ID != window {
+			return apiCoded{apiError{http.StatusForbidden, "the approval window this was signed in isn't open: open one with the phone's approval key, behind its fingerprint, and sign it again"}, "window_required"}
+		}
+		return nil
+	}
+	if windowRequired {
+		return apiCoded{apiError{http.StatusForbidden, "this needs the phone's approval key, or its device key inside an open approval window: open one, behind the fingerprint, and sign it again"}, "window_required"}
+	}
+	return nil
 }
 
 // deviceRefused says why KIFF didn't vouch for a device's signature.
@@ -320,13 +398,27 @@ func deviceRefused(reason, capability string) apiError {
 }
 
 // signed admits a request only with the owner's signature: from a device
-// KIFF knows, of a person who may connect tools.
+// KIFF knows, of a person who may connect tools. The route is routine
+// (kiff/tafs#494): the approval key, or the device key inside an open
+// approval window.
 func (s *Server) signed(next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
-	return s.signedFor(capConnect, next)
+	return s.signedAs(kindRoutine, capConnect, next)
+}
+
+// signedSafe is signed for a route that takes authority away or reads:
+// the device key alone, as today, window or not.
+func (s *Server) signedSafe(next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
+	return s.signedAs(kindSafe, capConnect, next)
 }
 
 // signedFor is signed, for a person KIFF says holds capability.
 func (s *Server) signedFor(capability string, next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
+	return s.signedAs(kindRoutine, capability, next)
+}
+
+// signedAs is signed for a route of this kind, for a person KIFF says holds
+// capability.
+func (s *Server) signedAs(kind, capability string, next func(http.ResponseWriter, *http.Request, signedRequest)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenant := r.PathValue("tenant")
 		body, err := readBody(r)
@@ -342,7 +434,7 @@ func (s *Server) signedFor(capability string, next func(http.ResponseWriter, *ht
 			s.fail(w, r, err)
 			return
 		}
-		a, err := s.verifySigned(r, tenant, capability, body, func() (string, error) { return s.openConnector(r.Context(), e) })
+		a, err := s.verifySignedAs(r, kind, tenant, capability, body, func() (string, error) { return s.openConnector(r.Context(), e) })
 		if err != nil {
 			s.fail(w, r, err)
 			return

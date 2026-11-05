@@ -90,22 +90,52 @@ type Verified struct {
 	// what the owner reads (kiff-cloud#1271).
 	Name     string `json:"name"`
 	Attested bool   `json:"attested"`
+	// Key is which of the device's keys signed (kiff/tafs#494): "device",
+	// the device key, or "critical", the approval key behind the person's
+	// fingerprint. An older KIFF says neither, which reads as "device".
+	Key string `json:"key"`
+	// Window is the approval window the signature named, when planque asked
+	// about one: whether it is open for the device, and until when.
+	Window *VerifiedWindow `json:"window,omitempty"`
 }
+
+// VerifiedWindow is KIFF's answer on an approval window (kiff/tafs#494).
+type VerifiedWindow struct {
+	ID      string `json:"id"`
+	Open    bool   `json:"open"`
+	Expires string `json:"expires,omitempty"`
+}
+
+// The keys KIFF names in Verified.Key.
+const (
+	KeyDevice   = "device"
+	KeyCritical = "critical"
+)
 
 // VerifyDevice asks KIFF, with the account's connector key, whether its
 // device deviceID signed msg (sig: base64 DER ECDSA over its SHA-256), and
 // whether that device's person may do what capability names. KIFF keeps
 // the devices a person approves with, so planque keeps none
 // (kiff/planque#10).
-func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string, msg []byte, sig, capability string) (Verified, error) {
+//
+// With window, the approval window the phone signed in (kiff/tafs#494),
+// KIFF checks the id is a line of msg and says whether it is open for the
+// device, restarting it when it is.
+func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string, msg []byte, sig, capability, window string) (Verified, error) {
 	var v Verified
-	status, err := c.do(ctx, http.MethodPost, c.API+"/v1/devices/verify", connectorKey, map[string]string{
-		"device_id": deviceID, "message": base64.StdEncoding.EncodeToString(msg), "signature": sig, "capability": capability}, &v)
+	body := map[string]string{"device_id": deviceID, "message": base64.StdEncoding.EncodeToString(msg), "signature": sig, "capability": capability}
+	if window != "" {
+		body["window"] = window
+	}
+	status, err := c.do(ctx, http.MethodPost, c.API+"/v1/devices/verify", connectorKey, body, &v)
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		return Verified{}, ErrUnauthorized
 	}
 	if err != nil {
 		return Verified{}, err
+	}
+	if v.Key == "" {
+		v.Key = KeyDevice
 	}
 	return v, nil
 }

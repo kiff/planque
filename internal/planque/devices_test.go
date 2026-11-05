@@ -298,3 +298,74 @@ func TestTheEnrolledConnectorKeyIsKeptWhileItWorks(t *testing.T) {
 		t.Fatalf("after the enrolled key was revoked: %d %v, stored %s", st, out, stored())
 	}
 }
+
+// kiff/tafs#494: a routine call (approving a sign-in) signed by the device
+// key inside an approval window KIFF says is open goes through, and the
+// record names the key and the window; one naming a window that isn't open
+// is refused with window_required; the approval key signs it with no
+// window; a safe call (disconnecting) takes the device key whatever the
+// window; and with the window required, a device-key signature naming no
+// window is refused.
+func TestARoutineCallIsSignedInsideAnApprovalWindow(t *testing.T) {
+	e := newEnv(t)
+	phone := e.device("dev_phone")
+	approval := fakes.NewPhone()
+	approval.DeviceID = "dev_phone"
+	d := e.kiff.Devices["dev_phone"]
+	d.Approval = approval
+	e.kiff.Devices["dev_phone"] = d
+	if st, _ := e.enrolAs(phone); st != 201 {
+		t.Fatal("enrol")
+	}
+	window := "win_" + strings.Repeat("a", 26)
+	e.kiff.Windows[window] = "dev_phone"
+	id, digest := e.request()
+	approve := "/v1/accounts/" + tenant + "/grants/" + id + "/approve"
+	// A window that isn't open for this device: refused, with the code the app acts on.
+	phone.Window = "win_" + strings.Repeat("b", 26)
+	if st, out := e.do("POST", approve, map[string]string{"digest": digest}, phone, ""); st != 403 || out["code"] != "window_required" {
+		t.Fatalf("a window that isn't open: %d %v", st, out)
+	}
+	// The open window: a tap.
+	phone.Window = window
+	st, out := e.do("POST", approve, map[string]string{"digest": digest}, phone, "")
+	if st != 200 {
+		t.Fatalf("approve inside the window: %d %v", st, out)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Approval == nil || g.Approval.Key != "device" || g.Approval.Window != window || !strings.HasPrefix(g.Approval.Message, "planque.request.v2\n") || !strings.HasSuffix(g.Approval.Message, "\n"+window) {
+		t.Fatalf("the approval doesn't name the key and the window: %+v", g.Approval)
+	}
+	// The approval key, no window: critical, and the record says so.
+	id2, digest2 := e.request()
+	approve2 := "/v1/accounts/" + tenant + "/grants/" + id2 + "/approve"
+	if st, out := e.do("POST", approve2, map[string]string{"digest": digest2}, approval, ""); st != 200 {
+		t.Fatalf("approve with the approval key: %d %v", st, out)
+	}
+	if g2, _ := e.s.loadGrant(context.Background(), tenant, id2); g2.Approval == nil || g2.Approval.Key != "critical" || g2.Approval.Window != "" {
+		t.Fatalf("the approval key's record: %+v", g2.Approval)
+	}
+	// A safe call takes the device key, window open or not, and never asks KIFF about the window.
+	phone.Window = "win_" + strings.Repeat("c", 26)
+	if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id2, nil, phone, ""); st != 200 {
+		t.Fatalf("disconnect with a closed window named: %d", st)
+	}
+	if asked := e.kiff.WindowsAsked; len(asked) == 0 || asked[len(asked)-1] != "" {
+		t.Fatalf("a safe route sent the window to KIFF: %v", asked)
+	}
+	// With the window required, a device-key signature naming none is refused; the approval key still goes.
+	e.s.WindowRequired = true
+	phone.Window = ""
+	id3, digest3 := e.request()
+	approve3 := "/v1/accounts/" + tenant + "/grants/" + id3 + "/approve"
+	if st, out := e.do("POST", approve3, map[string]string{"digest": digest3}, phone, ""); st != 403 || out["code"] != "window_required" {
+		t.Fatalf("the device key alone, window required: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", approve3, map[string]string{"digest": digest3}, approval, ""); st != 200 {
+		t.Fatal("the approval key, window required")
+	}
+	// Disconnecting stays the device key's.
+	if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id3, nil, phone, ""); st != 200 {
+		t.Fatalf("disconnect, window required: %d", st)
+	}
+}
