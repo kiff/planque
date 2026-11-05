@@ -144,7 +144,7 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 			return
 		}
 	}
-	state, err := s.openBrowserState(r.Context(), g)
+	state, _, err := s.openBrowserState(r.Context(), g)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -231,7 +231,7 @@ func (s *Server) browserView(w http.ResponseWriter, r *http.Request) {
 		s.page(w, http.StatusNotFound, "Sign-in view", why)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	site := rec.Site
 	if site == "" {
@@ -314,7 +314,7 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "the browser didn't hand its sign-in back: "+err.Error())
 		return
 	}
-	s.keepBrowserState(r.Context(), g, state)
+	s.keepBrowserState(r.Context(), g, state, nil)
 	what := "the sign-in view was closed; what the site kept is sealed for the taf's calls"
 	if rec.Site != "" {
 		what = "signed in at " + rec.Site + " on the phone; what the site kept is sealed for the taf's calls"
@@ -348,8 +348,10 @@ button.k{background:#555}
 (() => {
   const base = location.pathname.replace(/\/$/, '');
   const img = document.getElementById('frame'), note = document.getElementById('note');
-  const W = 1280, H = 900;
-  let busy = false, stopped = false, lastY = H / 2;
+  // A tap is mapped by the last frame's own size, whatever the browser's
+  // window or scale: the frame is the browser's pixels.
+  const size = () => ({w: img.naturalWidth || 1280, h: img.naturalHeight || 900});
+  let busy = false, stopped = false, lastY = 450;
   const say = t => { note.textContent = t; };
   const post = (path, body) => fetch(base + path, {method: 'POST', headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
   const input = async (body) => {
@@ -368,15 +370,15 @@ button.k{background:#555}
   }
   setInterval(frame, 900); frame();
   img.addEventListener('click', e => {
-    const r = img.getBoundingClientRect();
-    const x = Math.round((e.clientX - r.left) * W / r.width), y = Math.round((e.clientY - r.top) * H / r.height);
+    const r = img.getBoundingClientRect(), s = size();
+    const x = Math.round((e.clientX - r.left) * s.w / r.width), y = Math.round((e.clientY - r.top) * s.h / r.height);
     lastY = y; input({kind: 'tap', x, y});
   });
   document.getElementById('go').onclick = () => { const u = document.getElementById('url').value.trim(); if (u) input({kind: 'go', url: u}); };
   document.getElementById('send').onclick = () => { const t = document.getElementById('text'); if (t.value) { input({kind: 'type', text: t.value}); t.value = ''; } };
   for (const b of document.querySelectorAll('button[data-key]')) b.onclick = () => input({kind: 'key', key: b.dataset.key});
-  document.getElementById('up').onclick = () => input({kind: 'scroll', x: W / 2, y: lastY, delta_y: -400});
-  document.getElementById('down').onclick = () => input({kind: 'scroll', x: W / 2, y: lastY, delta_y: 400});
+  document.getElementById('up').onclick = () => input({kind: 'scroll', x: Math.round(size().w / 2), y: lastY, delta_y: -400});
+  document.getElementById('down').onclick = () => input({kind: 'scroll', x: Math.round(size().w / 2), y: lastY, delta_y: 400});
   document.getElementById('done').onclick = async () => {
     stopped = true;
     const r = await post('/done'); const j = await r.json().catch(() => ({}));

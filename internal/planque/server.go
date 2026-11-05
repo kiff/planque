@@ -193,8 +193,21 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeErr(w, ae.status, ae.msg)
 		return
 	}
-	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", r.URL.Path), slog.String("err", err.Error()))
+	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", loggedPath(r.URL.Path)), slog.String("err", err.Error()))
 	writeErr(w, http.StatusInternalServerError, "planque could not complete this request")
+}
+
+// loggedPath is a request's path for the log, with a sign-in view's token
+// (its only credential) left out.
+func loggedPath(p string) string {
+	if rest, ok := strings.CutPrefix(p, "/browser/view/"); ok {
+		_, tail, _ := strings.Cut(rest, "/")
+		if tail != "" {
+			return "/browser/view/{token}/" + tail
+		}
+		return "/browser/view/{token}"
+	}
+	return p
 }
 
 func readBody(r *http.Request) ([]byte, error) {

@@ -166,7 +166,10 @@ code works, since the owner types it. Tapping Done closes the session and
 seals its cookies as the grant's sign-in, which every later session starts
 with; the grant's record says a sign-in was made at the site, never what
 was typed. A view not finished in ten minutes lapses and keeps nothing;
-the worker ends its browser after two idle minutes. While a view is open,
+the worker ends its browser after two idle minutes. A sign-in that goes
+through another host (a separate identity provider) needs that host on
+the grant's sites too, or the browser's egress refuses it: Coach lists
+it with the site when it asks for the grant. While a view is open,
 the taf's calls on the grant are refused with `signing_in`. Disconnecting
 ends an open view with the grant.
 

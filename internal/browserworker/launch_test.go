@@ -1,14 +1,18 @@
 package browserworker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"net"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/kiff/planque/internal/browser"
 )
 
 // The browser's every way out is the proxy: the proxy flag, no bypass for
@@ -191,5 +195,64 @@ func TestWorkerWebRTCIsGoneInACrossSiteFrame(t *testing.T) {
 	}
 	if n := packets.Load(); n != 0 {
 		t.Errorf("the frame sent %d UDP packets to the trap", n)
+	}
+}
+
+// A tap lands where the frame says: the frame is the browser's own pixels
+// (its size is the window's), and a tap at an element's centre in those
+// pixels focuses it, so what is typed next goes there. (agentgabo's
+// review of kiff/planque#95: the view maps taps by the frame's size.)
+func TestWorkerTapLandsWhereTheFrameSays(t *testing.T) {
+	w, s := worker(t), shop(t)
+	ctx := context.Background()
+	sess, err := w.Start(ctx, startFor(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close(ctx)
+	if _, err := sess.Open(ctx, s.URL+"/login"); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := sess.Frame(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(frame))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := sess.(*session)
+	var ev struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	// The frame is the viewport's size, which is not the window flag's
+	// (the window holds more than the page): the view maps taps by the
+	// frame's own size for this reason.
+	if err := in.c.call(ctx, in.sid, "Runtime.evaluate", map[string]any{"expression": `window.innerWidth + "x" + window.innerHeight`, "returnByValue": true}, &ev); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%dx%d", cfg.Width, cfg.Height); got != ev.Result.Value {
+		t.Fatalf("the frame's size %s isn't the viewport's %s", got, ev.Result.Value)
+	}
+	if err := in.c.call(ctx, in.sid, "Runtime.evaluate", map[string]any{"expression": `(() => { const r = document.querySelector('[name=user]').getBoundingClientRect(); return JSON.stringify({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}); })()`, "returnByValue": true}, &ev); err != nil {
+		t.Fatal(err)
+	}
+	var at struct{ X, Y int }
+	if err := json.Unmarshal([]byte(ev.Result.Value), &at); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Input(ctx, browser.Input{Kind: "tap", X: at.X, Y: at.Y}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Input(ctx, browser.Input{Kind: "type", Text: "ana@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := in.c.call(ctx, in.sid, "Runtime.evaluate", map[string]any{"expression": `document.querySelector('[name=user]').value + '|' + document.activeElement.name`, "returnByValue": true}, &ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.Result.Value != "ana@example.com|user" {
+		t.Errorf("after a tap on the email field and typing: %q", ev.Result.Value)
 	}
 }
