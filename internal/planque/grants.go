@@ -1131,10 +1131,11 @@ func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
 	if g.Request.Connector != nil {
 		return s.revokeConnector(ctx, g)
 	}
-	// A reused sign-in is the other grant's to revoke; a key has no
-	// revocation at the vendor, so it's deleted here (kiff/planque#64).
+	// A reused sign-in is the other grant's to revoke, unless that one is
+	// gone and this is the last on it; a key has no revocation at the
+	// vendor, so it's deleted here (kiff/planque#64).
 	if g.TokenOf != "" {
-		return nil
+		return s.revokeLastOnShared(ctx, g)
 	}
 	if g.Request.Kind == KindAPIKey {
 		if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID)); err != nil {
@@ -1902,23 +1903,42 @@ func sameSignIn(a, b *Grant) bool {
 // on it and the grant that signed in is gone: revoked at the vendor, then
 // dropped, so a kept sign-in never outlives every taf that used it.
 func (s *Server) revokeShared(ctx context.Context, g *Grant) []string {
+	if err := s.revokeLastOnShared(ctx, g); err != nil {
+		return []string{err.Error()}
+	}
+	return nil
+}
+
+// revokeLastOnShared is revokeShared for the disconnect and the expiry
+// paths alike: an error when the vendor didn't confirm, so the token is
+// kept and revoking is tried again, never dropped while live.
+func (s *Server) revokeLastOnShared(ctx context.Context, g *Grant) error {
 	owner, err := s.loadGrant(ctx, g.Tenant, g.TokenOf)
 	if err == nil && owner.Status != StatusDisconnected && owner.Status != StatusFailed {
 		return nil // the grant that signed in is still live: the sign-in is its
 	}
+	if err != nil && !errors.Is(err, errNotFound) {
+		return fmt.Errorf("read the grant whose sign-in it used: %w", err)
+	}
 	if g.Request.Kind != KindAPIKey {
-		if tok, _, err := s.openToken(ctx, g); err == nil {
+		tok, _, err := s.openToken(ctx, g)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return fmt.Errorf("open the shared sign-in's token to revoke it: %w", err)
+		}
+		if err == nil {
 			for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 				if t.tok == "" {
 					continue
 				}
 				if err := s.revokeToken(ctx, g, t.tok, t.hint); err != nil {
-					return []string{"the vendor did not confirm revoking the " + t.hint + ": " + err.Error()}
+					return fmt.Errorf("the vendor did not confirm revoking the %s: %w", t.hint, err)
 				}
 			}
 		}
 	}
-	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.TokenOf))
+	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.TokenOf)); err != nil {
+		return fmt.Errorf("drop the shared sign-in's token: %w", err)
+	}
 	return nil
 }
 

@@ -1761,3 +1761,52 @@ func TestASignOutKIFFDidntTakeIsToldBySweep(t *testing.T) {
 		t.Fatalf("told a sign-out the owner already fixed: %d", n)
 	}
 }
+
+// A second taf's request reuses a connected sign-in and waits for approval.
+// The first is disconnected and keeps the sign-in for the second; then the
+// second's hold runs out, the last on it, and the sign-in is revoked at the
+// vendor and dropped, never left live with no grant to revoke it (qa-kiff
+// on #108).
+func TestASharedSignInIsRevokedWhenTheLastOnItExpires(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	first := e.connect()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID, "agent": "agt_second", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	second := out["id"].(string)
+	if st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, e.phone, ""); st != 200 || out["status"] != StatusDisconnected {
+		t.Fatalf("disconnect the first: %d %v", st, out)
+	}
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("disconnecting the first revoked the sign-in the second's request holds")
+	}
+	// The second's request is never approved and its hold runs out. A
+	// reused request has no deadline of its own today, so it is given one,
+	// as any held sign-in has: the expiry path must revoke the last on it.
+	g, err := e.s.loadGrant(ctx, tenant, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.HeldUntil = time.Now().Add(holdTTL).UTC()
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	e.s.Now = func() time.Time { return time.Now().Add(2*holdTTL + time.Hour) }
+	if g, err = e.s.loadGrant(ctx, tenant, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.s.expire(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := e.s.loadGrant(ctx, tenant, second); g.Status != StatusFailed {
+		t.Fatalf("the second after its hold: %s", g.Status)
+	}
+	if a, r := e.vendor.Live(); a != 0 || r != 0 {
+		t.Fatalf("the shared sign-in outlived both: %d access, %d refresh", a, r)
+	}
+	if mustHave(mustQuery(t, e), skToken(first.ID)) {
+		t.Fatal("the shared token record outlived both")
+	}
+}
