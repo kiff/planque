@@ -171,8 +171,14 @@ The browser goes out only through the session's proxy, which resolves each
 name itself, connects only to public addresses (`egress.Public`, every
 answer of the name, by address so a rebind reaches nothing), only to the
 grant's sites when it has a list, over https on 443, and never to a name
-written as an address or a local name. Downloads are denied. A session
-unused for two minutes is ended by the worker.
+written as an address or a local name. WebRTC, whose UDP would go around
+an HTTP proxy, is taken away from every document the session loads,
+frames included, before the page's own script runs (the browser's policy
+flag confining it to the proxy is set too, but measured alone it still let
+STUN checks out), so a page opens no peer connection and probes no
+address. Downloads are denied. A session unused for two minutes is ended
+by the worker. Deployed, the worker runs in a network with no route to
+planque's or anyone's private addresses: a second line behind the proxy.
 
 The worker reports facts, in no language: each field's kind from its type
 and autocomplete (`password`; `card` for a number or a security code;
@@ -184,6 +190,13 @@ payment provider's button); links; a payment provider's frame; and a
 checkout's total, read as one amount next to a "total" word in one
 currency, in the languages above. Two different candidates, or none, is no
 total. The lines are not read yet.
+
+The limit of reading from outside: a one-click button wired only through
+script, with no words, no form and no telling attribute, on a page that
+isn't a checkout, reads as an ordinary control, and `browse_act` clicks
+it. An owner limits a grant to sites they know, and lists a site that can
+take money with one click knowingly; the Card's limit on `browse_act`
+calls bounds what such a click can do.
 
 The tests run the real browser against a shop in HTML served on loopback
 when a Chromium is found (`PLANQUE_CHROME`, or the usual names), and skip

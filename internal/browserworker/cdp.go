@@ -79,20 +79,7 @@ func launch(ctx context.Context, path, proxy string) (*chrome, error) {
 		os.RemoveAll(dir)
 		return nil, err
 	}
-	args := []string{
-		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-		"--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
-		"--disable-background-networking", "--disable-component-update", "--disable-default-apps",
-		"--disable-translate", "--metrics-recording-only", "--mute-audio", "--hide-scrollbars",
-		"--window-size=1280,900", "--lang=en-US",
-		"--remote-debugging-pipe",
-		"--user-data-dir=" + dir,
-		"--proxy-server=http://" + proxy,
-		// Loopback too goes through the proxy: nothing bypasses it.
-		"--proxy-bypass-list=<-loopback>",
-		"about:blank",
-	}
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := exec.CommandContext(ctx, path, launchArgs(dir, proxy)...)
 	cmd.ExtraFiles = []*os.File{toChrome, fromChrome}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+dir)
@@ -105,6 +92,28 @@ func launch(ctx context.Context, path, proxy string) (*chrome, error) {
 	c := &chrome{cmd: cmd, w: w, dir: dir, pending: map[int64]chan cdpMessage{}, eventCh: make(chan struct{}, 1), done: make(chan struct{})}
 	go c.read(bufio.NewReaderSize(r, 1<<20))
 	return c, nil
+}
+
+// launchArgs are the browser's flags: headless, a profile of its own, and
+// every way out through the proxy. WebRTC's UDP (a page's STUN or TURN
+// candidates) would go around an HTTP proxy, so it is confined to what
+// the proxy carries, which is nothing: a page gathers no candidate and
+// probes no address.
+func launchArgs(dir, proxy string) []string {
+	return []string{
+		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+		"--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
+		"--disable-background-networking", "--disable-component-update", "--disable-default-apps",
+		"--disable-translate", "--metrics-recording-only", "--mute-audio", "--hide-scrollbars",
+		"--window-size=1280,900", "--lang=en-US",
+		"--remote-debugging-pipe",
+		"--user-data-dir=" + dir,
+		"--proxy-server=http://" + proxy,
+		// Loopback too goes through the proxy: nothing bypasses it.
+		"--proxy-bypass-list=<-loopback>",
+		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+		"about:blank",
+	}
 }
 
 // read dispatches what the browser sends: answers to their callers, events

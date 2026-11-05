@@ -21,6 +21,15 @@ var pageJS string
 //go:embed step.js
 var stepJS string
 
+// noWebRTC takes WebRTC away from a document: a page's script can't open
+// a peer connection, so no UDP leaves the browser for any address.
+const noWebRTC = `(() => {
+	for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel', 'RTCIceCandidate', 'RTCSessionDescription', 'RTCDtlsTransport', 'RTCIceTransport', 'RTCSctpTransport']) {
+		try { Object.defineProperty(window, name, {value: undefined, writable: false, configurable: false}); } catch (e) {}
+	}
+	try { Object.defineProperty(navigator, 'mediaDevices', {value: undefined, writable: false, configurable: false}); } catch (e) {}
+})();`
+
 // Options is how the worker runs its browsers.
 type Options struct {
 	// Chrome is the browser's path; empty, chromePath looks.
@@ -112,6 +121,13 @@ func (s *session) attach(ctx context.Context, kept []byte) error {
 		}
 	}
 	if err := s.c.call(ctx, s.sid, "Page.setDownloadBehavior", map[string]any{"behavior": "deny"}, nil); err != nil {
+		return err
+	}
+	// WebRTC's UDP goes around an HTTP proxy, and the browser's policy flag
+	// alone still lets STUN checks out (measured): every document the
+	// session loads, frames included, has WebRTC taken away before its
+	// own script runs, as a property it can't put back.
+	if err := s.c.call(ctx, s.sid, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noWebRTC}, nil); err != nil {
 		return err
 	}
 	if len(kept) > 0 {

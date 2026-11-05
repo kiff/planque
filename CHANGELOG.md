@@ -20,7 +20,8 @@ version headings refer to releases, not merely to merged pull requests.
   `deploy/browserworker`): a headless Chromium planque drives over its
   debugging pipe, one browser and one egress proxy per session, gone when
   the session ends. The proxy resolves each name itself and connects only
-  to public addresses and the grant's sites, over https; downloads are
+  to public addresses and the grant's sites, over https; WebRTC is taken
+  away from every page, so no UDP leaves the browser; downloads are
   denied. The worker reads a page's facts in no language (field kinds,
   controls that place an order, a checkout's total) with secrets masked at
   the source. planque reaches it with `PLANQUE_BROWSER_URL` and
