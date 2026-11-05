@@ -25,8 +25,6 @@ version headings refer to releases, not merely to merged pull requests.
   a trigger) keep the device key. `PLANQUE_WINDOW_REQUIRED=true` refuses a
   device-key signature with no window on a routine call; off, it is taken as
   before. Each approval records `key` and `window`.
-
->>>>>>> 72f2ff1 (One fingerprint, then taps: a routine call signed inside an approval window (kiff/tafs#494))
 - A browser as a connection (`"kind": "browser"`, kiff/planque#86): a taf
   uses websites in a browser planque runs for it alone, with planque's own
   tools (`browse_open`, `browse_read`, `browse_act`, `browse_checkout`,
