@@ -242,3 +242,45 @@ func TestBrowserSignInViewAnotherAskReplacesTheOpenOne(t *testing.T) {
 		t.Errorf("the grant's record: %s", events)
 	}
 }
+
+// 3. A call that started before the owner's Done seals nothing over the
+// fresh sign-in: it seals only over the state it started from, and that
+// state moved on. (agentgabo's follow-up on #95.)
+func TestBrowserCallAcrossDoneKeepsTheFreshSignIn(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	// While the call's session closes, the owner opens a view, signs in
+	// and taps Done: the fresh sign-in is sealed first.
+	var done bool
+	e.b.BeforeClose = func() {
+		if done {
+			return
+		}
+		done = true
+		e.b.BeforeClose = nil
+		st, out := e.startView(g.ID, map[string]any{"url": fakes.ShopLogin})
+		if st != 200 {
+			t.Fatalf("start: %d %v", st, out)
+		}
+		viewURL := out["view"].(string)
+		for _, in := range []map[string]any{{"kind": "type", "text": "hunter2"}, {"kind": "key", "key": "Enter"}} {
+			if st, _, raw := e.view("POST", viewURL+"/input", in); st != 200 {
+				t.Fatalf("input: %d %s", st, raw)
+			}
+		}
+		if st, _, raw := e.view("POST", viewURL+"/done", nil); st != 200 {
+			t.Fatalf("done: %d %s", st, raw)
+		}
+	}
+	if _, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != "" {
+		t.Fatalf("the call: %v", sc)
+	}
+	// The next call starts with the owner's sign-in, not the older state
+	// the first call closed with.
+	if _, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != "" {
+		t.Fatalf("the call after: %v", sc)
+	}
+	if last := e.b.States[len(e.b.States)-1]; !strings.Contains(string(last), "signed-in") {
+		t.Errorf("the older state overwrote the fresh sign-in: %s", last)
+	}
+}
