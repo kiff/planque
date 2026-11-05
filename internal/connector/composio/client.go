@@ -360,6 +360,11 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 	if !identifier.MatchString(id) {
 		return connector.App{}, connector.ErrDefinition
 	}
+	// The sign-ins are read afresh first: one another instance set up a
+	// moment ago is taken as it is, not made twice.
+	c.mu.Lock()
+	c.readAt = time.Time{}
+	c.mu.Unlock()
 	app, err := c.App(ctx, id)
 	if err != nil {
 		return connector.App{}, err
@@ -389,14 +394,18 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 		return connector.App{}, connector.ErrDefinition
 	}
 	config := authConfig{ID: made.Config.ID, Scheme: scheme}
+	// The sign-ins handed out by signInSetUp are read without the lock, so
+	// the map they hold is never written: a new map takes its place.
 	c.mu.Lock()
-	if c.configured == nil {
-		c.configured = map[string]authConfig{}
+	next := make(map[string]authConfig, len(c.configured)+1)
+	for k, v := range c.configured {
+		next[k] = v
 	}
-	if old, ok := c.configured[strings.ToLower(id)]; !ok || config.ID < old.ID {
-		c.configured[strings.ToLower(id)] = config
+	if old, ok := next[strings.ToLower(id)]; !ok || config.ID < old.ID {
+		next[strings.ToLower(id)] = config
 	}
-	config = c.configured[strings.ToLower(id)]
+	config = next[strings.ToLower(id)]
+	c.configured = next
 	c.firstAt = time.Time{}
 	c.mu.Unlock()
 	app.AuthConfig, app.AuthScheme, app.Setup = config.ID, config.Scheme, connector.SetupReady

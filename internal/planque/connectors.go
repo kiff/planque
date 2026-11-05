@@ -59,6 +59,7 @@ func connectorEntry(id string) (string, string, bool) {
 const onDemandADay = 10
 
 var errSettingUp = errors.New("the app's sign-in is being set up")
+var errAllowance = errors.New("the account's on-demand set-ups for the day are used")
 
 // setUpRecord is the sign-in set up on demand for an app, one per provider
 // and app: the lock two owners picking the app at once take once, what it
@@ -88,29 +89,74 @@ func (s *Server) setUpOf(ctx context.Context, providerID, toolkit string) (setUp
 	return held, true, nil
 }
 
-// onDemandToday counts the sign-ins the account's picks set up today, by
-// the day in UTC: a pick of an app set up already counts nothing.
-func (s *Server) onDemandToday(ctx context.Context, providerID, tenant string) (int, error) {
-	items, err := s.KV.Query(ctx, setUpPK(providerID), "")
-	if err != nil {
-		return 0, err
-	}
-	today := s.now().UTC().Format("2006-01-02")
-	n := 0
-	for _, it := range items {
-		var r setUpRecord
-		if json.Unmarshal(it.Doc, &r) == nil && r.Tenant == tenant && strings.HasPrefix(r.MadeAt, today) {
-			n++
+// allowance is an account's on-demand set-ups so far one day, by the day
+// in UTC: one record, bumped under its version before a set-up starts, so
+// picks arriving together never pass the day's allowance between them.
+type allowance struct {
+	Count int `json:"count"`
+}
+
+func allowanceSK(day string) string { return "ONDEMAND#" + day }
+
+// takeAllowance takes one of the day's set-ups for the account, or says the
+// allowance is used (errAllowance). Contended five times, it gives up as a
+// set-up in progress.
+func (s *Server) takeAllowance(ctx context.Context, tenant string) error {
+	return s.adjustAllowance(ctx, tenant, 1)
+}
+
+// giveBackAllowance returns a set-up that didn't happen.
+func (s *Server) giveBackAllowance(ctx context.Context, tenant string) {
+	_ = s.adjustAllowance(ctx, tenant, -1)
+}
+
+func (s *Server) adjustAllowance(ctx context.Context, tenant string, by int) error {
+	now := s.now().UTC()
+	key := store.Item{PK: tenantPK(tenant), SK: allowanceSK(now.Format("2006-01-02")), TTL: now.Add(48 * time.Hour).Unix()}
+	for range 5 {
+		it, ok, err := s.KV.Get(ctx, key.PK, key.SK)
+		if err != nil {
+			return err
 		}
+		var a allowance
+		if ok && json.Unmarshal(it.Doc, &a) != nil {
+			a = allowance{}
+		}
+		if by > 0 && a.Count >= onDemandADay {
+			return errAllowance
+		}
+		a.Count = max(a.Count+by, 0)
+		cond := store.Cond{NotExists: true}
+		if ok {
+			ver := it.Ver
+			cond = store.Cond{Ver: &ver}
+			key.Ver = it.Ver + 1
+		}
+		err = putDoc(ctx, s.KV, key, a, cond)
+		if errors.Is(err, store.ErrCondition) {
+			continue
+		}
+		return err
 	}
-	return n, nil
+	return errSettingUp
 }
 
 // setUpApp sets up the sign-in for an on-demand app once across every
-// instance: the record under its key is the lock. A record that holds the
-// sign-in made answers from it, so the provider is asked once; one still
-// being made says so, unless it is stale, which is taken over.
+// instance. A record that holds the sign-in made answers from it, so the
+// provider is asked once and the day's allowance isn't touched; otherwise
+// one of the allowance is taken first, then the record under its key is the
+// lock: one still being made says so, unless it is stale, which is taken
+// over. A set-up that fails gives the lock and the allowance back.
 func (s *Server) setUpApp(ctx context.Context, p connector.Provider, providerID, tenant string, app connector.App) (connector.App, error) {
+	if held, ok, err := s.setUpOf(ctx, providerID, app.Slug); err != nil {
+		return app, err
+	} else if ok && held.AuthConfig != "" {
+		app.AuthConfig, app.AuthScheme, app.Setup = held.AuthConfig, held.AuthScheme, connector.SetupReady
+		return app, nil
+	}
+	if err := s.takeAllowance(ctx, tenant); err != nil {
+		return app, err
+	}
 	key := store.Item{PK: setUpPK(providerID), SK: app.Slug}
 	now := s.now().UTC()
 	record := setUpRecord{Toolkit: app.Slug, Tenant: tenant, StartedAt: now.Format(time.RFC3339)}
@@ -118,28 +164,36 @@ func (s *Server) setUpApp(ctx context.Context, p connector.Provider, providerID,
 	if errors.Is(err, store.ErrCondition) {
 		it, ok, getErr := s.KV.Get(ctx, key.PK, key.SK)
 		if getErr != nil {
+			s.giveBackAllowance(ctx, tenant)
 			return app, getErr
 		}
 		var held setUpRecord
 		if ok && json.Unmarshal(it.Doc, &held) == nil && held.AuthConfig != "" {
+			// Made meanwhile by another pick: taken as it is, and no set-up of ours.
+			s.giveBackAllowance(ctx, tenant)
 			app.AuthConfig, app.AuthScheme, app.Setup = held.AuthConfig, held.AuthScheme, connector.SetupReady
 			return app, nil
 		}
 		started, _ := time.Parse(time.RFC3339, held.StartedAt)
 		if ok && now.Sub(started) < time.Minute {
+			s.giveBackAllowance(ctx, tenant)
 			return app, errSettingUp
 		}
 		// Stale: a set-up that never finished. Take it over at its version.
 		ver := it.Ver
+		key.Ver = it.Ver + 1
 		if err := putDoc(ctx, s.KV, key, record, store.Cond{Ver: &ver}); err != nil {
+			s.giveBackAllowance(ctx, tenant)
 			return app, errSettingUp
 		}
 	} else if err != nil {
+		s.giveBackAllowance(ctx, tenant)
 		return app, err
 	}
 	made, err := p.SetUp(ctx, app.Slug)
 	if err != nil {
 		_, _, _ = s.KV.Delete(ctx, key.PK, key.SK)
+		s.giveBackAllowance(ctx, tenant)
 		return app, err
 	}
 	record.AuthConfig, record.AuthScheme, record.MadeAt = made.AuthConfig, made.AuthScheme, s.now().UTC().Format(time.RFC3339)
@@ -250,21 +304,15 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusConflict, "This app needs setting up first. Ask tafs to enable it.")
 		return
 	case connector.SetupOnDemand:
-		n, err := s.onDemandToday(r.Context(), providerID, tenant)
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
-		if n >= onDemandADay {
-			writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today. Try again tomorrow.")
-			return
-		}
 		if app, err = s.setUpApp(r.Context(), p, providerID, tenant, app); err != nil {
-			if errors.Is(err, errSettingUp) {
+			switch {
+			case errors.Is(err, errAllowance):
+				writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today. Try again tomorrow.")
+			case errors.Is(err, errSettingUp):
 				writeErr(w, http.StatusServiceUnavailable, "This app is being set up. Try again in a moment.")
-				return
+			default:
+				writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
 			}
-			writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
 			return
 		}
 		onDemand = true

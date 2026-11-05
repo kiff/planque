@@ -598,3 +598,44 @@ func TestConnectorOnDemandSetUpsAreCappedADay(t *testing.T) {
 		t.Fatalf("the next day: %d %v", st, out)
 	}
 }
+
+// The day's allowance holds when picks arrive together: at most ten
+// sign-ins are set up, whatever the order, and the provider's cached
+// sign-ins are never written while another read holds them.
+func TestConnectorOnDemandCapHoldsUnderARace(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	var wg sync.WaitGroup
+	results := make([]int, 13)
+	for i := 1; i <= 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			st, _ := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+			results[i] = st
+		}(i)
+	}
+	// A catalog read at the same time holds the sign-ins the set-ups replace.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio&q=demand", nil, nil, "k_setup")
+		}()
+	}
+	wg.Wait()
+	made, refused := 0, 0
+	for _, st := range results[1:] {
+		switch st {
+		case 201:
+			made++
+		case 429:
+			refused++
+		}
+	}
+	f.mu.Lock()
+	setUps := len(f.setUps)
+	f.mu.Unlock()
+	if setUps > onDemandADay || made > onDemandADay || made+refused != 12 {
+		t.Fatalf("%d set up, %d made, %d refused, cap %d", setUps, made, refused, onDemandADay)
+	}
+}

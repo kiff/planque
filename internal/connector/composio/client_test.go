@@ -532,6 +532,10 @@ func TestSetUpMakesOneManagedSignInAndOffersTheApp(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		switch {
 		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "GET":
+			// The provider lists a sign-in once made, as the fresh read before a set-up sees it.
+			if made > 0 {
+				return response(200, `{"items":[{"id":"ac_mail_new","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"mail"}}]}`), nil
+			}
 			return response(200, `{"items":[]}`), nil
 		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "POST":
 			made++
@@ -575,7 +579,7 @@ func TestSetUpMakesOneManagedSignInAndOffersTheApp(t *testing.T) {
 		t.Fatalf("set up twice: %+v err=%v made=%d", again, err, made)
 	}
 	// An answer the provider doesn't manage is refused, and nothing is pinned.
-	managed = false
+	managed, made = false, 0
 	c2 := testClient(c.HTTP.Transport.(transport))
 	if _, err := c2.SetUp(context.Background(), "mail"); !errors.Is(err, connector.ErrDefinition) {
 		t.Fatalf("an unmanaged sign-in was taken: %v", err)
