@@ -2101,6 +2101,8 @@ func connectionOf(g *Grant) connection {
 type setupGrant struct {
 	ID string `json:"id"`
 	connection
+	// Server shadows connection's on purpose: Setup's listings always gave
+	// the request's server, whatever the kind, and still do.
 	Server  string           `json:"server"`
 	Account string           `json:"account,omitempty"`
 	Created string           `json:"created,omitempty"`
@@ -2115,9 +2117,23 @@ func setupGrantOf(g *Grant) setupGrant {
 	return v
 }
 
+// holdsSignIn: the account has this connection, not only asked for it. A
+// grant asked for and never signed in to is Setup's request, and offering it
+// as one the account has would say it's connected when it isn't. The same set
+// the apps call a taf's connections.
+func holdsSignIn(g *Grant) bool {
+	switch g.Status {
+	case StatusConnected, StatusListed, StatusNeedsReconnect:
+		return true
+	case StatusPending:
+		return g.SignedIn
+	}
+	return false
+}
+
 // accountConnections is how the account's tafs reach their vendors, for any
-// of the account's keys or sessions, as its catalog is: each live grant's
-// taf agent, vendor, kind, what asks for the same again and its mode, with no
+// of the account's keys or sessions, as its catalog is: each grant that holds
+// a sign-in, with its taf agent, vendor, kind, what asks for the same again and its mode, with no
 // grant id, approval, text or tool. tafs cloud gives it to Coach when a
 // conversation starts, for the tafs the person may see, so a new taf is
 // offered the kind of connection the account already uses for a vendor.
@@ -2140,7 +2156,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		g.ver = it.Ver
 		_, _ = s.expire(r.Context(), &g)
-		if g.Status == StatusFailed || g.Status == StatusDisconnected {
+		if !holdsSignIn(&g) {
 			continue
 		}
 		out = append(out, connectionOf(&g))

@@ -103,8 +103,9 @@ func (e *env) connections(key string) (int, []map[string]any) {
 // Any of the account's keys or sessions reads how its tafs reach their
 // vendors, whoever asked for each connection, as it reads the catalog: each
 // one's agent, vendor, kind and what asks for the same again, with no grant
-// id, approval, text, tool or key. Another account's key reads nothing, and
-// a disconnected connection isn't listed.
+// id, approval, text, tool or key. Another account's key reads nothing. Only
+// a connection that holds a sign-in is listed: not one asked for and never
+// signed in to, and not a disconnected one.
 func TestTheAccountsConnectionsSayEachKind(t *testing.T) {
 	e := newEnv(t)
 	e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
@@ -131,6 +132,21 @@ func TestTheAccountsConnectionsSayEachKind(t *testing.T) {
 		if c := kinds[KindKey]; c == nil || c["api"].(map[string]any)["url"] != v.URL+"/openapi.json" || c["server"] != nil {
 			t.Fatalf("%s: the key: %v", key, kinds)
 		}
+	}
+	// A connection asked for and never signed in to isn't one the account has: pending with no sign-in,
+	// then approved on the phone but not signed in at the vendor. Neither is listed.
+	st, asked := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_new", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("ask: %d %v", st, asked)
+	}
+	if _, cs := e.connections("k_person"); len(cs) != 2 {
+		t.Fatalf("a pending grant with no sign-in is listed: %v", cs)
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+asked["id"].(string)+"/approve", map[string]any{"digest": asked["digest"]}, e.phone, ""); st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	if _, cs := e.connections("k_person"); len(cs) != 2 {
+		t.Fatalf("an approved grant with no sign-in is listed: %v", cs)
 	}
 	_, raw := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_person")
 	if b, _ := json.Marshal(raw); strings.Contains(string(b), v.key) {

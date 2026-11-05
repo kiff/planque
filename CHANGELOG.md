@@ -15,6 +15,7 @@ version headings refer to releases, not merely to merged pull requests.
   connection the account already uses for that vendor.
 - `GET /v1/accounts/{tenant}/connections`: how the account's tafs reach
   their vendors (agent, vendor, kind, what asks for the same again, mode),
+  only the connections that hold a sign-in,
   for any of the account's keys or sessions, as its catalog is. No grant id,
   approval, text, tool or key. tafs cloud gives it to Coach when a
   conversation starts.
