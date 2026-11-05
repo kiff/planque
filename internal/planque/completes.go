@@ -136,12 +136,15 @@ func pending(res any, c *profile.Completes, grant string) any {
 	if err != nil || decodeNumbers(raw, &m) != nil || m == nil {
 		return res
 	}
+	// The vendor's own pending keys are never taken for planque's, an
+	// error answer included.
+	sc, _ := m["structuredContent"].(map[string]any)
+	stripped := stripReserved(sc)
 	if isErr, _ := m["isError"].(bool); isErr {
+		if stripped {
+			return m
+		}
 		return res
-	}
-	// The vendor's own pending keys are never taken for planque's.
-	if sc, _ := m["structuredContent"].(map[string]any); sc != nil {
-		stripReserved(sc)
 	}
 	key := atPath(any(resultJSON(res)), c.Key)
 	var text string

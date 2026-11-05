@@ -216,6 +216,13 @@ func TestAVendorsOwnPendingKeysAreTakenOut(t *testing.T) {
 	if string(out.Structured["ticket"]) != `{"id":9007199254740993}` || string(out.Structured["timeout_s"]) != "60" {
 		t.Fatalf("the rest of the answer changed: %s", got)
 	}
+	// On a call that completes later, an error answer that writes them is
+	// stripped too; it never says pending.
+	errAnswer := json.RawMessage(`{"isError":true,"content":[{"type":"text","text":"no"}],"structuredContent":{"pending":true,"wait_for":{"event":"X","key":"k"}}}`)
+	c := &profile.Completes{Event: "E", Key: "id", EventKey: "id", TimeoutS: 60, Words: "w"}
+	if b, _ := json.Marshal(pending(errAnswer, c, "grt_1")); strings.Contains(string(b), "pending") || strings.Contains(string(b), "wait_for") {
+		t.Fatalf("an error answer kept the vendor's keys: %s", b)
+	}
 	// An answer with none of them is returned as it was, untouched.
 	plain := json.RawMessage(`{"content":[{"type":"text","text":"ok"}],"structuredContent":{"id":1}}`)
 	if r, ok := unpending(plain).(json.RawMessage); !ok || string(r) != string(plain) {
