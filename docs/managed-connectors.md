@@ -52,19 +52,36 @@ The account-authenticated catalog endpoints include upstream discovery:
    `cursor=...` for the next page. `skipped` counts entries that fail adapter
    validation; they do not discard valid entries or the next-page cursor.
    Configured reviewed entries remain available.
-   Only an app the provider project can sign someone in to is listed: one
-   with an enabled auth config, read with the scoped key and cached for five
-   minutes. This includes API-key and bearer-token configs, whose hosted page
-   collects the owner's credential. An app without an enabled config, or one
-   missing its config ID or authentication scheme, is left out. If
-   the auth configs can't be read, the provider's apps aren't listed. One read
-   asks for the provider's whole catalog (1000 apps a page, at most three
-   pages) and keeps the ones with a sign-in, so they all come in one page. The
-   first page with no search is kept with the sign-ins it was filtered by, so
+   With no search, only an app the provider project can sign someone in to
+   is listed: one with an enabled auth config, read with the scoped key and
+   cached for five minutes. This includes API-key and bearer-token configs,
+   whose hosted page collects the owner's credential. If the auth configs
+   can't be read, the provider's apps aren't listed. A search lists every app
+   the provider has (kiff/planque#87), each as it stands: one with an enabled
+   config; one the provider can sign people in to with its own credentials
+   (`composio_managed_auth_schemes`), takes only a key or token, or needs no
+   sign-in, which is set up on the owner's pick (step 2); or one that needs
+   our own developer app first, listed as `needs_setup` and not started until
+   an operator enables it in the provider's dashboard, which the next read
+   picks up. One read walks the provider's catalog (1000 apps a page, at most
+   ten pages); stopped with pages left, it says `partial: true`. The first
+   page with no search is kept with the sign-ins it was filtered by, so
    opening Connect apps again reads nothing upstream.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
-   taf's name for people). An app without a sign-in set up is 404. It returns
+   taf's name for people). An app the provider doesn't have is 404; one that
+   needs our own developer credentials is 409 until an operator enables it.
+   An app the provider signs people in to by itself, with no sign-in set up
+   yet, is **set up on this pick**: planque creates one provider-managed auth
+   config (`POST /auth_configs` with `use_composio_managed_auth` and nothing
+   of ours in it), takes the answer only when the provider says it manages
+   it, and keeps its id under a per-app record that is also the lock, so two
+   owners picking the app at once make one. The grant pins that config as a
+   pre-set app's grant does, and is marked `on_demand: true`, as is every
+   later grant on a sign-in set up this way, so Coach drafts its writes and
+   money to ask the owner by default. An account sets up at most ten apps
+   this way a day (429 after). Every grant view says who holds the sign-in
+   (`custody`: `provider` here, `planque` for a sign-in planque holds). It returns
    a pending grant and no sign-in link (`needs_key: false`). Its text names
    the app and the taf. For `API_KEY` it says the owner will enter their app
    key on the connection service's page, the service keeps it and the taf

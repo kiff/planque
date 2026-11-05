@@ -68,12 +68,32 @@ type App struct {
 	// Provider metadata for a new grant, not catalog display fields.
 	AuthConfig string `json:"-"`
 	AuthScheme string `json:"-"`
+	// Setup says whether the provider can sign someone in to the app now
+	// (SetupReady), can once the sign-in is set up on the owner's pick
+	// (SetupOnDemand), or needs an operator's own developer credentials first
+	// (SetupNeedsSetup).
+	Setup string `json:"-"`
 }
+
+// How an app's sign-in stands at the provider (kiff/planque#87).
+const (
+	// SetupReady: the project has an enabled sign-in for the app.
+	SetupReady = "ready"
+	// SetupOnDemand: the provider signs people in with its own credentials,
+	// so the sign-in is set up the moment an owner picks the app (SetUp).
+	SetupOnDemand = "on_demand"
+	// SetupNeedsSetup: the app needs an operator's own developer app or
+	// credentials before anyone can sign in; it's listed, and not started.
+	SetupNeedsSetup = "needs_setup"
+)
 
 type Page[T any] struct {
 	Items   []T    `json:"items"`
 	Next    string `json:"next_cursor,omitempty"`
 	Skipped int    `json:"skipped,omitempty"`
+	// Partial: the read stopped at its bound with pages left, so an app
+	// that wasn't seen isn't absent.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // Tool is one concrete, versioned upstream action. Platform meta-executors
@@ -157,8 +177,14 @@ type Platform struct {
 // preflight, immediately before sending, and never retry an uncertain write.
 type Provider interface {
 	Platform() Platform
+	// Catalog with no search lists the apps with a sign-in set up; with one,
+	// every app matching it, each saying how it can be set up (App.Setup).
 	Catalog(context.Context, string, string) (Page[App], error)
 	App(context.Context, string) (App, error)
+	// SetUp sets up the sign-in for an app the provider can sign people in
+	// to with its own credentials (SetupOnDemand), once, and returns the app
+	// ready, with the sign-in to pin. It never takes a credential.
+	SetUp(context.Context, string) (App, error)
 	Authorize(context.Context, Identity, string, string) (Authorization, error)
 	Account(context.Context, string) (Account, error)
 	Tools(context.Context, string, string) (Page[Tool], error)

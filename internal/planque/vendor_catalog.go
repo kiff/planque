@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/profile"
 )
@@ -213,6 +214,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	skipped := 0
+	partial := false
 	if providerID != "" {
 		provider := s.Connectors[providerID]
 		if provider == nil {
@@ -226,9 +228,15 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		next = page.Next
 		skipped = page.Skipped
+		partial = page.Partial
 		for _, app := range page.Items {
 			id := "connector:" + providerID + ":" + app.Slug
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
+			// An app that needs an operator's own credentials first is listed,
+			// said as such, and not started (kiff/planque#87).
+			if app.Setup == connector.SetupNeedsSetup {
+				v.State = "needs_setup"
+			}
 			if state, ok := states[id]; ok {
 				v.State, v.Grant = state.State, state.Grant
 			}
@@ -236,7 +244,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
 }
 
 func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
