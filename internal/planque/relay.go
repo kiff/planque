@@ -21,7 +21,7 @@ import (
 )
 
 // opLease is how long a claimed operation may stay started before it is
-// treated as interrupted (RFC 046 D5).
+// treated as interrupted.
 const opLease = 30 * time.Second
 
 type rpcRequest struct {
@@ -166,7 +166,7 @@ func relayTools(g *Grant) []mcp.Tool {
 }
 
 // call runs one tools/call: the permit first, then the operation's
-// record, then the vendor, at most once per op (RFC 046 D5).
+// record, then the vendor, at most once per op.
 func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMessage, token string) any {
 	refused := func(code, why string) any {
 		s.log().InfoContext(ctx, "call refused", slog.String("grant", g.ID), slog.String("tool", name), slog.String("code", code), slog.String("why", why))
@@ -189,7 +189,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if code, why := pausedRefusal(g); why != "" {
 		return refused(code, why)
 	}
-	// The owner's halt, asked of KIFF before anything is sent (kiff-cloud#1061).
+	// The owner's halt, asked of KIFF before anything is sent.
 	if code, why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
 		return refused(code, why)
 	}

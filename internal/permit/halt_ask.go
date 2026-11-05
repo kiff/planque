@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// HaltConfirmHeader carries KIFF's ask that planque confirm the owner's halt
-// (kiff-cloud#1061): a JWT signed with the permit key, of a typ no permit
+// HaltConfirmHeader carries KIFF's ask that planque confirm the owner's halt:
+// a JWT signed with the permit key, of a typ no permit
 // has, so it is never mistaken for one.
 const HaltConfirmHeader = "KIFF-Halt-Confirm"
 

@@ -11,7 +11,7 @@ import (
 	"github.com/kiff/planque/internal/permit"
 )
 
-// The owner's halt (kiff-cloud#1061): before planque sends anything to a
+// The owner's halt: before planque sends anything to a
 // vendor for an agent (a relay call, a Setup read), it asks KIFF, with the
 // account's connector key, whether the agent or its account is halted. It
 // refuses while either is, and refuses a permit issued at or before the

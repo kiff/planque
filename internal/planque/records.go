@@ -60,11 +60,11 @@ type ToolRequest struct {
 	ResourceArg  string `json:"resource_argument,omitempty"`
 	ResourcePath string `json:"resource_path,omitempty"`
 	// UnitLookup is the read of this grant that says which currency a call
-	// is in, so KIFF counts only calls in the Card's (kiff/kiff-cloud#1299).
+	// is in, so KIFF counts only calls in the Card's.
 	UnitLookup *kiff.UnitLookup `json:"unit_lookup,omitempty"`
 	// AmountLookup is the read of this grant that says a call's amount from
 	// its resource (a dispute's), for a write the agent gives no amount to:
-	// KIFF's Card counts the amount read (kiff/kiff-cloud#1460).
+	// KIFF's Card counts the amount read.
 	AmountLookup *kiff.UnitLookup `json:"amount_lookup,omitempty"`
 }
 
@@ -331,7 +331,7 @@ type tokenRecord struct {
 	Expiry time.Time `json:"expiry,omitzero"`
 }
 
-// Operation states (RFC 046 D5).
+// Operation states: each permit's operation runs at most once.
 const (
 	OpStarted = "started" // claimed; the lease holder may send
 	OpDone    = "done"    // the vendor answered; its answer is kept

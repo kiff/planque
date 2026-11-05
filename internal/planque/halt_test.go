@@ -14,7 +14,7 @@ import (
 	"github.com/kiff/planque/internal/permit"
 )
 
-// The owner's halt reaches planque's dispatch (kiff-cloud#1061): while the
+// The owner's halt reaches planque's dispatch: while the
 // agent or its account is halted, nothing is sent, whatever permit the call
 // carries; a permit issued before the halt stays refused once resumed; and
 // when KIFF can't say, nothing is sent.
@@ -132,7 +132,7 @@ func TestConfirmingAHaltReadsItBackFromKIFF(t *testing.T) {
 }
 
 // A trial's permit (sub agent~trial) is refused under its agent's halt, and
-// after the resume when issued before it (kiff-cloud#1061, apps/api maps a
+// after the resume when issued before it (KIFF maps a
 // trial to its agent).
 func TestATrialPermitIsHeldByItsAgentsHalt(t *testing.T) {
 	e := newEnv(t)
