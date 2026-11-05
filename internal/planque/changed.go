@@ -54,7 +54,10 @@ func vendorSchemaSHA256(schema []byte) string {
 // reads again. Only a list read and found changed pauses. A tool approved
 // before planque kept its schema's hash gets one on the first read.
 func (s *Server) checkDefinitions(ctx context.Context, g *Grant) (code, why string) {
-	if g.Request.Connector != nil || g.Request.API != nil || len(g.Tools) == 0 {
+	// Only a direct MCP server lists tools to read again: a connector checks
+	// its pinned definition at each call, and an API or browser grant sends
+	// only what planque itself defines.
+	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindBrowser || len(g.Tools) == 0 {
 		return "", ""
 	}
 	now := s.now()

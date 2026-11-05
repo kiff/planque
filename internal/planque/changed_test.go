@@ -216,3 +216,16 @@ func TestAnUnreadableConnectorDefinitionDoesntPause(t *testing.T) {
 		})
 	}
 }
+
+// Only a direct MCP grant has a tool list to read again: a browser grant's
+// tools are planque's own, so checking one reads nothing and pauses nothing.
+func TestABrowserGrantReadsNoToolList(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	g.Request.Kind = KindBrowser
+	e.vendor.ChangeTools = changeRefund
+	before := e.vendor.Lists
+	if code, why := e.s.checkDefinitions(context.Background(), g); code != "" || why != "" || g.Paused != nil || e.vendor.Lists != before {
+		t.Fatalf("a browser grant: %q %q paused=%+v lists %d, was %d", code, why, g.Paused, e.vendor.Lists, before)
+	}
+}
