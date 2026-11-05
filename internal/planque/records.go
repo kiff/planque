@@ -251,6 +251,10 @@ type Grant struct {
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
+	// OnDemand: the app's sign-in was set up at the provider on this
+	// owner's pick (kiff/planque#87). Coach drafts such an app's writes and
+	// money to ask the owner by default.
+	OnDemand bool `json:"on_demand,omitempty"`
 	// Reconnect: the owner approved a new sign-in for a grant the vendor
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.

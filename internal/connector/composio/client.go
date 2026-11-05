@@ -179,6 +179,11 @@ type wireApp struct {
 		Description string `json:"description"`
 		Logo        string `json:"logo"`
 	} `json:"meta"`
+	// How the provider signs people in to it: the schemes it manages with
+	// its own credentials, every scheme it takes, and whether none is needed.
+	ManagedSchemes []string `json:"composio_managed_auth_schemes"`
+	AuthSchemes    []string `json:"auth_schemes"`
+	NoAuth         bool     `json:"no_auth"`
 }
 
 func (a wireApp) app() (connector.App, error) {
@@ -192,10 +197,60 @@ func (a wireApp) app() (connector.App, error) {
 	return connector.App{Slug: a.Slug, Name: a.Name, Description: a.Meta.Description, Icon: icon}, nil
 }
 
+// keySchemes are sign-ins the provider's hosted page collects from the owner
+// (a key or token), with no developer credentials of anyone's behind them.
+var keySchemes = map[string]bool{"API_KEY": true, "BEARER_TOKEN": true, "BASIC": true}
+
+// setUp says how the app's sign-in stands (kiff/planque#87): ready when the
+// project has an enabled sign-in for it; on demand when the provider signs
+// people in with its own credentials, takes only a key or token, or needs
+// no sign-in; needs setup otherwise. The scheme is the one a sign-in set up
+// on demand will have, for the words the owner reads before it exists.
+func (a wireApp) setUp(app *connector.App, config authConfig, ok bool) {
+	if ok {
+		app.AuthConfig, app.AuthScheme, app.Setup = config.ID, config.Scheme, connector.SetupReady
+		return
+	}
+	schemes := func(list []string) []string {
+		out := []string{}
+		for _, s := range list {
+			if s = strings.ToUpper(strings.TrimSpace(s)); identifier.MatchString(s) {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	if managed := schemes(a.ManagedSchemes); len(managed) > 0 {
+		app.AuthScheme, app.Setup = managed[0], connector.SetupOnDemand
+		for _, s := range managed {
+			if s == "OAUTH2" {
+				app.AuthScheme = s
+			}
+		}
+		return
+	}
+	if a.NoAuth {
+		app.AuthScheme, app.Setup = "NO_AUTH", connector.SetupOnDemand
+		return
+	}
+	all := schemes(a.AuthSchemes)
+	for _, s := range all {
+		if keySchemes[s] {
+			app.AuthScheme, app.Setup = s, connector.SetupOnDemand
+			return
+		}
+	}
+	app.Setup = connector.SetupNeedsSetup
+	if len(all) > 0 {
+		app.AuthScheme = all[0]
+	}
+}
+
 // catalogPages bounds the upstream pages one catalog read walks, at
 // catalogLimit apps each (the provider's maximum): the whole catalog is
-// usually one page, filtered here to the apps with a sign-in.
-const catalogPages, catalogLimit = 3, 1000
+// usually one page. A read that stops at the bound with pages left says so
+// (Page.Partial), so an app that wasn't seen isn't taken as absent.
+const catalogPages, catalogLimit = 10, 1000
 
 func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.Page[connector.App], error) {
 	if len(search) > 200 || len(cursor) > 4096 {
@@ -216,6 +271,10 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 			return cached, nil
 		}
 	}
+	// With no search, only the apps with a sign-in set up: the short list
+	// Connect apps opens on. A search finds every app, each saying how it
+	// can be set up (kiff/planque#87).
+	every := search != ""
 	result := connector.Page[connector.App]{Items: []connector.App{}}
 	for range catalogPages {
 		q := url.Values{"limit": {strconv.Itoa(catalogLimit)}, "sort_by": {"alphabetically"}, "include_deprecated": {"false"}}
@@ -246,12 +305,11 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 				result.Skipped++
 				continue
 			}
-			// Only an app the project can sign someone in to is offered.
 			config, ok := setUp[strings.ToLower(app.Slug)]
-			if !ok {
+			a.setUp(&app, config, ok)
+			if !every && app.Setup != connector.SetupReady {
 				continue
 			}
-			app.AuthConfig, app.AuthScheme = config.ID, config.Scheme
 			result.Items = append(result.Items, app)
 		}
 		result.Next, cursor = page.Next, page.Next
@@ -259,6 +317,7 @@ func (c *Client) Catalog(ctx context.Context, search, cursor string) (connector.
 			break
 		}
 	}
+	result.Partial = result.Next != ""
 	if first {
 		c.mu.Lock()
 		c.firstPage, c.firstAt = result, c.readAt
@@ -274,20 +333,83 @@ func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	if err != nil {
 		return connector.App{}, err
 	}
-	config, ok := setUp[strings.ToLower(id)]
-	if !ok {
-		return connector.App{}, connector.ErrNotSetUp
-	}
 	var a wireApp
-	if _, err := c.request(ctx, "GET", "/toolkits/"+id, nil, nil, &a); err != nil {
+	if status, err := c.request(ctx, "GET", "/toolkits/"+id, nil, nil, &a); err != nil {
+		// An app the provider doesn't have can't be set up or connected here.
+		if status == http.StatusNotFound {
+			return connector.App{}, connector.ErrNotSetUp
+		}
 		return connector.App{}, err
 	}
 	if a.Slug != id {
 		return connector.App{}, connector.ErrDefinition
 	}
 	app, err := a.app()
-	app.AuthConfig, app.AuthScheme = config.ID, config.Scheme
+	config, ok := setUp[strings.ToLower(id)]
+	a.setUp(&app, config, ok)
 	return app, err
+}
+
+// SetUp sets up the provider-managed sign-in for an app it can sign people
+// in to with its own credentials (kiff/planque#87): one auth config, of the
+// managed kind, with nothing of ours in it. The answer is taken only when
+// the provider says it manages it; the sign-in is then pinned by every
+// grant as a pre-set app's is. The cached sign-ins take it at once, and the
+// first catalog page is read again, so the app is offered from now on.
+func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
+	if !identifier.MatchString(id) {
+		return connector.App{}, connector.ErrDefinition
+	}
+	// The sign-ins are read afresh first: one another instance set up a
+	// moment ago is taken as it is, not made twice.
+	c.mu.Lock()
+	c.readAt = time.Time{}
+	c.mu.Unlock()
+	app, err := c.App(ctx, id)
+	if err != nil {
+		return connector.App{}, err
+	}
+	if app.Setup == connector.SetupReady {
+		return app, nil
+	}
+	if app.Setup != connector.SetupOnDemand {
+		return connector.App{}, connector.ErrNotSetUp
+	}
+	var made struct {
+		Toolkit struct {
+			Slug string `json:"slug"`
+		} `json:"toolkit"`
+		Config struct {
+			ID      string `json:"id"`
+			Scheme  string `json:"auth_scheme"`
+			Managed bool   `json:"is_composio_managed"`
+		} `json:"auth_config"`
+	}
+	body := map[string]any{"toolkit": map[string]string{"slug": id}, "auth_config": map[string]any{"type": "use_composio_managed_auth"}}
+	if _, err := c.request(ctx, "POST", "/auth_configs", nil, body, &made); err != nil {
+		return connector.App{}, err
+	}
+	scheme := strings.ToUpper(made.Config.Scheme)
+	if !strings.EqualFold(made.Toolkit.Slug, id) || !made.Config.Managed || !identifier.MatchString(made.Config.ID) || !identifier.MatchString(scheme) {
+		return connector.App{}, connector.ErrDefinition
+	}
+	config := authConfig{ID: made.Config.ID, Scheme: scheme}
+	// The sign-ins handed out by signInSetUp are read without the lock, so
+	// the map they hold is never written: a new map takes its place.
+	c.mu.Lock()
+	next := make(map[string]authConfig, len(c.configured)+1)
+	for k, v := range c.configured {
+		next[k] = v
+	}
+	if old, ok := next[strings.ToLower(id)]; !ok || config.ID < old.ID {
+		next[strings.ToLower(id)] = config
+	}
+	config = next[strings.ToLower(id)]
+	c.configured = next
+	c.firstAt = time.Time{}
+	c.mu.Unlock()
+	app.AuthConfig, app.AuthScheme, app.Setup = config.ID, config.Scheme, connector.SetupReady
+	return app, nil
 }
 
 // linkHosts serve the provider's hosted sign-in page; it moved from app. to

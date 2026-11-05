@@ -5,14 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/kiff/planque/internal/kiff"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kiff/planque/internal/kiff"
 
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/connector/composio"
@@ -32,8 +35,10 @@ type connectorFixture struct {
 	// toolBody, when set, is the provider's answer for the pinned tool.
 	toolBody                                string
 	authorizations, executions, revocations int
-	sent                                    map[string]json.RawMessage
-	aliases                                 map[string]bool // names already used, refused again as upstream does
+	// setUps are the apps whose sign-in planque asked the provider to set up, in order.
+	setUps  []string
+	sent    map[string]json.RawMessage
+	aliases map[string]bool // names already used, refused again as upstream does
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -49,8 +54,36 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if r.URL.Query().Get("cursor") == "next" {
 			body = `{"items":[{"slug":"calendar_demo","name":"Calendar demo"}]}`
 		} else {
-			body = `{"items":[{"slug":"desk_demo","name":"Support desk"},{"slug":"unset_demo","name":"Not set up"}],"next_cursor":"next"}`
+			// unset_demo: the provider signs people in by itself, so it can be set up on
+			// demand; own_demo needs our own developer app first; the ondemand_N apps
+			// are there to count against the day's allowance.
+			items := `{"slug":"desk_demo","name":"Support desk"},{"slug":"unset_demo","name":"Not set up","composio_managed_auth_schemes":["OAUTH2"]},{"slug":"own_demo","name":"Own app","auth_schemes":["OAUTH2"]}`
+			for i := 1; i <= 12; i++ {
+				items += fmt.Sprintf(`,{"slug":"ondemand_%d","name":"On demand %d","composio_managed_auth_schemes":["OAUTH2"]}`, i, i)
+			}
+			body = `{"items":[` + items + `],"next_cursor":"next"}`
 		}
+	case path == "/toolkits/unset_demo":
+		body = `{"slug":"unset_demo","name":"Not set up","composio_managed_auth_schemes":["OAUTH2"]}`
+	case path == "/toolkits/own_demo":
+		body = `{"slug":"own_demo","name":"Own app","auth_schemes":["OAUTH2"]}`
+	case strings.HasPrefix(path, "/toolkits/ondemand_"):
+		slug := strings.TrimPrefix(path, "/toolkits/")
+		body = `{"slug":"` + slug + `","name":"On demand","composio_managed_auth_schemes":["OAUTH2"]}`
+	case path == "/auth_configs" && r.Method == "POST":
+		var in struct {
+			Toolkit struct {
+				Slug string `json:"slug"`
+			} `json:"toolkit"`
+			Config map[string]any `json:"auth_config"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in.Config["type"] != "use_composio_managed_auth" || len(in.Config) != 1 {
+			f.t.Fatalf("a set-up with something of ours in it: %v", in.Config)
+		}
+		f.setUps = append(f.setUps, in.Toolkit.Slug)
+		body = `{"toolkit":{"slug":"` + in.Toolkit.Slug + `"},"auth_config":{"id":"ac_` + in.Toolkit.Slug + `_new","auth_scheme":"OAUTH2","is_composio_managed":true}}`
+		return profileResponse(201, body), nil
 	case path == "/auth_configs":
 		scheme := f.authScheme
 		if scheme == "" {
@@ -67,6 +100,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		f.user = in.User
 		f.authConfig = in.AuthConfigs["desk_demo"]
+		if f.authConfig == "" {
+			f.authConfig = in.AuthConfigs["unset_demo"]
+		}
 		f.authorizations++
 		b, _ := json.Marshal(map[string]any{"session_id": "session_demo", "config": map[string]any{"user_id": f.user, "auth_configs": in.AuthConfigs}})
 		body = string(b)
@@ -74,7 +110,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		f.links++
 		var in map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&in)
-		if r.Method != "POST" || in["toolkit"] != "desk_demo" {
+		if r.Method != "POST" || in["toolkit"] != "desk_demo" && in["toolkit"] != "unset_demo" {
 			f.t.Fatal("wrong hosted connection request")
 		}
 		f.callback = in["callback_url"]
@@ -472,23 +508,134 @@ func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	}
 }
 
-// Only an app the provider project can sign someone in to is offered: one
-// listed upstream without an enabled sign-in is neither in the catalog nor
-// started.
-func TestConnectorCatalogOffersOnlyAppsWithASignIn(t *testing.T) {
-	e, _ := newConnectorFixture(t)
-	st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio", nil, nil, "k_setup")
-	if st != 200 {
-		t.Fatalf("catalog: %d %v", st, out)
+// The unsearched catalog offers the apps with a sign-in set up; a search
+// finds every app the provider has, each saying how it stands. An app the
+// provider can sign people in to by itself is set up on the owner's pick,
+// once, and its grant pins that sign-in; one that needs our own developer
+// credentials is listed as such and not started (kiff/planque#87).
+func TestConnectorAnyAppIsSetUpOnTheOwnersPick(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	catalog := "/v1/accounts/" + tenant + "/catalog"
+	states := func(q string) map[string]string {
+		t.Helper()
+		st, out := e.do("GET", catalog+"?provider=composio"+q, nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("catalog%s: %d %v", q, st, out)
+		}
+		m := map[string]string{}
+		for _, v := range out["entries"].([]any) {
+			e := v.(map[string]any)
+			m[e["entry"].(string)] = e["state"].(string)
+		}
+		return m
 	}
-	var listed []string
-	for _, v := range out["entries"].([]any) {
-		listed = append(listed, v.(map[string]any)["entry"].(string))
+	short := states("")
+	if short["connector:composio:desk_demo"] != "available" || short["connector:composio:unset_demo"] != "" || short["connector:composio:own_demo"] != "" {
+		t.Fatalf("the short list: %v", short)
 	}
-	if !slices.Contains(listed, "connector:composio:desk_demo") || slices.Contains(listed, "connector:composio:unset_demo") {
-		t.Fatalf("listed: %v", listed)
+	found := states("&q=demo")
+	if found["connector:composio:desk_demo"] != "available" || found["connector:composio:unset_demo"] != "available" || found["connector:composio:own_demo"] != "needs_setup" {
+		t.Fatalf("a search: %v", found)
 	}
-	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 404 {
-		t.Fatalf("an app without a sign-in was started: %d %v", st, out)
+	// An app that needs our own credentials isn't started.
+	if st, out := e.do("POST", catalog+"/connector:composio:own_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "needs setting up") || len(f.setUps) != 0 {
+		t.Fatalf("an app that needs setup was started: %d %v %v", st, out, f.setUps)
+	}
+	// One the provider signs people in to is set up on the pick, once for every pick after.
+	st, out := e.do("POST", catalog+"/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_taf", "agent_name": "Invoices"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("on demand: %d %v", st, out)
+	}
+	g := out["grant"].(map[string]any)
+	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. Your sign-in to Not set up stays with the connection service") {
+		t.Fatalf("the on-demand grant: %v", g)
+	}
+	if st, out := e.do("POST", catalog+"/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_other"}, nil, "k_setup"); st != 201 || out["grant"].(map[string]any)["on_demand"] != true {
+		t.Fatalf("a second pick: %d %v", st, out)
+	}
+	if !slices.Equal(f.setUps, []string{"unset_demo"}) {
+		t.Fatalf("the sign-in was set up %v times", f.setUps)
+	}
+	// It is offered without a search from now on, and its approval pins the sign-in that was made.
+	if now := states(""); now["connector:composio:unset_demo"] != "connected" && now["connector:composio:unset_demo"] != "available" {
+		t.Fatalf("offered after set-up: %v", now)
+	}
+	id := g["id"].(string)
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]any{"digest": g["digest"]}, e.phone, ""); st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	if f.authConfig != "ac_unset_demo_new" {
+		t.Fatalf("the hosted sign-in pinned %q", f.authConfig)
+	}
+	// A grant planque signs in to itself says so.
+	st, out = e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+	if st != 200 || out["custody"] != "provider" {
+		t.Fatalf("custody on a read: %d %v", st, out)
+	}
+}
+
+// An account sets up at most ten apps on demand a day: each is a sign-in
+// the provider sets up for everyone, against its allowance.
+func TestConnectorOnDemandSetUpsAreCappedADay(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	for i := 1; i <= onDemandADay; i++ {
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+		if st != 201 {
+			t.Fatalf("app %d: %d %v", i, st, out)
+		}
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_11/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+	if st != 429 || !strings.Contains(out["error"].(string), "10 new apps today") || len(f.setUps) != onDemandADay {
+		t.Fatalf("the eleventh: %d %v (%d set up)", st, out, len(f.setUps))
+	}
+	// An app set up already doesn't count: a pick of one is a grant as any other.
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+		t.Fatalf("a pre-set app under the cap: %d %v", st, out)
+	}
+	// The next day, the allowance is new.
+	e.s.Now = func() time.Time { return time.Now().Add(24 * time.Hour) }
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_11/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+		t.Fatalf("the next day: %d %v", st, out)
+	}
+}
+
+// The day's allowance holds when picks arrive together: at most ten
+// sign-ins are set up, whatever the order, and the provider's cached
+// sign-ins are never written while another read holds them.
+func TestConnectorOnDemandCapHoldsUnderARace(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	var wg sync.WaitGroup
+	results := make([]int, 13)
+	for i := 1; i <= 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			st, _ := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+			results[i] = st
+		}(i)
+	}
+	// A catalog read at the same time holds the sign-ins the set-ups replace.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio&q=demand", nil, nil, "k_setup")
+		}()
+	}
+	wg.Wait()
+	made, refused := 0, 0
+	for _, st := range results[1:] {
+		switch st {
+		case 201:
+			made++
+		case 429:
+			refused++
+		}
+	}
+	f.mu.Lock()
+	setUps := len(f.setUps)
+	f.mu.Unlock()
+	if setUps > onDemandADay || made > onDemandADay || made+refused != 12 {
+		t.Fatalf("%d set up, %d made, %d refused, cap %d", setUps, made, refused, onDemandADay)
 	}
 }

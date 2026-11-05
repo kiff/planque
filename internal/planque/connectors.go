@@ -52,6 +52,157 @@ func connectorEntry(id string) (string, string, bool) {
 	}
 	return p[1], p[2], true
 }
+
+// onDemandADay is the most apps an account sets up on demand in one day
+// (kiff/planque#87): each is a sign-in the provider sets up for everyone,
+// counted against its allowance, so a runaway stops here.
+const onDemandADay = 10
+
+var errSettingUp = errors.New("the app's sign-in is being set up")
+var errAllowance = errors.New("the account's on-demand set-ups for the day are used")
+
+// setUpRecord is the sign-in set up on demand for an app, one per provider
+// and app: the lock two owners picking the app at once take once, what it
+// made, and which account's pick made it. An unfinished one, older than a
+// minute, is taken over.
+type setUpRecord struct {
+	Toolkit    string `json:"toolkit"`
+	Tenant     string `json:"tenant"`
+	AuthConfig string `json:"auth_config,omitempty"`
+	AuthScheme string `json:"auth_scheme,omitempty"`
+	StartedAt  string `json:"started_at"`
+	MadeAt     string `json:"made_at,omitempty"`
+}
+
+func setUpPK(provider string) string { return "CONNECTOR#" + provider + "#SETUP" }
+
+// setUpOf is the sign-in set up on demand for the app, if one was.
+func (s *Server) setUpOf(ctx context.Context, providerID, toolkit string) (setUpRecord, bool, error) {
+	it, ok, err := s.KV.Get(ctx, setUpPK(providerID), toolkit)
+	if err != nil || !ok {
+		return setUpRecord{}, false, err
+	}
+	var held setUpRecord
+	if json.Unmarshal(it.Doc, &held) != nil {
+		return setUpRecord{}, false, nil
+	}
+	return held, true, nil
+}
+
+// allowance is an account's on-demand set-ups so far one day, by the day
+// in UTC: one record, bumped under its version before a set-up starts, so
+// picks arriving together never pass the day's allowance between them.
+type allowance struct {
+	Count int `json:"count"`
+}
+
+func allowanceSK(day string) string { return "ONDEMAND#" + day }
+
+// takeAllowance takes one of the day's set-ups for the account, or says the
+// allowance is used (errAllowance). Contended five times, it gives up as a
+// set-up in progress.
+func (s *Server) takeAllowance(ctx context.Context, tenant string) error {
+	return s.adjustAllowance(ctx, tenant, 1)
+}
+
+// giveBackAllowance returns a set-up that didn't happen.
+func (s *Server) giveBackAllowance(ctx context.Context, tenant string) {
+	_ = s.adjustAllowance(ctx, tenant, -1)
+}
+
+func (s *Server) adjustAllowance(ctx context.Context, tenant string, by int) error {
+	now := s.now().UTC()
+	key := store.Item{PK: tenantPK(tenant), SK: allowanceSK(now.Format("2006-01-02")), TTL: now.Add(48 * time.Hour).Unix()}
+	for range 5 {
+		it, ok, err := s.KV.Get(ctx, key.PK, key.SK)
+		if err != nil {
+			return err
+		}
+		var a allowance
+		if ok && json.Unmarshal(it.Doc, &a) != nil {
+			a = allowance{}
+		}
+		if by > 0 && a.Count >= onDemandADay {
+			return errAllowance
+		}
+		a.Count = max(a.Count+by, 0)
+		cond := store.Cond{NotExists: true}
+		if ok {
+			ver := it.Ver
+			cond = store.Cond{Ver: &ver}
+			key.Ver = it.Ver + 1
+		}
+		err = putDoc(ctx, s.KV, key, a, cond)
+		if errors.Is(err, store.ErrCondition) {
+			continue
+		}
+		return err
+	}
+	return errSettingUp
+}
+
+// setUpApp sets up the sign-in for an on-demand app once across every
+// instance. A record that holds the sign-in made answers from it, so the
+// provider is asked once and the day's allowance isn't touched; otherwise
+// one of the allowance is taken first, then the record under its key is the
+// lock: one still being made says so, unless it is stale, which is taken
+// over. A set-up that fails gives the lock and the allowance back.
+func (s *Server) setUpApp(ctx context.Context, p connector.Provider, providerID, tenant string, app connector.App) (connector.App, error) {
+	if held, ok, err := s.setUpOf(ctx, providerID, app.Slug); err != nil {
+		return app, err
+	} else if ok && held.AuthConfig != "" {
+		app.AuthConfig, app.AuthScheme, app.Setup = held.AuthConfig, held.AuthScheme, connector.SetupReady
+		return app, nil
+	}
+	if err := s.takeAllowance(ctx, tenant); err != nil {
+		return app, err
+	}
+	key := store.Item{PK: setUpPK(providerID), SK: app.Slug}
+	now := s.now().UTC()
+	record := setUpRecord{Toolkit: app.Slug, Tenant: tenant, StartedAt: now.Format(time.RFC3339)}
+	err := putDoc(ctx, s.KV, key, record, store.Cond{NotExists: true})
+	if errors.Is(err, store.ErrCondition) {
+		it, ok, getErr := s.KV.Get(ctx, key.PK, key.SK)
+		if getErr != nil {
+			s.giveBackAllowance(ctx, tenant)
+			return app, getErr
+		}
+		var held setUpRecord
+		if ok && json.Unmarshal(it.Doc, &held) == nil && held.AuthConfig != "" {
+			// Made meanwhile by another pick: taken as it is, and no set-up of ours.
+			s.giveBackAllowance(ctx, tenant)
+			app.AuthConfig, app.AuthScheme, app.Setup = held.AuthConfig, held.AuthScheme, connector.SetupReady
+			return app, nil
+		}
+		started, _ := time.Parse(time.RFC3339, held.StartedAt)
+		if ok && now.Sub(started) < time.Minute {
+			s.giveBackAllowance(ctx, tenant)
+			return app, errSettingUp
+		}
+		// Stale: a set-up that never finished. Take it over at its version.
+		ver := it.Ver
+		key.Ver = it.Ver + 1
+		if err := putDoc(ctx, s.KV, key, record, store.Cond{Ver: &ver}); err != nil {
+			s.giveBackAllowance(ctx, tenant)
+			return app, errSettingUp
+		}
+	} else if err != nil {
+		s.giveBackAllowance(ctx, tenant)
+		return app, err
+	}
+	made, err := p.SetUp(ctx, app.Slug)
+	if err != nil {
+		_, _, _ = s.KV.Delete(ctx, key.PK, key.SK)
+		s.giveBackAllowance(ctx, tenant)
+		return app, err
+	}
+	record.AuthConfig, record.AuthScheme, record.MadeAt = made.AuthConfig, made.AuthScheme, s.now().UTC().Format(time.RFC3339)
+	if err := putDoc(ctx, s.KV, key, record, store.Cond{}); err != nil {
+		return app, err
+	}
+	return made, nil
+}
+
 func (s *Server) connectorIdentity(g *Grant) connector.Identity {
 	sum := sha256.Sum256([]byte(s.BaseURL + "\n" + g.Tenant))
 	return connector.Identity{User: "planque_" + hex.EncodeToString(sum[:]), Toolkit: g.Request.Connector.Toolkit, AuthConfig: g.Request.Connector.AuthConfig}
@@ -144,8 +295,38 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusServiceUnavailable, "the catalog provider is not configured")
 		return
 	}
+	// An app the provider can sign people in to by itself is set up on the
+	// owner's pick, once; one that needs our own developer credentials waits
+	// for an operator (kiff/planque#87).
+	onDemand := false
+	switch app.Setup {
+	case connector.SetupNeedsSetup:
+		writeErr(w, http.StatusConflict, "This app needs setting up first. Ask tafs to enable it.")
+		return
+	case connector.SetupOnDemand:
+		if app, err = s.setUpApp(r.Context(), p, providerID, tenant, app); err != nil {
+			switch {
+			case errors.Is(err, errAllowance):
+				writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today. Try again tomorrow.")
+			case errors.Is(err, errSettingUp):
+				writeErr(w, http.StatusServiceUnavailable, "This app is being set up. Try again in a moment.")
+			default:
+				writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
+			}
+			return
+		}
+		onDemand = true
+	case connector.SetupReady:
+		// A sign-in set up on an owner's pick, whenever: every grant on it is on demand.
+		held, ok, err := s.setUpOf(r.Context(), providerID, toolkit)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		onDemand = ok && held.AuthConfig != "" && held.AuthConfig == app.AuthConfig
+	}
 	id := "grt_" + oauth.Random(12)
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name),
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name), OnDemand: onDemand,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
 			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
 			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme},

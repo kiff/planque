@@ -16,6 +16,15 @@ version headings refer to releases, not merely to merged pull requests.
   or type a password, card number or code, is refused before it runs, and
   secret fields are masked in every page. Offered only where a browser
   worker is configured; the worker itself follows.
+- Any app on demand (kiff/planque#87): a catalog search lists every app the
+  managed provider has, each as it stands (`state: "needs_setup"` for one
+  that needs our own developer credentials first); the unsearched list keeps
+  to the apps with a sign-in set up. Picking an app the provider signs
+  people in to by itself sets its sign-in up at that moment, once, with
+  nothing of ours in it; the grant pins it and is `on_demand: true`, as is
+  every later grant on it. At most ten such set-ups an account a day. Every
+  grant view says who holds the sign-in (`custody`). A catalog read that
+  stops with pages left says `partial: true`.
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a
