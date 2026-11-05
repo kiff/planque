@@ -62,7 +62,7 @@ func resultJSON(res any) map[string]any {
 			Text string `json:"text"`
 		} `json:"content"`
 	}
-	if json.Unmarshal(raw, &r) != nil {
+	if decodeNumbers(raw, &r) != nil {
 		return nil
 	}
 	if r.Structured != nil {
@@ -73,14 +73,22 @@ func resultJSON(res any) map[string]any {
 			continue
 		}
 		var m map[string]any
-		dec := json.NewDecoder(bytes.NewReader([]byte(c.Text)))
-		dec.UseNumber()
-		if dec.Decode(&m) == nil && m != nil {
+		if decodeNumbers([]byte(c.Text), &m) == nil && m != nil {
 			return m
 		}
 		return nil
 	}
 	return nil
+}
+
+// decodeNumbers decodes raw into v keeping every number's digits as the
+// vendor wrote them (json.Number): a 64-bit numeric handle rounded to a
+// float64 would never match the event's key, and the answer re-sent to
+// the agent would carry changed numbers.
+func decodeNumbers(raw []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	return dec.Decode(v)
 }
 
 // atPath is the value at a dotted path (with [n] for an index) in v, as
@@ -121,12 +129,12 @@ func atPath(v any, path string) string {
 // and the deadline in its structured content. When the answer carries no
 // handle, it is left as it was: the run goes on, and the words say so.
 func pending(res any, c *profile.Completes, grant string) any {
-	m, ok := res.(map[string]any)
-	if !ok {
-		raw, err := json.Marshal(res)
-		if err != nil || json.Unmarshal(raw, &m) != nil || m == nil {
-			return res
-		}
+	// The answer as JSON, whatever Go shape it came in (the vendor's raw
+	// MCP result, or a toolResult): its own copy, with its numbers kept.
+	var m map[string]any
+	raw, err := json.Marshal(res)
+	if err != nil || decodeNumbers(raw, &m) != nil || m == nil {
+		return res
 	}
 	if isErr, _ := m["isError"].(bool); isErr {
 		return res
@@ -176,9 +184,7 @@ func eventKey(g *Grant, slug string, payload json.RawMessage) string {
 			continue
 		}
 		var data any
-		dec := json.NewDecoder(bytes.NewReader(payload))
-		dec.UseNumber()
-		if dec.Decode(&data) != nil {
+		if decodeNumbers(payload, &data) != nil {
 			return ""
 		}
 		return atPath(data, op.Completes.EventKey)
