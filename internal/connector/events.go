@@ -18,6 +18,9 @@ type TriggerType struct {
 	Name    string          `json:"name"`
 	Config  json.RawMessage `json:"config"`
 	Payload json.RawMessage `json:"payload"`
+	// Description is the provider's, for a listing (kiff/planque#87); it
+	// isn't part of what the device approves.
+	Description string `json:"description,omitempty"`
 }
 
 func (t TriggerType) Validate() error {
@@ -40,6 +43,8 @@ type Webhook struct {
 // implement event delivery. A trigger always names an exact connected account.
 type EventProvider interface {
 	TriggerType(context.Context, string, string, string) (TriggerType, error)
+	// TriggerTypes lists an app's events, a page at a time (kiff/planque#87).
+	TriggerTypes(context.Context, string, string) (Page[TriggerType], error)
 	CreateTrigger(context.Context, Identity, string, TriggerType, json.RawMessage) (string, error)
 	DeleteTrigger(context.Context, string) error
 	EnsureWebhook(context.Context, string) (Webhook, error)

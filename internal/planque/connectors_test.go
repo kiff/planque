@@ -90,8 +90,6 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			scheme = "OAUTH2"
 		}
 		body = `{"items":[{"id":"ac_desk_demo","auth_scheme":"` + scheme + `","status":"ENABLED","toolkit":{"slug":"desk_demo"}},{"id":"ac_calendar_demo","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"id":"ac_unset_demo","auth_scheme":"API_KEY","status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
-	case path == "/toolkits/desk_demo":
-		body = `{"slug":"desk_demo","name":"Support desk"}`
 	case path == "/tool_router/session":
 		var in struct {
 			User        string            `json:"user_id"`
@@ -138,6 +136,23 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"}})
 		body = string(b)
+	case path == "/tools" && r.URL.Query().Get("query") != "":
+		// A search by words: a tool of a set-up app, one of an app that needs setup,
+		// and a platform meta tool that must never come back.
+		if r.URL.Query().Has("toolkit_slug") {
+			f.t.Fatal("a search for several apps was narrowed upstream to one")
+		}
+		body = `{"items":[{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","description":"Replies to a ticket.","input_parameters":{"type":"object","properties":{"ticket":{"type":"string"}}}},` +
+			`{"slug":"OWN_DEMO_SEND","toolkit":{"slug":"own_demo"},"version":"20261101_00","name":"Send a reply","input_parameters":{"type":"object","properties":{}}},` +
+			`{"slug":"COMPOSIO_MULTI_EXECUTE_TOOL","toolkit":{"slug":"composio"},"version":"20261101_00","name":"Run anything","input_parameters":{"type":"object","properties":{}}}]}`
+	case path == "/triggers_types":
+		if r.URL.Query().Get("toolkit_slugs") != "desk_demo" {
+			body = `{"items":[]}`
+			break
+		}
+		body = `{"items":[{"slug":"DESK_DEMO_NEW_TICKET","name":"New ticket","description":"A ticket was opened.","version":"20261101_00","toolkit":{"slug":"desk_demo"},"config":{"type":"object","properties":{"queue":{"type":"string"}}},"payload":{"type":"object"}}]}`
+	case path == "/toolkits/desk_demo":
+		body = `{"slug":"desk_demo","name":"Support desk"}`
 	case path == "/tools" || path == "/tools/DESK_DEMO_REPLY":
 		schema := `{"type":"object","properties":{"ticket":{"type":"string"},"text":{"type":"string"}},"required":["ticket","text"],"additionalProperties":false}`
 		if f.changed {
@@ -596,6 +611,68 @@ func TestConnectorOnDemandSetUpsAreCappedADay(t *testing.T) {
 	e.s.Now = func() time.Time { return time.Now().Add(24 * time.Hour) }
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_11/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
 		t.Fatalf("the next day: %d %v", st, out)
+	}
+}
+
+// Coach finds tools by words across apps before connecting any: each tool
+// comes with its app as it stands, a platform meta tool never does, and an
+// app's events are listed the same way, before and after a connection
+// (kiff/planque#87).
+func TestConnectorToolsAndEventsAreFoundBeforeConnecting(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	base := "/v1/accounts/" + tenant + "/catalog"
+	if st, out := e.do("GET", base+"/tools", nil, nil, "k_setup"); st != 400 || !strings.Contains(out["error"].(string), "q is the words") {
+		t.Fatalf("no words: %d %v", st, out)
+	}
+	if st, _ := e.do("GET", base+"/tools?q=reply", nil, nil, ""); st != 401 {
+		t.Fatalf("unauthenticated search: %d", st)
+	}
+	st, out := e.do("GET", base+"/tools?q=reply", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("search: %d %v", st, out)
+	}
+	tools := out["tools"].([]any)
+	if len(tools) != 2 || out["skipped"].(float64) != 1 {
+		t.Fatalf("found: %v", out)
+	}
+	desk, own := tools[0].(map[string]any), tools[1].(map[string]any)
+	if desk["entry"] != "connector:composio:desk_demo" || desk["app_state"] != "available" || desk["app_title"] != "Support desk" || desk["slug"] != "DESK_DEMO_REPLY" || desk["description"] != "Replies to a ticket." {
+		t.Fatalf("a set-up app's tool: %v", desk)
+	}
+	if own["entry"] != "connector:composio:own_demo" || own["app_state"] != "needs_setup" || own["app_title"] != "Own app" {
+		t.Fatalf("an app that needs setup: %v", own)
+	}
+	for _, tl := range tools {
+		if strings.HasPrefix(tl.(map[string]any)["slug"].(string), "COMPOSIO_") {
+			t.Fatalf("a platform meta tool came back: %v", tl)
+		}
+	}
+	// Narrowed to the apps named.
+	st, out = e.do("GET", base+"/tools?q=reply&apps=own_demo,desk_demo", nil, nil, "k_setup")
+	if st != 200 || len(out["tools"].([]any)) != 2 {
+		t.Fatalf("named apps: %d %v", st, out)
+	}
+	// An app's events, before any connection.
+	st, out = e.do("GET", base+"/connector:composio:desk_demo/events", nil, nil, "k_setup")
+	if st != 200 || len(out["events"].([]any)) != 1 {
+		t.Fatalf("events: %d %v", st, out)
+	}
+	ev := out["events"].([]any)[0].(map[string]any)
+	if ev["slug"] != "DESK_DEMO_NEW_TICKET" || ev["description"] != "A ticket was opened." || ev["door"] != false || ev["version"] != "20261101_00" || !strings.Contains(fmt.Sprint(ev["config"]), "queue") {
+		t.Fatalf("event: %v", ev)
+	}
+	if st, _ := e.do("GET", base+"/support-desk@1/events", nil, nil, "k_setup"); st != 404 {
+		t.Fatalf("a reviewed entry's events: %d", st)
+	}
+	// And after: the connection's own events, for its agent only.
+	id := listConnector(t, e, f)
+	path := "/v1/accounts/" + tenant + "/grants/" + id + "/events"
+	st, out = e.do("GET", path, nil, nil, "k_setup")
+	if st != 200 || len(out["events"].([]any)) != 1 {
+		t.Fatalf("a connection's events: %d %v", st, out)
+	}
+	if st, _ := e.do("GET", path, nil, nil, "k_other"); st != 403 && st != 401 {
+		t.Fatalf("another agent read the events: %d", st)
 	}
 }
 

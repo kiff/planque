@@ -67,6 +67,15 @@ The account-authenticated catalog endpoints include upstream discovery:
    ten pages); stopped with pages left, it says `partial: true`. The first
    page with no search is kept with the sign-ins it was filtered by, so
    opening Connect apps again reads nothing upstream.
+   **Finding tools by words.** `GET /v1/accounts/{tenant}/catalog/tools?q=…`
+   is the provider's text search over tool names and descriptions
+   (`GET /tools?query=`), at most 50 a page, narrowed upstream to one app when
+   `apps` names one and here when it names several; each tool comes with its
+   app as it stands, read once per app, so Coach can propose apps before any
+   connection exists. Platform meta tools never come back. An app's events
+   are listed the same way (`…/catalog/{entry}/events`, and
+   `…/grants/{id}/events` for a connection), from `GET /triggers_types`, each
+   pinned to a version; the approval of one stays as below.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
    taf's name for people). An app the provider doesn't have is 404; one that

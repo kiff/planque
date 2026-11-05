@@ -135,6 +135,16 @@ func (t Tool) Alias() string {
 	return "connector_" + hex.EncodeToString(sum[:16])
 }
 
+// Search is what a search by words found: the tools, and each tool's app as
+// it stands, so the caller can say which app is set up, on demand or needs
+// setting up before anything is connected.
+type Search struct {
+	Tools   []Tool         `json:"tools"`
+	Apps    map[string]App `json:"apps"`
+	Next    string         `json:"next_cursor,omitempty"`
+	Skipped int            `json:"skipped,omitempty"`
+}
+
 type Account struct {
 	ID      string `json:"id"`
 	User    string `json:"user_id"`
@@ -188,6 +198,10 @@ type Provider interface {
 	Authorize(context.Context, Identity, string, string) (Authorization, error)
 	Account(context.Context, string) (Account, error)
 	Tools(context.Context, string, string) (Page[Tool], error)
+	// Search finds tools across apps by words (kiff/planque#87): the
+	// provider's own text search over names and descriptions, narrowed to
+	// the apps named when any are, with each tool's app as it stands.
+	Search(context.Context, string, []string, string) (Search, error)
 	Tool(context.Context, string, string) (Tool, error)
 	Execute(context.Context, Identity, string, Tool, json.RawMessage, func() bool) (Result, error)
 	Revoke(context.Context, Identity, string) (Revocation, error)

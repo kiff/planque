@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/kiff/planque/internal/connector"
@@ -209,4 +210,69 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 		result.Data = json.RawMessage(`{}`)
 	}
 	return connector.Result{Data: result.Data, Refused: refused}, nil
+}
+
+// searchLimit is how many tools one search answers at most.
+const searchLimit = 50
+
+// Search is the provider's text search over tools' names, slugs and
+// descriptions (kiff/planque#87), narrowed to one app when exactly one is
+// named and to the named apps here otherwise. Platform meta tools never come
+// back (Validate), and each tool's app comes with it as it stands, read once
+// per app, so a caller can say which apps are set up before connecting.
+func (c *Client) Search(ctx context.Context, query string, toolkits []string, cursor string) (connector.Search, error) {
+	query = strings.TrimSpace(query)
+	if query == "" || len(query) > 200 || len(cursor) > 4096 || len(toolkits) > 20 {
+		return connector.Search{}, connector.ErrDefinition
+	}
+	want := map[string]bool{}
+	for _, t := range toolkits {
+		if !identifier.MatchString(t) {
+			return connector.Search{}, connector.ErrDefinition
+		}
+		want[strings.ToLower(t)] = true
+	}
+	q := url.Values{"query": {query}, "limit": {strconv.Itoa(searchLimit)}, "include_deprecated": {"false"}}
+	if len(toolkits) == 1 {
+		q.Set("toolkit_slug", toolkits[0])
+	}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	var page struct {
+		Items []json.RawMessage `json:"items"`
+		Next  string            `json:"next_cursor"`
+	}
+	if _, err := c.request(ctx, "GET", "/tools", q, nil, &page); err != nil {
+		return connector.Search{}, err
+	}
+	result := connector.Search{Tools: []connector.Tool{}, Apps: map[string]connector.App{}, Next: page.Next}
+	if len(page.Items) > searchLimit || len(page.Next) > 4096 || page.Next != "" && page.Next == cursor {
+		return connector.Search{}, connector.ErrDefinition
+	}
+	for _, raw := range page.Items {
+		var wire wireTool
+		if json.Unmarshal(raw, &wire) != nil {
+			result.Skipped++
+			continue
+		}
+		t, err := wire.tool()
+		if err != nil {
+			result.Skipped++
+			continue
+		}
+		if len(want) > 0 && !want[strings.ToLower(t.Toolkit)] {
+			continue
+		}
+		if _, seen := result.Apps[t.Toolkit]; !seen {
+			app, err := c.App(ctx, t.Toolkit)
+			if err != nil {
+				result.Skipped++
+				continue
+			}
+			result.Apps[t.Toolkit] = app
+		}
+		result.Tools = append(result.Tools, t)
+	}
+	return result, nil
 }
