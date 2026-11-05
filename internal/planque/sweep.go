@@ -171,6 +171,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cleanTriggers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
+	// Sign-ins kept for another connection that no live grant uses now.
+	if revoked, err := s.SweepKept(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: kept sign-ins not all revoked yet", slog.String("err", err.Error()))
+	} else if revoked > 0 {
+		s.log().InfoContext(r.Context(), "sweep revoked kept sign-ins", slog.Int("revoked", revoked))
+	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))
