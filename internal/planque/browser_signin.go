@@ -88,7 +88,8 @@ func (s *Server) dropSignIn(ctx context.Context, g *Grant) {
 
 // startBrowserSignIn is the phone's signed ask for a sign-in view on a
 // browser grant: POST …/grants/{id}/sign-in, body {url?}. It answers the
-// view's URL, good for ten minutes, which the app opens.
+// view's URL, good for ten minutes, which the app opens. A view still
+// open on the grant is ended first.
 func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	var req struct {
 		URL string `json:"url"`
@@ -126,9 +127,13 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 		s.fail(w, r, err)
 		return
 	}
+	// A new ask from the phone replaces a view still open (one the owner
+	// closed in the app before Done, say): the old one ends, keeping
+	// nothing, so a view closed by mistake never locks the owner, or the
+	// taf's calls, out until it lapses.
 	if open != nil {
-		writeErr(w, http.StatusConflict, "a sign-in view is open for this connection: finish it on the phone, or wait for it to lapse")
-		return
+		s.dropSignIn(r.Context(), g)
+		g.event(s.now(), "the open sign-in view was ended for a new one; nothing was kept from it")
 	}
 	sites := []string(nil)
 	if g.Request.Browser != nil {

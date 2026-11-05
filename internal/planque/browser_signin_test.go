@@ -73,10 +73,6 @@ func TestBrowserSignInViewSealsWhatTheOwnerSignedIn(t *testing.T) {
 	if out, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != CodeSigningIn || e.b.Sessions != 1 {
 		t.Fatalf("a call during the sign-in: %s (sessions %d)", out, e.b.Sessions)
 	}
-	// A second view at the same time: refused.
-	if st, out := e.startView(g.ID, nil); st != 409 {
-		t.Fatalf("a second view: %d %v", st, out)
-	}
 	// The owner's acts: a tap, a URL off the sites refused, typing the
 	// password, Enter. The fake signs the shop in on that.
 	for _, in := range []map[string]any{{"kind": "tap", "x": 100, "y": 200}, {"kind": "type", "text": "hunter2"}, {"kind": "key", "key": "Enter"}} {
@@ -200,4 +196,49 @@ type noResume struct{ w browser.Worker }
 
 func (n noResume) Start(ctx context.Context, s browser.Start) (browser.Session, error) {
 	return n.w.Start(ctx, s)
+}
+
+// 3. A view closed in the app before Done doesn't lock anyone out: the
+// phone's next ask ends it, keeping nothing, and opens a fresh one.
+func TestBrowserSignInViewAnotherAskReplacesTheOpenOne(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	st, first := e.startView(g.ID, map[string]any{"url": fakes.ShopLogin})
+	if st != 200 {
+		t.Fatalf("first view: %d %v", st, first)
+	}
+	firstURL := first["view"].(string)
+	if st, _, raw := e.view("POST", firstURL+"/input", map[string]any{"kind": "type", "text": "half-typed"}); st != 200 {
+		t.Fatalf("input: %d %s", st, raw)
+	}
+	st, second := e.startView(g.ID, nil)
+	if st != 200 || e.b.Sessions != 2 {
+		t.Fatalf("second view: %d %v (sessions %d)", st, second, e.b.Sessions)
+	}
+	secondURL := second["view"].(string)
+	if secondURL == firstURL {
+		t.Fatal("the second view reused the first one's token")
+	}
+	// The first view is over: its token opens nothing, its browser ended.
+	if st, _, _ := e.view("GET", firstURL, nil); st != 404 {
+		t.Errorf("the replaced view's page: %d", st)
+	}
+	if st, _, _ := e.view("POST", firstURL+"/done", nil); st != 404 {
+		t.Errorf("the replaced view's Done: %d", st)
+	}
+	if _, err := e.b.Resume(context.Background(), "fake_1"); err == nil {
+		t.Error("the replaced view's browser is still running")
+	}
+	// Nothing was kept from it.
+	if _, ok, _ := e.kv.Get(context.Background(), tenantPK(tenant), skBrowserState(g.ID)); ok {
+		t.Error("the replaced view's state was kept")
+	}
+	// The new one works to the end.
+	if st, _, raw := e.view("POST", secondURL+"/done", nil); st != 200 {
+		t.Fatalf("done on the new view: %d %s", st, raw)
+	}
+	gv, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if events := mustJSONString(gv.Events); !strings.Contains(events, "ended for a new one") || strings.Contains(events, "half-typed") {
+		t.Errorf("the grant's record: %s", events)
+	}
 }
