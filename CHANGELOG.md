@@ -27,6 +27,20 @@ version headings refer to releases, not merely to merged pull requests.
   the source, and a checkout's lines (item, quantity, price). planque
   reaches it with `PLANQUE_BROWSER_URL` and `PLANQUE_BROWSER_KEY`. A card number shown in a page's text, or echoed
   in a plain field, reaches the agent as its last four digits only.
+- Any app on demand (kiff/planque#87): a catalog search lists every app the
+  managed provider has, each as it stands (`state: "needs_setup"` for one
+  that needs our own developer credentials first); the unsearched list keeps
+  to the apps with a sign-in set up. Picking an app the provider signs
+  people in to by itself sets its sign-in up at that moment, once, with
+  nothing of ours in it; the grant pins it and is `on_demand: true`, as is
+  every later grant on it. At most ten such set-ups an account a day. Every
+  grant view says who holds the sign-in (`custody`). A catalog read that
+  stops with pages left says `partial: true`.
+- Tools found by words across the provider's apps
+  (`GET /v1/accounts/{tenant}/catalog/tools?q=…`), each with its app as it
+  stands, and an app's events listed before and after a connection
+  (`…/catalog/{entry}/events`, `…/grants/{id}/events`), so Coach proposes
+  apps and events before connecting any (kiff/planque#87).
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a
@@ -35,6 +49,22 @@ version headings refer to releases, not merely to merged pull requests.
   `"app": "telegram"`, once per update. The taf answers with `send_message`,
   a governed call that splits text over 4,096 characters. Disconnecting
   deletes the webhook.
+- A tool the owner approved that changes at the vendor pauses its grant.
+  For a direct MCP connection, planque reads the server's tools again
+  before a call, at most every 10 minutes, and compares each approved
+  tool's input schema with the one approved (a canonical hash kept with
+  the tool from now on; a tool approved earlier is given one at its first
+  read). A tool gone or changed pauses the grant. For a managed connector,
+  a definition the provider answers that differs from the approved one
+  does; one that can't be read or checked pauses nothing. A paused grant
+  sends nothing: every call is refused with the code `operation_changed`,
+  its `status_words` say "Paused · …", and an event records it. The
+  grant's `status` stays `connected`: an app shows the pause through
+  `status_words`, and telling the owner in KIFF comes later. A pause stays
+  on that grant, through a new sign-in too; the owner connects again,
+  approving the current definitions. A tool list planque can't read
+  pauses nothing: the call goes on to its usual handling. REST grants are
+  unchanged: they send only from the approved snapshot.
 
 ### Fixed
 

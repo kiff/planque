@@ -318,6 +318,33 @@ configuration described below.
 The synthetic profile/words vectors exercise both canonical digests. These
 tests do not claim a live vendor check or a successful deployment.
 
+## When an approved tool changes
+
+The owner approves a tool as the vendor defines it then. If the vendor
+changes it later, planque pauses the grant rather than send to a tool the
+owner didn't approve:
+
+- **Direct MCP connections:** before a call, planque reads the server's
+  `tools/list` again, at most every 10 minutes per grant, and compares each
+  granted tool's input schema with the one approved (its JCS SHA-256,
+  `vendor_schema_sha256`). A tool gone, or with another schema, pauses the
+  grant. If the list can't be read, nothing is paused and the call goes on
+  to its usual handling (a sign-out, an unreachable server).
+- **Managed connectors:** before each call, planque reads the provider's
+  definition of the approved tool at its pinned version. One that reads
+  and differs from the approved one pauses the grant. One that can't be
+  read or checked (an unparseable answer, another tool or version) pauses
+  nothing: the call isn't sent and says so, and the next call reads again.
+- **REST grants** send only from the approved operation snapshot, so a
+  vendor change can't alter what is sent.
+
+A paused grant sends nothing. Every call is refused before it reaches the
+vendor, with the code `operation_changed`; the grant's `status_words` say
+"Paused · <what changed> · connect again to approve it", and its events
+record the pause. A pause is never lifted on the same grant, not by a new
+sign-in nor by adding tools: the owner connects again, approving the
+tools' current definitions on a new grant.
+
 ## Reviewed vendor catalog
 
 `PLANQUE_CATALOG_FILE` names a credential-free JSON object of reviewed
