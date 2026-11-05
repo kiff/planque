@@ -446,27 +446,42 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 }
 
 // checkRecordURL accepts an https address at a host, with no credentials in
-// it and at most one {resource} placeholder, which is the only brace in it.
+// it and at most one {resource} placeholder, which is the only brace in it
+// and sits in the path: never in the query or the fragment, where an id's
+// "&" or "=" would add a parameter the vendor's page may act on.
 func checkRecordURL(u string) error {
 	if len(u) > 512 || !strings.HasPrefix(u, "https://") {
 		return errors.New("an https address at the vendor, at most 512 characters")
 	}
-	parsed, err := url.Parse(strings.ReplaceAll(u, RecordPlaceholder, "resource"))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
-		return errors.New("an https address at a host, with no credentials in it")
-	}
 	if strings.Count(u, RecordPlaceholder) > 1 || strings.Count(u, "{") != strings.Count(u, RecordPlaceholder) || strings.Count(u, "}") != strings.Count(u, RecordPlaceholder) {
 		return errors.New("{resource} is the only placeholder, at most once")
 	}
-	if strings.Contains(u, RecordPlaceholder) && !strings.Contains(parsed.EscapedPath(), "resource") {
-		return errors.New("{resource} goes in the address's path")
+	parsed, err := url.Parse(strings.ReplaceAll(u, RecordPlaceholder, "x"))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return errors.New("an https address at a host, with no credentials in it")
+	}
+	// Where the placeholder sits, by position: after the host, before any "?" or "#".
+	if at := strings.Index(u, RecordPlaceholder); at >= 0 {
+		host := len("https://") + len(parsed.Host)
+		stop := strings.IndexAny(u, "?#")
+		if at < host || (stop >= 0 && at > stop) {
+			return errors.New("{resource} goes in the address's path, never its host, query or fragment")
+		}
 	}
 	return nil
 }
 
 // RecordURL fills template with the resource's id, path-escaped, so an id
-// holding "/", "..", "?", "#" or "@" stays inside the vendor's host and path.
+// holding "/", "?", "#" or "@" stays inside the vendor's host and path. An
+// empty id, or "." or "..", which a browser reads as a step up the path,
+// gives no link: KIFF then shows the vendor's name alone.
 func RecordURL(template, resource string) string {
+	if !strings.Contains(template, RecordPlaceholder) {
+		return template
+	}
+	if resource == "" || resource == "." || resource == ".." {
+		return ""
+	}
 	return strings.ReplaceAll(template, RecordPlaceholder, url.PathEscape(resource))
 }
 

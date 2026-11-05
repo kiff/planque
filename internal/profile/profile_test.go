@@ -91,14 +91,16 @@ func TestRecordURLAndLabelRead(t *testing.T) {
 		source  string
 		want    string
 	}{
-		"a drafted profile's record_url": {map[string]any{"record_url": "https://dashboard.stripe.com/payments/{resource}"}, "drafted", "reviewed catalog only"},
-		"http":                           {map[string]any{"record_url": "http://dashboard.stripe.com/payments/{resource}"}, "", "https"},
-		"credentials in it":              {map[string]any{"record_url": "https://user:pw@dashboard.stripe.com/{resource}"}, "", "no credentials"},
-		"two placeholders":               {map[string]any{"record_url": "https://dashboard.stripe.com/{resource}/{resource}"}, "", "at most once"},
-		"another brace":                  {map[string]any{"record_url": "https://dashboard.stripe.com/{account}/payments"}, "", "only placeholder"},
-		"the placeholder as the host":    {map[string]any{"record_url": "https://{resource}/payments"}, "", "path"},
-		"a label_read that is a write":   {map[string]any{"label_read": map[string]any{"tool": "create_refund", "path": "id"}}, "", "is a write"},
-		"a label_read's bad path":        {map[string]any{"label_read": map[string]any{"tool": "get_payment_intent", "path": "../x"}}, "", "dotted path"},
+		"a drafted profile's record_url":  {map[string]any{"record_url": "https://dashboard.stripe.com/payments/{resource}"}, "drafted", "reviewed catalog only"},
+		"http":                            {map[string]any{"record_url": "http://dashboard.stripe.com/payments/{resource}"}, "", "https"},
+		"credentials in it":               {map[string]any{"record_url": "https://user:pw@dashboard.stripe.com/{resource}"}, "", "no credentials"},
+		"two placeholders":                {map[string]any{"record_url": "https://dashboard.stripe.com/{resource}/{resource}"}, "", "at most once"},
+		"another brace":                   {map[string]any{"record_url": "https://dashboard.stripe.com/{account}/payments"}, "", "only placeholder"},
+		"the placeholder as the host":     {map[string]any{"record_url": "https://{resource}/payments"}, "", "path"},
+		"the placeholder in the query":    {map[string]any{"record_url": "https://dash.example.com/resources/view?id={resource}"}, "", "path"},
+		"the placeholder in the fragment": {map[string]any{"record_url": "https://dash.example.com/resource#{resource}"}, "", "path"},
+		"a label_read that is a write":    {map[string]any{"label_read": map[string]any{"tool": "create_refund", "path": "id"}}, "", "is a write"},
+		"a label_read's bad path":         {map[string]any{"label_read": map[string]any{"tool": "get_payment_intent", "path": "../x"}}, "", "dotted path"},
 	} {
 		if _, err := with(c.changes, c.source); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", name, err, c.want)
@@ -130,5 +132,11 @@ func TestRecordURLAndLabelRead(t *testing.T) {
 	}
 	if got := RecordURL("https://dashboard.stripe.com/payments", "pi_1"); got != "https://dashboard.stripe.com/payments" {
 		t.Errorf("no placeholder: %s", got)
+	}
+	// An id a browser would read as a step up the path, or none, gives no link.
+	for _, id := range []string{"", ".", ".."} {
+		if got := RecordURL("https://dashboard.stripe.com/payments/{resource}", id); got != "" {
+			t.Errorf("%q: %s, want no link", id, got)
+		}
 	}
 }
