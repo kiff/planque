@@ -22,6 +22,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- Disconnecting one taf's connection never signs another taf out. A sign-in
+  another live connection still uses (a second taf that reused it, or a
+  provider's connected account two connections pin) stays: only this
+  connection ends, its tools out of KIFF, and its record says the sign-in
+  stayed. The sign-in is revoked when the last connection on it is
+  disconnected, so it never outlives them. An expiring held sign-in another
+  connection uses is kept the same way.
+
 - A refused call through a managed connection says who refused it and why:
   the vendor's answer, or the provider's with its status, redacted and on
   one line. Before, every refusal was one fixed line, the same for any call,

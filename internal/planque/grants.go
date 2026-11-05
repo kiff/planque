@@ -1122,13 +1122,20 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 // so revoking can be tried again: dropping it would leave it live at the
 // vendor with no way to revoke it.
 func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
+	// A sign-in another grant uses is theirs too: it stays.
+	if users, err := s.signInUsers(ctx, g); err != nil {
+		return fmt.Errorf("read the connections sharing its sign-in: %w", err)
+	} else if len(users) > 0 {
+		return nil
+	}
 	if g.Request.Connector != nil {
 		return s.revokeConnector(ctx, g)
 	}
-	// A reused sign-in is the other grant's to revoke; a key has no
-	// revocation at the vendor, so it's deleted here (kiff/planque#64).
+	// A reused sign-in is the other grant's to revoke, unless that one is
+	// gone and this is the last on it; a key has no revocation at the
+	// vendor, so it's deleted here (kiff/planque#64).
 	if g.TokenOf != "" {
-		return nil
+		return s.revokeLastOnShared(ctx, g)
 	}
 	if g.Request.Kind == KindAPIKey {
 		if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID)); err != nil {
@@ -1810,6 +1817,22 @@ func accountNote(a string) string {
 // here, whatever the vendor answers. It returns what the vendor did not
 // confirm.
 func (s *Server) revoke(ctx context.Context, g *Grant) []string {
+	// A sign-in another taf still uses stays: only this connection ends
+	// (its tools are out of KIFF already). Disconnecting one taf never
+	// signs another out.
+	users, err := s.signInUsers(ctx, g)
+	if err != nil {
+		return []string{"the connections sharing its sign-in could not be read, so the sign-in was kept: " + err.Error()}
+	}
+	if len(users) > 0 {
+		g.keptFor = len(users)
+		if g.Request.Connector != nil {
+			if err := s.stopTriggers(ctx, g); err != nil {
+				return []string{err.Error()}
+			}
+		}
+		return s.dropBrowser(ctx, g)
+	}
 	if g.Request.Connector != nil {
 		if err := s.revokeConnector(ctx, g); err != nil {
 			return []string{err.Error()}
@@ -1821,7 +1844,9 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	}
 	var problems []string
 	if g.TokenOf != "" {
-		return nil // the other grant's sign-in: it stays
+		// The last connection on another grant's sign-in, which was
+		// disconnected while this one still used it: revoked now.
+		return s.revokeShared(ctx, g)
 	}
 	// A Telegram bot's webhook goes while its token can still delete it.
 	problems = append(problems, s.dropTelegramHook(ctx, g)...)
@@ -1839,6 +1864,82 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	}
 	s.dropToken(ctx, g)
 	return problems
+}
+
+// signInUsers are the account's other live grants on g's sign-in: those
+// that reuse its token (TokenOf, kiff/planque#36), or for a provider's app,
+// those that pin the same connected account. A disconnected or failed grant
+// uses nothing.
+func (s *Server) signInUsers(ctx context.Context, g *Grant) ([]string, error) {
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, it := range items {
+		var o Grant
+		if json.Unmarshal(it.Doc, &o) != nil || o.ID == g.ID || o.Status == StatusDisconnected || o.Status == StatusFailed {
+			continue
+		}
+		if sameSignIn(g, &o) {
+			out = append(out, o.ID)
+		}
+	}
+	return out, nil
+}
+
+// sameSignIn: a and b use one sign-in, the same token record, or the same
+// provider's connected account.
+func sameSignIn(a, b *Grant) bool {
+	if a.Request.Connector != nil || b.Request.Connector != nil {
+		return a.Request.Connector != nil && b.Request.Connector != nil && a.Connector != nil && b.Connector != nil &&
+			a.Connector.Account != "" && a.Connector.Account == b.Connector.Account &&
+			a.Request.Connector.Provider == b.Request.Connector.Provider
+	}
+	return tokenOwner(a) == tokenOwner(b)
+}
+
+// revokeShared revokes the sign-in g reused, once g is the last connection
+// on it and the grant that signed in is gone: revoked at the vendor, then
+// dropped, so a kept sign-in never outlives every taf that used it.
+func (s *Server) revokeShared(ctx context.Context, g *Grant) []string {
+	if err := s.revokeLastOnShared(ctx, g); err != nil {
+		return []string{err.Error()}
+	}
+	return nil
+}
+
+// revokeLastOnShared is revokeShared for the disconnect and the expiry
+// paths alike: an error when the vendor didn't confirm, so the token is
+// kept and revoking is tried again, never dropped while live.
+func (s *Server) revokeLastOnShared(ctx context.Context, g *Grant) error {
+	owner, err := s.loadGrant(ctx, g.Tenant, g.TokenOf)
+	if err == nil && owner.Status != StatusDisconnected && owner.Status != StatusFailed {
+		return nil // the grant that signed in is still live: the sign-in is its
+	}
+	if err != nil && !errors.Is(err, errNotFound) {
+		return fmt.Errorf("read the grant whose sign-in it used: %w", err)
+	}
+	if g.Request.Kind != KindAPIKey {
+		tok, _, err := s.openToken(ctx, g)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return fmt.Errorf("open the shared sign-in's token to revoke it: %w", err)
+		}
+		if err == nil {
+			for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
+				if t.tok == "" {
+					continue
+				}
+				if err := s.revokeToken(ctx, g, t.tok, t.hint); err != nil {
+					return fmt.Errorf("the vendor did not confirm revoking the %s: %w", t.hint, err)
+				}
+			}
+		}
+	}
+	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.TokenOf)); err != nil {
+		return fmt.Errorf("drop the shared sign-in's token: %w", err)
+	}
+	return nil
 }
 
 // undo removes what connect registered and revokes the token.
@@ -1892,6 +1993,8 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	switch {
+	case g.keptFor > 0:
+		what = "disconnected " + sr.approval.Who() + ": the sign-in stays, another taf's connection uses it"
 	case g.TokenOf != "":
 		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
 	case g.Request.Kind == KindAPIKey:

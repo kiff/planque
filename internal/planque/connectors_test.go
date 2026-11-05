@@ -852,3 +852,37 @@ func TestAConnectorCallStoppedBeforeTheProviderIsARefusalWithItsCode(t *testing.
 		t.Fatal("the provider ran it")
 	}
 }
+
+// Two tafs' connections on one provider's connected account: disconnecting
+// one ends only that one, and the account stays signed in at the provider
+// for the other; disconnecting the last one revokes it.
+func TestDisconnectingOneTafKeepsAProviderAccountAnotherUses(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	a := connectConnector(t, e, f)
+	b := connectConnector(t, e, f)
+	if b.Connector.Account != a.Connector.Account {
+		// The provider gave each its own account: pin b on a's, as one
+		// connected account reused by a second taf is.
+		b.Connector.Account = a.Connector.Account
+		if err := e.s.saveGrant(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+a.ID, nil, e.phone, "")
+	if st != 200 || out["status"] != StatusDisconnected {
+		t.Fatalf("disconnect the first: %d %v", st, out)
+	}
+	if f.revocations != 0 {
+		t.Fatalf("disconnecting one taf revoked the account another uses: %d revocations", f.revocations)
+	}
+	if g, _ := e.s.loadGrant(ctx, tenant, b.ID); g.Status != StatusConnected {
+		t.Fatalf("the other taf's connection: %s", g.Status)
+	}
+	if st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+b.ID, nil, e.phone, ""); st != 200 || out["status"] != StatusDisconnected {
+		t.Fatalf("disconnect the second: %d %v", st, out)
+	}
+	if f.revocations != 1 {
+		t.Fatalf("the last connection on the account didn't revoke it: %d revocations", f.revocations)
+	}
+}
