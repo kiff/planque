@@ -28,7 +28,7 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
@@ -36,9 +36,11 @@ unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL
 export PLANQUE_APP_RETURN=https://app.example/confirm
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
+current_env=null
 aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
+ "lambda get-function-configuration") echo "$current_env";;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
  "secretsmanager describe-secret")
   while [[ $# -gt 0 ]]; do
@@ -66,6 +68,8 @@ aws() {
 				script += "FAKE=kiff\nexport FAKEKIFF_ENV='{}'\n"
 			case "handoff":
 				script += "export PLANQUE_DOOR_SECRET=demo/doors/handoff\nexport PLANQUE_DOOR_URL=https://receiver.example/v1/doors/planque\n"
+			case "browser":
+				script += `current_env='{"PLANQUE_BROWSER_URL":"http://worker.demo.internal:8787","PLANQUE_BROWSER_KEY":"k","PLANQUE_STALE":"x"}'` + "\n"
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -108,11 +112,18 @@ aws() {
 			if json.Unmarshal([]byte(lines[1]), &env) != nil {
 				t.Fatal("invalid Lambda environment")
 			}
+			if scenario == "browser" {
+				if env.Variables["PLANQUE_BROWSER_URL"] != "http://worker.demo.internal:8787" || env.Variables["PLANQUE_BROWSER_KEY"] != "k" || env.Variables["PLANQUE_STALE"] != "" {
+					t.Fatal("the browser worker's settings weren't kept as they were, or something else was")
+				}
+			} else if env.Variables["PLANQUE_BROWSER_URL"] != "" || env.Variables["PLANQUE_BROWSER_KEY"] != "" {
+				t.Fatal("browser settings appeared from nowhere")
+			}
 			if scenario == "handoff" {
 				if granted != 2 || env.Variables["PLANQUE_DOOR_SECRET"] != "demo/doors/handoff" || env.Variables["PLANQUE_DOOR_URL"] != "https://receiver.example/v1/doors/planque" {
 					t.Fatal("handoff secret or fixed receiver was not configured")
 				}
-			} else if scenario == "enabled" {
+			} else if scenario == "enabled" || scenario == "browser" {
 				if granted != 1 || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "demo/connectors/composio" {
 					t.Fatal("managed connector was not configured")
 				}
