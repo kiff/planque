@@ -27,6 +27,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- The browser connection refuses every form a browser reads as an address,
+  not only a dotted one: a short or hexadecimal one (`127.1`, `0x7f.1`),
+  one with a leading zero, or one written with another script's full stop.
+  A site's name in another script is refused; its `xn--` form opens.
 - A connection an account key asked for (an app's own Connect apps screen)
   can be finished: the taf it is for and the account's Setup agent (KIFF
   role `setup_reader`) may list it, read its catalog and propose its tools.

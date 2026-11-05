@@ -348,9 +348,17 @@ func Allowed(raw string, sites []string) (code, why string) {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return CodeBadURL, "the URL must be https, with a host and no user info"
 	}
-	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+	// A browser reads another script's full stop as a dot (UTS 46), so a
+	// host is checked as it will read it; any other non-ASCII name is
+	// refused, a site's name being given in ASCII (its xn-- form).
+	host := strings.TrimSuffix(strings.ToLower(ideographicDots.Replace(u.Hostname())), ".")
+	if _, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil || endsInANumber(host) {
 		return CodeAddressPrivate, "the browser opens sites by name, never an address"
+	}
+	for _, r := range host {
+		if r > 0x7f {
+			return CodeBadURL, "the site's name must be in ASCII (its xn-- form)"
+		}
 	}
 	if local(host) {
 		return CodeAddressPrivate, host + " is a local name, not a site"
@@ -364,6 +372,25 @@ func Allowed(raw string, sites []string) (code, why string) {
 		}
 	}
 	return CodeSiteNotListed, host + " isn't one of the sites this connection may use (" + strings.Join(sites, ", ") + ")"
+}
+
+// ideographicDots are the full stops a browser reads as a dot in a host.
+var ideographicDots = strings.NewReplacer("\u3002", ".", "\uff0e", ".", "\uff61", ".")
+
+// endsInANumber says a browser reads host as an IPv4 address, as the URL
+// standard does when its last label is a number: decimal, octal (a leading
+// 0) or hexadecimal (0x), so 127.1, 0x7f.1 and 0177.0.0.1 are addresses.
+func endsInANumber(host string) bool {
+	labels := strings.Split(host, ".")
+	last := labels[len(labels)-1]
+	if last == "" {
+		return false
+	}
+	if strings.HasPrefix(last, "0x") {
+		last = last[2:]
+		return strings.Trim(last, "0123456789abcdef") == ""
+	}
+	return strings.Trim(last, "0123456789") == ""
 }
 
 // Site is the host a URL names, lower case; "" when it isn't a URL.
