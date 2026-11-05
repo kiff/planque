@@ -274,7 +274,7 @@ Such a call is refused before sending while the taf has no active
 subscription to that event on the connection (`not_listening`): nothing
 would ever resume the run. Sent and answered, the relay's result is the
 vendor's answer with a line added, and in its structured content
-`{"pending": true, "sent": true, "wait_for": {"event", "key"}, "timeout_s"}`;
+`{"pending": true, "sent": true, "wait_for": {"grant", "event", "key", "words"}, "timeout_s"}`;
 an answer with no handle at its path is left as it was, saying so. A
 replay answers the same. When the event comes, its delivery
 (`planque.event.v1`) carries `key`: the value at `event_key` in the payload,

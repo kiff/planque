@@ -120,7 +120,7 @@ func atPath(v any, path string) string {
 // reads it: the vendor's answer as it was, said pending, with the handle
 // and the deadline in its structured content. When the answer carries no
 // handle, it is left as it was: the run goes on, and the words say so.
-func pending(res any, c *profile.Completes) any {
+func pending(res any, c *profile.Completes, grant string) any {
 	m, ok := res.(map[string]any)
 	if !ok {
 		raw, err := json.Marshal(res)
@@ -147,7 +147,7 @@ func pending(res any, c *profile.Completes) any {
 			sc = map[string]any{}
 		}
 		sc["pending"], sc["sent"], sc["timeout_s"] = true, true, c.TimeoutS
-		sc["wait_for"] = map[string]any{"event": c.Event, "key": key}
+		sc["wait_for"] = map[string]any{"grant": grant, "event": c.Event, "key": key, "words": c.Words}
 		m["structuredContent"] = sc
 	}
 	return m
@@ -191,7 +191,7 @@ func eventKey(g *Grant, slug string, payload json.RawMessage) string {
 func (s *Server) completed(ctx context.Context, g *Grant, name string, claim store.Item, op operation, state string, res any) any {
 	if state == OpDone {
 		if c := completesOf(g, name); c != nil {
-			res = pending(res, c)
+			res = pending(res, c, g.ID)
 		}
 	}
 	return s.finish(ctx, claim, op, state, res)

@@ -60,7 +60,7 @@ func TestACallThatCompletesLaterIsPendingAndItsEventCarriesTheKey(t *testing.T) 
 		t.Fatalf("a call that completes later: %s (executions %d)", out, f.executions)
 	}
 	wait, _ := sc["wait_for"].(map[string]any)
-	if wait["event"] != "DESK_DEMO_NEW_TICKET" || wait["key"] != "reply_demo" || !strings.Contains(out, "the run waits up to 15 min") || !strings.Contains(out, "The desk answers when the customer replies") {
+	if wait["event"] != "DESK_DEMO_NEW_TICKET" || wait["key"] != "reply_demo" || wait["grant"] != g.ID || wait["words"] == "" || !strings.Contains(out, "the run waits up to 15 min") || !strings.Contains(out, "The desk answers when the customer replies") {
 		t.Fatalf("the pending answer: %s", out)
 	}
 	// A replay answers the same, sending nothing more.
@@ -114,13 +114,13 @@ func TestProfileCompletesIsChecked(t *testing.T) {
 		t.Errorf("a read with completes: %v", err)
 	}
 	// The pending answer: a result without the handle is left as it was.
-	res := pending(toolResult(`{"other":1}`, false), ok.Operations[0].Completes)
+	res := pending(toolResult(`{"other":1}`, false), ok.Operations[0].Completes, "grt_x")
 	text, sc := textOf(res)
 	if sc["pending"] != nil || !strings.Contains(text, "carries no id") {
 		t.Errorf("a result with no handle: %s %v", text, sc)
 	}
 	// An error result is never pending.
-	res = pending(toolResult("the desk refused it", true), ok.Operations[0].Completes)
+	res = pending(toolResult("the desk refused it", true), ok.Operations[0].Completes, "grt_x")
 	if _, sc := textOf(res); sc["pending"] != nil {
 		t.Errorf("an error result: %v", sc)
 	}
