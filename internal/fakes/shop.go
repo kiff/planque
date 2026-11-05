@@ -105,6 +105,14 @@ func (s *Shop) handler() http.Handler {
 		fmt.Fprint(w, page("Commande", `<h1>Votre commande</h1><ul class=panier><li>Stylo bleu × 2 — 2,50 €</li></ul><p>Sous-total : 2,50 €</p><p>Montant total : 2,50 €</p>
 <form method=post action=/commande/valider><label>Courriel <input name=email type=email></label><button>Commander</button></form>`))
 	})
+	mux.HandleFunc("/frame", func(w http.ResponseWriter, r *http.Request) {
+		// A page embedding a frame from wherever src says: another site, to
+		// a browser, when its host differs.
+		fmt.Fprint(w, page("Framed", `<h1>Framed</h1><iframe id=f src="`+r.URL.Query().Get("src")+`" width=400 height=200></iframe>`))
+	})
+	mux.HandleFunc("/inner", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Inner", `<p>Inner frame</p>`))
+	})
 	mux.HandleFunc("/file", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", "attachment; filename=secret.txt")
 		w.Header().Set("Content-Type", "application/octet-stream")

@@ -27,6 +27,16 @@ type chrome struct {
 	eventCh chan struct{}
 	done    chan struct{}
 	err     error
+	// handlers run for every event, each in a goroutine of its own, so
+	// one may call the browser back (the reader never waits on them).
+	handlers []func(cdpMessage)
+}
+
+// handle adds a handler for the browser's events.
+func (c *chrome) handle(h func(cdpMessage)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.handlers = append(c.handlers, h)
 }
 
 type cdpMessage struct {
@@ -117,6 +127,10 @@ func launchArgs(dir, proxy string) []string {
 		// Loopback too goes through the proxy: nothing bypasses it.
 		"--proxy-bypass-list=<-loopback>",
 		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+		// Every site in a process of its own, cross-site frames included:
+		// the boundary the per-target script relies on, and the stronger
+		// isolation anyway.
+		"--site-per-process",
 		"about:blank",
 	}
 }
@@ -155,6 +169,9 @@ func (c *chrome) read(r *bufio.Reader) {
 			select {
 			case c.eventCh <- struct{}{}:
 			default:
+			}
+			for _, h := range c.handlers {
+				go h(m)
 			}
 		}
 		c.mu.Unlock()

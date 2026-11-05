@@ -172,11 +172,14 @@ name itself, connects only to public addresses (`egress.Public`, every
 answer of the name, by address so a rebind reaches nothing), only to the
 grant's sites when it has a list, over https on 443, and never to a name
 written as an address or a local name. WebRTC, whose UDP would go around
-an HTTP proxy, is taken away from every document the session loads,
-frames included, before the page's own script runs (the browser's policy
-flag confining it to the proxy is set too, but measured alone it still let
-STUN checks out), so a page opens no peer connection and probes no
-address. Downloads are denied. A session unused for two minutes is ended
+an HTTP proxy, is taken away from every document the session loads before
+the page's own script runs: the page's target, and every child target the
+browser attaches with its debugger paused (a cross-site frame is its own
+process under site isolation, which the worker forces on; frames in
+frames; workers), each armed and only then released. The browser's policy
+flag confining WebRTC to the proxy is set too, but measured alone it still
+let STUN checks out. So a page, in any frame, opens no peer connection and
+probes no address. Downloads are denied. A session unused for two minutes is ended
 by the worker. Deployed, the worker runs in a network with no route to
 planque's or anyone's private addresses: a second line behind the proxy.
 
