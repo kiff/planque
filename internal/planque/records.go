@@ -317,6 +317,9 @@ type Grant struct {
 	// keptFor is how many other live grants kept this one's sign-in when it
 	// was disconnected; not stored.
 	keptFor int
+	// revokedShared: this grant was the last on a sign-in it reused, and
+	// its disconnect or expiry revoked that sign-in; not stored.
+	revokedShared bool
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.

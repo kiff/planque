@@ -1939,6 +1939,7 @@ func (s *Server) revokeLastOnShared(ctx context.Context, g *Grant) error {
 	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.TokenOf)); err != nil {
 		return fmt.Errorf("drop the shared sign-in's token: %w", err)
 	}
+	g.revokedShared = true
 	return nil
 }
 
@@ -1995,6 +1996,10 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	switch {
 	case g.keptFor > 0:
 		what = "disconnected " + sr.approval.Who() + ": the sign-in stays, another taf's connection uses it"
+	case g.revokedShared && g.Request.Kind == KindAPIKey:
+		what = "disconnected " + sr.approval.Who() + ": the key it shared was deleted, no other connection used it"
+	case g.revokedShared:
+		what = "disconnected " + sr.approval.Who() + ": the sign-in it shared was revoked, no other connection used it"
 	case g.TokenOf != "":
 		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
 	case g.Request.Kind == KindAPIKey:

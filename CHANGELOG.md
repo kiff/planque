@@ -22,6 +22,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- The last connection on a shared sign-in says what its disconnect did: "the
+  sign-in it shared was revoked" (or, for a key, "the key it shared was
+  deleted"), not that the sign-in stays.
+
 - Disconnecting one taf's connection never signs another taf out. A sign-in
   another live connection still uses (a second taf that reused it, or a
   provider's connected account two connections pin) stays: only this
