@@ -7,6 +7,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- A refused call through a managed connection says who refused it and why:
+  the vendor's answer, or the provider's with its status, redacted and on
+  one line. Before, every refusal was one fixed line, the same for any call,
+  so nobody could tell a wrong account or mode from a broken tool.
+- A managed connection's grant shows its account's name and its mode
+  (`live`, `test`, or `unknown`, treated as live), from the objects
+  permitted calls returned, live winning, with no call of planque's own.
 - Adding tools to a connection whose profile the owner approved: a profile
   of the new operations alone is merged into the approved one, which stays
   as it is. Before, every such addition was refused, since the caller has

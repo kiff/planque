@@ -677,6 +677,15 @@ type grantView struct {
 	// OnDemand: the app's sign-in was set up on this owner's pick.
 	OnDemand bool    `json:"on_demand,omitempty"`
 	Events   []Event `json:"events"`
+	// AccountName and Mode are what a managed connection has shown of its
+	// vendor account: the provider's name for it, and "live", "test" or
+	// "unknown" (treated as live) until a permitted call returned an object
+	// that says. Only on a managed connection.
+	AccountName string `json:"account_name,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	// ModeWords is Mode in the owner's words, so every app says the same,
+	// planque's rule for an unknown mode included.
+	ModeWords string `json:"mode_words,omitempty"`
 }
 
 // Who holds a grant's sign-in.
@@ -704,6 +713,14 @@ func (s *Server) view(g *Grant) grantView {
 	if c := g.Request.Connector; c != nil {
 		v.Provider = c.Provider
 		v.Custody = CustodyProvider
+		v.Mode = ModeUnknown
+		if st := g.Connector; st != nil {
+			v.AccountName = st.AccountName
+			if st.Mode != "" {
+				v.Mode = st.Mode
+			}
+		}
+		v.ModeWords = modeWords[v.Mode]
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
 		}

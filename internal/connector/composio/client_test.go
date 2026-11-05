@@ -678,3 +678,38 @@ func TestTriggerTypesListsAnAppsEvents(t *testing.T) {
 		t.Fatalf("bad app: %v", err)
 	}
 }
+
+// A refused call keeps who refused it and why: the vendor's own answer passed
+// on by the provider, or the provider's own refusal with its status, each
+// redacted (the project key never comes back in a reason).
+func TestARefusalKeepsWhoRefusedAndWhy(t *testing.T) {
+	run := func(status int, body string) connector.Result {
+		t.Helper()
+		c := testClient(func(r *http.Request) (*http.Response, error) {
+			switch r.URL.Path {
+			case "/api/v3.1/connected_accounts/account_one":
+				return response(200, accountJSON), nil
+			case "/api/v3.1/tools/DESK_REPLY":
+				return response(200, toolJSON), nil
+			case "/api/v3.1/tools/execute/DESK_REPLY":
+				return response(status, body), nil
+			}
+			t.Fatalf("unexpected path %s", r.URL.Path)
+			return nil, nil
+		})
+		got, err := c.Execute(context.Background(), connector.Identity{User: "owner_one", Toolkit: "desk"}, "account_one", approvedTool(t), json.RawMessage(`{"ticket":"ticket_one","text":"hello"}`), func() bool { return true })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := run(200, `{"data":{},"successful":false,"error":"No such ticket: 'ticket_one'"}`); !got.Refused || !got.ByVendor || got.Reason != "No such ticket: 'ticket_one'" || got.Status != 0 {
+		t.Fatalf("the vendor's refusal: %+v", got)
+	}
+	if got := run(403, `{"error":{"message":"key synthetic-project-key may not use this account"}}`); !got.Refused || got.ByVendor || got.Status != 403 || got.Reason != "key [redacted] may not use this account" {
+		t.Fatalf("the provider's refusal: %+v", got)
+	}
+	if got := run(502, `{"message":"upstream timed out"}`); !got.Unknown || got.Refused || got.Status != 502 || got.Reason != "upstream timed out" {
+		t.Fatalf("no confirmed result: %+v", got)
+	}
+}

@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -33,7 +34,10 @@ type connectorFixture struct {
 	links                             int
 	foreign, changed, lost, strayLink bool
 	// toolBody, when set, is the provider's answer for the pinned tool.
-	toolBody                                string
+	toolBody string
+	// executeStatus and executeBody, when set, are the provider's answer to an execution.
+	executeStatus                           int
+	executeBody                             string
 	authorizations, executions, revocations int
 	// setUps are the apps whose sign-in planque asked the provider to set up, in order.
 	setUps  []string
@@ -134,7 +138,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.foreign {
 			user = "another_owner"
 		}
-		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"}})
+		// As the provider shows a vendor account: its name readable, its id and mode redacted.
+		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
+			"data": map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}})
 		body = string(b)
 	case path == "/tools" && r.URL.Query().Get("query") != "":
 		// A search by words: a tool of a set-up app, one of an app that needs setup,
@@ -183,6 +189,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			return nil, errors.New("synthetic lost answer")
 		}
 		body = `{"data":{"id":"reply_demo"},"successful":true}`
+		if f.executeBody != "" {
+			return profileResponse(cmp.Or(f.executeStatus, 200), f.executeBody), nil
+		}
 	default:
 		f.t.Fatalf("unexpected provider request %s %s", r.Method, r.URL)
 	}
@@ -723,5 +732,123 @@ func TestConnectorOnDemandCapHoldsUnderARace(t *testing.T) {
 	f.mu.Unlock()
 	if setUps > onDemandADay || made > onDemandADay || made+refused != 12 {
 		t.Fatalf("%d set up, %d made, %d refused, cap %d", setUps, made, refused, onDemandADay)
+	}
+}
+
+// A refused call tells the taf who refused it and why, so it can tell the
+// owner: the vendor's own reason, the provider's with its status, or a lost
+// answer with the provider's words, each still saying no claim is made about
+// an effect. Before, every refusal was one fixed line, the same for any id.
+func TestARefusedCallSaysWhoRefusedAndWhy(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	call := func(op string) string {
+		t.Helper()
+		args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"` + op + `"}`)
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: op, Args: args})
+		return mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit))
+	}
+	f.executeBody = `{"data":{},"successful":false,"error":"No such ticket: 'ticket_demo'"}`
+	if got := call("op_vendor"); !strings.Contains(got, "refused it: No such ticket: 'ticket_demo'. No claim is made about whether an effect occurred.") || !strings.Contains(got, `"isError":true`) {
+		t.Fatalf("the vendor's refusal: %s", got)
+	}
+	f.executeStatus, f.executeBody = 403, `{"error":{"message":"this account may not run that action"}}`
+	if got := call("op_provider"); !strings.Contains(got, "The connection provider refused it (it answered 403): this account may not run that action. No claim is made") {
+		t.Fatalf("the provider's refusal: %s", got)
+	}
+	f.executeStatus, f.executeBody = 502, `{"message":"upstream timed out"}`
+	if got := call("op_unknown"); !strings.Contains(got, "The connector did not return a confirmed result (it answered 502): upstream timed out. This operation will not be sent again.") {
+		t.Fatalf("no confirmed result: %s", got)
+	}
+}
+
+// A managed connection's mode is what permitted calls showed, never a call
+// of planque's own: unknown (treated as live) until an answer carries
+// "livemode". Live wins: a test answer never hides a live one, and once live
+// it stays live. An empty list says nothing. The account's name is the
+// provider's, and its redacted id and mode never pass for one.
+func TestAConnectionsModeIsWhatAPermittedCallShowed(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	call := func(op string) {
+		t.Helper()
+		args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"` + op + `"}`)
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: op, Args: args})
+		e.s.call(ctx, g, "reply_ticket", args, permit)
+	}
+	grant := func() map[string]any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("read the grant: %d %v", st, out)
+		}
+		return out
+	}
+	if v := grant(); v["mode"] != ModeUnknown || v["mode_words"] != "Mode not known yet: treated as live" {
+		t.Fatalf("before any call: %v, %v", v["mode"], v["mode_words"])
+	}
+	executions := f.executions
+	f.executeBody = `{"data":{"object":"list","data":[],"has_more":false},"successful":true}`
+	call("op_empty")
+	if v := grant(); v["mode"] != ModeUnknown || v["account_name"] != "Demo Shop" {
+		t.Fatalf("after an empty list: mode %v, account %v", v["mode"], v["account_name"])
+	}
+	f.executeBody = `{"data":{"id":"in_1","object":"invoice","livemode":false},"successful":true}`
+	call("op_test")
+	if v := grant(); v["mode"] != "test" || v["mode_words"] != "Test" {
+		t.Fatalf("after a test object: %v, %v", v["mode"], v["mode_words"])
+	}
+	// Live wins: a live object after a test one makes it live.
+	f.executeBody = `{"data":{"object":"list","data":[{"id":"in_2","livemode":false},{"id":"in_3","livemode":true}]},"successful":true}`
+	call("op_live")
+	if v := grant(); v["mode"] != "live" || v["mode_words"] != "Live" {
+		t.Fatalf("after a live object: %v, %v", v["mode"], v["mode_words"])
+	}
+	// And stays live: a later test answer changes nothing.
+	f.executeBody = `{"data":{"id":"in_4","livemode":false},"successful":true}`
+	call("op_test_again")
+	if v := grant(); v["mode"] != "live" {
+		t.Fatalf("a test answer after live changed the mode: %v", v["mode"])
+	}
+	// Only the four permitted calls reached the vendor: planque made none of its own.
+	if f.executions != executions+4 {
+		t.Fatalf("executions: %d, want %d", f.executions, executions+4)
+	}
+}
+
+func TestModeOf(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"livemode":false}`: "test",
+		`{"data":{"object":"list","data":[{"livemode":true}]}}`: "live",
+		`{"response_data":{"livemode":false}}`:                  "test",
+		`{"data":{"object":"list","data":[]}}`:                  "",
+		`{"livemode":"REDACTED"}`:                               "",
+		`not json`:                                              "",
+	} {
+		if got := modeOf(json.RawMessage(raw)); got != want {
+			t.Errorf("modeOf(%s) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// A connector call planque stops before the provider runs it is a refusal
+// with its code, so KIFF never takes it for the vendor's error: nothing was
+// sent.
+func TestAConnectorCallStoppedBeforeTheProviderIsARefusalWithItsCode(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	f.accountStatus = "EXPIRED"
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_down"}`)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_down", Args: args})
+	executions := f.executions
+	got := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit))
+	if !strings.Contains(got, `"refused_by":"connection"`) || !strings.Contains(got, `"code":"`+CodeConnectionDown+`"`) || !strings.Contains(got, `"sent":false`) || !strings.Contains(got, "Not sent: ") {
+		t.Fatalf("a call stopped before the provider: %s", got)
+	}
+	if f.executions != executions {
+		t.Fatal("the provider ran it")
 	}
 }

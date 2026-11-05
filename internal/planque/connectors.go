@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -43,6 +44,101 @@ type ConnectorState struct {
 	Account    string                `json:"account"`
 	Tools      []connector.Tool      `json:"tools,omitempty"`
 	Revocation *connector.Revocation `json:"revocation,omitempty"`
+	// AccountName is the vendor account's name as the provider shows it.
+	AccountName string `json:"account_name,omitempty"`
+	// Mode is the vendor account's mode, "live" or "test", as the objects
+	// permitted calls returned said it (their "livemode"), and when: live
+	// wins, so once any live object is seen it stays live. Empty is
+	// unknown, which every reader treats as live: planque never calls the
+	// vendor outside a permit to find out.
+	Mode       string    `json:"mode,omitempty"`
+	ModeSeenAt time.Time `json:"mode_seen_at,omitzero"`
+}
+
+// ModeUnknown is what a grant says before a permitted call has shown its
+// account's mode; it is treated as live.
+const ModeUnknown = "unknown"
+
+// modeWords say a grant's mode to the owner, the same in every app.
+var modeWords = map[string]string{
+	"live":      "Live",
+	"test":      "Test",
+	ModeUnknown: "Mode not known yet: treated as live",
+}
+
+// modeOf reads the "livemode" a vendor's answer carries, at its top and in
+// the objects it lists, at most three levels down: "live" if any object
+// read is live, "test" only if every one read is not, "" when none says (an
+// empty list says nothing). Live wins, so a test object never hides a live
+// one.
+func modeOf(data json.RawMessage) string {
+	var v any
+	if json.Unmarshal(data, &v) != nil {
+		return ""
+	}
+	live, test := false, false
+	var walk func(any, int)
+	walk = func(v any, depth int) {
+		if depth > 3 || live {
+			return
+		}
+		switch x := v.(type) {
+		case map[string]any:
+			if b, ok := x["livemode"].(bool); ok {
+				if b {
+					live = true
+					return
+				}
+				test = true
+			}
+			for _, k := range []string{"data", "response_data", "object", "result"} {
+				walk(x[k], depth+1)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e, depth+1)
+			}
+		}
+	}
+	walk(v, 0)
+	switch {
+	case live:
+		return "live"
+	case test:
+		return "test"
+	}
+	return ""
+}
+
+// noteAccount keeps on the grant what a call showed of its account: the
+// provider's name for it, and its mode, where live wins: a live answer sets
+// live whatever was there, a test answer counts only while the mode is
+// unknown, so a test reading never hides a live one. Best effort: a grant
+// changed meanwhile keeps its version, and the next call notes it again.
+func (s *Server) noteAccount(ctx context.Context, g *Grant, r connector.Result) {
+	if g.Connector == nil {
+		return
+	}
+	mode := ""
+	if !r.Refused && !r.Unknown {
+		switch seen := modeOf(r.Data); {
+		case seen == "live" && g.Connector.Mode != "live":
+			mode = "live"
+		case seen == "test" && g.Connector.Mode == "":
+			mode = "test"
+		}
+	}
+	name := r.AccountName
+	if mode == "" && (name == "" || name == g.Connector.AccountName) {
+		return
+	}
+	if mode != "" {
+		g.Connector.Mode, g.Connector.ModeSeenAt = mode, s.now()
+	}
+	if name != "" {
+		g.Connector.AccountName = name
+	}
+	_ = s.saveGrant(ctx, g)
 }
 
 func connectorEntry(id string) (string, string, bool) {
@@ -605,7 +701,7 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, args json.RawMessage, live func() bool) (string, map[string]any) {
 	p, err := s.provider(g)
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
-		return OpNotSent, toolResult("Not sent: the approved connector definition or account is unavailable.", true)
+		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {
@@ -614,19 +710,65 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		// (kiff/planque#71). A definition that couldn't be read or checked
 		// (ErrDefinition alone) pauses nothing: it's "Not sent" below.
 		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
-		return OpNotSent, toolResult("Not sent: "+why+".", true)
+		return OpNotSent, refusal(CodeOperationChanged, "Not sent: "+why+".")
 	}
 	if err != nil {
-		return OpNotSent, toolResult("Not sent: "+err.Error(), true)
+		// Every error here is before the provider ran the action: a refusal
+		// with its code, so KIFF never reads it as the vendor's.
+		code := CodeConnectionDown
+		switch {
+		case errors.Is(err, connector.ErrPermit):
+			code = CodePermitExpired
+		case errors.Is(err, connector.ErrDefinition):
+			code = CodeDefinitionUnread
+		}
+		return OpNotSent, refusal(code, "Not sent: "+err.Error())
 	}
+	s.noteAccount(ctx, g, result)
 	if result.Unknown {
-		return OpUnknown, toolResult("The connector did not return a confirmed result. This operation will not be sent again.", true)
+		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
 	if result.Refused {
-		return OpDone, toolResult("The connector refused the operation. No claim is made about whether an effect occurred.", true)
+		return OpDone, toolResult(refusedWords(vendorName(g), result)+" No claim is made about whether an effect occurred.", true)
 	}
 	return OpDone, toolResult(string(result.Data), false)
 }
+
+// refusedWords says who refused a connector call and why, so the taf can
+// tell the owner: the vendor's own answer ("Stripe refused it: No such
+// invoice: 'in_1'.") or the connection provider's ("The connection provider
+// refused it (it answered 403): …"). planque's own refusals are "Not sent: …" and
+// KIFF's never reach here, so the three read apart.
+func refusedWords(vendor string, r connector.Result) string {
+	if r.ByVendor {
+		if r.Reason == "" {
+			return vendor + " refused it and gave no reason."
+		}
+		return vendor + " refused it: " + sentence(r.Reason)
+	}
+	return "The connection provider refused it" + providerSaid(r) + "."
+}
+
+// providerSaid is the provider's status and reason, when it gave them, in
+// the form KIFF's gateway reads a status from ("answered 403").
+func providerSaid(r connector.Result) string {
+	out := ""
+	if r.Status != 0 {
+		out = fmt.Sprintf(" (it answered %d)", r.Status)
+	}
+	if r.Reason != "" {
+		out += ": " + strings.TrimRight(r.Reason, ".")
+	}
+	return out
+}
+
+func sentence(s string) string {
+	if strings.HasSuffix(s, ".") || strings.HasSuffix(s, "…") {
+		return s
+	}
+	return s + "."
+}
+
 func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 	triggerErr := s.stopTriggers(ctx, g)
 	if g.Connector == nil {
