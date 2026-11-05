@@ -178,12 +178,32 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Reuse       string          `json:"reuse"`
 		Application string          `json:"application"`
 		Profile     json.RawMessage `json:"profile"`
+		// A browser grant (kiff/planque#86): its sites and currency.
+		Browser *BrowserRequest `json:"browser"`
 	}
+	fromCatalog := entry != nil
 	if entry == nil {
 		if err := decodeStrict(body, &req); err != nil {
 			s.fail(w, r, err)
 			return
 		}
+	} else if entry.Kind == KindBrowser {
+		// The browser's catalog entry is planque's own: the ask names the
+		// taf, and what the browser is limited to.
+		var ask struct {
+			Agent   string          `json:"agent"`
+			Browser *BrowserRequest `json:"browser"`
+			Tools   *[]ToolRequest  `json:"tools"`
+		}
+		if err := decodeStrict(body, &ask); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		req.Agent, req.Kind, req.Browser, req.Tools = ask.Agent, KindBrowser, ask.Browser, ask.Tools
+		if req.Tools == nil {
+			req.Tools = &[]ToolRequest{}
+		}
+		entry = nil
 	} else {
 		var ask struct {
 			Agent string `json:"agent"`
@@ -199,7 +219,25 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
 		return
 	}
-	if req.Profile, err = deriveProfileFields(req.Profile, *req.Tools, entry != nil); err != nil {
+	if req.Kind == KindBrowser {
+		// The browser's tools and profile are planque's: the request names
+		// which tools, and what the browser is limited to.
+		if s.Browser == nil {
+			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
+			return
+		}
+		if len(req.Profile) > 0 || req.Server != "" || req.API != nil || req.Application != "" || req.Reuse != "" {
+			writeErr(w, http.StatusBadRequest, "a browser grant takes agent, tools and browser {sites, currency}: its profile is planque's")
+			return
+		}
+		b, tools, raw, msg := browserAsk(req.Browser, *req.Tools)
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		req.Browser, *req.Tools, req.Profile = b, tools, raw
+	}
+	if req.Profile, err = deriveProfileFields(req.Profile, *req.Tools, entry != nil || req.Kind == KindBrowser); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -213,7 +251,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	if req.Kind != "" && req.Kind != KindAPIKey && req.Kind != appconfig.MCP && req.Kind != appconfig.REST {
+	if req.Kind != "" && req.Kind != KindAPIKey && req.Kind != KindBrowser && req.Kind != appconfig.MCP && req.Kind != appconfig.REST {
 		writeErr(w, http.StatusBadRequest, `unsupported connection kind`)
 		return
 	}
@@ -298,6 +336,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		}
 		// The base is the vendor's address for every message that names it.
 		server = api.Base
+	case req.Kind == KindBrowser:
+		// No vendor to discover: the browser is planque's own.
 	default:
 		meta, err = s.OAuth.Discover(r.Context(), server)
 		if err != nil {
@@ -341,10 +381,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
-			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile},
+			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if entry != nil {
 		g.Request.CatalogEntry = entry.ID
+	}
+	if req.Kind == KindBrowser {
+		g.Request.CatalogEntry, g.VendorName = BrowserEntry, browserVendorName(req.Browser)
 	}
 	if reused != nil {
 		// Held as the other grant's: approving connects with no second sign-in.
@@ -369,7 +412,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)))
-	if entry != nil {
+	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
 		writeJSON(w, http.StatusCreated, s.view(g))
@@ -432,6 +475,9 @@ func requestText(q Request, held bool, account string, catalog ...CatalogTool) s
 func connectionText(q Request, held bool, account string, catalog ...CatalogTool) string {
 	if q.Connector != nil {
 		return connectorText(q)
+	}
+	if q.Kind == KindBrowser {
+		return browserText(q, catalog...)
 	}
 	if q.Kind == KindAPIKey {
 		return apiKeyText(q, held, account, catalog...)
@@ -647,6 +693,9 @@ func (s *Server) view(g *Grant) grantView {
 		if v.Entry == "" {
 			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
 		}
+	}
+	if g.Request.Kind == KindBrowser {
+		v.Provider = KindBrowser
 	}
 	if isTelegram(g) {
 		// An app knows a Telegram bot by these, not by planque's description URL.
@@ -1125,6 +1174,21 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 
 	if g.Request.Connector != nil {
 		s.approveConnector(w, r, sr, g)
+		return
+	}
+	if g.Request.Kind == KindBrowser && g.Status == StatusPending {
+		// A browser grant has no vendor to sign in at: approving it
+		// connects at once. A site's sign-in, when one is needed, is the
+		// owner's own, later, in the live view.
+		a := sr.approval
+		g.Approval = &a
+		g.event(s.now(), "approved "+a.Who())
+		if err := s.connect(r.Context(), g, ""); err != nil {
+			s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			writeErr(w, http.StatusBadGateway, g.Reason)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.view(g))
 		return
 	}
 	if g.SignedIn && g.Status == StatusPending {
@@ -1722,6 +1786,8 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 	}
 	// A Telegram bot's webhook goes while its token can still delete it.
 	problems = append(problems, s.dropTelegramHook(ctx, g)...)
+	// A browser grant's sign-ins, read checkouts and screenshots go.
+	problems = append(problems, s.dropBrowser(ctx, g)...)
 	if tok, _, err := s.openToken(ctx, g); err == nil && g.Request.Kind != KindAPIKey {
 		for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 			if t.tok == "" {
@@ -1791,6 +1857,8 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
 	case g.Request.Kind == KindAPIKey:
 		what = "disconnected " + sr.approval.Who() + ": key deleted"
+	case g.Request.Kind == KindBrowser:
+		what = "disconnected " + sr.approval.Who() + ": the browser's sign-ins and screenshots deleted"
 	}
 	if g.Request.API != nil {
 		s.dropSnapshot(r.Context(), g.Tenant, g.ID)

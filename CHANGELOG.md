@@ -7,6 +7,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A browser as a connection (`"kind": "browser"`, kiff/planque#86): a taf
+  uses websites in a browser planque runs for it alone, with planque's own
+  tools (`browse_open`, `browse_read`, `browse_act`, `browse_checkout`,
+  `browse_pay`) and reviewed profile, optionally limited to listed sites.
+  Money moves only through `browse_pay`, whose amount KIFF reads from the
+  checkout page and holds for the owner; a step that would pay another way,
+  or type a password, card number or code, is refused before it runs, and
+  secret fields are masked in every page. Offered only where a browser
+  worker is configured; the worker itself follows.
 - A Telegram bot as a connection: an API-key grant whose `api.url` is
   `https://core.telegram.org/bots/api`. The bot's token is checked with
   Telegram before it is kept, and planque sets the bot's webhook with a

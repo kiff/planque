@@ -191,6 +191,15 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, v)
 	}
+	// The browser (kiff/planque#86): planque's own entry, asked for with
+	// POST …/catalog/browser/grants, or POST …/grants with kind browser.
+	if s.Browser != nil && (q == "" || strings.Contains(strings.ToLower(browserVendor+" use websites"), q)) {
+		v := catalogEntryView{Entry: BrowserEntry, Vendor: browserVendor, Title: "Use websites", How: KindBrowser, State: "available"}
+		if state, ok := states[BrowserEntry]; ok {
+			v.State, v.Grant = state.State, state.Grant
+		}
+		entries = append(entries, v)
+	}
 	providerID := r.URL.Query().Get("provider")
 	if providerID == "" {
 		ids := make([]string, 0, len(s.Connectors))
@@ -237,6 +246,14 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("entry")
+	if id == BrowserEntry {
+		if s.Browser == nil {
+			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
+			return
+		}
+		s.requestGrantFrom(w, r, &CatalogEntry{ID: BrowserEntry, Vendor: browserVendor, Title: "Use websites", Kind: KindBrowser})
+		return
+	}
 	entry, ok := s.CatalogEntries[id]
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {

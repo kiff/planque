@@ -22,6 +22,7 @@ import (
 
 	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/appcredentials"
+	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/door"
@@ -54,6 +55,10 @@ type Server struct {
 	REST *rest.Client
 	// TelegramBase is the Telegram Bot API; empty, Telegram's own.
 	TelegramBase string
+	// Browser drives a browser grant's browser (kiff/planque#86); nil, no
+	// browser call runs. Evidence keeps its screenshots; nil, none are.
+	Browser  browser.Worker
+	Evidence browser.Evidence
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry

@@ -168,7 +168,7 @@ func relayTools(g *Grant) []mcp.Tool {
 func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMessage, token string) any {
 	refused := func(code, why string) any {
 		s.log().InfoContext(ctx, "call refused", slog.String("grant", g.ID), slog.String("tool", name), slog.String("code", code), slog.String("why", why))
-		return refusal(code, "Refused by planque: "+why+". Nothing was sent to "+hostOf(g.Request.Server)+".")
+		return refusal(code, "Refused by planque: "+why+". Nothing was sent to "+sentTo(g)+".")
 	}
 	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name })
 	if i < 0 {
@@ -246,6 +246,12 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
 		return s.finish(ctx, claim, op, state, res)
 	}
+	if g.Request.Kind == KindBrowser {
+		// The browser (kiff/planque#86): no vendor token; the grant's
+		// sign-ins are the browser's own, opened in the call.
+		state, res := s.callBrowser(ctx, g, tool, p, vendorArgs)
+		return s.finish(ctx, claim, op, state, res)
+	}
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: "+err.Error(), true))
@@ -294,6 +300,15 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		s.log().WarnContext(ctx, "vendor answer lost", slog.String("grant", g.ID), slog.String("op", p.Op), slog.String("err", err.Error()))
 		return s.finish(ctx, claim, op, OpUnknown, unknownResult(g))
 	}
+}
+
+// sentTo names where a grant's calls go, for its refusals: the vendor's
+// host, or, for a browser grant, any site.
+func sentTo(g *Grant) string {
+	if g.Request.Kind == KindBrowser {
+		return "any site"
+	}
+	return hostOf(g.Request.Server)
 }
 
 func unknownResult(g *Grant) map[string]any {
