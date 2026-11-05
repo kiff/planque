@@ -189,6 +189,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		MCP:                    &mcp.Client{HTTP: vendors},
 		REST:                   &rest.Client{HTTP: vendors},
 		Logger:                 logger,
+		WindowRequired:         strings.EqualFold(strings.TrimSpace(os.Getenv("PLANQUE_WINDOW_REQUIRED")), "true"),
 		CatalogEntries:         catalog,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,

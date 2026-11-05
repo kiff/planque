@@ -20,6 +20,9 @@ type Phone struct {
 	// DeviceID is KIFF's id for this device, sent as d= (kiff/planque#10);
 	// empty for a phone enrolled with its key before that.
 	DeviceID string
+	// Window, when set, is the approval window the phone signs in
+	// (kiff/tafs#494): Sign makes a v2 signature naming it.
+	Window string
 }
 
 // NewPhone makes a phone with a fresh key.
@@ -45,8 +48,11 @@ func (p *Phone) SignBytes(msg []byte) string {
 // planque req is sent to.
 func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
 	at := time.Now().UTC().Format(time.RFC3339)
-	msg := device.Message(req.URL.Scheme+"://"+req.URL.Host, tenant, req.Method, req.URL.RequestURI(), body, at)
+	msg := device.MessageWindow(req.URL.Scheme+"://"+req.URL.Host, tenant, req.Method, req.URL.RequestURI(), body, at, p.Window)
 	h := "t=" + at + ",v1=" + p.SignBytes(msg)
+	if p.Window != "" {
+		h = "t=" + at + ",v2=" + p.SignBytes(msg) + ",w=" + p.Window
+	}
 	if p.DeviceID != "" {
 		h += ",d=" + p.DeviceID
 	}

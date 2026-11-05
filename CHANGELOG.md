@@ -14,6 +14,19 @@ version headings refer to releases, not merely to merged pull requests.
   deadline once sent, and delivers the completing event with the same
   handle as its `key`, so the run that made the call can wait for it and
   be resumed by it.
+- One fingerprint, then taps (kiff/tafs#494): a routine signed call (approving
+  a sign-in or a key, confirming, a trigger, enrolling) is signed by the
+  device key inside an approval window the phone's approval key opened at
+  KIFF (`Planque-Device-Signature: t=…,v2=…,w=<window id>`, over
+  `planque.request.v2` with the window's id last), or by the approval key
+  itself; planque asks KIFF whether the window is open (`window` in
+  `POST /v1/devices/verify`) and refuses a signature naming one that isn't,
+  403 `window_required`. Safe calls (disconnect, lists, the export, deleting
+  a trigger) keep the device key. `PLANQUE_WINDOW_REQUIRED=true` refuses a
+  device-key signature with no window on a routine call; off, it is taken as
+  before. Each approval records `key` and `window`.
+
+>>>>>>> 72f2ff1 (One fingerprint, then taps: a routine call signed inside an approval window (kiff/tafs#494))
 - A browser as a connection (`"kind": "browser"`, kiff/planque#86): a taf
   uses websites in a browser planque runs for it alone, with planque's own
   tools (`browse_open`, `browse_read`, `browse_act`, `browse_checkout`,

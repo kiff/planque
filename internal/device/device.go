@@ -16,6 +16,12 @@
 //	<path and query>
 //	<sha256(body) hex>
 //	<signed_at>             RFC 3339
+//
+// Inside an approval window (kiff/tafs#494: one fingerprint opened it at
+// KIFF, then taps), the device key signs t=<signed_at>,v2=<sig>,w=<window
+// id>, over the same lines under planque.request.v2 with the window's id
+// last, so the signature can't be moved to another window. KIFF says
+// whether that window is open for the device.
 package device
 
 import (
@@ -40,7 +46,7 @@ var (
 	ErrKey       = errors.New("the device key must be a P-256 public key, base64 SPKI DER")
 	ErrSignature = errors.New("the device signature does not verify for this request")
 	ErrSignedAt  = errors.New("signed_at must be RFC 3339, within 5 minutes of now")
-	ErrHeader    = errors.New(Header + " must be t=<signed_at>,v1=<signature>, and d=<device id> for a device KIFF knows")
+	ErrHeader    = errors.New(Header + " must be t=<signed_at>,v1=<signature>, and d=<device id> for a device KIFF knows; inside an approval window, v2=<signature>,w=<window id>")
 )
 
 // ParseKey decodes a base64 SPKI DER key and accepts only P-256 ECDSA.
@@ -82,6 +88,18 @@ func Message(base, tenant, method, uri string, body []byte, signedAt string) []b
 		hex.EncodeToString(sum[:]), signedAt}, "\n"))
 }
 
+// MessageWindow is what a phone signs inside an approval window
+// (kiff/tafs#494): Message's lines under planque.request.v2, with the
+// window's id last. With no window, it is Message.
+func MessageWindow(base, tenant, method, uri string, body []byte, signedAt, window string) []byte {
+	if window == "" {
+		return Message(base, tenant, method, uri, body, signedAt)
+	}
+	sum := sha256.Sum256(body)
+	return []byte(strings.Join([]string{"planque.request.v2", strings.TrimRight(base, "/"), tenant, method, uri,
+		hex.EncodeToString(sum[:]), signedAt, window}, "\n"))
+}
+
 // Signed is a request's Planque-Device-Signature.
 type Signed struct {
 	At        string // signed_at, RFC 3339
@@ -90,26 +108,52 @@ type Signed struct {
 	// verifies; empty from a phone enrolled with its key before
 	// kiff/planque#10, which planque verifies itself.
 	Device string
+	// Window is the approval window the device key signed in (win_…), a v2
+	// signature (kiff/tafs#494); empty for a v1.
+	Window string
 }
 
-// ParseHeader splits t=<signed_at>,v1=<signature>[,d=<device id>].
+// ParseHeader splits t=<signed_at>,v1=<signature>[,d=<device id>], or
+// t=<signed_at>,v2=<signature>,w=<window id>[,d=<device id>].
 func ParseHeader(h string) (Signed, error) {
 	var s Signed
+	version := ""
 	for part := range strings.SplitSeq(h, ",") {
 		k, v, _ := strings.Cut(strings.TrimSpace(part), "=")
 		switch k {
 		case "t":
 			s.At = v
-		case "v1":
-			s.Signature = v // Cut splits at the first '=', so base64 padding stays
+		case "v1", "v2":
+			if version != "" {
+				return Signed{}, ErrHeader
+			}
+			version, s.Signature = k, v // Cut splits at the first '=', so base64 padding stays
+		case "w":
+			s.Window = v
 		case "d":
 			s.Device = v
 		}
 	}
-	if s.At == "" || s.Signature == "" || (s.Device != "" && !validDeviceID(s.Device)) {
+	// A v2 names its window, a v1 none.
+	if s.At == "" || s.Signature == "" || (s.Device != "" && !validDeviceID(s.Device)) ||
+		(version == "v2") != (s.Window != "") || (s.Window != "" && !validWindowID(s.Window)) {
 		return Signed{}, ErrHeader
 	}
 	return s, nil
+}
+
+// validWindowID: KIFF makes them win_ and 26 lowercase base32 characters.
+func validWindowID(id string) bool {
+	rest, ok := strings.CutPrefix(id, "win_")
+	if !ok || len(rest) != 26 {
+		return false
+	}
+	for _, c := range rest {
+		if (c < 'a' || c > 'z') && (c < '2' || c > '7') {
+			return false
+		}
+	}
+	return true
 }
 
 // validDeviceID: KIFF makes them dev_ and lowercase base32 (RFC 048).

@@ -124,6 +124,23 @@ over SHA-256, the lines `planque.request.v1`, planque's base URL, tenant,
 method, path, the body's SHA-256 and `signed_at`. A signed request is
 accepted once, within 5 minutes, and only by the planque it names.
 
+**One fingerprint, then taps (kiff/tafs#494).** Each signed route has a
+kind. *Safe* routes take authority away or read (disconnect, the grants
+list, a door's channels, deleting a trigger, the export): the device key
+alone signs them. *Routine* routes give a little (approving a sign-in or a
+key, confirming, creating a trigger, enrolling): the phone's approval key
+signs them behind its fingerprint, as KIFF knows it, or the device key signs
+them inside an approval window the approval key opened at KIFF: then the
+header is `t=<signed_at>,v2=<sig>,w=<window id>` over the same lines under
+`planque.request.v2` with the window's id last, and planque asks KIFF
+whether that window is open for the device. A signature naming a window
+that isn't open is refused, 403 with `"code": "window_required"`: the app
+opens one and signs again. With `PLANQUE_WINDOW_REQUIRED=true`, a device-key
+signature naming no window is refused the same way on a routine route;
+until then it is taken as before, for apps from before the window. Each
+grant's approval records which key signed (`key`: `device` or `critical`)
+and the window, so an audit tells a tap from a fingerprint.
+
 **KIFF keeps the devices** (kiff-cloud #1267). planque keeps none: it asks
 KIFF's `POST /v1/devices/verify`, with the account's connector key, whether
 device `d` signed those bytes and whether its person may connect tools

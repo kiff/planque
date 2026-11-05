@@ -36,6 +36,12 @@ type KIFF struct {
 	// Devices: the devices people approve with, by KIFF's id
 	// (kiff-cloud #1267), checked at /v1/devices/verify.
 	Devices map[string]Device
+	// Windows: the approval windows open at KIFF, by id, with the device
+	// each is open for (kiff/tafs#494); one not here, or of another
+	// device, answers open false. WindowsAsked is the window each verify
+	// named, in order ("" for none), so a test sees a safe route send none.
+	Windows      map[string]string
+	WindowsAsked []string
 
 	// Deletions are the account deletions KIFF accepted, intent → signature,
 	// as POST /v1/account-deletions/status answers for them.
@@ -63,6 +69,9 @@ type KIFF struct {
 type Device struct {
 	Tenant, Subject, Platform, Name string
 	Phone                           *Phone
+	// Approval is the phone's approval key, behind its fingerprint
+	// (kiff/tafs#494): a signature by it answers key "critical".
+	Approval *Phone
 	// What the person's role allows: "tools.connect" to connect tools;
 	// "account.export" and "account.delete", an admin's, to export or
 	// delete the account.
@@ -80,7 +89,7 @@ type Connection struct {
 // NewKIFF makes a fake KIFF with a fresh signing key.
 func NewKIFF() *KIFF {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}}
+	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}, Windows: map[string]string{}}
 }
 
 // halt is an agent's halt, or its account's.
@@ -288,6 +297,7 @@ func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 		Message    string `json:"message"`
 		Signature  string `json:"signature"`
 		Capability string `json:"capability"`
+		Window     string `json:"window"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
@@ -299,18 +309,35 @@ func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	no := func(why string) { writeJSON(w, 200, map[string]any{"valid": false, "reason": why}) }
+	k.mu.Lock()
+	k.WindowsAsked = append(k.WindowsAsked, req.Window)
+	k.mu.Unlock()
 	d, ok := k.Devices[req.Device]
+	key := "device"
+	if ok && !d.Phone.Verifies(msg, req.Signature) && d.Approval != nil && d.Approval.Verifies(msg, req.Signature) {
+		key = "critical"
+	}
 	switch {
 	case !ok || d.Tenant != me.TenantID || d.Revoked:
 		no("unknown_device")
-	case !d.Phone.Verifies(msg, req.Signature):
+	case key == "device" && !d.Phone.Verifies(msg, req.Signature):
 		no("signature_invalid")
 	case !d.Member:
 		no("not_a_member")
 	case !slices.Contains(d.Capabilities, req.Capability):
 		no("not_allowed")
+	case req.Window != "" && !strings.Contains("\n"+string(msg)+"\n", "\n"+req.Window+"\n"):
+		// The window counts only as the signed bytes name it (kiff/tafs#494).
+		no("window_not_signed")
 	default:
-		writeJSON(w, 200, map[string]any{"valid": true, "device_id": req.Device, "subject": d.Subject, "platform": d.Platform, "name": d.Name, "attested": false})
+		out := map[string]any{"valid": true, "key": key, "device_id": req.Device, "subject": d.Subject, "platform": d.Platform, "name": d.Name, "attested": false}
+		if req.Window != "" {
+			k.mu.Lock()
+			open := key == "device" && k.Windows[req.Window] == req.Device
+			k.mu.Unlock()
+			out["window"] = map[string]any{"id": req.Window, "open": open}
+		}
+		writeJSON(w, 200, out)
 	}
 }
 
