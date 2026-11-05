@@ -5,6 +5,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- Adding tools to a connection whose profile the owner approved: a profile
+  of the new operations alone is merged into the approved one, which stays
+  as it is. Before, every such addition was refused, since the caller has
+  no copy of the approved profile to repeat, and an app had to be connected
+  again, its key given again.
+
 ### Added
 
 - Two optional fields on a profile's operation, for KIFF's "Did this happen?"

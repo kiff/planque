@@ -396,6 +396,50 @@ func (s *Server) applyProfile(ctx context.Context, key string, g *Grant) error {
 	return nil
 }
 
+// withApprovedOperations is the profile for a grant that already has
+// approved, plus the tools being added: when next names only the added
+// tools' operations, approved with next's operations appended, so every
+// approved operation and the approved profile's own fields stay byte for
+// byte as the owner approved them (unchangedProfile then holds). Anything
+// else (no approved profile, next empty or unreadable, or naming a tool the
+// grant already has) is next as given, checked as before.
+func withApprovedOperations(approved, next json.RawMessage, added []ToolRequest) json.RawMessage {
+	if len(approved) == 0 || len(next) == 0 {
+		return next
+	}
+	var base, more map[string]json.RawMessage
+	if json.Unmarshal(approved, &base) != nil || json.Unmarshal(next, &more) != nil {
+		return next
+	}
+	var have, adds []json.RawMessage
+	if json.Unmarshal(base["operations"], &have) != nil || json.Unmarshal(more["operations"], &adds) != nil || len(adds) != len(added) {
+		return next
+	}
+	names := map[string]bool{}
+	for _, t := range added {
+		names[t.Name] = true
+		names[t.Tool] = true
+	}
+	for _, op := range adds {
+		var o struct {
+			Tool string `json:"tool"`
+		}
+		if json.Unmarshal(op, &o) != nil || o.Tool == "" || !names[o.Tool] {
+			return next
+		}
+	}
+	ops, err := json.Marshal(append(have, adds...))
+	if err != nil {
+		return next
+	}
+	base["operations"] = ops
+	merged, err := json.Marshal(base)
+	if err != nil {
+		return next
+	}
+	return merged
+}
+
 // Adding tools never silently changes measurements or behavior of an
 // existing operation. A changed operation needs a separately approved repair.
 func unchangedProfile(old, next json.RawMessage) bool {

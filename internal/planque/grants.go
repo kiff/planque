@@ -906,6 +906,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := append(slices.Clone(has), req.Tools...)
+	// Adding to a grant whose profile the owner approved: a profile of the
+	// new operations alone is merged into the approved one, which stays as
+	// it is. The caller never has the approved profile's bytes to repeat.
+	if adding {
+		req.Profile = withApprovedOperations(activeProfile(g), req.Profile, req.Tools)
+	}
 	if g.Request.Connector != nil && len(req.Profile) == 0 {
 		writeErr(w, http.StatusBadRequest, "a connector connection requires an owner-approved profile")
 		return
