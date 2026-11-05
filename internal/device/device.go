@@ -156,7 +156,7 @@ func validWindowID(id string) bool {
 	return true
 }
 
-// validDeviceID: KIFF makes them dev_ and lowercase base32 (RFC 048).
+// validDeviceID: KIFF makes them dev_ and lowercase base32.
 func validDeviceID(id string) bool {
 	rest, ok := strings.CutPrefix(id, "dev_")
 	if !ok || rest == "" || len(id) > 64 {

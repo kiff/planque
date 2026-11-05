@@ -39,7 +39,7 @@ contains no account, grant or credential data.
    lands in planque, encrypted with a managed key, bound to that vendor account,
    refreshed safely, and revocable.
 4. **Call.** For each call, planque checks a permit for that exact call (for
-   example from KIFF, RFC 046), then calls the vendor itself. The agent never
+   example KIFF's execution permit), then calls the vendor itself. The agent never
    receives a token.
 
 An optional [managed connection provider](docs/managed-connectors.md) adds
@@ -142,7 +142,7 @@ until then it is taken as before, for apps from before the window. Each
 grant's approval records which key signed (`key`: `device` or `critical`)
 and the window, so an audit tells a tap from a fingerprint.
 
-**KIFF keeps the devices** (kiff-cloud #1267). planque keeps none: it asks
+**KIFF keeps the devices.** planque keeps none: it asks
 KIFF's `POST /v1/devices/verify`, with the account's connector key, whether
 device `d` signed those bytes and whether its person may connect tools
 (`tools.connect`). KIFF answers for its own account's devices only, and a
@@ -166,7 +166,7 @@ are the tools registered. A link someone else opens hands its code to
 their browser, never to the approver. Vendors are reached only at public
 addresses, checked when each connection is made.
 
-**Permits** follow kiff-cloud RFC 046: `typ` `kiff-permit+jwt`, `alg`
+**Permits** are KIFF's execution permits: `typ` `kiff-permit+jwt`, `alg`
 `Ed25519`, a key from KIFF's JWKS (refetched every 5 minutes, an unknown
 `kid` at most once a minute, trusted at most an hour without a fresh
 fetch), the relay's audience, the account, the tool, the RFC 8785 hash of

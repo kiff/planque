@@ -1,6 +1,6 @@
 // Package fakes are test doubles that speak the same standards and
 // contracts as the real services: a vendor whose MCP server requires
-// OAuth (as Stripe's does), and KIFF (apps/api, the gateway, permits).
+// OAuth (as Stripe's does), and KIFF (its API, the gateway, permits).
 package fakes
 
 import (
@@ -403,8 +403,7 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		// A read changes nothing, so it isn't one of the vendor's calls.
 		if out, ok := v.read(r.Context(), req.Params.Name, req.Params.Arguments); ok {
-			// A vendor's own _meta key, as Stripe's answers carry one
-			// (kiff/kiff-cloud#1306).
+			// A vendor's own _meta key, as Stripe's answers carry one.
 			meta := map[string]any{"com.example/session": next("sess")}
 			if e, isErr := out.(vendorError); isErr {
 				result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(e)}}, "isError": true, "_meta": meta})

@@ -1,7 +1,7 @@
 // Package kiff is the part of KIFF planque calls: who a key speaks for
-// (apps/api /v1/me), whether a person's device signed an approval
+// (KIFF's /v1/me), whether a person's device signed an approval
 // (/v1/devices/verify), and the gateway's connections, where planque
-// registers a vendor's tools in relay mode (kiff-cloud RFC 046 D1, D6).
+// registers a vendor's tools in relay mode.
 package kiff
 
 import (
@@ -26,7 +26,7 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// Me is who a key speaks for, as apps/api answers it.
+// Me is who a key speaks for, as KIFF's API answers it.
 type Me struct {
 	APIKey        bool     `json:"api_key"`
 	TenantID      string   `json:"tenant_id"`
@@ -65,7 +65,7 @@ func (m Me) ConnectorProblem(tenant string) string {
 	return ""
 }
 
-// Me asks apps/api who key speaks for.
+// Me asks KIFF's API who key speaks for.
 func (c *Client) Me(ctx context.Context, key string) (Me, error) {
 	var me Me
 	status, err := c.do(ctx, http.MethodGet, c.API+"/v1/me", key, nil, &me)
@@ -78,7 +78,7 @@ func (c *Client) Me(ctx context.Context, key string) (Me, error) {
 	return me, nil
 }
 
-// Verified is KIFF's answer on a device's signature (kiff-cloud #1267).
+// Verified is KIFF's answer on a device's signature.
 type Verified struct {
 	Valid bool `json:"valid"`
 	// Why not: unknown_device, signature_invalid, not_a_member or not_allowed.
@@ -87,7 +87,7 @@ type Verified struct {
 	Subject  string `json:"subject"` // the person whose device it is
 	Platform string `json:"platform"`
 	// Name is what the device is called, as it signed in ("tafs on iPad"):
-	// what the owner reads (kiff-cloud#1271).
+	// what the owner reads.
 	Name     string `json:"name"`
 	Attested bool   `json:"attested"`
 	// Key is which of the device's keys signed (kiff/tafs#494): "device",
@@ -225,13 +225,13 @@ type Connection struct {
 	Audience        string `json:"audience"`
 	Credential      string `json:"credential"` // the relay's transport credential
 	// ResourceArg names the string argument a call acts on, and UnitLookup
-	// the read that says a call's currency (kiff/kiff-cloud#1299).
+	// the read that says a call's currency.
 	ResourceArg  string      `json:"resource_argument,omitempty"`
 	ResourcePath string      `json:"resource_path,omitempty"`
 	UnitLookup   *UnitLookup `json:"unit_lookup,omitempty"`
 	// AmountLookup is the read that says a call's amount from its resource
 	// (a dispute's): the call carries no amount, and KIFF's Card counts the
-	// one read (kiff/kiff-cloud#1460).
+	// one read.
 	AmountLookup *UnitLookup `json:"amount_lookup,omitempty"`
 	// VendorTool is the tool's own name at its vendor ("create_refund"),
 	// which KIFF's held-call words name it by.
@@ -328,7 +328,7 @@ func (c *Client) do(ctx context.Context, method, u, key string, in, out any) (in
 }
 
 // Halt is where an agent, or the whole account, stands in KIFF: halted by
-// its owner or running (kiff-cloud#1061). HaltedAt is the latest halt's
+// its owner or running. HaltedAt is the latest halt's
 // start, kept after a resume: a permit issued at or before it was asked
 // before the halt.
 type Halt struct {

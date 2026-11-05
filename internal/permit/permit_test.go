@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// TestJWKSTrust checks RFC 046 D4: an unknown kid refetches at most once
+// TestJWKSTrust checks how KIFF's keys are trusted: an unknown kid refetches at most once
 // a minute, a key gone from the latest set is not trusted, and the last
 // good set is trusted for at most an hour when refetching fails.
 func TestJWKSTrust(t *testing.T) {

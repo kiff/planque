@@ -1478,7 +1478,7 @@ func TestSetupReadsAreSaidOnce(t *testing.T) {
 }
 
 // The hourly sweep revokes a held sign-in once its day is up, though nobody
-// reads the grant again (kiff/kiff-cloud#1244 promises it within a day). A
+// reads the grant again (KIFF promises it within a day). A
 // grant that moved on before its deadline is left as it is.
 func TestTheSweepEndsAHeldSignInNobodyReads(t *testing.T) {
 	e := newEnv(t)
@@ -1525,7 +1525,7 @@ func chargeRead(name string) map[string]any {
 }
 
 // A money tool names what it acts on and the read that says its currency
-// (kiff/kiff-cloud#1299, kiff/tafs#167): both reach KIFF, the lookup by
+// (kiff/tafs#167): both reach KIFF, the lookup by
 // the read's name in KIFF, so KIFF counts only calls in the Card's currency.
 func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 	e := newEnv(t)
@@ -1579,7 +1579,7 @@ func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 
 // A write whose amount KIFF reads from its resource (a dispute's) names the
 // read: it reaches KIFF by the read's name there, so KIFF's Card counts the
-// amount read, never one the agent sends (kiff/kiff-cloud#1460).
+// amount read, never one the agent sends.
 func TestAmountLookupReachesKIFF(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
@@ -1659,7 +1659,7 @@ func TestUnitLookupByTheReadsName(t *testing.T) {
 	}
 }
 
-// An account's grants are its own (kiff-cloud#1061, gate C case 4): another
+// An account's grants are its own: another
 // account's key reads none of them, by the account's path or its own, and
 // changes none. Nothing about the grant leaks in the refusal.
 func TestAnotherAccountCantReachAGrant(t *testing.T) {

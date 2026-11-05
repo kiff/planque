@@ -1,4 +1,4 @@
-// Package permit verifies KIFF's execution permits (kiff-cloud RFC 046):
+// Package permit verifies KIFF's execution permits:
 // a JWT signed with Ed25519 that authorizes at most one execution of one
 // exact call. planque checks one before every call it makes to a vendor.
 package permit
@@ -27,7 +27,7 @@ const (
 	typ        = "kiff-permit+jwt"
 	alg        = "Ed25519"
 	detailType = "https://kiff.dev/permits/tool-call"
-	// Tolerance is the clock skew allowed on iat and exp (RFC 046 D5).
+	// Tolerance is the clock skew allowed on iat and exp.
 	Tolerance = 30 * time.Second
 	// MaxLifetime is the most exp-iat any verifier accepts.
 	MaxLifetime = 300 * time.Second
@@ -64,7 +64,7 @@ type Keys interface {
 	Key(ctx context.Context, kid string) (ed25519.PublicKey, error)
 }
 
-// Verifier checks a permit's authenticity (RFC 046 D5 steps 1–4).
+// Verifier checks a permit's authenticity (signature, key, type and time).
 type Verifier struct {
 	Issuer string
 	Keys   Keys
@@ -204,7 +204,7 @@ func audienceIs(raw json.RawMessage, want string) bool {
 	return false
 }
 
-// JWKS trusts the keys KIFF publishes (RFC 046 D4): refetched at least
+// JWKS trusts the keys KIFF publishes: refetched at least
 // every 5 minutes, and on an unknown kid at most once a minute. A kid
 // missing from the latest fetch is not trusted. If refetching fails, the
 // last good set is trusted for at most an hour from its fetch.

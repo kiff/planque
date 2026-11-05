@@ -39,7 +39,7 @@ var toolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 // vendor's name and four letters or digits of the grant's id. KIFF keeps
 // one tool per name on an account, so two tafs on one vendor each get
 // their own (kiff/tafs#78). A stopgap until the gateway makes the key
-// (RFC 048, kiff/kiff-cloud#1266).
+// itself.
 func toolKey(tool, grant string) string {
 	var suffix []rune
 	for _, r := range strings.ToLower(strings.TrimPrefix(grant, "grt_")) {
@@ -1796,7 +1796,7 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 }
 
 // SetupReadsPerDay is what KIFF's Card for Setup's reads allows
-// (kiff-cloud SetupReadsPerDay), for the owner's text.
+// (KIFF keeps the same number), for the owner's text.
 const SetupReadsPerDay = 50
 
 func accountNote(a string) string {

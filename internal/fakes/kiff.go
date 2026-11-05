@@ -21,9 +21,9 @@ import (
 	"github.com/kiff/planque/internal/kiff"
 )
 
-// KIFF stands in for apps/api and the gateway, following their contracts:
-// /v1/me, /v1/connections (kiff-cloud apps/gateway/internal/connection),
-// and execution permits (RFC 046), minted only for a call the agent's
+// KIFF stands in for KIFF's API and the gateway, following their contracts:
+// /v1/me, /v1/connections (the gateway's connections),
+// and execution permits, minted only for a call the agent's
 // Card allows.
 type KIFF struct {
 	Issuer string // the base URL, also the permit issuer
@@ -33,8 +33,8 @@ type KIFF struct {
 	// Cards: agent key → action → the most one call may move. An action
 	// missing from a Card is refused.
 	Cards map[string]map[string]int64
-	// Devices: the devices people approve with, by KIFF's id
-	// (kiff-cloud #1267), checked at /v1/devices/verify.
+	// Devices: the devices people approve with, by KIFF's id,
+	// checked at /v1/devices/verify.
 	Devices map[string]Device
 	// Windows: the approval windows open at KIFF, by id, with the device
 	// each is open for (kiff/tafs#494); one not here, or of another
@@ -124,7 +124,7 @@ func (k *KIFF) HaltsDown(down bool) {
 	k.mu.Unlock()
 }
 
-// signedOut answers as apps/api's POST /v1/me/connections/signed-out: only a
+// signedOut answers as KIFF's API's POST /v1/me/connections/signed-out: only a
 // connector key, kept here as said.
 func (k *KIFF) signedOut(w http.ResponseWriter, r *http.Request) {
 	me, ok := k.who(r)
@@ -163,7 +163,7 @@ func (k *KIFF) SetSignedOutDown(down bool) {
 	k.mu.Unlock()
 }
 
-// setupReads answers as apps/api's POST /v1/me/setup-reads: a connector key
+// setupReads answers as KIFF's API's POST /v1/me/setup-reads: a connector key
 // asks for Setup's read Card with the owner's approval, kept here as asked.
 func (k *KIFF) setupReads(w http.ResponseWriter, r *http.Request) {
 	me, ok := k.who(r)
@@ -188,7 +188,7 @@ func (k *KIFF) setupReads(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, map[string]string{"id": "setup-reads-" + req.Grant})
 }
 
-// haltHTTP answers as apps/api's GET /v1/agents/{id}/halt and GET /v1/halt,
+// haltHTTP answers as KIFF's API's GET /v1/agents/{id}/halt and GET /v1/halt,
 // to a key of the account that isn't an agent's: the agent's halt over its
 // account's.
 func (k *KIFF) haltHTTP(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +203,7 @@ func (k *KIFF) haltHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 503, map[string]string{"error": "the halt could not be read"})
 		return
 	}
-	// A trial (agent~trial) is its agent, as in apps/api.
+	// A trial (agent~trial) is its agent, as in KIFF's API.
 	agent, _ := strings.CutSuffix(r.PathValue("id"), "~trial")
 	own, all := k.halts[me.TenantID+"/"+agent], k.halts[me.TenantID+"/"]
 	if r.PathValue("id") == "" {
@@ -262,8 +262,7 @@ func (k *KIFF) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, me)
 }
 
-// verifyDevice answers as apps/api's /v1/devices/verify (kiff-cloud
-// #1267): a connector key asks about a device of its own account.
+// verifyDevice answers as KIFF's /v1/devices/verify: a connector key asks about a device of its own account.
 // deletionStatus answers whether KIFF accepted a deletion by exactly this
 // intent and signature: sessionless, as KIFF's.
 func (k *KIFF) deletionStatus(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +505,7 @@ type Permit struct {
 }
 
 // AskHaltConfirm signs KIFF's ask that planque confirm agent's halt of
-// tenant at at, as apps/api's halts.Planques does; life 0 is 60 seconds.
+// tenant at at, as KIFF's API's halts.Planques does; life 0 is 60 seconds.
 func (k *KIFF) AskHaltConfirm(tenant, agent string, at time.Time, life time.Duration) string {
 	if life == 0 {
 		life = 60 * time.Second
@@ -520,7 +519,7 @@ func (k *KIFF) AskHaltConfirm(tenant, agent string, at time.Time, life time.Dura
 	return in + "." + b64(ed25519.Sign(k.Key, []byte(in)))
 }
 
-// Mint signs a permit as apps/api does (kiff-cloud apps/api/internal/permit).
+// Mint signs a permit as KIFF's API does.
 func (k *KIFF) Mint(p Permit) string {
 	if p.IssuedAt.IsZero() {
 		p.IssuedAt = time.Now()
