@@ -755,6 +755,11 @@ func TestARefusedCallSaysWhoRefusedAndWhy(t *testing.T) {
 	if got := call("op_vendor"); !strings.Contains(got, "refused it: No such ticket: 'ticket_demo'. No claim is made about whether an effect occurred.") || !strings.Contains(got, `"isError":true`) {
 		t.Fatalf("the vendor's refusal: %s", got)
 	}
+	// With the vendor's status, in the words KIFF's gateway reads it from.
+	f.executeBody = `{"data":{"http_error":"Forbidden","status_code":403},"successful":false,"error":"Forbidden"}`
+	if got := call("op_vendor_status"); !strings.Contains(got, "refused it (it answered 403): Forbidden. No claim is made about whether an effect occurred.") {
+		t.Fatalf("the vendor's refusal with its status: %s", got)
+	}
 	f.executeStatus, f.executeBody = 403, `{"error":{"message":"this account may not run that action"}}`
 	if got := call("op_provider"); !strings.Contains(got, "The connection provider refused it (it answered 403): this account may not run that action. No claim is made") {
 		t.Fatalf("the provider's refusal: %s", got)
@@ -886,5 +891,65 @@ func TestDisconnectingOneTafKeepsAProviderAccountAnotherUses(t *testing.T) {
 	}
 	if f.revocations != 1 {
 		t.Fatalf("the last connection on the account didn't revoke it: %d revocations", f.revocations)
+	}
+}
+
+// A new taf reuses a managed app's sign-in another taf has (kiff/tafs#476,
+// gap 2: each new taf asked for Agent Mail's key again): its connection is
+// signed in and listed at once, on the same account, with no second sign-in
+// or key; the owner approves its tools alone; and the account stays while
+// either uses it.
+func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	first := connectConnector(t, e, f)
+	authorizations, links := f.authorizations, f.links
+	grants := "/v1/accounts/" + tenant + "/grants"
+	for name, body := range map[string]map[string]any{
+		"with its tools at once": {"reuse": first.ID, "agent": "agt_refunds", "tools": []any{map[string]any{"tool": "connector_x"}}},
+		"with a server too":      {"reuse": first.ID, "agent": "agt_refunds", "tools": []any{}, "server": "https://mcp.example"},
+	} {
+		if st, out := e.do("POST", grants, body, nil, "k_setup"); st != 400 {
+			t.Errorf("%s: %d %v", name, st, out)
+		}
+	}
+	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_refunds", "agent_name": "Refund requests", "tools": []any{}}, nil, "k_setup")
+	if st != 201 || out["status"] != StatusListed || out["signed_in"] != true ||
+		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in or key.") {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	id := out["id"].(string)
+	g, _ := e.s.loadGrant(ctx, tenant, id)
+	if g.Connector.Account != first.Connector.Account || g.Request.Reuse != first.ID || g.Request.Agent != "agt_refunds" || f.authorizations != authorizations || f.links != links {
+		t.Fatalf("the reused sign-in: %+v %+v; sign-ins %d→%d", g.Connector, g.Request, authorizations, f.authorizations)
+	}
+	// Its tools, from the catalog, approved by the owner on their device: no sign-in.
+	path := grants + "/" + id
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
+		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
+			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
+	if st != 200 || out["status"] != StatusPending || !strings.Contains(out["text"].(string), "with the sign-in you already have there") ||
+		!strings.Contains(out["text"].(string), "Approve these actions: ") {
+		t.Fatalf("tools: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, id)
+	ph, _ := profile.Digest(g.Request.Profile)
+	st, out = e.do("POST", path+"/approve", map[string]any{"digest": g.Digest, "kiff_profile": ProfileDigests{ProfileSHA256: ph, WordsSHA256: strings.Repeat("a", 64)}}, e.phone, "")
+	if st != 200 || out["status"] != StatusConnected || f.authorizations != authorizations || f.links != links {
+		t.Fatalf("approve: %d %v; sign-ins %d→%d", st, out, authorizations, f.authorizations)
+	}
+	// The first taf leaves; the account stays for the second.
+	if st, _ := e.do("DELETE", grants+"/"+first.ID, nil, e.phone, ""); st != 200 || f.revocations != 0 {
+		t.Fatalf("disconnect the first: %d, %d revocations", st, f.revocations)
+	}
+	// A connection that isn't connected any more can't be reused.
+	if st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_third", "tools": []any{}}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't connected now") {
+		t.Fatalf("reuse a disconnected one: %d %v", st, out)
 	}
 }

@@ -7,6 +7,17 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A managed app's sign-in can be reused for another taf (`"reuse"` naming a
+  connected managed grant, `tools: []`): the new connection is signed in
+  and listed at once, on the same provider account, with no second sign-in
+  or key, and its words say so. The owner approves its tools on their
+  device as for any connection, and nothing is granted before that. The
+  account stays while either connection uses it (kiff/tafs#476, gap 2).
+- A vendor's refusal through a managed app carries the vendor's HTTP status
+  when the provider passes it on ("Agent Mail refused it (it answered 403):
+  Forbidden."), in the form KIFF's gateway reads, so a refused key can be
+  told from a missing item (kiff/tafs#476, gap 10).
+
 - The hourly sweep revokes a sign-in kept for another connection once no
   live connection uses it. A disconnect or expiry that keeps a shared
   sign-in (a reused token, or a provider's connected account) indexes it,
@@ -46,6 +57,10 @@ version headings refer to releases, not merely to merged pull requests.
   says "this taf" from its next approval on.
 
 ### Fixed
+
+- The browser proxy's count of refused connections is read under the lock
+  its writer holds (`Proxy.Refused()`): a test read it unlocked, a data race
+  under `-race`.
 
 - The last connection on a shared sign-in says what its disconnect did: "the
   sign-in it shared was revoked" (or, for a key, "the key it shared was

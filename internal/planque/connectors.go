@@ -741,10 +741,17 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 // KIFF's never reach here, so the three read apart.
 func refusedWords(vendor string, r connector.Result) string {
 	if r.ByVendor {
-		if r.Reason == "" {
-			return vendor + " refused it and gave no reason."
+		// Its status as KIFF's gateway reads one ("answered 403"), when the
+		// provider passed it on: a refused key, or a missing item, and so what
+		// the owner can do about it (kiff/tafs#476, gap 10).
+		said := ""
+		if r.Status != 0 {
+			said = fmt.Sprintf(" (it answered %d)", r.Status)
 		}
-		return vendor + " refused it: " + sentence(r.Reason)
+		if r.Reason == "" {
+			return vendor + " refused it" + said + " and gave no reason."
+		}
+		return vendor + " refused it" + said + ": " + sentence(r.Reason)
 	}
 	return "The connection provider refused it" + providerSaid(r) + "."
 }
@@ -804,13 +811,22 @@ func connectorText(q Request) string {
 	text := "Connect " + q.Connector.Toolkit + " through " + q.Connector.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
 	if q.Connector.Title != "" {
 		text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
+		if q.Reuse != "" {
+			// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
+			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + " with the sign-in you already have there: no second sign-in or key. It stays with the connection service; the taf never sees it."
+			if len(q.Tools) == 0 {
+				return text + " The actions to approve come next. No actions are granted yet."
+			}
+		}
 		switch q.Connector.AuthScheme {
 		case "API_KEY", "BEARER_TOKEN":
 			credential := "key"
 			if q.Connector.AuthScheme == "BEARER_TOKEN" {
 				credential = "token"
 			}
-			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+			if q.Reuse == "" {
+				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+			}
 		}
 	}
 	if len(q.Tools) == 0 {

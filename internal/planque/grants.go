@@ -276,6 +276,14 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	var api *APIRequest
 	var reused *Grant
 	var application *ApplicationApproval
+	if req.Reuse != "" {
+		// A managed app's sign-in, reused for another taf (kiff/tafs#476, gap 2).
+		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Request.Connector != nil {
+			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Server != "" || req.API != nil || req.Kind != "" ||
+				req.Application != "" || len(req.Profile) > 0 || req.Browser != nil || len(*req.Tools) > 0, from)
+			return
+		}
+	}
 	switch {
 	case req.Reuse != "":
 		// The sign-in (or key) of a connected grant of this account, to the
@@ -428,6 +436,62 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	} else {
 		writeJSON(w, http.StatusCreated, s.view(g))
 	}
+}
+
+// reuseConnector answers a request to reuse a managed app's sign-in for
+// another taf (kiff/tafs#476, gap 2: each new taf asked for Agent Mail's key
+// again): a connection for agent on the account from is connected to,
+// signed in from the start and listed, with no tools. Its tools come next,
+// from the app's catalog (POST …/tools), and the owner approves them on
+// their device: nothing is granted before that, and no second sign-in or
+// key is asked for. The sign-in stays while either connection uses it.
+func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant) {
+	switch {
+	case more:
+		writeErr(w, http.StatusBadRequest, "reusing a managed app's sign-in takes agent, agent_name and tools: [] alone: pick its tools from the catalog once it's listed")
+		return
+	case from.Status != StatusConnected || !from.SignedIn || from.Connector == nil || from.Connector.Account == "":
+		writeErr(w, http.StatusConflict, "connection "+from.ID+" isn't connected now ("+from.Status+"), so its sign-in can't be reused: request the app again")
+		return
+	}
+	if _, err := s.provider(from); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if asked == "" {
+		asked = askedByAccountKey
+	}
+	id := "grt_" + oauth.Random(12)
+	conn := *from.Request.Connector
+	conn.Account, conn.Tools = "", nil // bound with the tools the owner approves
+	api := APIRequest{URL: from.Request.API.URL, Base: from.Request.API.Base, SourceKind: from.Request.API.SourceKind}
+	held := *from.Connector
+	held.Tools, held.Revocation = nil, nil
+	now := s.now()
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusListed, VendorName: from.VendorName, OnDemand: from.OnDemand,
+		SignedIn: true, Account: from.Account, Connector: &held, HeldUntil: now.Add(holdTTL).UTC(),
+		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: from.Request.Server, SignInAt: from.Request.SignInAt,
+			Agent: agent, AgentName: agentName, Tools: []ToolRequest{}, AskedBy: asked, CreatedAt: now.UTC().Format(time.RFC3339), Kind: from.Request.Kind,
+			CatalogEntry: from.Request.CatalogEntry, Connector: &conn, API: &api, Reuse: from.ID},
+		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
+	// The account is still the owner's, and connected, at the provider.
+	if err := s.checkConnector(r.Context(), g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g.Text = grantText(g.Request)
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g.event(now, "requested by "+asked+" for agent "+agent+", on the sign-in of "+from.ID+": no second sign-in; the tools come next")
+	if err := s.saveGrant(r.Context(), g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("reuses", from.ID))
+	writeJSON(w, http.StatusCreated, s.view(g))
 }
 
 func checkTools(agent string, tools []ToolRequest) string {

@@ -42,8 +42,16 @@ type Proxy struct {
 
 	mu sync.Mutex
 	ln net.Listener
-	// Refused counts what the proxy refused, for tests and the log.
-	Refused int
+	// refused counts what the proxy refused, for tests and the log: read
+	// it with Refused, under the lock its writer holds.
+	refused int
+}
+
+// Refused is how many connections the proxy refused so far.
+func (p *Proxy) Refused() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.refused
 }
 
 // Start listens on loopback and serves until Close.
@@ -81,7 +89,7 @@ func (p *Proxy) log() *slog.Logger {
 
 func (p *Proxy) refuse(c net.Conn, status int, why string) {
 	p.mu.Lock()
-	p.Refused++
+	p.refused++
 	p.mu.Unlock()
 	fmt.Fprintf(c, "HTTP/1.1 %d %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", status, http.StatusText(status), len(why), why)
 	c.Close()
