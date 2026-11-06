@@ -42,7 +42,8 @@ func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
 }
 
 // deadline is when g must be confirmed (a sign-in) or its tools approved (a
-// held sign-in), as expire reads them; zero when it has none.
+// held sign-in), as expire reads them, or when a connected grant's new
+// sign-in must be done (a renewal); zero when it has none.
 func (g *Grant) deadline() time.Time {
 	if g.Request.Connector != nil && g.Status == StatusApproved {
 		return g.HeldUntil
@@ -53,13 +54,25 @@ func (g *Grant) deadline() time.Time {
 	if g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending) && !g.HeldUntil.IsZero() {
 		return g.HeldUntil
 	}
+	if g.renewing() {
+		return g.Renewal.By
+	}
 	return time.Time{}
+}
+
+// renewing says g is connected with a new sign-in under way (Renewal).
+func (g *Grant) renewing() bool {
+	return g.Status == StatusConnected && g.Renewal != nil
 }
 
 // overdue says g's deadline passed. Such a grant acts on nothing, whether
 // or not its expiry could be saved yet: the sweep or the next read finishes
-// revoking it.
+// revoking it. A renewal's deadline is the new sign-in's alone: the one in
+// use goes on working, and only the new one is dropped.
 func (s *Server) overdue(g *Grant) bool {
+	if g.renewing() {
+		return false
+	}
 	d := g.deadline()
 	return !d.IsZero() && s.now().After(d)
 }

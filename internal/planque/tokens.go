@@ -82,6 +82,79 @@ func (s *Server) dropToken(ctx context.Context, g *Grant) {
 	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skToken(g.ID))
 }
 
+func renewalBinding(g *Grant) map[string]string {
+	return map[string]string{"tenant": g.Tenant, "grant": g.ID, "kind": "renewal"}
+}
+
+// storeRenewal seals the token of g's new sign-in apart from the one in use,
+// which it replaces only once the approving device confirms it.
+func (s *Server) storeRenewal(ctx context.Context, g *Grant, tok oauth.Token) error {
+	b, _ := json.Marshal(tok)
+	sealed, err := s.Sealer.Seal(ctx, b, renewalBinding(g))
+	clear(b)
+	if err != nil {
+		return err
+	}
+	return putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skRenewal(g.ID), Ver: 1}, tokenRecord{Sealed: sealed, Expiry: tok.Expiry}, store.Cond{})
+}
+
+func (s *Server) openRenewal(ctx context.Context, g *Grant) (oauth.Token, error) {
+	var rec tokenRecord
+	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skRenewal(g.ID), &rec); err != nil {
+		return oauth.Token{}, err
+	}
+	b, err := s.Sealer.Open(ctx, rec.Sealed, renewalBinding(g))
+	if err != nil {
+		return oauth.Token{}, err
+	}
+	var tok oauth.Token
+	err = json.Unmarshal(b, &tok)
+	clear(b)
+	tok.Expiry = rec.Expiry
+	return tok, err
+}
+
+// revokeAt revokes tok's refresh and access tokens at g's vendor, as the
+// client that holds them (clientID).
+func (s *Server) revokeAt(ctx context.Context, g *Grant, clientID string, tok oauth.Token) error {
+	c := *g
+	c.ClientID = clientID
+	for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
+		if t.tok == "" {
+			continue
+		}
+		if err := s.revokeToken(ctx, &c, t.tok, t.hint); err != nil {
+			return fmt.Errorf("the vendor did not confirm revoking the %s: %w", t.hint, err)
+		}
+	}
+	return nil
+}
+
+// dropRenewal ends g's new sign-in that wasn't confirmed: its token is
+// revoked at the vendor, then dropped, and the renewal forgotten (on g, which
+// the caller saves). A token the vendor didn't confirm revoking is kept, with
+// the renewal, so revoking can be tried again.
+func (s *Server) dropRenewal(ctx context.Context, g *Grant) error {
+	if g.Renewal == nil {
+		return nil
+	}
+	tok, err := s.openRenewal(ctx, g)
+	switch {
+	case errors.Is(err, errNotFound):
+	case err != nil:
+		return fmt.Errorf("open the new sign-in's token to revoke it: %w", err)
+	default:
+		if err := s.revokeAt(ctx, g, g.Renewal.ClientID, tok); err != nil {
+			return err
+		}
+		if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skRenewal(g.ID)); err != nil {
+			return fmt.Errorf("drop the new sign-in's revoked token: %w", err)
+		}
+	}
+	g.Renewal = nil
+	return nil
+}
+
 var errNoToken = errors.New("planque holds no token for this grant")
 
 // accessToken returns a usable access token for g and the version of

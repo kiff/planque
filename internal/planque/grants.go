@@ -1162,6 +1162,21 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 // as stored, its tokens kept until the vendor confirms revoking them, for
 // the next sweep or read to try again (kiff/planque#23).
 func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
+	if g.renewing() && s.now().After(g.Renewal.By) {
+		// A new sign-in for a connected grant that wasn't done in time: it
+		// goes, and the one in use stays, with its tools.
+		was := *g
+		if err := s.dropRenewal(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		g.event(s.now(), "the new sign-in wasn't confirmed in time; the connection stays as it was")
+		if err := s.saveGrant(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		return false, nil
+	}
 	if g.Status == StatusPending && g.Connected != nil && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
 		// Tools added to a connected grant and never approved: they go, and
 		// the grant stays connected with what it had. Its sign-in is in use.
@@ -1314,12 +1329,27 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	// An API-key grant is approved with its key (POST …/key); once the key is
-	// held, tools set on it are approved here, with no second key.
-	if g.Request.Kind == KindAPIKey && g.TokenOf == "" && (!g.SignedIn || g.Status == StatusNeedsReconnect) {
+	// held, tools set on it are approved here, with no second key. A key is
+	// replaced there too, once connected.
+	if g.Request.Kind == KindAPIKey && g.TokenOf == "" && (!g.SignedIn || g.Status == StatusNeedsReconnect || g.Status == StatusConnected) {
 		writeErr(w, http.StatusConflict, "this grant is approved with its key: POST …/key, signed, with the key in "+KeyHeader)
 		return
 	}
-	if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn && g.Status != StatusNeedsReconnect {
+	if g.Status == StatusConnected {
+		// Signing in again on a connected grant (gap 13 of kiff/tafs#476): a
+		// sign-in of its own, at a vendor that signs in planque itself.
+		switch {
+		case g.Request.Connector != nil:
+			writeErr(w, http.StatusConflict, "this app signs in through "+vendorName(g)+"'s connection provider, where planque can't tell which account a new sign-in is: to sign in again, disconnect it and connect it again")
+			return
+		case g.TokenOf != "":
+			writeErr(w, http.StatusConflict, "this connection uses another connection's sign-in: sign in again on that one, and every connection that uses it gets the new sign-in")
+			return
+		case g.Request.Kind == KindBrowser || g.Request.Kind == KindAPIKey:
+			writeErr(w, http.StatusConflict, "this grant is "+g.Status)
+			return
+		}
+	} else if g.Status != StatusPending && g.Status != StatusApproved && g.Status != StatusSignedIn && g.Status != StatusNeedsReconnect {
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
 	}
@@ -1418,6 +1448,16 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 	}
 	a := sr.approval
 	switch {
+	case g.Status == StatusConnected:
+		// A new sign-in while the one in use goes on working: confirmed, it
+		// replaces it; an earlier one never confirmed goes first. This device
+		// confirms it.
+		if err := s.dropRenewal(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		g.Renewal = &Renewal{Approval: a, ClientID: clientID, By: exp.UTC()}
+		g.event(s.now(), "a new sign-in was approved "+a.Who()+"; until it's confirmed, the connection works with the one it has")
 	case g.Status == StatusPending:
 		g.Approval = &a
 		g.event(s.now(), "approved "+a.Who())
@@ -1429,7 +1469,9 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 	default:
 		g.event(s.now(), "a new sign-in link was signed for "+a.Who())
 	}
-	g.Status, g.ClientID = StatusApproved, clientID
+	if g.Status != StatusConnected {
+		g.Status, g.ClientID = StatusApproved, clientID
+	}
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.fail(w, r, err)
 		return
@@ -1498,8 +1540,14 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if g.Status != StatusApproved {
+	renew := g.renewing()
+	if g.Status != StatusApproved && !renew {
 		s.page(w, http.StatusConflict, "Not connected", "This grant is "+g.Status+".")
+		return
+	}
+	if e := q.Get("error"); e != "" && renew {
+		s.endRenewal(r.Context(), g, "the new sign-in at "+vendorName(g)+" ended: "+e)
+		s.page(w, http.StatusOK, "Not signed in again", "The sign-in at "+hostOf(g.Vendor.Issuer)+" was not completed. Nothing changed: the connection works as it did.")
 		return
 	}
 	if e := q.Get("error"); e != "" {
@@ -1519,7 +1567,22 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	tok, err := s.exchangeToken(r.Context(), g, q.Get("code"), string(verifier))
+	eg := g
+	if renew {
+		c := *g
+		c.ClientID = g.Renewal.ClientID
+		eg = &c
+	}
+	tok, err := s.exchangeToken(r.Context(), eg, q.Get("code"), string(verifier))
+	if err != nil && renew {
+		s.endRenewal(r.Context(), g, "the new sign-in's code was not accepted: "+err.Error())
+		s.page(w, http.StatusBadGateway, "Not signed in again", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished. Nothing changed: the connection works as it did.")
+		return
+	}
+	if renew {
+		s.renewed(w, r, g, tok)
+		return
+	}
 	if err != nil {
 		s.failGrant(r.Context(), g, "the sign-in code was not accepted: "+err.Error())
 		s.page(w, http.StatusBadGateway, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished.")
@@ -1600,6 +1663,10 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		s.fail(w, r, err)
 		return
 	}
+	if g.renewing() {
+		s.confirmRenewal(w, r, sr, g, req.Confirm)
+		return
+	}
 	if g.Status != StatusSignedIn {
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status)
 		return
@@ -1668,6 +1735,152 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusBadGateway, g.Reason)
 		return
 	}
+	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// renewed finishes a connected grant's new sign-in at the vendor's redirect
+// (gap 13 of kiff/tafs#476): its token is held apart from the one in use, in
+// the same vendor account or not at all, and only the approving device may
+// confirm it, with the code only this browser receives. Until then, and if
+// it never is, the connection works with the sign-in it has.
+func (s *Server) renewed(w http.ResponseWriter, r *http.Request, g *Grant, tok oauth.Token) {
+	ctx := r.Context()
+	refuse := func(status int, why, page string) {
+		if err := s.revokeAt(ctx, g, g.Renewal.ClientID, tok); err != nil {
+			s.log().WarnContext(ctx, "a refused new sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		}
+		s.endRenewal(ctx, g, why)
+		s.page(w, status, "Not signed in again", page)
+	}
+	if g.Account != "" && tok.Account != "" && tok.Account != g.Account {
+		refuse(http.StatusConflict, "a sign-in to another account at "+vendorName(g)+" was refused",
+			"That sign-in is for another account at "+vendorName(g)+". Sign in to the account this taf uses: nothing changed.")
+		return
+	}
+	u, err := url.Parse(s.AppReturn)
+	if s.AppReturn == "" || err != nil || u.Scheme == "" {
+		refuse(http.StatusInternalServerError, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)", "Sign-ins can't be confirmed right now. Nothing changed.")
+		return
+	}
+	if err := s.storeRenewal(ctx, g, tok); err != nil {
+		refuse(http.StatusInternalServerError, "the new sign-in's token could not be stored", "The sign-in couldn't be kept. Nothing changed.")
+		return
+	}
+	code := oauth.Random(24)
+	sum := sha256.Sum256([]byte(code))
+	g.Renewal.Account, g.Renewal.ConfirmHash, g.Renewal.By = tok.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
+	g.event(s.now(), "Signed in again to "+vendorName(g)+accountNote(tok.Account)+"; waiting for the phone to confirm")
+	if err := s.saveGrant(ctx, g); err != nil {
+		// The token held apart goes with the renewal, at its deadline.
+		s.fail(w, r, err)
+		return
+	}
+	q := u.Query()
+	q.Set("tenant", g.Tenant)
+	q.Set("grant", g.ID)
+	q.Set("confirm", code)
+	u.RawQuery = q.Encode()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// endRenewal forgets g's new sign-in, saying why (in its events): the
+// connection stays as it was.
+func (s *Server) endRenewal(ctx context.Context, g *Grant, why string) {
+	if err := s.dropRenewal(ctx, g); err != nil {
+		s.log().WarnContext(ctx, "a new sign-in not dropped yet", slog.String("grant", g.ID), slog.String("err", err.Error()))
+	}
+	g.event(s.now(), why+"; the connection stays as it was")
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().WarnContext(ctx, "a new sign-in's end not saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
+	}
+}
+
+// confirmRenewal is the approving device confirming a connected grant's new
+// sign-in, with the code the vendor's sign-in handed the owner's app: its
+// token then replaces the one in use, for every connection that uses it,
+// and the old one is revoked at the vendor. The grant, its tools and KIFF
+// stay as they were.
+func (s *Server) confirmRenewal(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant, code string) {
+	ctx := r.Context()
+	rn := g.Renewal
+	if rn.ConfirmHash == "" {
+		writeErr(w, http.StatusConflict, "the new sign-in hasn't come back from "+vendorName(g)+" yet")
+		return
+	}
+	if !rn.Approval.SameSigner(sr.approval) {
+		writeErr(w, http.StatusForbidden, "only the device that approved this sign-in may confirm it")
+		return
+	}
+	if s.now().After(rn.By) {
+		_, _ = s.expire(ctx, g)
+		writeErr(w, http.StatusConflict, "the new sign-in was not confirmed in time; the connection stays as it was")
+		return
+	}
+	sum := sha256.Sum256([]byte(code))
+	want, _ := hex.DecodeString(rn.ConfirmHash)
+	if code == "" || subtle.ConstantTimeCompare(sum[:], want) != 1 {
+		writeErr(w, http.StatusForbidden, "this is not the code of this grant's sign-in")
+		return
+	}
+	tok, err := s.openRenewal(ctx, g)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// The token in use is replaced at the version read: a refresh meanwhile
+	// moves it on, and it's read once more.
+	var old oauth.Token
+	held, stored := false, false
+	for range 2 {
+		var prev *int64
+		cur, it, err := s.openToken(ctx, g)
+		switch {
+		case err == nil:
+			old, held, prev = cur, true, &it.Ver
+		case errors.Is(err, errNotFound):
+			old, held = oauth.Token{}, false
+		default:
+			s.fail(w, r, err)
+			return
+		}
+		err = s.storeToken(ctx, g, tok, prev)
+		if errors.Is(err, store.ErrCondition) {
+			continue
+		}
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		stored = true
+		break
+	}
+	if !stored {
+		writeErr(w, http.StatusConflict, "the sign-in in use changed while this one was confirmed: confirm again")
+		return
+	}
+	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skRenewal(g.ID))
+	note := ""
+	if held {
+		if err := s.revokeAt(ctx, g, g.ClientID, old); err != nil {
+			s.log().WarnContext(ctx, "a replaced sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			note = "; " + vendorName(g) + " didn't confirm revoking the one it replaced: remove that one there if it's still listed"
+		}
+	}
+	if rn.ClientID != "" {
+		g.ClientID = rn.ClientID
+	}
+	if rn.Account != "" {
+		g.Account = rn.Account
+	}
+	g.Renewal, g.Reason = nil, ""
+	g.event(s.now(), "signed in again "+sr.approval.Who()+": the new sign-in replaced the one in use, and its tools are as they were"+note)
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log().InfoContext(ctx, "grant signed in again", slog.String("grant", g.ID))
 	writeJSON(w, http.StatusOK, s.view(g))
 }
 

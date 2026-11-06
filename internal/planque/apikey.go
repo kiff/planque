@@ -260,7 +260,8 @@ func withOperations(g *Grant, snap *openapi.Snapshot) {
 // phone signs {"digest", "key_sha256"} and sends the key in KeyHeader. The
 // key is sealed and held like a sign-in's token. A grant with no tools is
 // then listed; one with tools connects at once. A grant the vendor stopped
-// taking the key for (needs_reconnect) takes a new one the same way.
+// taking the key for (needs_reconnect) takes a new one the same way, and a
+// connected one takes a replacement once one read with it works (replaceKey).
 func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedRequest) {
 	var req struct {
 		Digest    string          `json:"digest"`
@@ -295,13 +296,16 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 	case g.Request.Kind != KindAPIKey:
 		writeErr(w, http.StatusConflict, "this grant signs in at the vendor; it takes no key")
 		return
+	case g.TokenOf != "" && g.Status == StatusConnected:
+		writeErr(w, http.StatusConflict, "this connection uses another connection's key: replace it on that one, and every connection that uses it gets the new key")
+		return
 	case g.TokenOf != "":
 		writeErr(w, http.StatusConflict, "this grant uses another connection's key: approve it with no key")
 		return
 	case req.Digest != g.Digest:
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
-	case g.Status != StatusPending && g.Status != StatusNeedsReconnect, g.SignedIn && g.Status == StatusPending:
+	case g.Status != StatusPending && g.Status != StatusNeedsReconnect && g.Status != StatusConnected, g.SignedIn && g.Status == StatusPending:
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status+"; it takes no key now")
 		return
 	}
@@ -310,9 +314,13 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		s.fail(w, r, err)
 		return
 	}
+	if g.Status == StatusConnected {
+		s.replaceKey(w, r, a, g, key)
+		return
+	}
 	reconnect := g.Status == StatusNeedsReconnect
 	if isTelegram(g) {
-		bot, msg, err := s.setTelegramHook(r.Context(), g, key)
+		bot, msg, err := s.setTelegramHook(r.Context(), g, key, nil)
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -366,6 +374,124 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// replaceKey is a new key for a connected API-key grant (gap 13 of
+// kiff/tafs#476): the owner replaces one the vendor refuses, from the
+// connection's sheet in tafs, signed as the first was. planque reads once
+// with the new key before keeping it, so a key the vendor refuses, or one it
+// can't check, changes nothing and the old key stays. The grant, its tools
+// and its Card stay as they are, and a connection that reuses this key gets
+// the new one too.
+func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request, a Approval, g *Grant, key string) {
+	ctx := r.Context()
+	var checked string
+	oldHook := ""
+	if isTelegram(g) {
+		if g.Telegram == nil {
+			writeErr(w, http.StatusConflict, "this Telegram connection names no bot: disconnect it and connect it again")
+			return
+		}
+		bot, msg, err := s.setTelegramHook(ctx, g, key, g.Telegram)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		oldHook, g.Telegram = g.Telegram.Hook, bot
+		checked = "Telegram took it for @" + bot.Username
+	} else {
+		read, status, msg, err := s.checkKey(ctx, g, key)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if msg != "" {
+			writeErr(w, status, msg)
+			return
+		}
+		checked = "one read with it worked (" + read + ")"
+	}
+	var prev *int64
+	if _, it, err := s.openToken(ctx, g); err == nil {
+		prev = &it.Ver
+	} else if !errors.Is(err, errNotFound) {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.storeToken(ctx, g, oauth.Token{Access: key}, prev); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if oldHook != "" && oldHook != g.Telegram.Hook {
+		_, _, _ = s.KV.Delete(ctx, telegramHookPK, oldHook)
+	}
+	g.Reason = ""
+	g.event(s.now(), "key replaced "+a.Who()+": "+checked+"; its tools are as they were")
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log().InfoContext(ctx, "key replaced", slog.String("grant", g.ID))
+	writeJSON(w, http.StatusOK, s.view(g))
+}
+
+// checkKey reads once with a new key for g, before it replaces the one
+// held: read is the request it made ("GET /charges"). msg, with the status
+// to answer, says why the key isn't kept: the vendor refused it, didn't
+// answer, or the API has no read to check it with. Nothing changes then.
+func (s *Server) checkKey(ctx context.Context, g *Grant, key string) (read string, status int, msg string, err error) {
+	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
+	if err != nil {
+		return "", 0, "", err
+	}
+	op, ok := keyRead(g, snap)
+	if !ok {
+		return "", http.StatusConflict, "planque can't check a new key on this connection: its API has no read that takes no arguments. Nothing changed: to use another key, disconnect it and connect it again", nil
+	}
+	method, target, body, err := op.Request(g.Request.API.Base, nil)
+	if err != nil {
+		return "", 0, "", err
+	}
+	host := hostOf(g.Request.API.Base)
+	if hostOf(target) != host {
+		return "", 0, "", fmt.Errorf("the key's check would leave %s", host)
+	}
+	read = method + " " + op.Path
+	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+	switch {
+	case err != nil:
+		return read, http.StatusBadGateway, "planque couldn't check the new key: " + host + " didn't answer " + read + ". Nothing changed: try again", nil
+	case ans.Status == http.StatusUnauthorized || ans.Status == http.StatusForbidden:
+		return read, http.StatusBadRequest, fmt.Sprintf("%s refused the new key: it answered %d to %s. Nothing changed: the old key stays", host, ans.Status, read), nil
+	case ans.Status < 200 || ans.Status > 299:
+		return read, http.StatusBadGateway, fmt.Sprintf("planque couldn't check the new key: %s answered %d to %s. Nothing changed: try again", host, ans.Status, read), nil
+	}
+	return read, 0, "", nil
+}
+
+// keyRead is the read a new key is checked with: a read-only operation of
+// g's API that needs no argument and sends no body, one of g's own tools
+// first. ok is false when the API has none.
+func keyRead(g *Grant, snap *openapi.Snapshot) (op openapi.Operation, ok bool) {
+	own := map[string]bool{}
+	for _, t := range g.Tools {
+		own[t.Tool] = true
+	}
+	for _, mine := range []bool{true, false} {
+		for _, o := range snap.Operations {
+			if own[o.Name] != mine || !o.ReadOnly || o.Body != "" {
+				continue
+			}
+			if _, _, _, err := o.Request(g.Request.API.Base, nil); err == nil {
+				return o, true
+			}
+		}
+	}
+	return openapi.Operation{}, false
 }
 
 // callAPI is one call of an API-key grant's tool: the request its operation

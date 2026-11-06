@@ -174,8 +174,9 @@ func (s *Server) telegramCall(ctx context.Context, token, method string, body an
 
 // setTelegramHook checks token with Telegram and points the bot's webhook
 // at a new hook of g's, with a secret only Telegram and planque hold. On
-// any failure nothing is kept and the bot's webhook is as it was.
-func (s *Server) setTelegramHook(ctx context.Context, g *Grant, token string) (*TelegramBot, string, error) {
+// any failure nothing is kept and the bot's webhook is as it was. With same,
+// the token must be that bot's (a token replaced, gap 13 of kiff/tafs#476).
+func (s *Server) setTelegramHook(ctx context.Context, g *Grant, token string, same *TelegramBot) (*TelegramBot, string, error) {
 	if !telegramTokenForm.MatchString(token) {
 		return nil, "that isn't a Telegram bot token's form (digits, a colon, then letters, digits, - or _): nothing was kept", nil
 	}
@@ -190,6 +191,9 @@ func (s *Server) setTelegramHook(ctx context.Context, g *Grant, token string) (*
 	}
 	if json.Unmarshal(me, &bot) != nil || !bot.IsBot || bot.ID == 0 || bot.Username == "" {
 		return nil, "that token isn't a Telegram bot's: nothing was kept", nil
+	}
+	if same != nil && bot.ID != same.ID {
+		return nil, "that token is @" + bot.Username + "'s, not @" + same.Username + "'s: a new token must be the same bot's. Nothing was kept: the old one stays", nil
 	}
 	hook, secret := rand.Text(), rand.Text()
 	sealed, err := s.Sealer.Seal(ctx, []byte(secret), telegramHookContext(hook))
