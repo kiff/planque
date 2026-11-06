@@ -313,13 +313,32 @@ type Grant struct {
 	TokenOf string `json:"token_of,omitempty"`
 	// Telegram is the bot a Telegram grant's token is, and its webhook.
 	Telegram *TelegramBot `json:"telegram,omitempty"`
-	ver      int64
+	// Renewal is a new sign-in the owner approved for a connected grant
+	// (gap 13 of kiff/tafs#476): its tools keep working with the sign-in in
+	// use until the approving device confirms the new one, which then
+	// replaces it. Not finished by its By, it's dropped.
+	Renewal *Renewal `json:"renewal,omitempty"`
+	ver     int64
 	// keptFor is how many other live grants kept this one's sign-in when it
 	// was disconnected; not stored.
 	keptFor int
 	// revokedShared: this grant was the last on a sign-in it reused, and
 	// its disconnect or expiry revoked that sign-in; not stored.
 	revokedShared bool
+}
+
+// Renewal is a connected grant's new sign-in under way: who approved it, the
+// client it signs in with, the account it came back in, and by when it must
+// come back, then be confirmed (By). Its token, once the vendor gave it, is
+// held apart from the one in use (skRenewal) until it's confirmed.
+type Renewal struct {
+	Approval Approval `json:"approval"`
+	ClientID string   `json:"client_id,omitempty"`
+	Account  string   `json:"account,omitempty"`
+	// ConfirmHash is the SHA-256 of the code the vendor's sign-in handed to
+	// the browser that finished it: set once it came back.
+	ConfirmHash string    `json:"confirm_hash,omitempty"`
+	By          time.Time `json:"by"`
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.
@@ -363,6 +382,10 @@ const skEnrolment = "ENROLMENT"
 
 func skGrant(id string) string { return "GRANT#" + id }
 func skToken(id string) string { return "TOKEN#" + id }
+
+// skRenewal holds the token of a connected grant's new sign-in until it's
+// confirmed (Renewal).
+func skRenewal(id string) string { return "RENEWAL#" + id }
 func skSnapshot(id string, n int) string {
 	return fmt.Sprintf("SNAPSHOT#%s#%03d", id, n)
 }

@@ -28,6 +28,8 @@ type telegramFake struct {
 	// failSend makes the nth sendMessage (1-based) fail with Telegram's 400.
 	failSend  int
 	delivered []map[string]any
+	// others are other bots' tokens, by token: getMe answers with that bot.
+	others map[string]string
 }
 
 const telegramToken = "123456:synthetic-bot-token"
@@ -38,6 +40,10 @@ func newTelegramFake(t *testing.T, e *env) *telegramFake {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		token, method, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/bot"), "/")
+		if bot, ok := f.others[token]; ok && method == "getMe" {
+			_, _ = io.WriteString(w, `{"ok":true,"result":`+bot+`}`)
+			return
+		}
 		if token != f.token {
 			w.WriteHeader(401)
 			_, _ = io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)

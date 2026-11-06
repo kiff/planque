@@ -17,6 +17,21 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A connection the vendor refuses is fixed in place, from the app (gap 13 of
+  kiff/tafs#476). `POST …/key` on a `connected` API-key grant replaces its
+  key once one read with the new key works: a read-only operation that needs
+  no argument, the grant's own first, or `getMe` for a Telegram bot, whose
+  new token must be the same bot's. A key the vendor refuses, or one planque
+  can't check, changes nothing, and the old key stays. `POST …/approve` on a
+  `connected` sign-in grant signs in again while the connection goes on
+  working: the new sign-in is held apart, in the same vendor account or not
+  at all, until the approving device confirms it, then replaces the one in
+  use, which is revoked at the vendor. One not confirmed in time is revoked
+  and goes. Either way the grant id, its tools and its Card stay as they
+  were. Once the vendor named a grant's account, a new sign-in that names
+  none is refused like one in another account, for a reconnect too. A managed app can't sign in again in place (409, saying to disconnect
+  it and connect it again), since planque can't tell which account a new
+  sign-in is.
 - A managed app asked for with the taf's tools (`tools`, the provider's
   slugs) signs in for only what they need: the provider's least-privilege
   scopes within its own sign-in's ceiling, on a scoped managed sign-in made
