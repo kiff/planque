@@ -251,9 +251,15 @@ type Grant struct {
 	Account  string         `json:"account,omitempty"` // the vendor account the token is bound to
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
-	VendorName string        `json:"vendor_name,omitempty"`
-	Approval   *Approval     `json:"approval,omitempty"`
-	Tools      []GrantedTool `json:"tools,omitempty"`
+	VendorName string `json:"vendor_name,omitempty"`
+	// Entry is the catalog entry for the grant's app, which planque recorded
+	// on a grant made before its request named it (entry.go). It's kept
+	// outside the request on purpose: the request is what the owner signed,
+	// and stays byte for byte as signed. A grant made since names its entry
+	// in Request.CatalogEntry, signed with the rest.
+	Entry    string        `json:"entry,omitempty"`
+	Approval *Approval     `json:"approval,omitempty"`
+	Tools    []GrantedTool `json:"tools,omitempty"`
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`

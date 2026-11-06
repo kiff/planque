@@ -450,6 +450,28 @@ Both catalog endpoints require a bearer KIFF key for the account:
   request creates no sign-in link and grants no tools. The existing signed
   approval or key flow, including KIFF's profile and words digests, follows.
 
+### Which app a grant is for
+
+Every grant's view names its app's catalog `entry` when it's certain, so an
+app lists each connection under its app by `entry` alone:
+
+- **A grant asked from the catalog** names its entry in `request.catalog_entry`,
+  as before. A managed app's is `connector:{provider}:{toolkit}`, the browser's
+  `browser`, and a Telegram bot's `api:telegram`.
+- **A grant asked by server, key or registered application** names the one
+  reviewed entry for the same server reached the same way: an MCP sign-in, or a
+  REST API by key or by application. It's in `request.catalog_entry`, so the
+  owner signs it with the rest.
+- **A grant made before requests named their app** gets its entry recorded
+  beside the request, never in it: the request is what the owner signed, and
+  stays byte for byte as signed, so its digest still matches the approval. The
+  owner's grants list records it the first time it lists that grant, once.
+- **When no entry matches, or more than one does,** there's no `entry`. It's
+  never guessed.
+
+The catalog's `state` counts any connection to the app, one Coach started
+included.
+
 The catalog starts empty when neither a file nor a managed provider is configured.
 Optional [managed connections](managed-connectors.md) add paginated upstream app
 and tool discovery with their own credential custody and device-approved grants. Installing definitions
