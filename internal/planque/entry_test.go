@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -223,6 +225,137 @@ func TestSameServer(t *testing.T) {
 	} {
 		if got := sameServer(c.a, c.b); got != c.same {
 			t.Errorf("sameServer(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}
+
+// vendorOrigin is the fake vendor's origin, as a row of the reviewed list.
+func vendorOrigin(t *testing.T, e *env) string {
+	t.Helper()
+	u, err := url.Parse(e.vendor.MCPURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// A vendor's own server on the reviewed list gets the managed app the list
+// names: an older grant beside its request, a new one in it. A server not on
+// the list stays without an entry.
+func TestTheServerListNamesAVendorsOwnServer(t *testing.T) {
+	e := newEnv(t)
+	old := e.connect()
+	before, _ := stored(t, e, old.ID)
+
+	e.s.ServerApps = map[string]string{"https://mcp.elsewhere.example": "connector:composio:other"}
+	if listed := listedByPhone(t, e)[old.ID]; listed["entry"] != nil {
+		t.Fatalf("a server not on the list got %v", listed["entry"])
+	}
+
+	e.s.ServerApps = map[string]string{vendorOrigin(t, e): "connector:composio:refunds"}
+	if listed := listedByPhone(t, e)[old.ID]; listed["entry"] != "connector:composio:refunds" {
+		t.Fatalf("listed under %v", listed["entry"])
+	}
+	after, _ := stored(t, e, old.ID)
+	back, _ := e.s.loadGrant(context.Background(), tenant, old.ID)
+	if !bytes.Equal(before, after) || back.Entry != "connector:composio:refunds" || back.Request.CatalogEntry != "" {
+		t.Fatalf("recorded %q, request %q, unchanged %v", back.Entry, back.Request.CatalogEntry, bytes.Equal(before, after))
+	}
+
+	id, d := e.request()
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Request.CatalogEntry != "connector:composio:refunds" {
+		t.Fatalf("a new grant names %q", g.Request.CatalogEntry)
+	}
+	if signed, _ := digest(g.Request); signed != d {
+		t.Fatal("the digest doesn't cover the entry")
+	}
+}
+
+// The list says which app a server is, whatever the catalog holds for it;
+// two rows that match with different apps say nothing.
+func TestTheServerListComesFirstAndNeverGuesses(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	installEntries(e, refundsEntry(e, "refunds@1"))
+	e.s.ServerApps = map[string]string{vendorOrigin(t, e): "connector:composio:refunds"}
+	g := &Grant{Request: Request{Server: e.vendor.MCPURL()}}
+	if got := e.s.deriveEntry(g); got != "connector:composio:refunds" {
+		t.Fatalf("the list didn't come first: %q", got)
+	}
+	e.s.ServerApps[e.vendor.MCPURL()] = "connector:composio:another"
+	if got := e.s.deriveEntry(g); got != "" {
+		t.Fatalf("two rows with two apps gave %q", got)
+	}
+	e.s.ServerApps[e.vendor.MCPURL()] = "connector:composio:refunds"
+	if got := e.s.deriveEntry(g); got != "connector:composio:refunds" {
+		t.Fatalf("two rows with one app gave %q", got)
+	}
+	// A key grant to the same server is the same app.
+	if got := e.s.deriveEntry(&Grant{Request: Request{Kind: KindAPIKey, Server: e.vendor.MCPURL()}}); got != "connector:composio:refunds" {
+		t.Fatalf("a key grant gave %q", got)
+	}
+}
+
+func TestServerListRows(t *testing.T) {
+	for _, c := range []struct {
+		row, server string
+		match       bool
+	}{
+		{"https://mcp.stripe.com", "https://mcp.stripe.com", true},
+		{"https://mcp.stripe.com", "https://mcp.stripe.com/mcp", true},
+		{"https://mcp.stripe.com/", "https://MCP.stripe.com/v1/sse", true},
+		{"https://mcp.stripe.com/mcp", "https://mcp.stripe.com/mcp/", true},
+		{"https://mcp.stripe.com/mcp", "https://mcp.stripe.com/other", false},
+		{"https://mcp.stripe.com", "https://stripe.attacker.com/mcp", false},
+		{"https://mcp.stripe.com", "https://mcp.stripe.com.attacker.com/mcp", false},
+		{"https://mcp.stripe.com", "http://mcp.stripe.com/mcp", false},
+		{"https://mcp.stripe.com", "https://mcp.stripe.com:8443/mcp", false},
+		{"https://mcp.stripe.com", "https://user@mcp.stripe.com/mcp", false},
+		{"https://mcp.stripe.com", "", false},
+	} {
+		if got := rowMatches(c.row, c.server); got != c.match {
+			t.Errorf("rowMatches(%q, %q) = %v", c.row, c.server, got)
+		}
+	}
+}
+
+// The list shipped with the function decodes, and holds its first rows; a
+// list that isn't exactly servers and entries is refused whole.
+func TestDecodeServerApps(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/server-apps.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := DecodeServerApps(raw)
+	if err != nil {
+		t.Fatalf("the shipped list: %v", err)
+	}
+	if rows["https://mcp.stripe.com"] != "connector:composio:stripe" || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
+		t.Fatalf("the shipped list's first rows: %v", rows)
+	}
+	if _, err := DecodeServerApps([]byte(`{"https://mcp.example.com": "pay@1"}`)); err != nil {
+		t.Fatalf("a reviewed entry's id: %v", err)
+	}
+	many := map[string]string{}
+	for i := 0; i <= MaxServerApps; i++ {
+		many["https://mcp"+strconv.Itoa(i)+".example.com"] = "connector:composio:app"
+	}
+	tooMany, _ := json.Marshal(many)
+	for name, bad := range map[string]string{
+		"plain http":    `{"http://mcp.example.com": "connector:composio:app"}`,
+		"a query":       `{"https://mcp.example.com?x=1": "connector:composio:app"}`,
+		"a fragment":    `{"https://mcp.example.com#a": "connector:composio:app"}`,
+		"user info":     `{"https://u@mcp.example.com": "connector:composio:app"}`,
+		"not an entry":  `{"https://mcp.example.com": "stripe"}`,
+		"half an entry": `{"https://mcp.example.com": "connector:composio:"}`,
+		"not an object": `["https://mcp.example.com"]`,
+		"trailing data": `{"https://mcp.example.com": "connector:composio:app"} {}`,
+		"empty":         ``,
+		"too many":      string(tooMany),
+	} {
+		if _, err := DecodeServerApps([]byte(bad)); err == nil {
+			t.Errorf("%s: accepted", name)
 		}
 	}
 }

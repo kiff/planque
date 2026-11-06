@@ -17,6 +17,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A reviewed list of which app a vendor's own server is
+  (`PLANQUE_SERVER_APPS_FILE`, shipped as `deploy/server-apps.json`). A grant on
+  a listed server gets the app the list names, the managed app the owner
+  already uses: `https://mcp.stripe.com` is `connector:composio:stripe`, and
+  `https://mcp.agentmail.to` is `connector:composio:agent_mail`. An older grant
+  gets it beside its request, and a new one in it, as for the catalog. The list
+  comes before the catalog. A server not on it is matched as before, and one
+  with two rows naming different apps gets no entry.
 - Every grant names its app's catalog `entry`, so the apps list a connection
   under its app by `entry` alone (the follow-up to kiff/tafs#581). A grant
   asked by server, key or registered application names the one reviewed

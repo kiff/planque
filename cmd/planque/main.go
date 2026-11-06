@@ -124,6 +124,18 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	// Which app a vendor's own server is: a reviewed list, read like the
+	// catalog, shipped with the function by deploy/aws.sh.
+	var serverApps map[string]string
+	if path := os.Getenv("PLANQUE_SERVER_APPS_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, errors.New("the server apps could not be read")
+		}
+		if serverApps, err = planque.DecodeServerApps(raw); err != nil {
+			return nil, err
+		}
+	}
 	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
 	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
 		var references map[string]string
@@ -191,6 +203,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		Logger:                 logger,
 		WindowRequired:         strings.EqualFold(strings.TrimSpace(os.Getenv("PLANQUE_WINDOW_REQUIRED")), "true"),
 		CatalogEntries:         catalog,
+		ServerApps:             serverApps,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,
 	}, nil

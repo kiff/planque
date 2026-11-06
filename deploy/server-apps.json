@@ -1,0 +1,4 @@
+{
+  "https://mcp.stripe.com": "connector:composio:stripe",
+  "https://mcp.agentmail.to": "connector:composio:agent_mail"
+}
