@@ -706,6 +706,15 @@ func TestARefusalKeepsWhoRefusedAndWhy(t *testing.T) {
 	if got := run(200, `{"data":{},"successful":false,"error":"No such ticket: 'ticket_one'"}`); !got.Refused || !got.ByVendor || got.Reason != "No such ticket: 'ticket_one'" || got.Status != 0 {
 		t.Fatalf("the vendor's refusal: %+v", got)
 	}
+	// The vendor's status, when the provider passes it on with the refusal (a refused key).
+	if got := run(200, `{"data":{"http_error":"Forbidden","status_code":403},"successful":false,"error":"Forbidden"}`); !got.Refused || !got.ByVendor || got.Status != 403 || got.Reason != "Forbidden" {
+		t.Fatalf("the vendor's refusal with its status: %+v", got)
+	}
+	for _, data := range []string{`{"status_code":42}`, `{"status_code":403.5}`, `[]`} {
+		if got := run(200, `{"data":`+data+`,"successful":false,"error":"no"}`); got.Status != 0 {
+			t.Fatalf("a status from %s: %+v", data, got)
+		}
+	}
 	if got := run(403, `{"error":{"message":"key synthetic-project-key may not use this account"}}`); !got.Refused || got.ByVendor || got.Status != 403 || got.Reason != "key [redacted] may not use this account" {
 		t.Fatalf("the provider's refusal: %+v", got)
 	}

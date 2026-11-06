@@ -218,12 +218,30 @@ func (c *Client) Execute(ctx context.Context, id connector.Identity, account str
 	if !refused {
 		return connector.Result{Data: result.Data, AccountName: a.Name}, nil
 	}
-	// The provider ran the action and the vendor said no: the vendor's own words.
+	// The provider ran the action and the vendor said no: the vendor's own words,
+	// and its HTTP status when the provider passes it on (a refused key's 403).
 	why := connector.Reason(result.Error)
 	if why == "" {
 		why = connector.Reason(result.Data)
 	}
-	return connector.Result{Data: result.Data, Refused: true, Reason: why, ByVendor: true, AccountName: a.Name}, nil
+	return connector.Result{Data: result.Data, Refused: true, Reason: why, ByVendor: true, Status: vendorStatus(result.Data), AccountName: a.Name}, nil
+}
+
+// vendorStatus is the vendor's HTTP status in what the provider returned with
+// its refusal ({"status_code": 403, "http_error": …}), or 0 when it gives
+// none that reads as one.
+func vendorStatus(data json.RawMessage) int {
+	var d struct {
+		StatusCode json.Number `json:"status_code"`
+	}
+	if json.Unmarshal(data, &d) != nil {
+		return 0
+	}
+	n, err := d.StatusCode.Int64()
+	if err != nil || n < 100 || n > 599 {
+		return 0
+	}
+	return int(n)
 }
 
 // searchLimit is how many tools one search answers at most.

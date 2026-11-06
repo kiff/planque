@@ -103,8 +103,8 @@ func TestProxyNeverReachesAPrivateAddressWhateverTheName(t *testing.T) {
 	if n := touched.Load(); n != 0 {
 		t.Fatalf("something connected to the trap %d times", n)
 	}
-	if p.Refused != 11 {
-		t.Errorf("refused %d, want 11", p.Refused)
+	if p.Refused() != 11 {
+		t.Errorf("refused %d, want 11", p.Refused())
 	}
 }
 

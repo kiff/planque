@@ -311,7 +311,7 @@ func TestWorkerEgressHoldsInsideTheBrowser(t *testing.T) {
 	if len(seen) == 0 {
 		t.Error("the listed name wasn't resolved by the proxy")
 	}
-	if n := sess.(*session).proxy.Refused; n < 2 {
+	if n := sess.(*session).proxy.Refused(); n < 2 {
 		t.Errorf("refused %d, want at least 2", n)
 	}
 	// A download: denied, the page stays where it was.
