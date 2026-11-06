@@ -62,8 +62,11 @@ type Server struct {
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
-	Connectors     map[string]connector.Provider
-	DoorSink       door.Sink
+	// ServerApps is the reviewed list of which app a vendor's own server
+	// is: its server, and the catalog entry it belongs to (entry.go).
+	ServerApps map[string]string
+	Connectors map[string]connector.Provider
+	DoorSink   door.Sink
 	// EventSink takes app events for tafs (planque.event.v1); nil, no app
 	// event can be approved.
 	EventSink              door.EventSink

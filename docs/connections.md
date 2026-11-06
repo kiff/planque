@@ -458,16 +458,31 @@ app lists each connection under its app by `entry` alone:
 - **A grant asked from the catalog** names its entry in `request.catalog_entry`,
   as before. A managed app's is `connector:{provider}:{toolkit}`, the browser's
   `browser`, and a Telegram bot's `api:telegram`.
-- **A grant asked by server, key or registered application** names the one
-  reviewed entry for the same server reached the same way: an MCP sign-in, or a
-  REST API by key or by application. It's in `request.catalog_entry`, so the
-  owner signs it with the rest.
+- **A vendor's own server on the reviewed server list** gets the app the list
+  names: the managed app the owner already uses for that vendor, such as
+  `https://mcp.stripe.com` → `connector:composio:stripe`. The list comes first,
+  whatever the catalog holds for that server.
+- **A grant asked by server, key or registered application** otherwise names the
+  one reviewed entry for the same server reached the same way: an MCP sign-in, or
+  a REST API by key or by application.
+- Either way, a new grant has it in `request.catalog_entry`, so the owner signs it
+  with the rest.
 - **A grant made before requests named their app** gets its entry recorded
   beside the request, never in it: the request is what the owner signed, and
   stays byte for byte as signed, so its digest still matches the approval. The
   owner's grants list records it the first time it lists that grant, once.
 - **When no entry matches, or more than one does,** there's no `entry`. It's
-  never guessed.
+  never guessed. Two rows of the server list that match one server with
+  different apps leave it without one too.
+
+**The server list.** `PLANQUE_SERVER_APPS_FILE` names a JSON object from a
+vendor's own HTTPS server to a catalog entry: `connector:{provider}:{toolkit}`
+or a reviewed entry's versioned id, at most 500 rows.
+- A row that's an origin (`https://mcp.stripe.com`) names every path on it,
+  since a vendor's MCP host is its own. A row with a path names that path alone.
+- Anything else in the file refuses the whole list at start.
+- It's configuration, reviewed like the catalog: `deploy/server-apps.json`
+  ships with the function, and `deploy/aws.sh` points the variable at it.
 
 The catalog's `state` counts any connection to the app, one Coach started
 included.

@@ -1,7 +1,11 @@
 package planque
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -36,6 +40,8 @@ func (s *Server) appEntry(g *Grant) string {
 // deriveEntry is the catalog entry for g's app when it's certain:
 //   - a managed app's: its provider and toolkit;
 //   - the browser's, and a Telegram bot's: theirs;
+//   - a vendor's own server on the reviewed list (ServerApps): the app it
+//     names, the managed app the owner already uses for that vendor;
 //   - any other: the one reviewed catalog entry for the same server, reached
 //     the same way (an MCP sign-in, or a REST API by key or registered app).
 //
@@ -57,6 +63,11 @@ func (s *Server) deriveEntry(g *Grant) string {
 	if family == "" {
 		return ""
 	}
+	// The reviewed list of vendors' own servers comes first: it says which
+	// app a server is, whatever the catalog holds for it.
+	if entry, listed := s.serverApp(r.Server); listed {
+		return entry
+	}
 	match := ""
 	for id, e := range s.CatalogEntries {
 		ef, server := s.entryReach(e)
@@ -69,6 +80,65 @@ func (s *Server) deriveEntry(g *Grant) string {
 		match = id
 	}
 	return match
+}
+
+// serverApp is the app the reviewed list (ServerApps) gives a vendor's own
+// server: listed says the server is on it. A row with a path names that path
+// alone; a row that's an origin names every path on it, since a vendor's MCP
+// host is its own. Two rows that match with different apps make it unclear:
+// listed, with no entry, so nothing else is guessed instead.
+func (s *Server) serverApp(server string) (entry string, listed bool) {
+	conflict := false
+	for row, app := range s.ServerApps {
+		if !rowMatches(row, server) {
+			continue
+		}
+		if listed && app != entry {
+			conflict = true
+		}
+		entry, listed = app, true
+	}
+	if conflict {
+		return "", true
+	}
+	return entry, listed
+}
+
+func rowMatches(row, server string) bool {
+	if sameServer(row, server) {
+		return true
+	}
+	u, err := url.Parse(strings.TrimSpace(row))
+	if err != nil || strings.Trim(u.Path, "/") != "" {
+		return false
+	}
+	g, err := url.Parse(strings.TrimSpace(server))
+	return err == nil && g.User == nil && strings.EqualFold(u.Scheme, g.Scheme) && hostKey(u) == hostKey(g) && g.Host != ""
+}
+
+// MaxServerApps bounds the reviewed list: a list, not a directory.
+const MaxServerApps = 500
+
+// DecodeServerApps reads the reviewed list of which app each vendor's own
+// server is: a JSON object from an HTTPS server (an origin, or an exact
+// URL) to a catalog entry, `connector:{provider}:{toolkit}` or a reviewed
+// entry's versioned id. Anything else refuses the whole list.
+func DecodeServerApps(raw []byte) (map[string]string, error) {
+	var rows map[string]string
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&rows) != nil || dec.Decode(new(any)) != io.EOF || rows == nil || len(rows) > MaxServerApps {
+		return nil, fmt.Errorf("the server apps must be an object of at most %d servers, each naming its app's entry", MaxServerApps)
+	}
+	for server, entry := range rows {
+		if !catalogHTTPS(server) {
+			return nil, fmt.Errorf("server apps: %q isn't a fixed HTTPS server", server)
+		}
+		if _, _, ok := connectorEntry(entry); !ok && !catalogID.MatchString(entry) {
+			return nil, fmt.Errorf("server apps: %q names %q, which isn't a catalog entry", server, entry)
+		}
+	}
+	return rows, nil
 }
 
 // Families of reach: an MCP server's sign-in, or a REST API (by key or by a

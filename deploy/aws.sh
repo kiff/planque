@@ -21,6 +21,10 @@
 # of app events, signed with the same handoff credential. Each configured
 # secret gets its own exact resource.
 #
+# deploy/server-apps.json, the reviewed list of which app a vendor's own
+# server is, ships with the function and is read at start
+# (PLANQUE_SERVER_APPS_FILE).
+#
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
 # FAKEVENDOR=1 deploys the fake vendor (an MCP server behind its own OAuth,
@@ -55,7 +59,13 @@ fi
 build() {
   local out; out=$(mktemp -d)
   (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=-s -o "$out/bootstrap" "$PKG")
-  (cd "$out" && zip -q function.zip bootstrap)
+  if [[ -z "$FAKE" ]]; then
+    # The reviewed list of which app a vendor's own server is, read at start.
+    cp "$ROOT/deploy/server-apps.json" "$out/server-apps.json"
+    (cd "$out" && zip -q function.zip bootstrap server-apps.json)
+  else
+    (cd "$out" && zip -q function.zip bootstrap)
+  fi
   echo "$out/function.zip"
 }
 
@@ -114,7 +124,7 @@ function_env() {
     # The browser worker's address and key are set by
     # deploy/browserworker/aws.sh and kept here as they are.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
-    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3]}
+    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json"}
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
