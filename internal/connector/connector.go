@@ -77,6 +77,30 @@ type App struct {
 	// (SetupOnDemand), or needs an operator's own developer credentials first
 	// (SetupNeedsSetup).
 	Setup string `json:"-"`
+	// Managed says the pinned sign-in is the provider's own OAuth app, not
+	// an operator's: its scopes are the provider's to narrow (Scope).
+	Managed bool `json:"-"`
+}
+
+// Scoped is a sign-in that asks only for what some tools need (gap 5 of
+// kiff/tafs#476): pinned instead of the app's usual one.
+type Scoped struct {
+	AuthConfig string
+	// Scopes are what it asks for, sorted: the tools' least-privilege scopes
+	// and the ones the provider always asks (a refresh, who you are).
+	Scopes []string
+}
+
+// ErrUnscoped: the provider can't narrow the app's sign-in to the tools (its
+// own sign-in has no scope ceiling, a tool needs a scope outside it, or the
+// provider couldn't say). The caller keeps the app's usual sign-in, and says so.
+var ErrUnscoped = errors.New("this app's sign-in can't be narrowed to these tools")
+
+// Allowance is what making a new provider sign-in costs the account: Take
+// before making one (an error: none is made), GiveBack when making it failed.
+type Allowance struct {
+	Take     func(context.Context) error
+	GiveBack func(context.Context)
 }
 
 // How an app's sign-in stands at the provider (kiff/planque#87).
@@ -266,4 +290,8 @@ type Provider interface {
 	Tool(context.Context, string, string) (Tool, error)
 	Execute(context.Context, Identity, string, Tool, json.RawMessage, func() bool) (Result, error)
 	Revoke(context.Context, Identity, string) (Revocation, error)
+	// Scope finds the narrowest sign-in to app's provider-managed sign-in
+	// that covers tools (the provider's tool slugs), made once per app and
+	// scope set, a new one paid from the allowance. ErrUnscoped when it can't.
+	Scope(context.Context, App, []string, Allowance) (Scoped, error)
 }

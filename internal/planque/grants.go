@@ -464,6 +464,8 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	id := "grt_" + oauth.Random(12)
 	conn := *from.Request.Connector
 	conn.Account, conn.Tools = "", nil // bound with the tools the owner approves
+	// The same sign-in, so the same narrowing: its tools are the ones it asked for.
+	conn.AskedTools, conn.Scopes = slices.Clone(conn.AskedTools), slices.Clone(conn.Scopes)
 	api := APIRequest{URL: from.Request.API.URL, Base: from.Request.API.Base, SourceKind: from.Request.API.SourceKind}
 	held := *from.Connector
 	held.Tools, held.Revocation = nil, nil

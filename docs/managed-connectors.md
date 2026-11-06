@@ -100,6 +100,31 @@ The account-authenticated catalog endpoints include upstream discovery:
    so later catalog changes cannot rewrite an existing grant's words. If an
    app has several enabled configs, the adapter selects the lowest ID in
    lexical order, independently of page ordering, and pins that config.
+
+   **The narrowest sign-in (gap 5 of kiff/tafs#476).** A request may name the
+   taf's tools (`tools`, the provider's slugs, as the tools search names
+   them). For an app on the provider's own sign-in, planque reads that
+   sign-in's scope ceiling and the scopes it always asks (the app's
+   `composio_managed_auth` and `auth_config_details`), asks the provider for
+   the tools' least-privilege scopes within the ceiling
+   (`toolkits/{slug}/scopes/recommended`), and pins a managed sign-in that
+   asks only for those (`credentials.scopes`). It is made once per app and
+   scope set, named `planque-scoped-<app>-<hash>`, found again by that name,
+   and never chosen as an app's usual sign-in. A new one counts against the
+   account's on-demand set-ups for the day, as setting up an app does. Slugs
+   are compared in upper case, as the provider names them. The scopes and the tools are
+   in the signed request (`asked_tools`, `scopes`), the words say "<app> is
+   asked only for what this taf uses: …", and the grant binds only those
+   tools later (409 for another: a new connection asks for it).
+
+   When the provider can't narrow it (no ceiling, a tool outside it, its
+   recommendation failing, an operator's own sign-in, or the account's
+   set-ups for the day used), the sign-in asks
+   for the app's usual access, recorded as `usual_access` so a later
+   narrowing can replace it, and the words say it plainly: "<app> will ask
+   for more access than this taf uses. The taf can still only use: …". KIFF's
+   Card stays the boundary either way: the taf calls only the tools its Card
+   grants. A reused sign-in carries its narrowing to the new grant.
 3. The owner's device signs `/approve` with that grant's digest. Only then
    is a scoped hosted sign-in created: `/tool_router/session` pins the approved
    config through `auth_configs`, and `/tool_router/session/{id}/link` creates
@@ -109,6 +134,21 @@ The account-authenticated catalog endpoints include upstream discovery:
    server-allocated user, app and exact connection; callback account/status
    parameters establish no authority. The approving device confirms the
    browser's one-use code through the existing `/confirm` route.
+
+   A sign-in that never comes back to the app (the provider's page, or a
+   browser closed before its redirect, so no callback; or a callback whose
+   code never reached the app) is never stuck until its deadline. The device
+   that approved signs `/approve` again, and planque asks the provider:
+   - signed in there: the grant is finished as the callback finishes it, and
+     the answer is `{status: "signed_in", confirm, confirm_by}`. The device
+     confirms with that code through `/confirm`, as with the browser's. A
+     code the callback minted before no longer confirms;
+   - not signed in there: a fresh sign-in link for the same grant,
+     `{status: "approved", sign_in_url, expires_at}`, and the unfinished
+     provider account is revoked.
+
+   Another device gets 403. `DELETE …/grants/{id}` cancels a connection
+   still waiting on its sign-in, as it disconnects any other.
 4. After confirmation, the asking agent reads
    `GET /v1/accounts/{tenant}/grants/{id}/catalog?cursor=...`. Tool discovery
    is paginated and cached separately, rather than copied into the grant.

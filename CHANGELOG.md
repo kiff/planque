@@ -5,8 +5,28 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- A managed app's sign-in that never came back to the app no longer waits
+  for its deadline behind a 409 ("this connection already has a sign-in").
+  The device that approved it signs `/approve` again, and planque asks the
+  provider. If the account is signed in there, the grant finishes as the
+  callback would, and the device confirms with the code in the answer. If
+  not, the answer is a fresh sign-in link for the same grant, and the
+  unfinished account is revoked (kiff/planque#87, on the phone).
+
 ### Added
 
+- A managed app asked for with the taf's tools (`tools`, the provider's
+  slugs) signs in for only what they need: the provider's least-privilege
+  scopes within its own sign-in's ceiling, on a scoped managed sign-in made
+  once per app and scope set. The scopes are in the signed request and its
+  words, and the grant binds only those tools. When the provider can't
+  narrow it, the sign-in asks for the app's usual access, recorded on the
+  grant, and the words say so: "<app> will ask for more access than this taf
+  uses. The taf can still only use: …" (gap 5 of kiff/tafs#476). A new
+  scoped sign-in counts against the account's on-demand set-ups for the day;
+  once they're used, the sign-in asks for the app's usual access.
 - A managed app's sign-in can be reused for another taf (`"reuse"` naming a
   connected managed grant, `tools: []`): the new connection is signed in
   and listed at once, on the same provider account, with no second sign-in

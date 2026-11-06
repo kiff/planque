@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +37,27 @@ type ConnectorRequest struct {
 	AuthScheme string           `json:"auth_scheme,omitempty"`
 	Account    string           `json:"account,omitempty"`
 	Tools      []connector.Tool `json:"tools,omitempty"`
+	// AskedTools are the provider's tools the taf named when it asked for
+	// the connection (gap 5 of kiff/tafs#476). Its sign-in asks for what
+	// they need (Scopes), or for the app's usual access (UsualAccess).
+	AskedTools []string `json:"asked_tools,omitempty"`
+	// Scopes are what the sign-in asks the vendor for, narrowed to
+	// AskedTools: the tools bound later are among AskedTools.
+	Scopes []string `json:"scopes,omitempty"`
+	// UsualAccess: the sign-in asks for the app's usual access, more than
+	// AskedTools need, since the provider couldn't narrow it. The words say
+	// so, and a later narrowing may replace it.
+	UsualAccess bool `json:"usual_access,omitempty"`
+}
+
+// MaxAskedTools is the most tools a connection may be asked for with: a
+// grant binds at most as many.
+const MaxAskedTools = 20
+
+// errOutsideSignIn refuses a tool its connection's narrowed sign-in didn't ask for.
+func errOutsideSignIn(app, tool string) error {
+	return apiError{http.StatusConflict, app + "'s sign-in for this taf asks only for what its tools need, and " + tool +
+		" isn't among them: ask for a new connection with it, so the owner signs in for it"}
 }
 
 // ConnectorState is private server state, never an agent-selected identity.
@@ -364,9 +388,20 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// AgentName is the taf's name for people ("Refunds"), optional: the
 		// grant's words name the taf by it instead of the agent id.
 		AgentName string `json:"agent_name"`
+		// Tools, optional, are the provider's tools the taf will use, as the
+		// tools search names them: the sign-in asks only for what they need.
+		Tools []string `json:"tools"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	// Provider slugs are upper case: one asked in lower case is the same tool.
+	for i, t := range ask.Tools {
+		ask.Tools[i] = strings.ToUpper(strings.TrimSpace(t))
+	}
+	if msg := checkAskedTools(ask.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
 	if msg := checkTools(ask.Agent, nil); msg != "" {
@@ -421,11 +456,33 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		}
 		onDemand = ok && held.AuthConfig != "" && held.AuthConfig == app.AuthConfig
 	}
+	conn := &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme}
+	if len(ask.Tools) > 0 {
+		// The narrowest sign-in for the taf's tools (gap 5 of kiff/tafs#476).
+		// The Card stays the boundary: a taf calls only the tools its Card
+		// grants, whatever the scopes. So when the provider can't narrow the
+		// sign-in, or the account's set-ups for the day are used, it asks for
+		// the app's usual access, and says so.
+		conn.AskedTools = slices.Clone(ask.Tools)
+		budget := connector.Allowance{
+			Take:     func(ctx context.Context) error { return s.takeAllowance(ctx, tenant) },
+			GiveBack: func(ctx context.Context) { s.giveBackAllowance(ctx, tenant) },
+		}
+		scoped, err := p.Scope(r.Context(), app, ask.Tools, budget)
+		if err == nil {
+			conn.AuthConfig, conn.Scopes = scoped.AuthConfig, scoped.Scopes
+		} else {
+			conn.UsualAccess = true
+			if !errors.Is(err, connector.ErrUnscoped) {
+				s.log().WarnContext(r.Context(), "sign-in not narrowed", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+			}
+		}
+	}
 	id := "grt_" + oauth.Random(12)
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name), OnDemand: onDemand,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
 			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
-			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme},
+			CatalogEntry: r.PathValue("entry"), Connector: conn,
 			API: &APIRequest{URL: platform.URL, Base: platform.URL, SourceKind: "connector"}},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if g.Request.AskedBy == "" {
@@ -475,21 +532,34 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		writeJSON(w, http.StatusOK, s.view(g))
 		return
 	}
+	// A sign-in under way that never came back to the app: the approving
+	// device asks again, and planque asks the provider (kiff/planque#87).
+	if g.Connector != nil && !g.SignedIn && (g.Status == StatusApproved || g.Status == StatusSignedIn) {
+		s.resumeConnectorSignIn(w, r, sr, g, p)
+		return
+	}
 	// A replacement account always needs a fresh grant and tool approval.
 	// Never swap accounts underneath an already approved profile.
 	if g.Connector != nil {
 		writeErr(w, http.StatusConflict, "this connection already has a sign-in; finish it or disconnect and request a new grant")
 		return
 	}
+	s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in approved "+sr.approval.Who())
+}
+
+// startConnectorSignIn opens a sign-in at the provider for g and answers
+// with its link, for the approving device: g waits approved until the
+// sign-in's deadline. It says whether it did; when not, it answered why.
+func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a Approval, g *Grant, p connector.Provider, what string) bool {
 	if s.AppReturn == "" {
 		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
-		return
+		return false
 	}
 	state := oauth.Random(24)
 	exp := s.now().Add(signInTTL)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: pkSignIn(state), SK: "-", TTL: exp.Unix()}, pendingSignIn{Tenant: g.Tenant, Grant: g.ID, Expires: exp}, store.Cond{NotExists: true}); err != nil {
 		s.fail(w, r, err)
-		return
+		return false
 	}
 	id := s.connectorIdentity(g)
 	// Each attempt names its connection afresh: the provider keeps a name
@@ -499,19 +569,88 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	if err != nil {
 		_, _, _ = s.KV.Delete(r.Context(), pkSignIn(state), "-")
 		s.fail(w, r, err)
-		return
+		return false
 	}
-	a := sr.approval
 	g.Connector = &ConnectorState{User: id.User, Session: auth.Session, Account: auth.Account}
 	g.Approval, g.Status = &a, StatusApproved
 	g.HeldUntil = exp.UTC()
-	g.event(s.now(), "sign-in approved "+a.Who())
+	g.Account, g.ConfirmHash, g.ConfirmBy = "", "", time.Time{}
+	g.event(s.now(), what)
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		_, _ = p.Revoke(r.Context(), id, auth.Account)
 		s.fail(w, r, err)
-		return
+		return false
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "expires_at": exp.UTC()})
+	return true
+}
+
+// resumeConnectorSignIn answers the approving device asking again about a
+// sign-in under way: the provider's redirect never reached the callback
+// (its page, or the browser closing first), or the callback's never reached
+// the app, and a second approve answered 409 until the deadline passed
+// (kiff/planque#87, on the phone). planque asks the provider instead. Signed
+// in there: g is finished as the callback finishes it, and the device gets
+// the code it confirms with, as from the callback's link. Not signed in: a
+// fresh sign-in link for this same grant, and the unfinished one is revoked,
+// so no account it might still make stays live at the provider unbound.
+func (s *Server) resumeConnectorSignIn(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant, p connector.Provider) {
+	if g.Approval == nil || !g.Approval.SameSigner(sr.approval) {
+		writeErr(w, http.StatusForbidden, "only the device that approved this connection may finish its sign-in")
+		return
+	}
+	err := s.checkConnector(r.Context(), g)
+	switch {
+	case err == nil:
+		_, code, err := s.signedInConnector(r.Context(), g, "signed in, as the provider says: its sign-in page never came back; waiting for the approving device to confirm")
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "confirm": code, "confirm_by": g.ConfirmBy})
+	case errors.Is(err, connector.ErrAccount):
+		old := *g.Connector
+		if !s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in started again "+sr.approval.Who()+": the first never finished") {
+			return
+		}
+		if old.Account != "" && old.Account != g.Connector.Account {
+			if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
+				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			}
+		}
+	default:
+		// The provider couldn't say: nothing changed, and asking again later can.
+		s.fail(w, r, err)
+	}
+}
+
+// errNoAppReturn: planque has no app to send a finished sign-in's code to.
+var errNoAppReturn = errors.New("sign-in confirmation is not configured")
+
+// signedInConnector finishes g's sign-in as the provider's redirect does:
+// the account is the grant's, and only the approving device may confirm it,
+// with the code, by ConfirmBy. It answers the app's return link carrying the
+// code, and the code.
+func (s *Server) signedInConnector(ctx context.Context, g *Grant, what string) (*url.URL, string, error) {
+	u, err := url.Parse(s.AppReturn)
+	if err != nil || u.Scheme == "" {
+		return nil, "", errNoAppReturn
+	}
+	code := oauth.Random(24)
+	sum := sha256.Sum256([]byte(code))
+	g.Account, g.ConfirmHash, g.ConfirmBy = g.Connector.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
+	g.Status = StatusSignedIn
+	g.HeldUntil = time.Time{}
+	g.event(s.now(), what)
+	if err := s.saveGrant(ctx, g); err != nil {
+		return nil, "", err
+	}
+	q := u.Query()
+	q.Set("tenant", g.Tenant)
+	q.Set("grant", g.ID)
+	q.Set("confirm", code)
+	u.RawQuery = q.Encode()
+	return u, code, nil
 }
 
 func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
@@ -544,26 +683,15 @@ func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	u, err := url.Parse(s.AppReturn)
-	if err != nil || u.Scheme == "" {
-		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
+	u, _, err := s.signedInConnector(r.Context(), g, "signed in; waiting for the approving device to confirm")
+	if errors.Is(err, errNoAppReturn) {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	code := oauth.Random(24)
-	sum := sha256.Sum256([]byte(code))
-	g.Account, g.ConfirmHash, g.ConfirmBy = g.Connector.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
-	g.Status = StatusSignedIn
-	g.HeldUntil = time.Time{}
-	g.event(s.now(), "signed in; waiting for the approving device to confirm")
-	if err := s.saveGrant(r.Context(), g); err != nil {
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	q := u.Query()
-	q.Set("tenant", g.Tenant)
-	q.Set("grant", g.ID)
-	q.Set("confirm", code)
-	u.RawQuery = q.Encode()
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, u.String(), http.StatusFound)
@@ -677,6 +805,10 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 		}
 		if found == nil || found.Validate() != nil || found.Toolkit != g.Request.Connector.Toolkit {
 			return connector.ErrDefinition
+		}
+		// A sign-in narrowed to the tools the taf asked for serves only those.
+		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
+			return errOutsideSignIn(c.Title, found.Name)
 		}
 		definitions = append(definitions, *found)
 	}
@@ -802,6 +934,52 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 	return triggerErr
 }
 
+// scopeWords is what the sign-in asks the vendor for, when the taf named its
+// tools (gap 5 of kiff/tafs#476): only what they need, or, when that couldn't
+// be narrowed, the app's usual access, said plainly. Nothing otherwise.
+func scopeWords(c *ConnectorRequest) string {
+	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {
+		return ""
+	}
+	tools := toolWords(c.Toolkit, c.AskedTools)
+	if c.UsualAccess {
+		return " " + c.Title + " will ask for more access than this taf uses. The taf can still only use: " + tools + "."
+	}
+	return " " + c.Title + " is asked only for what this taf uses: " + tools + "."
+}
+
+// toolWords names a provider's tools as people read them: "List events" for
+// GOOGLECALENDAR_LIST_EVENTS.
+func toolWords(toolkit string, slugs []string) string {
+	names := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		words := strings.TrimPrefix(strings.ToUpper(slug), strings.ToUpper(toolkit)+"_")
+		words = strings.ToLower(strings.ReplaceAll(words, "_", " "))
+		if words != "" {
+			words = strings.ToUpper(words[:1]) + words[1:]
+		}
+		names = append(names, words)
+	}
+	return strings.Join(names, ", ")
+}
+
+// checkAskedTools says what's wrong with the tools a connection is asked for
+// with, or "": each a provider's tool name, at most MaxAskedTools, each once.
+func checkAskedTools(tools []string) string {
+	if len(tools) > MaxAskedTools {
+		return "tools names at most " + strconv.Itoa(MaxAskedTools) + " of the app's tools"
+	}
+	for i, t := range tools {
+		if !connectorTool.MatchString(t) || slices.Contains(tools[:i], t) {
+			return "tools are the app's tools as the tools search names them (its slug), each once"
+		}
+	}
+	return ""
+}
+
+// connectorTool is a provider's tool slug.
+var connectorTool = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{0,127}$`)
+
 // connectorText is what the owner reads and signs for a managed connection.
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
@@ -815,9 +993,10 @@ func connectorText(q Request) string {
 			// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
 			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + " with the sign-in you already have there: no second sign-in or key. It stays with the connection service; the taf never sees it."
 			if len(q.Tools) == 0 {
-				return text + " The actions to approve come next. No actions are granted yet."
+				return text + scopeWords(q.Connector) + " The actions to approve come next. No actions are granted yet."
 			}
 		}
+		text += scopeWords(q.Connector)
 		switch q.Connector.AuthScheme {
 		case "API_KEY", "BEARER_TOKEN":
 			credential := "key"
@@ -825,7 +1004,7 @@ func connectorText(q Request) string {
 				credential = "token"
 			}
 			if q.Reuse == "" {
-				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it." + scopeWords(q.Connector)
 			}
 		}
 	}

@@ -5,11 +5,14 @@ package composio
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +34,7 @@ type Client struct {
 
 	mu         sync.Mutex
 	configured map[string]authConfig // enabled sign-in selected for each toolkit
+	scoped     map[string]authConfig // the scoped sign-ins planque made (Scope), by name
 	readAt     time.Time
 	firstPage  connector.Page[connector.App] // the unsearched first page, for readAt's sign-ins
 	firstAt    time.Time
@@ -43,7 +47,13 @@ const configuredFor = 5 * time.Minute
 type authConfig struct {
 	ID     string
 	Scheme string
+	// Managed: the provider's own OAuth app, not an operator's.
+	Managed bool
 }
+
+// scopedPrefix names the sign-ins Scope makes. One is never an app's usual
+// sign-in: it asks only for some tools' scopes.
+const scopedPrefix = "planque-scoped-"
 
 // signInSetUp reads which toolkits the project can sign someone in to: those
 // with an enabled auth config. An app without one can't be connected, so it
@@ -62,6 +72,7 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]authConfig, error)
 	}
 	c.mu.Unlock()
 	m := map[string]authConfig{}
+	scoped := map[string]authConfig{}
 	cursor := ""
 	for range 50 {
 		q := url.Values{"limit": {"100"}}
@@ -71,8 +82,10 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]authConfig, error)
 		var page struct {
 			Items []struct {
 				ID      string `json:"id"`
+				Name    string `json:"name"`
 				Scheme  string `json:"auth_scheme"`
 				Status  string `json:"status"`
+				Managed bool   `json:"is_composio_managed"`
 				Toolkit struct {
 					Slug string `json:"slug"`
 				} `json:"toolkit"`
@@ -85,16 +98,24 @@ func (c *Client) signInSetUp(ctx context.Context) (map[string]authConfig, error)
 		for _, a := range page.Items {
 			if strings.EqualFold(a.Status, "ENABLED") && identifier.MatchString(a.Toolkit.Slug) && identifier.MatchString(a.ID) && identifier.MatchString(a.Scheme) {
 				slug := strings.ToLower(a.Toolkit.Slug)
+				config := authConfig{ID: a.ID, Scheme: strings.ToUpper(a.Scheme), Managed: a.Managed}
+				// A scoped sign-in is some tools' only, never the app's usual one.
+				if strings.HasPrefix(a.Name, scopedPrefix) {
+					if a.Managed {
+						scoped[a.Name] = config
+					}
+					continue
+				}
 				// Stable across upstream page ordering when an app has several
 				// enabled configs. The grant and hosted session pin this one.
 				if old, ok := m[slug]; !ok || a.ID < old.ID {
-					m[slug] = authConfig{ID: a.ID, Scheme: strings.ToUpper(a.Scheme)}
+					m[slug] = config
 				}
 			}
 		}
 		if page.Next == "" || page.Next == cursor {
 			c.mu.Lock()
-			c.configured, c.readAt = m, now
+			c.configured, c.scoped, c.readAt = m, scoped, now
 			c.mu.Unlock()
 			return m, nil
 		}
@@ -209,7 +230,7 @@ var keySchemes = map[string]bool{"API_KEY": true, "BEARER_TOKEN": true, "BASIC":
 // on demand will have, for the words the owner reads before it exists.
 func (a wireApp) setUp(app *connector.App, config authConfig, ok bool) {
 	if ok {
-		app.AuthConfig, app.AuthScheme, app.Setup = config.ID, config.Scheme, connector.SetupReady
+		app.AuthConfig, app.AuthScheme, app.Setup, app.Managed = config.ID, config.Scheme, connector.SetupReady, config.Managed
 		return
 	}
 	schemes := func(list []string) []string {
@@ -394,7 +415,7 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 	if !strings.EqualFold(made.Toolkit.Slug, id) || !made.Config.Managed || !identifier.MatchString(made.Config.ID) || !identifier.MatchString(scheme) {
 		return connector.App{}, connector.ErrDefinition
 	}
-	config := authConfig{ID: made.Config.ID, Scheme: scheme}
+	config := authConfig{ID: made.Config.ID, Scheme: scheme, Managed: true}
 	// The sign-ins handed out by signInSetUp are read without the lock, so
 	// the map they hold is never written: a new map takes its place.
 	c.mu.Lock()
@@ -409,8 +430,132 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 	c.configured = next
 	c.firstAt = time.Time{}
 	c.mu.Unlock()
-	app.AuthConfig, app.AuthScheme, app.Setup = config.ID, config.Scheme, connector.SetupReady
+	app.AuthConfig, app.AuthScheme, app.Setup, app.Managed = config.ID, config.Scheme, connector.SetupReady, config.Managed
 	return app, nil
+}
+
+// Scope finds the narrowest sign-in to app's provider-managed sign-in that
+// covers tools (gap 5 of kiff/tafs#476). It reads the app's managed scope
+// ceiling and the scopes always asked, asks the provider which of the
+// ceiling's scopes the tools need at least, and pins a managed sign-in that
+// asks only for those: made once per app and scope set, and found again by
+// its name. A new one is paid from the allowance first. ErrUnscoped for
+// anything it can't do, so the caller keeps the app's usual sign-in.
+func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, budget connector.Allowance) (connector.Scoped, error) {
+	if !app.Managed || app.AuthScheme != "OAUTH2" || !identifier.MatchString(app.Slug) || len(tools) == 0 {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	for _, t := range tools {
+		if !identifier.MatchString(t) {
+			return connector.Scoped{}, connector.ErrDefinition
+		}
+	}
+	var kit struct {
+		Managed []struct {
+			Mode   string `json:"mode"`
+			Scopes struct {
+				Available []string `json:"available"`
+			} `json:"scopes"`
+		} `json:"composio_managed_auth"`
+		Details []struct {
+			Mode     string   `json:"mode"`
+			Required []string `json:"required_scopes"`
+		} `json:"auth_config_details"`
+	}
+	if _, err := c.request(ctx, "GET", "/toolkits/"+app.Slug, nil, nil, &kit); err != nil {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	var ceiling, always []string
+	for _, m := range kit.Managed {
+		if strings.EqualFold(m.Mode, "OAUTH2") {
+			ceiling = cleanScopes(m.Scopes.Available)
+		}
+	}
+	for _, d := range kit.Details {
+		if strings.EqualFold(d.Mode, "OAUTH2") {
+			always = cleanScopes(d.Required)
+		}
+	}
+	if len(ceiling) == 0 {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	var rec struct {
+		Scopes struct {
+			Least []string `json:"least_privilege"`
+		} `json:"scopes"`
+	}
+	body := map[string]any{"tools": tools, "auth_scheme": "OAUTH2", "available_scopes": ceiling}
+	// A tool its ceiling can't cover (scope_not_available), or the beta failing: the usual sign-in.
+	if _, err := c.request(ctx, "POST", "/toolkits/"+app.Slug+"/scopes/recommended", nil, body, &rec); err != nil {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	least := cleanScopes(rec.Scopes.Least)
+	if len(least) == 0 || slices.ContainsFunc(least, func(s string) bool { return !slices.Contains(ceiling, s) }) {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	sum := sha256.Sum256([]byte(strings.Join(least, " ")))
+	name := scopedPrefix + strings.ToLower(app.Slug) + "-" + hex.EncodeToString(sum[:8])
+	asked := cleanScopes(append(slices.Clone(least), always...))
+	if _, err := c.signInSetUp(ctx); err != nil {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	c.mu.Lock()
+	made, ok := c.scoped[name]
+	c.mu.Unlock()
+	if ok {
+		return connector.Scoped{AuthConfig: made.ID, Scopes: asked}, nil
+	}
+	var out struct {
+		Toolkit struct {
+			Slug string `json:"slug"`
+		} `json:"toolkit"`
+		Config struct {
+			ID      string `json:"id"`
+			Scheme  string `json:"auth_scheme"`
+			Managed bool   `json:"is_composio_managed"`
+		} `json:"auth_config"`
+	}
+	// A new sign-in at the provider costs the account as an on-demand set-up does.
+	if budget.Take != nil {
+		if err := budget.Take(ctx); err != nil {
+			return connector.Scoped{}, connector.ErrUnscoped
+		}
+	}
+	giveBack := func() {
+		if budget.GiveBack != nil {
+			budget.GiveBack(ctx)
+		}
+	}
+	config := map[string]any{"type": "use_composio_managed_auth", "name": name, "credentials": map[string]any{"scopes": least}}
+	if _, err := c.request(ctx, "POST", "/auth_configs", nil, map[string]any{"toolkit": map[string]string{"slug": app.Slug}, "auth_config": config}, &out); err != nil {
+		giveBack()
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	if !strings.EqualFold(out.Toolkit.Slug, app.Slug) || !out.Config.Managed || !identifier.MatchString(out.Config.ID) || !strings.EqualFold(out.Config.Scheme, "OAUTH2") {
+		giveBack()
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	c.mu.Lock()
+	next := make(map[string]authConfig, len(c.scoped)+1)
+	for k, v := range c.scoped {
+		next[k] = v
+	}
+	next[name] = authConfig{ID: out.Config.ID, Scheme: "OAUTH2", Managed: true}
+	c.scoped = next
+	c.mu.Unlock()
+	return connector.Scoped{AuthConfig: out.Config.ID, Scopes: asked}, nil
+}
+
+// cleanScopes is scopes trimmed, without empty or repeated ones, sorted.
+func cleanScopes(scopes []string) []string {
+	out := []string{}
+	for _, s := range scopes {
+		if s = strings.TrimSpace(s); s != "" && len(s) <= 512 && !strings.ContainsAny(s, " \t\r\n") && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // linkHosts serve the provider's hosted sign-in page; it moved from app. to
