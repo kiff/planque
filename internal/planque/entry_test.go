@@ -363,3 +363,31 @@ func TestDecodeServerApps(t *testing.T) {
 		}
 	}
 }
+
+// A host that only looks like a listed one is never listed under its app:
+// a subdomain, a suffix, a longer host, another port or plain http.
+func TestTheServerListRefusesLookAlikes(t *testing.T) {
+	s := &Server{ServerApps: map[string]string{"https://mcp.stripe.com": "connector:composio:stripe"}}
+	if entry, listed := s.serverApp("https://mcp.stripe.com/mcp"); !listed || entry != "connector:composio:stripe" {
+		t.Fatalf("the listed server: %q %v", entry, listed)
+	}
+	for _, server := range []string{
+		"https://x.mcp.stripe.com",
+		"https://x.mcp.stripe.com/mcp",
+		"https://evilmcp.stripe.com",
+		"https://evil-mcp.stripe.com/mcp",
+		"https://mcp.stripe.com.evil.example",
+		"https://mcp.stripe.com.evil.example/mcp",
+		"https://mcp.stripe.com:8443",
+		"https://mcp.stripe.com:8443/mcp",
+		"http://mcp.stripe.com",
+		"http://mcp.stripe.com/mcp",
+	} {
+		if entry, listed := s.serverApp(server); listed || entry != "" {
+			t.Errorf("%s was listed under %q", server, entry)
+		}
+		if got := s.deriveEntry(&Grant{Request: Request{Server: server}}); got != "" {
+			t.Errorf("%s got the entry %q", server, got)
+		}
+	}
+}
