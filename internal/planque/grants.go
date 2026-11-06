@@ -169,9 +169,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	var req struct {
-		Server string         `json:"server"`
-		Agent  string         `json:"agent"`
-		Tools  *[]ToolRequest `json:"tools"`
+		Server string `json:"server"`
+		Agent  string `json:"agent"`
+		// AgentName is the taf's name for people ("Overdue invoice
+		// reminders"), optional: the words name the taf by it, never by its
+		// agent id, which goes under Details (kiff/tafs#476).
+		AgentName string         `json:"agent_name"`
+		Tools     *[]ToolRequest `json:"tools"`
 		// An API-key grant (kiff/planque#64): its kind and the API it calls.
 		Kind string  `json:"kind"`
 		API  *apiAsk `json:"api"`
@@ -192,32 +196,38 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		// The browser's catalog entry is planque's own: the ask names the
 		// taf, and what the browser is limited to.
 		var ask struct {
-			Agent   string          `json:"agent"`
-			Browser *BrowserRequest `json:"browser"`
-			Tools   *[]ToolRequest  `json:"tools"`
+			Agent     string          `json:"agent"`
+			AgentName string          `json:"agent_name"`
+			Browser   *BrowserRequest `json:"browser"`
+			Tools     *[]ToolRequest  `json:"tools"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.Agent, req.Kind, req.Browser, req.Tools = ask.Agent, KindBrowser, ask.Browser, ask.Tools
+		req.Agent, req.AgentName, req.Kind, req.Browser, req.Tools = ask.Agent, ask.AgentName, KindBrowser, ask.Browser, ask.Tools
 		if req.Tools == nil {
 			req.Tools = &[]ToolRequest{}
 		}
 		entry = nil
 	} else {
 		var ask struct {
-			Agent string `json:"agent"`
+			Agent     string `json:"agent"`
+			AgentName string `json:"agent_name"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.Agent, req.Server, req.Application = ask.Agent, entry.Server, entry.Application
+		req.Agent, req.AgentName, req.Server, req.Application = ask.Agent, ask.AgentName, entry.Server, entry.Application
 		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, entry.API, &entry.Tools, entry.Profile
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
+		return
+	}
+	if req.AgentName != "" && label(req.AgentName) != req.AgentName {
+		writeErr(w, http.StatusBadRequest, "agent_name is the taf's name, on one line, at most "+strconv.Itoa(MaxLabel)+" characters")
 		return
 	}
 	if req.Kind == KindBrowser {
@@ -381,7 +391,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	}
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
-			Agent: req.Agent, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
+			Agent: req.Agent, AgentName: req.AgentName, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
 			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if entry != nil {
@@ -466,6 +476,24 @@ func checkTools(agent string, tools []ToolRequest) string {
 // grantText is what the owner reads before approving.
 func grantText(q Request) string { return requestText(q, false, "") }
 
+// tafWords names the taf for the owner: its name when the request gave one,
+// else "this taf", never its agent id, which goes under Details
+// (requestTerms, kiff/tafs#476: the owner read "for the taf reminders-5mgnsmce").
+func tafWords(q Request) string {
+	if q.AgentName != "" {
+		return q.AgentName
+	}
+	return "this taf"
+}
+
+// tafWordsFirst is tafWords to open a sentence.
+func tafWordsFirst(q Request) string {
+	if q.AgentName != "" {
+		return q.AgentName
+	}
+	return "This taf"
+}
+
 // requestText is what the owner reads. held is for tools asked for on a
 // grant whose sign-in planque already holds: there is no second sign-in,
 // and the text names the account it acts in, when the vendor names it.
@@ -484,12 +512,12 @@ func connectionText(q Request, held bool, account string, catalog ...CatalogTool
 		return apiKeyText(q, held, account, catalog...)
 	}
 	if len(q.Tools) == 0 {
-		return fmt.Sprintf("Connect your account at %s to see what it offers for the taf %s.\n"+
+		return fmt.Sprintf("Connect your account at %s to see what it offers for %s.\n"+
 			"You will sign in at %s.\n\nOnly what it offers is read: its list of tools. None of them is called: "+
 			"nothing is read from your account, nothing is changed, and nothing is given to the taf. "+
 			"The tools the taf may use come next, and you approve them again. If they aren't approved within a day, the sign-in is revoked.\n\n"+
 			"Your sign-in is kept in a sealed vault; the taf never sees it. You can disconnect at any time.",
-			hostOf(q.Server), q.Agent, hostOf(q.SignInAt))
+			hostOf(q.Server), tafWords(q), hostOf(q.SignInAt))
 	}
 	var b strings.Builder
 	b.WriteString(toolLines(q, held, account, catalog...))
@@ -503,17 +531,24 @@ func toolLines(q Request, held bool, account string, catalog ...CatalogTool) str
 	var b strings.Builder
 	switch {
 	case held && q.Kind == KindAPIKey:
-		b.WriteString("The key you gave is used: no second key.\n\nThe taf may:\n")
+		b.WriteString("The key you gave is used: no second key.\n\n")
 	case q.Kind == KindAPIKey:
-		b.WriteString("The taf may:\n")
 	case held && account != "":
-		fmt.Fprintf(&b, "You're already signed in, to the account %s: no second sign-in.\n\nThe taf may:\n", account)
+		fmt.Fprintf(&b, "You're already signed in, to the account %s: no second sign-in.\n\n", account)
 	case held:
-		b.WriteString("You're already signed in: no second sign-in.\n\nThe taf may:\n")
+		b.WriteString("You're already signed in: no second sign-in.\n\n")
 	default:
-		fmt.Fprintf(&b, "You will sign in at %s.\n\nThe taf may:\n", hostOf(q.SignInAt))
+		fmt.Fprintf(&b, "You will sign in at %s.\n\n", hostOf(q.SignInAt))
+	}
+	// The taf's own tools, under their own heading; Setup's reads follow
+	// apart, never listed as the taf's (kiff/tafs#476).
+	if slices.ContainsFunc(q.Tools, func(t ToolRequest) bool { return !t.SetupReads }) {
+		fmt.Fprintf(&b, "%s may:\n", tafWordsFirst(q))
 	}
 	for _, t := range q.Tools {
+		if t.SetupReads {
+			continue
+		}
 		how := "makes changes, only within the taf's Card"
 		switch {
 		case t.ReadOnly:
@@ -561,11 +596,11 @@ func apiKeyText(q Request, held bool, account string, catalog ...CatalogTool) st
 	vault := "Your key is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to " +
 		hostOf(q.API.Base) + ", " + where + "."
 	if len(q.Tools) == 0 {
-		return fmt.Sprintf("Connect %s with an API key you give, to see what it offers for the taf %s.\n%s\n\n"+
+		return fmt.Sprintf("Connect %s with an API key you give, to see what it offers for %s.\n%s\n\n"+
 			"Only its API description is read: none of its operations is called, nothing is read from your account, nothing is changed, "+
 			"and nothing is given to the taf. The tools the taf may use come next, and you approve them again. "+
 			"If they aren't approved within a day, the key is deleted.\n\n%s You can disconnect at any time, which deletes it.",
-			hostOf(q.API.Base), q.Agent, api, vault)
+			hostOf(q.API.Base), tafWords(q), api, vault)
 	}
 	var b strings.Builder
 	if !held {
@@ -581,7 +616,7 @@ func apiKeyText(q Request, held bool, account string, catalog ...CatalogTool) st
 // pinned (with the vendor's words for it) and what the taf sets. What the
 // phone signs is the request itself, these terms included.
 func requestTerms(q Request, catalog ...CatalogTool) []string {
-	out := make([]string, 0, len(q.Tools))
+	out := make([]string, 0, len(q.Tools)+2)
 	for _, t := range q.Tools {
 		line := t.Name
 		if t.narrowed() {
@@ -593,6 +628,20 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 			line += "; Setup reads it too"
 		}
 		out = append(out, line)
+	}
+	// Then the ids the words don't name (kiff/tafs#476): for a managed
+	// connection its account and each action's exact version, and the
+	// taf's agent.
+	if q.Connector != nil {
+		if q.Connector.Account != "" {
+			out = append(out, "Only the connected account "+q.Connector.Account)
+		}
+		for _, t := range q.Connector.Tools {
+			out = append(out, t.Name+" ("+t.Slug+", "+t.Version+")")
+		}
+	}
+	if q.Agent != "" {
+		out = append(out, "For the taf's agent "+q.Agent)
 	}
 	return out
 }

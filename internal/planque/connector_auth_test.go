@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kiff/planque/internal/connector"
 )
 
 func TestHostedKeyAppsReturnConnectedThroughTheSignedFlow(t *testing.T) {
@@ -27,8 +29,8 @@ func TestHostedKeyAppsReturnConnectedThroughTheSignedFlow(t *testing.T) {
 			if scheme == "BEARER_TOKEN" {
 				credential = "token"
 			}
-			want := "Connect Support desk for the taf agt_taf. You'll enter your Support desk " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
-			if text := v["text"].(string); !strings.HasPrefix(text, want) || strings.Contains(strings.ToLower(text), "composio") {
+			want := "Connect Support desk for this taf. You'll enter your Support desk " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+			if text := v["text"].(string); !strings.HasPrefix(text, want) || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "agt_taf") {
 				t.Fatalf("words: %q", text)
 			}
 			path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string)
@@ -97,10 +99,13 @@ func TestHostedKeyCallbackRequiresAnActiveOwnedAccount(t *testing.T) {
 func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 	for _, title := range []string{"", "Support desk"} {
 		old := `{"provider":"composio","toolkit":"desk_demo"`
+		// Made before titles: its words stay as it was signed, agent id and all.
 		prefix := "Connect desk_demo through composio for agt_taf. This connection provider holds the vendor credentials."
 		if title != "" {
 			old += `,"title":"Support desk"`
-			prefix = "Connect Support desk for the taf agt_taf. Your sign-in to Support desk stays with the connection service; the taf never sees it."
+			// With a title and no name, it's "this taf": the agent id is under
+			// Details (kiff/tafs#476). A grant's stored words never change.
+			prefix = "Connect Support desk for this taf. Your sign-in to Support desk stays with the connection service; the taf never sees it."
 		}
 		old += `}`
 		var binding ConnectorRequest
@@ -115,5 +120,11 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 		if got := connectorText(q); got != prefix+" Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet." {
 			t.Fatalf("older approval words changed: %q", got)
 		}
+	}
+	// Its actions too: the account and each action's version, as it was signed.
+	q := Request{Agent: "agt_taf", Tools: []ToolRequest{{Tool: "connector_x", Name: "reply_ticket"}}, Connector: &ConnectorRequest{Provider: "composio", Toolkit: "desk_demo", Account: "ca_old",
+		Tools: []connector.Tool{{Slug: "DESK_REPLY", Toolkit: "desk_demo", Version: "20251001_00", Name: "Reply to a ticket"}}}}
+	if got, want := connectorText(q), "Connect desk_demo through composio for agt_taf. This connection provider holds the vendor credentials. Use only connected account ca_old. Approve these exact versioned actions: Reply to a ticket (DESK_REPLY, 20251001_00)."; got != want {
+		t.Fatalf("older actions' words changed:\n%q\nwant\n%q", got, want)
 	}
 }

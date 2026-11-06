@@ -27,6 +27,24 @@ version headings refer to releases, not merely to merged pull requests.
   approval, text, tool or key. tafs cloud gives it to Coach when a
   conversation starts.
 
+### Changed
+
+- What the owner reads names things as people do (kiff/tafs#476). The taf
+  is named by `agent_name`, which every grant request now takes (an MCP
+  server, an API key, a browser, a reviewed catalog entry, as a managed
+  app's already did), else "this taf": never by its agent id. A managed
+  connection's actions are named by their titles, and its account as
+  "your connected <app> account". The ids go under Details (`terms`), after
+  the tools' own lines: each action's slug and exact version, the connected
+  account, and the taf's agent.
+- The taf's tools and Setup's own reads are two lists: "<the taf> may:"
+  lists only the taf's, and Setup's reads follow under "Setup reads, to set
+  this up". A connection with only Setup's reads has no list for the taf.
+- Compatibility: a request without `agent_name` keeps its encoding and
+  digest, and a grant's stored words never change. A managed grant made
+  before titles keeps its words, ids and all. One with a title and no name
+  says "this taf" from its next approval on.
+
 ### Fixed
 
 - The last connection on a shared sign-in says what its disconnect did: "the

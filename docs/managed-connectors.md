@@ -78,7 +78,8 @@ The account-authenticated catalog endpoints include upstream discovery:
    pinned to a version; the approval of one stays as below.
 2. `POST /v1/accounts/{tenant}/catalog/connector:composio:{app}/grants`
    accepts `{"agent":"...", "agent_name":"..."}` (`agent_name` optional, the
-   taf's name for people). An app the provider doesn't have is 404; one that
+   taf's name for people; without it the words say "this taf", and the agent
+   id is under Details). An app the provider doesn't have is 404; one that
    needs our own developer credentials is 409 until an operator enables it.
    An app the provider signs people in to by itself, with no sign-in set up
    yet, is **set up on this pick**: planque creates one provider-managed auth
