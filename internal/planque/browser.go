@@ -257,9 +257,9 @@ func browserText(q Request, catalog ...CatalogTool) string {
 	var w strings.Builder
 	switch len(b.Sites) {
 	case 0:
-		fmt.Fprintf(&w, "The taf %s may use websites, in a browser planque runs for it alone. Any public site; nothing is kept between calls except a sign-in you make yourself.\n\nThe taf may:\n", q.Agent)
+		fmt.Fprintf(&w, "%s may use websites, in a browser planque runs for it alone. Any public site; nothing is kept between calls except a sign-in you make yourself.\n\n%s may:\n", tafWordsFirst(q), tafWordsFirst(q))
 	default:
-		fmt.Fprintf(&w, "The taf %s may use these sites, in a browser planque runs for it alone: %s. No other site; nothing is kept between calls except a sign-in you make yourself.\n\nThe taf may:\n", q.Agent, strings.Join(b.Sites, ", "))
+		fmt.Fprintf(&w, "%s may use these sites, in a browser planque runs for it alone: %s. No other site; nothing is kept between calls except a sign-in you make yourself.\n\n%s may:\n", tafWordsFirst(q), strings.Join(b.Sites, ", "), tafWordsFirst(q))
 	}
 	for _, t := range q.Tools {
 		how := "makes changes, only within the taf's Card"

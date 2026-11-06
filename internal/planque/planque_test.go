@@ -861,7 +861,7 @@ func TestSetupReads(t *testing.T) {
 	if b, _ := json.Marshal(g["events"]); !strings.Contains(string(b), "Setup reads through KIFF, on its own Card: at most 50 reads a day") {
 		t.Fatalf("events: %s", b)
 	}
-	if terms, _ := g["terms"].([]any); len(terms) != 3 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") {
+	if terms, _ := g["terms"].([]any); len(terms) != 4 || !strings.HasSuffix(terms[0].(string), "; Setup reads it too") || terms[3] != "For the taf's agent agt_taf" {
 		t.Fatalf("terms: %v", g["terms"])
 	}
 	// planque's own read is gone: nothing reaches the vendor that way.

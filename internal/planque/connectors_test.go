@@ -528,8 +528,10 @@ func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	if vendor == "" || !strings.HasPrefix(text, "Connect "+vendor+" for Refunds. ") || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "desk_demo") {
 		t.Fatalf("words: %q (vendor %q)", text, vendor)
 	}
+	// Without a name, "this taf": its agent id is under Details, never in the words (kiff/tafs#476).
 	st, out = e.do("POST", path, map[string]string{"agent": "agt_taf"}, nil, "k_setup")
-	if st != 201 || !strings.Contains(out["grant"].(map[string]any)["text"].(string), " for the taf agt_taf. ") {
+	if g, _ := out["grant"].(map[string]any); st != 201 || !strings.Contains(g["text"].(string), " for this taf. ") || strings.Contains(g["text"].(string), "agt_taf") ||
+		!slices.Contains(g["terms"].([]any), any("For the taf's agent agt_taf")) {
 		t.Fatalf("without a name: %d %v", st, out)
 	}
 	if st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds\nand more"}, nil, "k_setup"); st != 400 {

@@ -800,28 +800,34 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 // words, and no connection provider; one made before keeps the words it was
 // signed with.
 func connectorText(q Request) string {
+	// Made before titles: kept as signed, for the agent it was asked for.
 	text := "Connect " + q.Connector.Toolkit + " through " + q.Connector.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
 	if q.Connector.Title != "" {
-		taf := "the taf " + q.Agent
-		if q.AgentName != "" {
-			taf = q.AgentName
-		}
-		text = "Connect " + q.Connector.Title + " for " + taf + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
+		text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
 		switch q.Connector.AuthScheme {
 		case "API_KEY", "BEARER_TOKEN":
 			credential := "key"
 			if q.Connector.AuthScheme == "BEARER_TOKEN" {
 				credential = "token"
 			}
-			text = "Connect " + q.Connector.Title + " for " + taf + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
 		}
 	}
 	if len(q.Tools) == 0 {
 		return text + " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
 	}
-	text += " Use only connected account " + q.Connector.Account + ". Approve these exact versioned actions:"
+	if q.Connector.Title == "" {
+		text += " Use only connected account " + q.Connector.Account + ". Approve these exact versioned actions:"
+		for _, t := range q.Connector.Tools {
+			text += " " + t.Name + " (" + t.Slug + ", " + t.Version + ")."
+		}
+		return text
+	}
+	// The account's id, and each action's exact version, are under Details
+	// (requestTerms): the words name them as people do (kiff/tafs#476).
+	text += " Use only your connected " + q.Connector.Title + " account. Approve these actions:"
 	for _, t := range q.Connector.Tools {
-		text += " " + t.Name + " (" + t.Slug + ", " + t.Version + ")."
+		text += " " + t.Name + "."
 	}
 	return text
 }
