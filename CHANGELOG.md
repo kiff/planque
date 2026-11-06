@@ -17,6 +17,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- Every grant names its app's catalog `entry`, so the apps list a connection
+  under its app by `entry` alone (the follow-up to kiff/tafs#581). A grant
+  asked by server, key or registered application names the one reviewed
+  entry for the same server, reached the same way, in `request.catalog_entry`,
+  signed. A grant made before gets the entry recorded beside its request,
+  never in it, the first time the owner's grants list shows it: the signed
+  request, its digest and its approval stay as they were. Where no entry
+  matches, or more than one does, there's none. The catalog counts a
+  connection Coach started as connected to its app.
 - A connection the vendor refuses is fixed in place, from the app (gap 13 of
   kiff/tafs#476). `POST …/key` on a `connected` API-key grant replaces its
   key once one read with the new key works: a read-only operation that needs

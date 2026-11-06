@@ -416,6 +416,11 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if application != nil {
 		g.VendorName = application.Definition.Name
 	}
+	if g.Request.CatalogEntry == "" {
+		// The app this grant is for, when it's certain, signed with the rest:
+		// a grant asked by server, key or application, not from the catalog.
+		g.Request.CatalogEntry = s.deriveEntry(g)
+	}
 	g.Text = grantText(g.Request)
 	if reused != nil {
 		g.Text = requestText(g.Request, true, reused.Account, reused.Catalog...)
@@ -480,6 +485,10 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	if err := s.checkConnector(r.Context(), g); err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if g.Request.CatalogEntry == "" {
+		// Reusing a sign-in made before requests named their app.
+		g.Request.CatalogEntry = s.deriveEntry(g)
 	}
 	g.Text = grantText(g.Request)
 	var err error
@@ -760,9 +769,10 @@ type grantView struct {
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
 	Status string `json:"status"`
-	// Entry is the catalog entry the grant was asked from, and Provider the
-	// connection provider behind it, so an app knows which connection this
-	// is without reading the request.
+	// Entry is the catalog entry for the grant's app: the one its request
+	// names, else the one planque recorded or finds for it (entry.go), empty
+	// when that's unclear. Provider is the connection provider behind it. So
+	// an app knows which app a connection is for without reading the request.
 	Entry    string `json:"entry,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	// Telegram is a Telegram grant's bot, once its token is given: its @name
@@ -824,7 +834,7 @@ type approvalView struct {
 func (s *Server) view(g *Grant) grantView {
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusWords(g), Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
-		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: g.Request.CatalogEntry,
+		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
 	if c := g.Request.Connector; c != nil {
 		v.Provider = c.Provider
@@ -834,19 +844,14 @@ func (s *Server) view(g *Grant) grantView {
 			v.AccountName = st.AccountName
 		}
 		v.ModeWords = modeWords[v.Mode]
-		if v.Entry == "" {
-			v.Entry = "connector:" + c.Provider + ":" + c.Toolkit
-		}
 	}
 	if g.Request.Kind == KindBrowser {
 		v.Provider = KindBrowser
 	}
 	if isTelegram(g) {
-		// An app knows a Telegram bot by these, not by planque's description URL.
+		// An app knows a Telegram bot by these, not by planque's description
+		// URL: its entry is telegramEntry.
 		v.Provider = "telegram"
-		if v.Entry == "" {
-			v.Entry = "api:telegram"
-		}
 		if b := g.Telegram; b != nil {
 			v.Telegram = &telegramBotView{ID: b.ID, Username: b.Username}
 		}
@@ -2390,6 +2395,9 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 		}
 		g.ver = it.Ver
 		_, _ = s.expire(ctx, &g)
+		// The backfill: a grant made before its request named its app gets
+		// the entry recorded beside the request, never in it.
+		s.recordEntry(ctx, &g)
 		out = append(out, s.view(&g))
 	}
 	return out, nil

@@ -1,0 +1,228 @@
+package planque
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// installEntries is the reviewed catalog as planque matches grants to it:
+// each entry's server, and how it's reached.
+func installEntries(e *env, entries ...CatalogEntry) {
+	e.s.CatalogEntries = map[string]CatalogEntry{}
+	for _, c := range entries {
+		e.s.CatalogEntries[c.ID] = c
+	}
+}
+
+// listings numbers each listing, so two in the same second are two signed
+// requests, not one replayed.
+var listings atomic.Int64
+
+// listedByPhone is the grants list as the owner's app reads it, by id.
+func listedByPhone(t *testing.T, e *env) map[string]map[string]any {
+	t.Helper()
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants?n="+strconv.FormatInt(listings.Add(1), 10), nil, e.phone, "")
+	if st != 200 {
+		t.Fatalf("list: %d %v", st, out)
+	}
+	byID := map[string]map[string]any{}
+	for _, it := range out["grants"].([]any) {
+		v := it.(map[string]any)
+		byID[v["id"].(string)] = v
+	}
+	return byID
+}
+
+// stored is a grant as kept: its request's exact bytes, and its version.
+func stored(t *testing.T, e *env, id string) ([]byte, int64) {
+	t.Helper()
+	it, ok, err := e.kv.Get(context.Background(), tenantPK(tenant), skGrant(id))
+	if err != nil || !ok {
+		t.Fatalf("grant %s: %v %v", id, ok, err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(it.Doc, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc["request"], it.Ver
+}
+
+func refundsEntry(e *env, id string) CatalogEntry {
+	return CatalogEntry{ID: id, Vendor: "Refunds", Title: "Refunds", Server: e.vendor.MCPURL()}
+}
+
+// A grant made before requests named their app gets the entry recorded
+// beside its request: the request the owner signed is kept byte for byte,
+// its digest still matches the approval, and the backfill writes once.
+func TestBackfillRecordsTheAppBesideTheSignedRequest(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect() // no catalog yet: a grant as made before this change
+	if g.Request.CatalogEntry != "" || g.Entry != "" {
+		t.Fatalf("an old grant has an entry already: %q %q", g.Request.CatalogEntry, g.Entry)
+	}
+	before, _ := stored(t, e, g.ID)
+
+	installEntries(e, refundsEntry(e, "refunds@1"))
+	listed := listedByPhone(t, e)[g.ID]
+	if listed["entry"] != "refunds@1" {
+		t.Fatalf("the app lists it by entry: %v", listed["entry"])
+	}
+	if req := listed["request"].(map[string]any); req["catalog_entry"] != nil {
+		t.Fatalf("the backfill went into the signed request: %v", req)
+	}
+	after, ver := stored(t, e, g.ID)
+	if !bytes.Equal(before, after) {
+		t.Fatalf("the signed request changed:\n%s\n%s", before, after)
+	}
+	back, err := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Entry != "refunds@1" || back.Request.CatalogEntry != "" {
+		t.Fatalf("not recorded on the grant: %q %q", back.Entry, back.Request.CatalogEntry)
+	}
+	d, err := digest(back.Request)
+	if err != nil || d != g.Digest || back.Digest != g.Digest || listed["digest"] != g.Digest {
+		t.Fatalf("digest: %s, kept %s, was %s, listed %v", d, back.Digest, g.Digest, listed["digest"])
+	}
+	if back.Approval == nil || !strings.Contains(back.Approval.Body, g.Digest) {
+		t.Fatalf("the approval no longer covers the request's digest: %+v", back.Approval)
+	}
+
+	// Idempotent: listing again writes nothing, and says the same.
+	if again := listedByPhone(t, e)[g.ID]; again["entry"] != "refunds@1" {
+		t.Fatalf("second listing: %v", again["entry"])
+	}
+	if _, v := stored(t, e, g.ID); v != ver {
+		t.Fatalf("the backfill wrote again: version %d, then %d", ver, v)
+	}
+	// The connection keeps working as signed.
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, nil, "k_setup"); st != 200 || out["entry"] != "refunds@1" || out["status"] != StatusConnected {
+		t.Fatalf("view: %d %v", st, out)
+	}
+}
+
+// Where the app is unclear, the grant is left alone: no entry for the same
+// server twice in the catalog, and none for a server it doesn't have.
+func TestBackfillLeavesAGrantAloneWhenItsAppIsUnclear(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	before, ver := stored(t, e, g.ID)
+	for name, entries := range map[string][]CatalogEntry{
+		"two entries for its server": {refundsEntry(e, "refunds@1"), refundsEntry(e, "refunds@2")},
+		"none for its server":        {{ID: "other@1", Vendor: "Other", Title: "Other", Server: "https://mcp.other.example/mcp"}},
+		"none at all":                nil,
+	} {
+		installEntries(e, entries...)
+		if listed := listedByPhone(t, e)[g.ID]; listed["entry"] != nil {
+			t.Fatalf("%s: listed under %v", name, listed["entry"])
+		}
+		after, v := stored(t, e, g.ID)
+		if !bytes.Equal(before, after) || v != ver {
+			t.Fatalf("%s: the grant was written (version %d, then %d)", name, ver, v)
+		}
+		if back, _ := e.s.loadGrant(context.Background(), tenant, g.ID); back.Entry != "" {
+			t.Fatalf("%s: guessed %q", name, back.Entry)
+		}
+	}
+}
+
+// A managed app's grant made before its request named it gets its
+// provider's toolkit as its entry; its request stays as signed.
+func TestBackfillRecordsAManagedAppsToolkit(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	g := &Grant{ID: "grt_oldmanaged", Tenant: tenant, Status: StatusConnected, VendorName: "Stripe",
+		Request: Request{Version: "planque.grant.v1", Grant: "grt_oldmanaged", Tenant: tenant, Server: "https://backend.composio.dev",
+			Agent: "agt_taf", Tools: []ToolRequest{}, AskedBy: "agt_setup", CreatedAt: "2026-10-01T09:00:00Z", Kind: "connector",
+			Connector: &ConnectorRequest{Provider: "composio", Toolkit: "stripe", Title: "Stripe"}},
+		Events: []Event{{At: time.Now().UTC(), What: "connected"}}}
+	g.Digest, _ = digest(g.Request)
+	if err := e.s.saveGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := stored(t, e, g.ID)
+	if listed := listedByPhone(t, e)[g.ID]; listed["entry"] != "connector:composio:stripe" {
+		t.Fatalf("entry: %v", listed["entry"])
+	}
+	after, _ := stored(t, e, g.ID)
+	back, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
+	if !bytes.Equal(before, after) || back.Entry != "connector:composio:stripe" || back.Request.CatalogEntry != "" {
+		t.Fatalf("recorded %q, request %q, unchanged %v", back.Entry, back.Request.CatalogEntry, bytes.Equal(before, after))
+	}
+}
+
+// A grant asked by server from now on names its app in the request the
+// owner signs, and the phone approves it as before.
+func TestANewGrantNamesItsAppInTheSignedRequest(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	installEntries(e, refundsEntry(e, "refunds@1"))
+	id, d := e.request()
+	g, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Request.CatalogEntry != "refunds@1" || g.Entry != "" {
+		t.Fatalf("request %q, grant %q", g.Request.CatalogEntry, g.Entry)
+	}
+	if signed, _ := digest(g.Request); signed != d || g.Digest != d {
+		t.Fatal("the digest the phone signs doesn't cover the entry")
+	}
+	if st, out := e.approveAndSignIn(id, d); st != 200 || out["status"] != StatusConnected || out["entry"] != "refunds@1" {
+		t.Fatalf("connect: %d %v", st, out)
+	}
+	// A server the catalog doesn't have: no entry, and nothing guessed.
+	installEntries(e, CatalogEntry{ID: "other@1", Vendor: "Other", Title: "Other", Server: "https://mcp.other.example/mcp"})
+	id, _ = e.request()
+	if g, _ := e.s.loadGrant(context.Background(), tenant, id); g.Request.CatalogEntry != "" {
+		t.Fatalf("guessed %q", g.Request.CatalogEntry)
+	}
+}
+
+// The catalog shows an app as connected when a connection Coach started to
+// it is, as for one asked from the catalog.
+func TestTheCatalogCountsACoachStartedConnection(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	installEntries(e, refundsEntry(e, "refunds@1"))
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	entries := out["entries"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("entries: %v", entries)
+	}
+	if v := entries[0].(map[string]any); v["entry"] != "refunds@1" || v["state"] != "connected" || v["grant"] != g.ID {
+		t.Fatalf("state: %v", v)
+	}
+}
+
+func TestSameServer(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"https://mcp.stripe.com", "https://mcp.stripe.com/", true},
+		{"https://MCP.Stripe.com/mcp", "HTTPS://mcp.stripe.com/mcp/", true},
+		{"https://mcp.stripe.com:443/mcp", "https://mcp.stripe.com/mcp", true},
+		{"https://mcp.stripe.com/mcp", "https://mcp.stripe.com/v2/mcp", false},
+		{"https://mcp.stripe.com", "https://stripe.attacker.com", false},
+		{"https://mcp.stripe.com:8443", "https://mcp.stripe.com", false},
+		{"http://mcp.stripe.com", "https://mcp.stripe.com", false},
+		{"https://mcp.stripe.com/mcp?x=1", "https://mcp.stripe.com/mcp", false},
+		{"https://user@mcp.stripe.com", "https://mcp.stripe.com", false},
+		{"", "https://mcp.stripe.com", false},
+	} {
+		if got := sameServer(c.a, c.b); got != c.same {
+			t.Errorf("sameServer(%q, %q) = %v", c.a, c.b, got)
+		}
+	}
+}

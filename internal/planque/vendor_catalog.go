@@ -158,7 +158,12 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	states := map[string]catalogEntryView{}
 	for _, it := range items {
 		var g Grant
-		if json.Unmarshal(it.Doc, &g) != nil || g.Tenant != tenant || g.Request.CatalogEntry == "" {
+		if json.Unmarshal(it.Doc, &g) != nil || g.Tenant != tenant {
+			continue
+		}
+		// Any connection to the app counts, a Coach-started one included.
+		entry := s.appEntry(&g)
+		if entry == "" {
 			continue
 		}
 		state := ""
@@ -171,11 +176,11 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		if state == "" {
 			continue
 		}
-		previous := states[g.Request.CatalogEntry]
+		previous := states[entry]
 		if previous.State == "connected" || previous.State == state && previous.Grant < g.ID {
 			continue
 		}
-		states[g.Request.CatalogEntry] = catalogEntryView{State: state, Grant: g.ID}
+		states[entry] = catalogEntryView{State: state, Grant: g.ID}
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
