@@ -435,13 +435,13 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 }
 
 // Scope finds the narrowest sign-in to app's provider-managed sign-in that
-// covers tools (kiff-cloud#1487, gap 5). It reads the app's managed scope
+// covers tools (gap 5 of kiff/tafs#476). It reads the app's managed scope
 // ceiling and the scopes always asked, asks the provider which of the
 // ceiling's scopes the tools need at least, and pins a managed sign-in that
 // asks only for those: made once per app and scope set, and found again by
-// its name. ErrUnscoped for anything it can't do, so the caller keeps the
-// app's usual sign-in.
-func (c *Client) Scope(ctx context.Context, app connector.App, tools []string) (connector.Scoped, error) {
+// its name. A new one is paid from the allowance first. ErrUnscoped for
+// anything it can't do, so the caller keeps the app's usual sign-in.
+func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, budget connector.Allowance) (connector.Scoped, error) {
 	if !app.Managed || app.AuthScheme != "OAUTH2" || !identifier.MatchString(app.Slug) || len(tools) == 0 {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
@@ -515,11 +515,24 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string) (
 			Managed bool   `json:"is_composio_managed"`
 		} `json:"auth_config"`
 	}
+	// A new sign-in at the provider costs the account as an on-demand set-up does.
+	if budget.Take != nil {
+		if err := budget.Take(ctx); err != nil {
+			return connector.Scoped{}, connector.ErrUnscoped
+		}
+	}
+	giveBack := func() {
+		if budget.GiveBack != nil {
+			budget.GiveBack(ctx)
+		}
+	}
 	config := map[string]any{"type": "use_composio_managed_auth", "name": name, "credentials": map[string]any{"scopes": least}}
 	if _, err := c.request(ctx, "POST", "/auth_configs", nil, map[string]any{"toolkit": map[string]string{"slug": app.Slug}, "auth_config": config}, &out); err != nil {
+		giveBack()
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
 	if !strings.EqualFold(out.Toolkit.Slug, app.Slug) || !out.Config.Managed || !identifier.MatchString(out.Config.ID) || !strings.EqualFold(out.Config.Scheme, "OAUTH2") {
+		giveBack()
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
 	c.mu.Lock()

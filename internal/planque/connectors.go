@@ -38,7 +38,7 @@ type ConnectorRequest struct {
 	Account    string           `json:"account,omitempty"`
 	Tools      []connector.Tool `json:"tools,omitempty"`
 	// AskedTools are the provider's tools the taf named when it asked for
-	// the connection (kiff-cloud#1487, gap 5). Its sign-in asks for what
+	// the connection (gap 5 of kiff/tafs#476). Its sign-in asks for what
 	// they need (Scopes), or for the app's usual access (UsualAccess).
 	AskedTools []string `json:"asked_tools,omitempty"`
 	// Scopes are what the sign-in asks the vendor for, narrowed to
@@ -396,6 +396,10 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		s.fail(w, r, err)
 		return
 	}
+	// Provider slugs are upper case: one asked in lower case is the same tool.
+	for i, t := range ask.Tools {
+		ask.Tools[i] = strings.ToUpper(strings.TrimSpace(t))
+	}
 	if msg := checkAskedTools(ask.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
@@ -454,12 +458,17 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	}
 	conn := &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme}
 	if len(ask.Tools) > 0 {
-		// The narrowest sign-in for the taf's tools (kiff-cloud#1487, gap 5).
+		// The narrowest sign-in for the taf's tools (gap 5 of kiff/tafs#476).
 		// The Card stays the boundary: a taf calls only the tools its Card
 		// grants, whatever the scopes. So when the provider can't narrow the
-		// sign-in, it asks for the app's usual access, and says so.
+		// sign-in, or the account's set-ups for the day are used, it asks for
+		// the app's usual access, and says so.
 		conn.AskedTools = slices.Clone(ask.Tools)
-		scoped, err := p.Scope(r.Context(), app, ask.Tools)
+		budget := connector.Allowance{
+			Take:     func(ctx context.Context) error { return s.takeAllowance(ctx, tenant) },
+			GiveBack: func(ctx context.Context) { s.giveBackAllowance(ctx, tenant) },
+		}
+		scoped, err := p.Scope(r.Context(), app, ask.Tools, budget)
 		if err == nil {
 			conn.AuthConfig, conn.Scopes = scoped.AuthConfig, scoped.Scopes
 		} else {
@@ -926,7 +935,7 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 }
 
 // scopeWords is what the sign-in asks the vendor for, when the taf named its
-// tools (kiff-cloud#1487, gap 5): only what they need, or, when that couldn't
+// tools (gap 5 of kiff/tafs#476): only what they need, or, when that couldn't
 // be narrowed, the app's usual access, said plainly. Nothing otherwise.
 func scopeWords(c *ConnectorRequest) string {
 	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {

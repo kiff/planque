@@ -24,7 +24,9 @@ version headings refer to releases, not merely to merged pull requests.
   words, and the grant binds only those tools. When the provider can't
   narrow it, the sign-in asks for the app's usual access, recorded on the
   grant, and the words say so: "<app> will ask for more access than this taf
-  uses. The taf can still only use: …" (kiff-cloud#1487, gap 5).
+  uses. The taf can still only use: …" (gap 5 of kiff/tafs#476). A new
+  scoped sign-in counts against the account's on-demand set-ups for the day;
+  once they're used, the sign-in asks for the app's usual access.
 - A managed app's sign-in can be reused for another taf (`"reuse"` naming a
   connected managed grant, `tools: []`): the new connection is signed in
   and listed at once, on the same provider account, with no second sign-in

@@ -42,7 +42,7 @@ type connectorFixture struct {
 	revoked  []string
 	// managed marks desk_demo's sign-in as the provider's own; ceiling, when
 	// set, is its managed scope ceiling, always is what it always asks, and
-	// noRecommend fails the scope recommendation (kiff-cloud#1487, gap 5).
+	// noRecommend fails the scope recommendation (gap 5 of kiff/tafs#476).
 	managed     bool
 	ceiling     []string
 	always      []string
@@ -573,7 +573,7 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 }
 
 // A connection asked for with the taf's tools signs in for only what they
-// need (kiff-cloud#1487, gap 5): the provider's least-privilege scopes for
+// need (gap 5 of kiff/tafs#476): the provider's least-privilege scopes for
 // them, within its own sign-in's ceiling, on a managed sign-in made once per
 // app and scope set and pinned for the sign-in. The scopes are in what the
 // owner signs, the words say it, and the sign-in serves only those tools.
@@ -629,9 +629,10 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
 		t.Fatalf("a tool outside the sign-in: %d %v", st, out)
 	}
-	// The same tools again: the scoped sign-in made before is pinned again.
-	if _, again := ask("DESK_DEMO_LIST_TICKETS"); again.Request.Connector.AuthConfig != "ac_scoped_1" || len(f.scopedMade) != 1 {
-		t.Fatalf("asked again: %q, %d made", again.Request.Connector.AuthConfig, len(f.scopedMade))
+	// The same tools again, even asked in lower case: the scoped sign-in made before is pinned again.
+	if _, again := ask("desk_demo_list_tickets"); again.Request.Connector.AuthConfig != "ac_scoped_1" || len(f.scopedMade) != 1 ||
+		!slices.Equal(again.Request.Connector.AskedTools, []string{"DESK_DEMO_LIST_TICKETS"}) {
+		t.Fatalf("asked again: %+v, %d made", again.Request.Connector, len(f.scopedMade))
 	}
 	for _, bad := range [][]string{{"not a slug"}, {"DESK_DEMO_LIST_TICKETS", "DESK_DEMO_LIST_TICKETS"}} {
 		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "tools": bad}, nil, "k_setup")
@@ -642,21 +643,35 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 }
 
 // When the provider can't narrow the sign-in (no managed ceiling, its
-// recommendation failing, or an operator's own sign-in), the connection asks
-// for the app's usual access and says so: the Card still bounds what the taf
-// calls (the PM on kiff-cloud#1487). It's recorded, and serves its tools.
+// recommendation failing, an operator's own sign-in, or the account's
+// set-ups for the day used), the connection asks for the app's usual access
+// and says so: the Card still bounds what the taf calls. It's recorded.
 func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
+	useTheDay := func(t *testing.T, e *env, n int) {
+		t.Helper()
+		for i := 1; i <= n; i++ {
+			if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+				t.Fatalf("set-up %d: %d %v", i, st, out)
+			}
+		}
+	}
 	for _, tc := range []struct {
 		name string
-		set  func(*connectorFixture)
+		set  func(*testing.T, *env, *connectorFixture)
 	}{
-		{"its recommendation failed", func(f *connectorFixture) { f.managed, f.ceiling, f.noRecommend = true, []string{"tickets.write"}, true }},
-		{"no managed ceiling", func(f *connectorFixture) { f.managed = true }},
-		{"an operator's own sign-in", func(f *connectorFixture) { f.ceiling = []string{"tickets.write"} }},
+		{"its recommendation failed", func(_ *testing.T, _ *env, f *connectorFixture) {
+			f.managed, f.ceiling, f.noRecommend = true, []string{"tickets.write"}, true
+		}},
+		{"no managed ceiling", func(_ *testing.T, _ *env, f *connectorFixture) { f.managed = true }},
+		{"an operator's own sign-in", func(_ *testing.T, _ *env, f *connectorFixture) { f.ceiling = []string{"tickets.write"} }},
+		{"the day's set-ups used", func(t *testing.T, e *env, f *connectorFixture) {
+			f.managed, f.ceiling = true, []string{"tickets.write"}
+			useTheDay(t, e, onDemandADay)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, f := newConnectorFixture(t)
-			tc.set(f)
+			tc.set(t, e, f)
 			st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
 			if st != 201 {
 				t.Fatalf("request: %d %v", st, out)
@@ -670,6 +685,24 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 				t.Fatalf("words: %q", words)
 			}
 		})
+	}
+}
+
+// A new scoped sign-in is a set-up at the provider, so it counts against the
+// account's day as setting up an app does: after it, one set-up fewer is left.
+func TestANewScopedSignInCountsAsASetUp(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	f.managed, f.ceiling = true, []string{"tickets.read", "tickets.write"}
+	for i := 1; i < onDemandADay; i++ {
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+			t.Fatalf("set-up %d: %d %v", i, st, out)
+		}
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup"); st != 201 || len(f.scopedMade) != 1 {
+		t.Fatalf("the scoped sign-in: %d %v, %d made", st, out, len(f.scopedMade))
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(onDemandADay)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 429 {
+		t.Fatalf("the day's last set-up after a scoped sign-in: %d %v", st, out)
 	}
 }
 

@@ -82,8 +82,8 @@ type App struct {
 	Managed bool `json:"-"`
 }
 
-// Scoped is a sign-in that asks only for what some tools need (kiff-cloud
-// #1487, gap 5): pinned instead of the app's usual one.
+// Scoped is a sign-in that asks only for what some tools need (gap 5 of
+// kiff/tafs#476): pinned instead of the app's usual one.
 type Scoped struct {
 	AuthConfig string
 	// Scopes are what it asks for, sorted: the tools' least-privilege scopes
@@ -95,6 +95,13 @@ type Scoped struct {
 // own sign-in has no scope ceiling, a tool needs a scope outside it, or the
 // provider couldn't say). The caller keeps the app's usual sign-in, and says so.
 var ErrUnscoped = errors.New("this app's sign-in can't be narrowed to these tools")
+
+// Allowance is what making a new provider sign-in costs the account: Take
+// before making one (an error: none is made), GiveBack when making it failed.
+type Allowance struct {
+	Take     func(context.Context) error
+	GiveBack func(context.Context)
+}
 
 // How an app's sign-in stands at the provider (kiff/planque#87).
 const (
@@ -285,6 +292,6 @@ type Provider interface {
 	Revoke(context.Context, Identity, string) (Revocation, error)
 	// Scope finds the narrowest sign-in to app's provider-managed sign-in
 	// that covers tools (the provider's tool slugs), made once per app and
-	// scope set. ErrUnscoped when it can't.
-	Scope(context.Context, App, []string) (Scoped, error)
+	// scope set, a new one paid from the allowance. ErrUnscoped when it can't.
+	Scope(context.Context, App, []string, Allowance) (Scoped, error)
 }

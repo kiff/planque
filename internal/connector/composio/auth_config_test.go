@@ -101,7 +101,7 @@ func TestAuthorizationUsesTheApprovedAuthConfig(t *testing.T) {
 	}
 }
 
-// A scoped sign-in (kiff-cloud#1487, gap 5) is never an app's usual one, even
+// A scoped sign-in (gap 5 of kiff/tafs#476) is never an app's usual one, even
 // with an id that sorts first, and the same scope set is found again by its
 // name rather than made twice. An operator's own sign-in is never narrowed,
 // and a recommendation outside the managed ceiling isn't taken.
@@ -134,7 +134,7 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 	if err != nil || app.AuthConfig != "ac_usual" || !app.Managed {
 		t.Fatalf("the app's usual sign-in: %+v %v", app, err)
 	}
-	scoped, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"})
+	scoped, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}, connector.Allowance{})
 	if err != nil || scoped.AuthConfig != "ac_0_scoped" || strings.Join(scoped.Scopes, " ") != "offline_access tickets.read" {
 		t.Fatalf("scoped: %+v %v", scoped, err)
 	}
@@ -142,11 +142,11 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 	if err != nil || own.Managed {
 		t.Fatalf("the operator's app: %+v %v", own, err)
 	}
-	if _, err := c.Scope(ctx, own, []string{"OWN_SEND"}); !errors.Is(err, connector.ErrUnscoped) {
+	if _, err := c.Scope(ctx, own, []string{"OWN_SEND"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) {
 		t.Fatalf("an operator's sign-in was narrowed: %v", err)
 	}
 	recommend = `{"scopes":{"least_privilege":["admin"]}}`
-	if _, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}); !errors.Is(err, connector.ErrUnscoped) {
+	if _, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) {
 		t.Fatalf("a scope outside the ceiling was taken: %v", err)
 	}
 }

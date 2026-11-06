@@ -101,7 +101,7 @@ The account-authenticated catalog endpoints include upstream discovery:
    app has several enabled configs, the adapter selects the lowest ID in
    lexical order, independently of page ordering, and pins that config.
 
-   **The narrowest sign-in (kiff-cloud#1487, gap 5).** A request may name the
+   **The narrowest sign-in (gap 5 of kiff/tafs#476).** A request may name the
    taf's tools (`tools`, the provider's slugs, as the tools search names
    them). For an app on the provider's own sign-in, planque reads that
    sign-in's scope ceiling and the scopes it always asks (the app's
@@ -110,13 +110,16 @@ The account-authenticated catalog endpoints include upstream discovery:
    (`toolkits/{slug}/scopes/recommended`), and pins a managed sign-in that
    asks only for those (`credentials.scopes`). It is made once per app and
    scope set, named `planque-scoped-<app>-<hash>`, found again by that name,
-   and never chosen as an app's usual sign-in. The scopes and the tools are
+   and never chosen as an app's usual sign-in. A new one counts against the
+   account's on-demand set-ups for the day, as setting up an app does. Slugs
+   are compared in upper case, as the provider names them. The scopes and the tools are
    in the signed request (`asked_tools`, `scopes`), the words say "<app> is
    asked only for what this taf uses: …", and the grant binds only those
    tools later (409 for another: a new connection asks for it).
 
    When the provider can't narrow it (no ceiling, a tool outside it, its
-   recommendation failing, or an operator's own sign-in), the sign-in asks
+   recommendation failing, an operator's own sign-in, or the account's
+   set-ups for the day used), the sign-in asks
    for the app's usual access, recorded as `usual_access` so a later
    narrowing can replace it, and the words say it plainly: "<app> will ask
    for more access than this taf uses. The taf can still only use: …". KIFF's
