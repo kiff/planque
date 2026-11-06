@@ -2,9 +2,12 @@ package composio
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,5 +98,55 @@ func TestAuthorizationUsesTheApprovedAuthConfig(t *testing.T) {
 				t.Fatalf("hosted link: %+v %v links=%d", got, err, links)
 			}
 		})
+	}
+}
+
+// A scoped sign-in (kiff-cloud#1487, gap 5) is never an app's usual one, even
+// with an id that sorts first, and the same scope set is found again by its
+// name rather than made twice. An operator's own sign-in is never narrowed,
+// and a recommendation outside the managed ceiling isn't taken.
+func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
+	sum := sha256.Sum256([]byte("tickets.read"))
+	name := "planque-scoped-desk-" + hex.EncodeToString(sum[:8])
+	recommend := `{"scopes":{"least_privilege":["tickets.read"]}}`
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			if r.Method == http.MethodPost {
+				t.Fatal("a scoped sign-in was made again")
+			}
+			return response(200, `{"items":[{"id":"ac_0_scoped","name":"`+name+`","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"desk"}},`+
+				`{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"desk"}},`+
+				`{"id":"ac_own","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"own"}}]}`), nil
+		case "/api/v3.1/toolkits/desk":
+			return response(200, `{"slug":"desk","name":"Support desk","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":["tickets.read","tickets.write"]}}],`+
+				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":["offline_access"]}]}`), nil
+		case "/api/v3.1/toolkits/desk/scopes/recommended":
+			return response(200, recommend), nil
+		case "/api/v3.1/toolkits/own":
+			return response(200, `{"slug":"own","name":"Own app"}`), nil
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		return nil, nil
+	})
+	ctx := context.Background()
+	app, err := c.App(ctx, "desk")
+	if err != nil || app.AuthConfig != "ac_usual" || !app.Managed {
+		t.Fatalf("the app's usual sign-in: %+v %v", app, err)
+	}
+	scoped, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"})
+	if err != nil || scoped.AuthConfig != "ac_0_scoped" || strings.Join(scoped.Scopes, " ") != "offline_access tickets.read" {
+		t.Fatalf("scoped: %+v %v", scoped, err)
+	}
+	own, err := c.App(ctx, "own")
+	if err != nil || own.Managed {
+		t.Fatalf("the operator's app: %+v %v", own, err)
+	}
+	if _, err := c.Scope(ctx, own, []string{"OWN_SEND"}); !errors.Is(err, connector.ErrUnscoped) {
+		t.Fatalf("an operator's sign-in was narrowed: %v", err)
+	}
+	recommend = `{"scopes":{"least_privilege":["admin"]}}`
+	if _, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}); !errors.Is(err, connector.ErrUnscoped) {
+		t.Fatalf("a scope outside the ceiling was taken: %v", err)
 	}
 }

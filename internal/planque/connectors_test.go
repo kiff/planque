@@ -3,7 +3,9 @@ package planque
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +40,15 @@ type connectorFixture struct {
 	// accounts revoked, in order.
 	distinct bool
 	revoked  []string
+	// managed marks desk_demo's sign-in as the provider's own; ceiling, when
+	// set, is its managed scope ceiling, always is what it always asks, and
+	// noRecommend fails the scope recommendation (kiff-cloud#1487, gap 5).
+	managed     bool
+	ceiling     []string
+	always      []string
+	noRecommend bool
+	// scopedMade lists the scoped sign-ins made, as name: scopes.
+	scopedMade []string
 	// toolBody, when set, is the provider's answer for the pinned tool.
 	toolBody string
 	// executeStatus and executeBody, when set, are the provider's answer to an execution.
@@ -87,6 +98,17 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			Config map[string]any `json:"auth_config"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if name, _ := in.Config["name"].(string); strings.HasPrefix(name, "planque-scoped-") {
+			// A scoped sign-in: the managed kind, named, asking for the scopes given and nothing of ours.
+			creds, _ := in.Config["credentials"].(map[string]any)
+			if in.Config["type"] != "use_composio_managed_auth" || len(in.Config) != 3 || len(creds) != 1 || creds["scopes"] == nil {
+				f.t.Fatalf("a scoped sign-in with something else in it: %v", in.Config)
+			}
+			b, _ := json.Marshal(creds["scopes"])
+			f.scopedMade = append(f.scopedMade, name+": "+string(b))
+			body = `{"toolkit":{"slug":"` + in.Toolkit.Slug + `"},"auth_config":{"id":"ac_scoped_` + strconv.Itoa(len(f.scopedMade)) + `","auth_scheme":"OAUTH2","is_composio_managed":true}}`
+			return profileResponse(201, body), nil
+		}
 		if in.Config["type"] != "use_composio_managed_auth" || len(in.Config) != 1 {
 			f.t.Fatalf("a set-up with something of ours in it: %v", in.Config)
 		}
@@ -98,7 +120,11 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if scheme == "" {
 			scheme = "OAUTH2"
 		}
-		body = `{"items":[{"id":"ac_desk_demo","auth_scheme":"` + scheme + `","status":"ENABLED","toolkit":{"slug":"desk_demo"}},{"id":"ac_calendar_demo","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"id":"ac_unset_demo","auth_scheme":"API_KEY","status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
+		managed := "false"
+		if f.managed {
+			managed = "true"
+		}
+		body = `{"items":[{"id":"ac_desk_demo","auth_scheme":"` + scheme + `","status":"ENABLED","is_composio_managed":` + managed + `,"toolkit":{"slug":"desk_demo"}},{"id":"ac_calendar_demo","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"calendar_demo"}},{"id":"ac_unset_demo","auth_scheme":"API_KEY","status":"DISABLED","toolkit":{"slug":"unset_demo"}}]}`
 	case path == "/tool_router/session":
 		var in struct {
 			User        string            `json:"user_id"`
@@ -168,7 +194,39 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		body = `{"items":[{"slug":"DESK_DEMO_NEW_TICKET","name":"New ticket","description":"A ticket was opened.","version":"20261101_00","toolkit":{"slug":"desk_demo"},"config":{"type":"object","properties":{"queue":{"type":"string"}}},"payload":{"type":"object"}}]}`
 	case path == "/toolkits/desk_demo":
-		body = `{"slug":"desk_demo","name":"Support desk"}`
+		kit := map[string]any{"slug": "desk_demo", "name": "Support desk"}
+		if f.ceiling != nil {
+			kit["composio_managed_auth"] = []any{map[string]any{"mode": "OAUTH2", "scopes": map[string]any{"available": f.ceiling}}}
+			kit["auth_config_details"] = []any{map[string]any{"mode": "OAUTH2", "required_scopes": f.always}}
+		}
+		b, _ := json.Marshal(kit)
+		body = string(b)
+	case path == "/toolkits/desk_demo/scopes/recommended" && r.Method == "POST":
+		var in struct {
+			Tools     []string `json:"tools"`
+			Scheme    string   `json:"auth_scheme"`
+			Available []string `json:"available_scopes"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if f.noRecommend {
+			return profileResponse(400, `{"error":{"message":"scope_not_available"}}`), nil
+		}
+		if in.Scheme != "OAUTH2" || !slices.Equal(in.Available, f.ceiling) {
+			f.t.Fatalf("a recommendation asked outside the managed ceiling: %+v", in)
+		}
+		// Each tool's least-privilege scope: a reply writes tickets, a list reads them.
+		var least []string
+		for _, tool := range in.Tools {
+			scope := "tickets.read"
+			if strings.HasSuffix(tool, "_REPLY") {
+				scope = "tickets.write"
+			}
+			if !slices.Contains(least, scope) {
+				least = append(least, scope)
+			}
+		}
+		b, _ := json.Marshal(map[string]any{"auth_scheme": "OAUTH2", "scopes": map[string]any{"least_privilege": least, "fewest": least}})
+		body = string(b)
 	case path == "/tools" || path == "/tools/DESK_DEMO_REPLY":
 		schema := `{"type":"object","properties":{"ticket":{"type":"string"},"text":{"type":"string"}},"required":["ticket","text"],"additionalProperties":false}`
 		if f.changed {
@@ -512,6 +570,113 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 			t.Fatalf("confirm: %d %v", st, out)
 		}
 	})
+}
+
+// A connection asked for with the taf's tools signs in for only what they
+// need (kiff-cloud#1487, gap 5): the provider's least-privilege scopes for
+// them, within its own sign-in's ceiling, on a managed sign-in made once per
+// app and scope set and pinned for the sign-in. The scopes are in what the
+// owner signs, the words say it, and the sign-in serves only those tools.
+func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	f.managed, f.ceiling, f.always = true, []string{"admin", "tickets.read", "tickets.write"}, []string{"offline_access"}
+	ask := func(tools ...string) (map[string]any, *Grant) {
+		t.Helper()
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Weekly tickets", "tools": tools}, nil, "k_setup")
+		if st != 201 {
+			t.Fatalf("request: %d %v", st, out)
+		}
+		v := out["grant"].(map[string]any)
+		g, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+		return v, g
+	}
+	v, g := ask("DESK_DEMO_LIST_TICKETS")
+	c := g.Request.Connector
+	if !slices.Equal(c.AskedTools, []string{"DESK_DEMO_LIST_TICKETS"}) || !slices.Equal(c.Scopes, []string{"offline_access", "tickets.read"}) || c.UsualAccess || c.AuthConfig != "ac_scoped_1" {
+		t.Fatalf("the request: %+v", c)
+	}
+	if !slices.Equal(f.scopedMade, []string{`planque-scoped-desk_demo-` + scopedSuffix([]string{"tickets.read"}) + `: ["tickets.read"]`}) {
+		t.Fatalf("scoped sign-ins made: %v", f.scopedMade)
+	}
+	if words := v["text"].(string); !strings.Contains(words, " Support desk is asked only for what this taf uses: List tickets.") {
+		t.Fatalf("words: %q", words)
+	}
+	// The scopes are what the owner signs.
+	widened := g.Request
+	conn := *widened.Connector
+	conn.Scopes = []string{"admin"}
+	widened.Connector = &conn
+	if sum, _ := digest(widened); sum == g.Digest {
+		t.Fatal("the scopes aren't in the signed request")
+	}
+	// The sign-in pins the scoped sign-in, never the app's usual one.
+	path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string)
+	if st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, ""); st != 200 || f.authConfig != "ac_scoped_1" {
+		t.Fatalf("sign-in: %d %v, pinned %q", st, out, f.authConfig)
+	}
+	code := e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
+	if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusListed {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	// A tool it didn't ask for isn't served by this sign-in: a new connection is.
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket",
+		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
+		t.Fatalf("a tool outside the sign-in: %d %v", st, out)
+	}
+	// The same tools again: the scoped sign-in made before is pinned again.
+	if _, again := ask("DESK_DEMO_LIST_TICKETS"); again.Request.Connector.AuthConfig != "ac_scoped_1" || len(f.scopedMade) != 1 {
+		t.Fatalf("asked again: %q, %d made", again.Request.Connector.AuthConfig, len(f.scopedMade))
+	}
+	for _, bad := range [][]string{{"not a slug"}, {"DESK_DEMO_LIST_TICKETS", "DESK_DEMO_LIST_TICKETS"}} {
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "tools": bad}, nil, "k_setup")
+		if st != 400 || !strings.Contains(out["error"].(string), "tools") {
+			t.Fatalf("tools %q: %d %v", bad, st, out)
+		}
+	}
+}
+
+// When the provider can't narrow the sign-in (no managed ceiling, its
+// recommendation failing, or an operator's own sign-in), the connection asks
+// for the app's usual access and says so: the Card still bounds what the taf
+// calls (the PM on kiff-cloud#1487). It's recorded, and serves its tools.
+func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*connectorFixture)
+	}{
+		{"its recommendation failed", func(f *connectorFixture) { f.managed, f.ceiling, f.noRecommend = true, []string{"tickets.write"}, true }},
+		{"no managed ceiling", func(f *connectorFixture) { f.managed = true }},
+		{"an operator's own sign-in", func(f *connectorFixture) { f.ceiling = []string{"tickets.write"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, f := newConnectorFixture(t)
+			tc.set(f)
+			st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+			if st != 201 {
+				t.Fatalf("request: %d %v", st, out)
+			}
+			v := out["grant"].(map[string]any)
+			g, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+			if c := g.Request.Connector; !c.UsualAccess || c.Scopes != nil || c.AuthConfig != "ac_desk_demo" || len(f.scopedMade) != 0 {
+				t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
+			}
+			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses. The taf can still only use: Reply.") {
+				t.Fatalf("words: %q", words)
+			}
+		})
+	}
+}
+
+// scopedSuffix is the name's suffix Scope gives a scope set.
+func scopedSuffix(scopes []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(scopes, " ")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // An approval that failed after the provider made its link can be approved

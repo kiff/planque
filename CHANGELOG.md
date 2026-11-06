@@ -17,6 +17,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- A managed app asked for with the taf's tools (`tools`, the provider's
+  slugs) signs in for only what they need: the provider's least-privilege
+  scopes within its own sign-in's ceiling, on a scoped managed sign-in made
+  once per app and scope set. The scopes are in the signed request and its
+  words, and the grant binds only those tools. When the provider can't
+  narrow it, the sign-in asks for the app's usual access, recorded on the
+  grant, and the words say so: "<app> will ask for more access than this taf
+  uses. The taf can still only use: …" (kiff-cloud#1487, gap 5).
 - A managed app's sign-in can be reused for another taf (`"reuse"` naming a
   connected managed grant, `tools: []`): the new connection is signed in
   and listed at once, on the same provider account, with no second sign-in

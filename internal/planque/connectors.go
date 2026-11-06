@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,27 @@ type ConnectorRequest struct {
 	AuthScheme string           `json:"auth_scheme,omitempty"`
 	Account    string           `json:"account,omitempty"`
 	Tools      []connector.Tool `json:"tools,omitempty"`
+	// AskedTools are the provider's tools the taf named when it asked for
+	// the connection (kiff-cloud#1487, gap 5). Its sign-in asks for what
+	// they need (Scopes), or for the app's usual access (UsualAccess).
+	AskedTools []string `json:"asked_tools,omitempty"`
+	// Scopes are what the sign-in asks the vendor for, narrowed to
+	// AskedTools: the tools bound later are among AskedTools.
+	Scopes []string `json:"scopes,omitempty"`
+	// UsualAccess: the sign-in asks for the app's usual access, more than
+	// AskedTools need, since the provider couldn't narrow it. The words say
+	// so, and a later narrowing may replace it.
+	UsualAccess bool `json:"usual_access,omitempty"`
+}
+
+// MaxAskedTools is the most tools a connection may be asked for with: a
+// grant binds at most as many.
+const MaxAskedTools = 20
+
+// errOutsideSignIn refuses a tool its connection's narrowed sign-in didn't ask for.
+func errOutsideSignIn(app, tool string) error {
+	return apiError{http.StatusConflict, app + "'s sign-in for this taf asks only for what its tools need, and " + tool +
+		" isn't among them: ask for a new connection with it, so the owner signs in for it"}
 }
 
 // ConnectorState is private server state, never an agent-selected identity.
@@ -365,9 +388,16 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// AgentName is the taf's name for people ("Refunds"), optional: the
 		// grant's words name the taf by it instead of the agent id.
 		AgentName string `json:"agent_name"`
+		// Tools, optional, are the provider's tools the taf will use, as the
+		// tools search names them: the sign-in asks only for what they need.
+		Tools []string `json:"tools"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if msg := checkAskedTools(ask.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
 	if msg := checkTools(ask.Agent, nil); msg != "" {
@@ -422,11 +452,28 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		}
 		onDemand = ok && held.AuthConfig != "" && held.AuthConfig == app.AuthConfig
 	}
+	conn := &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme}
+	if len(ask.Tools) > 0 {
+		// The narrowest sign-in for the taf's tools (kiff-cloud#1487, gap 5).
+		// The Card stays the boundary: a taf calls only the tools its Card
+		// grants, whatever the scopes. So when the provider can't narrow the
+		// sign-in, it asks for the app's usual access, and says so.
+		conn.AskedTools = slices.Clone(ask.Tools)
+		scoped, err := p.Scope(r.Context(), app, ask.Tools)
+		if err == nil {
+			conn.AuthConfig, conn.Scopes = scoped.AuthConfig, scoped.Scopes
+		} else {
+			conn.UsualAccess = true
+			if !errors.Is(err, connector.ErrUnscoped) {
+				s.log().WarnContext(r.Context(), "sign-in not narrowed", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+			}
+		}
+	}
 	id := "grt_" + oauth.Random(12)
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name), OnDemand: onDemand,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
 			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
-			CatalogEntry: r.PathValue("entry"), Connector: &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme},
+			CatalogEntry: r.PathValue("entry"), Connector: conn,
 			API: &APIRequest{URL: platform.URL, Base: platform.URL, SourceKind: "connector"}},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if g.Request.AskedBy == "" {
@@ -750,6 +797,10 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 		if found == nil || found.Validate() != nil || found.Toolkit != g.Request.Connector.Toolkit {
 			return connector.ErrDefinition
 		}
+		// A sign-in narrowed to the tools the taf asked for serves only those.
+		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
+			return errOutsideSignIn(c.Title, found.Name)
+		}
 		definitions = append(definitions, *found)
 	}
 	raw, err := json.Marshal(definitions)
@@ -874,6 +925,52 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 	return triggerErr
 }
 
+// scopeWords is what the sign-in asks the vendor for, when the taf named its
+// tools (kiff-cloud#1487, gap 5): only what they need, or, when that couldn't
+// be narrowed, the app's usual access, said plainly. Nothing otherwise.
+func scopeWords(c *ConnectorRequest) string {
+	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {
+		return ""
+	}
+	tools := toolWords(c.Toolkit, c.AskedTools)
+	if c.UsualAccess {
+		return " " + c.Title + " will ask for more access than this taf uses. The taf can still only use: " + tools + "."
+	}
+	return " " + c.Title + " is asked only for what this taf uses: " + tools + "."
+}
+
+// toolWords names a provider's tools as people read them: "List events" for
+// GOOGLECALENDAR_LIST_EVENTS.
+func toolWords(toolkit string, slugs []string) string {
+	names := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		words := strings.TrimPrefix(strings.ToUpper(slug), strings.ToUpper(toolkit)+"_")
+		words = strings.ToLower(strings.ReplaceAll(words, "_", " "))
+		if words != "" {
+			words = strings.ToUpper(words[:1]) + words[1:]
+		}
+		names = append(names, words)
+	}
+	return strings.Join(names, ", ")
+}
+
+// checkAskedTools says what's wrong with the tools a connection is asked for
+// with, or "": each a provider's tool name, at most MaxAskedTools, each once.
+func checkAskedTools(tools []string) string {
+	if len(tools) > MaxAskedTools {
+		return "tools names at most " + strconv.Itoa(MaxAskedTools) + " of the app's tools"
+	}
+	for i, t := range tools {
+		if !connectorTool.MatchString(t) || slices.Contains(tools[:i], t) {
+			return "tools are the app's tools as the tools search names them (its slug), each once"
+		}
+	}
+	return ""
+}
+
+// connectorTool is a provider's tool slug.
+var connectorTool = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{0,127}$`)
+
 // connectorText is what the owner reads and signs for a managed connection.
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
@@ -887,9 +984,10 @@ func connectorText(q Request) string {
 			// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
 			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + " with the sign-in you already have there: no second sign-in or key. It stays with the connection service; the taf never sees it."
 			if len(q.Tools) == 0 {
-				return text + " The actions to approve come next. No actions are granted yet."
+				return text + scopeWords(q.Connector) + " The actions to approve come next. No actions are granted yet."
 			}
 		}
+		text += scopeWords(q.Connector)
 		switch q.Connector.AuthScheme {
 		case "API_KEY", "BEARER_TOKEN":
 			credential := "key"
@@ -897,7 +995,7 @@ func connectorText(q Request) string {
 				credential = "token"
 			}
 			if q.Reuse == "" {
-				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it." + scopeWords(q.Connector)
 			}
 		}
 	}
