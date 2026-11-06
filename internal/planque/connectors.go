@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -475,21 +476,34 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		writeJSON(w, http.StatusOK, s.view(g))
 		return
 	}
+	// A sign-in under way that never came back to the app: the approving
+	// device asks again, and planque asks the provider (kiff/planque#87).
+	if g.Connector != nil && !g.SignedIn && (g.Status == StatusApproved || g.Status == StatusSignedIn) {
+		s.resumeConnectorSignIn(w, r, sr, g, p)
+		return
+	}
 	// A replacement account always needs a fresh grant and tool approval.
 	// Never swap accounts underneath an already approved profile.
 	if g.Connector != nil {
 		writeErr(w, http.StatusConflict, "this connection already has a sign-in; finish it or disconnect and request a new grant")
 		return
 	}
+	s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in approved "+sr.approval.Who())
+}
+
+// startConnectorSignIn opens a sign-in at the provider for g and answers
+// with its link, for the approving device: g waits approved until the
+// sign-in's deadline. It says whether it did; when not, it answered why.
+func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a Approval, g *Grant, p connector.Provider, what string) bool {
 	if s.AppReturn == "" {
 		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
-		return
+		return false
 	}
 	state := oauth.Random(24)
 	exp := s.now().Add(signInTTL)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: pkSignIn(state), SK: "-", TTL: exp.Unix()}, pendingSignIn{Tenant: g.Tenant, Grant: g.ID, Expires: exp}, store.Cond{NotExists: true}); err != nil {
 		s.fail(w, r, err)
-		return
+		return false
 	}
 	id := s.connectorIdentity(g)
 	// Each attempt names its connection afresh: the provider keeps a name
@@ -499,19 +513,88 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	if err != nil {
 		_, _, _ = s.KV.Delete(r.Context(), pkSignIn(state), "-")
 		s.fail(w, r, err)
-		return
+		return false
 	}
-	a := sr.approval
 	g.Connector = &ConnectorState{User: id.User, Session: auth.Session, Account: auth.Account}
 	g.Approval, g.Status = &a, StatusApproved
 	g.HeldUntil = exp.UTC()
-	g.event(s.now(), "sign-in approved "+a.Who())
+	g.Account, g.ConfirmHash, g.ConfirmBy = "", "", time.Time{}
+	g.event(s.now(), what)
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		_, _ = p.Revoke(r.Context(), id, auth.Account)
 		s.fail(w, r, err)
-		return
+		return false
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "expires_at": exp.UTC()})
+	return true
+}
+
+// resumeConnectorSignIn answers the approving device asking again about a
+// sign-in under way: the provider's redirect never reached the callback
+// (its page, or the browser closing first), or the callback's never reached
+// the app, and a second approve answered 409 until the deadline passed
+// (kiff/planque#87, on the phone). planque asks the provider instead. Signed
+// in there: g is finished as the callback finishes it, and the device gets
+// the code it confirms with, as from the callback's link. Not signed in: a
+// fresh sign-in link for this same grant, and the unfinished one is revoked,
+// so no account it might still make stays live at the provider unbound.
+func (s *Server) resumeConnectorSignIn(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant, p connector.Provider) {
+	if g.Approval == nil || !g.Approval.SameSigner(sr.approval) {
+		writeErr(w, http.StatusForbidden, "only the device that approved this connection may finish its sign-in")
+		return
+	}
+	err := s.checkConnector(r.Context(), g)
+	switch {
+	case err == nil:
+		_, code, err := s.signedInConnector(r.Context(), g, "signed in, as the provider says: its sign-in page never came back; waiting for the approving device to confirm")
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "confirm": code, "confirm_by": g.ConfirmBy})
+	case errors.Is(err, connector.ErrAccount):
+		old := *g.Connector
+		if !s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in started again "+sr.approval.Who()+": the first never finished") {
+			return
+		}
+		if old.Account != "" && old.Account != g.Connector.Account {
+			if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
+				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			}
+		}
+	default:
+		// The provider couldn't say: nothing changed, and asking again later can.
+		s.fail(w, r, err)
+	}
+}
+
+// errNoAppReturn: planque has no app to send a finished sign-in's code to.
+var errNoAppReturn = errors.New("sign-in confirmation is not configured")
+
+// signedInConnector finishes g's sign-in as the provider's redirect does:
+// the account is the grant's, and only the approving device may confirm it,
+// with the code, by ConfirmBy. It answers the app's return link carrying the
+// code, and the code.
+func (s *Server) signedInConnector(ctx context.Context, g *Grant, what string) (*url.URL, string, error) {
+	u, err := url.Parse(s.AppReturn)
+	if err != nil || u.Scheme == "" {
+		return nil, "", errNoAppReturn
+	}
+	code := oauth.Random(24)
+	sum := sha256.Sum256([]byte(code))
+	g.Account, g.ConfirmHash, g.ConfirmBy = g.Connector.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
+	g.Status = StatusSignedIn
+	g.HeldUntil = time.Time{}
+	g.event(s.now(), what)
+	if err := s.saveGrant(ctx, g); err != nil {
+		return nil, "", err
+	}
+	q := u.Query()
+	q.Set("tenant", g.Tenant)
+	q.Set("grant", g.ID)
+	q.Set("confirm", code)
+	u.RawQuery = q.Encode()
+	return u, code, nil
 }
 
 func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
@@ -544,26 +627,15 @@ func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	u, err := url.Parse(s.AppReturn)
-	if err != nil || u.Scheme == "" {
-		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
+	u, _, err := s.signedInConnector(r.Context(), g, "signed in; waiting for the approving device to confirm")
+	if errors.Is(err, errNoAppReturn) {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	code := oauth.Random(24)
-	sum := sha256.Sum256([]byte(code))
-	g.Account, g.ConfirmHash, g.ConfirmBy = g.Connector.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
-	g.Status = StatusSignedIn
-	g.HeldUntil = time.Time{}
-	g.event(s.now(), "signed in; waiting for the approving device to confirm")
-	if err := s.saveGrant(r.Context(), g); err != nil {
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	q := u.Query()
-	q.Set("tenant", g.Tenant)
-	q.Set("grant", g.ID)
-	q.Set("confirm", code)
-	u.RawQuery = q.Encode()
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, u.String(), http.StatusFound)

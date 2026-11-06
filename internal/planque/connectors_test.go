@@ -33,6 +33,11 @@ type connectorFixture struct {
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
+	// distinct, when set, gives each link after the first an account of its
+	// own (account_demo_2, …), as the provider does; revoked lists the
+	// accounts revoked, in order.
+	distinct bool
+	revoked  []string
 	// toolBody, when set, is the provider's answer for the pinned tool.
 	toolBody string
 	// executeStatus and executeBody, when set, are the provider's answer to an execution.
@@ -123,23 +128,28 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			return profileResponse(400, `{"error":{"message":"alias already in use"}}`), nil
 		}
 		f.aliases[in["alias"]] = true
-		body = `{"connected_account_id":"account_demo","redirect_url":"https://connect.composio.dev/link/demo"}`
+		account := "account_demo"
+		if f.distinct && f.links > 1 {
+			account += "_" + strconv.Itoa(f.links)
+		}
+		body = `{"connected_account_id":"` + account + `","redirect_url":"https://connect.composio.dev/link/demo"}`
 		if f.strayLink {
 			body = `{"connected_account_id":"account_demo","redirect_url":"https://elsewhere.example/link/demo"}`
 		}
-	case path == "/connected_accounts/account_demo" && r.Method == "DELETE":
+	case strings.HasPrefix(path, "/connected_accounts/account_demo") && r.Method == "DELETE":
 		if r.URL.Query().Get("revoke_on_delete") != "true" {
 			f.t.Error("no upstream revocation requested")
 		}
 		f.revocations++
+		f.revoked = append(f.revoked, strings.TrimPrefix(path, "/connected_accounts/"))
 		body = `{"success":true,"revoke_job_id":"job_demo"}`
-	case path == "/connected_accounts/account_demo":
+	case strings.HasPrefix(path, "/connected_accounts/account_demo"):
 		user := f.user
 		if f.foreign {
 			user = "another_owner"
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
-		b, _ := json.Marshal(map[string]any{"id": "account_demo", "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
+		b, _ := json.Marshal(map[string]any{"id": strings.TrimPrefix(path, "/connected_accounts/"), "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
 			"data": map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}})
 		body = string(b)
 	case path == "/tools" && r.URL.Query().Get("query") != "":
@@ -427,6 +437,79 @@ func TestConnectorConcurrentReplayAndAbandonedSignIn(t *testing.T) {
 		expired, _ := e.s.loadGrant(context.Background(), tenant, id)
 		if expired.Status != StatusFailed || f.revocations != 1 || expired.Connector.Revocation == nil || !expired.Connector.Revocation.Pending {
 			t.Fatal("abandoned connection was not disabled with accurate revocation status")
+		}
+	})
+}
+
+// A managed sign-in that never came back to the app (kiff/planque#87, on the
+// phone): the approving device asks again, and planque asks the provider,
+// never answering 409. Signed in there, the grant finishes as the callback
+// would, and the device confirms with the code it got. Not signed in, a fresh
+// link for the same grant, and the unfinished account is revoked. Only the
+// device that approved may ask.
+func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
+	// The phone signs each request anew; its signature carries the second.
+	anew := func() { time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second))) }
+	approve := func(t *testing.T, e *env) (string, map[string]any) {
+		t.Helper()
+		v := requestConnector(t, e)
+		path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string)
+		if st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, ""); st != 200 || out["sign_in_url"] != "https://connect.composio.dev/link/demo" {
+			t.Fatalf("approve: %d %v", st, out)
+		}
+		return path, v
+	}
+	t.Run("signed in at the provider, its redirect lost", func(t *testing.T) {
+		e, f := newConnectorFixture(t)
+		path, v := approve(t, e)
+		// No callback: the owner signed in, and the browser came back to the app without its code.
+		if st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.device("dev_other"), ""); st != 403 {
+			t.Fatalf("another device asked: %d %v", st, out)
+		}
+		anew()
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		if st != 200 || out["status"] != StatusSignedIn || out["confirm"] == nil || out["sign_in_url"] != nil || f.links != 1 {
+			t.Fatalf("asked again: %d %v, %d links", st, out, f.links)
+		}
+		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": out["confirm"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusListed {
+			t.Fatalf("confirm: %d %v", st, out)
+		}
+	})
+	t.Run("signed in, the callback's code lost on the way to the app", func(t *testing.T) {
+		e, f := newConnectorFixture(t)
+		path, v := approve(t, e)
+		lost := e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
+		anew()
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		if st != 200 || out["status"] != StatusSignedIn || out["confirm"] == nil || out["confirm"] == lost {
+			t.Fatalf("asked again: %d %v", st, out)
+		}
+		// The lost code no longer confirms: the new one does.
+		if st, _ := e.do("POST", path+"/confirm", map[string]string{"confirm": lost}, e.phone, ""); st != 403 {
+			t.Fatalf("the lost code confirmed: %d", st)
+		}
+		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": out["confirm"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusListed {
+			t.Fatalf("confirm: %d %v", st, out)
+		}
+	})
+	t.Run("not signed in at the provider", func(t *testing.T) {
+		e, f := newConnectorFixture(t)
+		f.distinct, f.accountStatus = true, "INITIATED"
+		path, v := approve(t, e)
+		anew()
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		if st != 200 || out["status"] != StatusApproved || out["sign_in_url"] != "https://connect.composio.dev/link/demo" || f.links != 2 {
+			t.Fatalf("asked again: %d %v, %d links", st, out, f.links)
+		}
+		g, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+		if g.Connector.Account != "account_demo_2" || !slices.Equal(f.revoked, []string{"account_demo"}) {
+			t.Fatalf("the fresh sign-in is %q, revoked %v", g.Connector.Account, f.revoked)
+		}
+		// The fresh link's sign-in finishes as any does.
+		f.accountStatus = "ACTIVE"
+		code := e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
+		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusListed {
+			t.Fatalf("confirm: %d %v", st, out)
 		}
 	})
 }

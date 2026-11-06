@@ -5,6 +5,16 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- A managed app's sign-in that never came back to the app no longer waits
+  for its deadline behind a 409 ("this connection already has a sign-in").
+  The device that approved it signs `/approve` again, and planque asks the
+  provider. If the account is signed in there, the grant finishes as the
+  callback would, and the device confirms with the code in the answer. If
+  not, the answer is a fresh sign-in link for the same grant, and the
+  unfinished account is revoked (kiff/planque#87, on the phone).
+
 ### Added
 
 - A managed app's sign-in can be reused for another taf (`"reuse"` naming a

@@ -109,6 +109,21 @@ The account-authenticated catalog endpoints include upstream discovery:
    server-allocated user, app and exact connection; callback account/status
    parameters establish no authority. The approving device confirms the
    browser's one-use code through the existing `/confirm` route.
+
+   A sign-in that never comes back to the app (the provider's page, or a
+   browser closed before its redirect, so no callback; or a callback whose
+   code never reached the app) is never stuck until its deadline. The device
+   that approved signs `/approve` again, and planque asks the provider:
+   - signed in there: the grant is finished as the callback finishes it, and
+     the answer is `{status: "signed_in", confirm, confirm_by}`. The device
+     confirms with that code through `/confirm`, as with the browser's. A
+     code the callback minted before no longer confirms;
+   - not signed in there: a fresh sign-in link for the same grant,
+     `{status: "approved", sign_in_url, expires_at}`, and the unfinished
+     provider account is revoked.
+
+   Another device gets 403. `DELETE …/grants/{id}` cancels a connection
+   still waiting on its sign-in, as it disconnects any other.
 4. After confirmation, the asking agent reads
    `GET /v1/accounts/{tenant}/grants/{id}/catalog?cursor=...`. Tool discovery
    is paginated and cached separately, rather than copied into the grant.
