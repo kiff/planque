@@ -387,6 +387,7 @@ func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request, a Approval, 
 	ctx := r.Context()
 	var checked string
 	oldHook := ""
+	undo := func() {}
 	if isTelegram(g) {
 		if g.Telegram == nil {
 			writeErr(w, http.StatusConflict, "this Telegram connection names no bot: disconnect it and connect it again")
@@ -403,6 +404,9 @@ func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request, a Approval, 
 		}
 		oldHook, g.Telegram = g.Telegram.Hook, bot
 		checked = "Telegram took it for @" + bot.Username
+		// The bot's webhook is the new hook now: until the grant names it, a
+		// failure points it back, so the taf's messages keep coming.
+		undo = func() { s.repointTelegramHook(ctx, key, oldHook, bot.Hook) }
 	} else {
 		read, status, msg, err := s.checkKey(ctx, g, key)
 		if err != nil {
@@ -419,21 +423,24 @@ func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request, a Approval, 
 	if _, it, err := s.openToken(ctx, g); err == nil {
 		prev = &it.Ver
 	} else if !errors.Is(err, errNotFound) {
+		undo()
 		s.fail(w, r, err)
 		return
 	}
 	if err := s.storeToken(ctx, g, oauth.Token{Access: key}, prev); err != nil {
+		undo()
+		s.fail(w, r, err)
+		return
+	}
+	g.Reason = ""
+	g.event(s.now(), "key replaced "+a.Who()+": "+checked+"; its tools are as they were")
+	if err := s.saveGrant(ctx, g); err != nil {
+		undo()
 		s.fail(w, r, err)
 		return
 	}
 	if oldHook != "" && oldHook != g.Telegram.Hook {
 		_, _, _ = s.KV.Delete(ctx, telegramHookPK, oldHook)
-	}
-	g.Reason = ""
-	g.event(s.now(), "key replaced "+a.Who()+": "+checked+"; its tools are as they were")
-	if err := s.saveGrant(ctx, g); err != nil {
-		s.fail(w, r, err)
-		return
 	}
 	s.log().InfoContext(ctx, "key replaced", slog.String("grant", g.ID))
 	writeJSON(w, http.StatusOK, s.view(g))
@@ -448,18 +455,11 @@ func (s *Server) checkKey(ctx context.Context, g *Grant, key string) (read strin
 	if err != nil {
 		return "", 0, "", err
 	}
-	op, ok := keyRead(g, snap)
+	op, method, target, body, ok := keyRead(g, snap)
 	if !ok {
 		return "", http.StatusConflict, "planque can't check a new key on this connection: its API has no read that takes no arguments. Nothing changed: to use another key, disconnect it and connect it again", nil
 	}
-	method, target, body, err := op.Request(g.Request.API.Base, nil)
-	if err != nil {
-		return "", 0, "", err
-	}
 	host := hostOf(g.Request.API.Base)
-	if hostOf(target) != host {
-		return "", 0, "", fmt.Errorf("the key's check would leave %s", host)
-	}
 	read = method + " " + op.Path
 	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	switch {
@@ -473,25 +473,30 @@ func (s *Server) checkKey(ctx context.Context, g *Grant, key string) (read strin
 	return read, 0, "", nil
 }
 
-// keyRead is the read a new key is checked with: a read-only operation of
-// g's API that needs no argument and sends no body, one of g's own tools
-// first. ok is false when the API has none.
-func keyRead(g *Grant, snap *openapi.Snapshot) (op openapi.Operation, ok bool) {
+// keyRead is the read a new key is checked with, and its request: a
+// read-only operation of g's API that needs no argument and sends no body,
+// one of g's own tools first. Its path must be one of the API's own, under
+// its base, on its host: the key goes nowhere else. ok is false when the API
+// has none.
+func keyRead(g *Grant, snap *openapi.Snapshot) (op openapi.Operation, method, target string, body []byte, ok bool) {
 	own := map[string]bool{}
 	for _, t := range g.Tools {
 		own[t.Tool] = true
 	}
+	host := hostOf(g.Request.API.Base)
 	for _, mine := range []bool{true, false} {
 		for _, o := range snap.Operations {
 			if own[o.Name] != mine || !o.ReadOnly || o.Body != "" {
 				continue
 			}
-			if _, _, _, err := o.Request(g.Request.API.Base, nil); err == nil {
-				return o, true
+			m, t, b, err := o.Request(g.Request.API.Base, nil)
+			if err != nil || !strings.HasPrefix(o.Path, "/") || strings.Contains(o.Path, "://") || strings.HasPrefix(o.Path, "//") || hostOf(t) != host {
+				continue
 			}
+			return o, m, t, b, true
 		}
 	}
-	return openapi.Operation{}, false
+	return openapi.Operation{}, "", "", nil, false
 }
 
 // callAPI is one call of an API-key grant's tool: the request its operation

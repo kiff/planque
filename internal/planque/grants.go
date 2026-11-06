@@ -1594,17 +1594,19 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if g.Reconnect {
-		// Reconnecting acts in the same vendor account, or not at all.
-		if g.Account != "" && tok.Account != "" && tok.Account != g.Account {
+		// Reconnecting acts in the same vendor account, or not at all: once
+		// the vendor named the grant's account, a sign-in that names another,
+		// or none, is refused.
+		if g.Account != "" && tok.Account != g.Account {
 			for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
 				if t.tok != "" {
 					_ = s.revokeToken(r.Context(), g, t.tok, t.hint)
 				}
 			}
 			g.Status, g.Reconnect = StatusNeedsReconnect, false
-			g.event(s.now(), "a sign-in to another account at "+vendorName(g)+" was refused; still waiting for the owner to sign in again")
+			g.event(s.now(), otherAccount(g, tok)+" was refused; still waiting for the owner to sign in again")
 			_ = s.saveGrant(r.Context(), g)
-			s.page(w, http.StatusConflict, "Not connected", "That sign-in is for another account at "+vendorName(g)+". Sign in to the account this taf uses.")
+			s.page(w, http.StatusConflict, "Not connected", otherAccountPage(g, tok)+" Sign in to the account this taf uses.")
 			return
 		}
 		// The token the vendor ended goes; the new one takes its place.
@@ -1752,9 +1754,9 @@ func (s *Server) renewed(w http.ResponseWriter, r *http.Request, g *Grant, tok o
 		s.endRenewal(ctx, g, why)
 		s.page(w, status, "Not signed in again", page)
 	}
-	if g.Account != "" && tok.Account != "" && tok.Account != g.Account {
-		refuse(http.StatusConflict, "a sign-in to another account at "+vendorName(g)+" was refused",
-			"That sign-in is for another account at "+vendorName(g)+". Sign in to the account this taf uses: nothing changed.")
+	if g.Account != "" && tok.Account != g.Account {
+		refuse(http.StatusConflict, otherAccount(g, tok)+" was refused",
+			otherAccountPage(g, tok)+" Sign in to the account this taf uses: nothing changed.")
 		return
 	}
 	u, err := url.Parse(s.AppReturn)
@@ -1783,6 +1785,23 @@ func (s *Server) renewed(w http.ResponseWriter, r *http.Request, g *Grant, tok o
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// otherAccount names a new sign-in that isn't in g's account, for its event:
+// in another account, or in one the vendor didn't name.
+func otherAccount(g *Grant, tok oauth.Token) string {
+	if tok.Account == "" {
+		return "a sign-in at " + vendorName(g) + " that didn't say its account"
+	}
+	return "a sign-in to another account at " + vendorName(g)
+}
+
+// otherAccountPage says so to the person who signed in.
+func otherAccountPage(g *Grant, tok oauth.Token) string {
+	if tok.Account == "" {
+		return vendorName(g) + " didn't say which account that sign-in is, so it can't stand for the one this taf uses."
+	}
+	return "That sign-in is for another account at " + vendorName(g) + "."
 }
 
 // endRenewal forgets g's new sign-in, saying why (in its events): the

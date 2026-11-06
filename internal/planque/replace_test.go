@@ -150,6 +150,14 @@ func TestAConnectedSignInIsReplacedOnlyOnceConfirmed(t *testing.T) {
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/confirm", map[string]string{"confirm": "not-the-code"}, e.phone, ""); st != 403 {
 		t.Fatalf("another code: %d", st)
 	}
+	// Another device of the account, with the right code: only the device
+	// that approved this sign-in confirms it.
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/confirm", map[string]string{"confirm": code}, e.device("dev_other"), ""); st != 403 || !strings.Contains(mustJSONString(out), "only the device that approved") {
+		t.Fatalf("another device confirmed: %d %v", st, out)
+	}
+	if tok, _, _ := e.s.openToken(ctx, g); tok.Access != old.Access {
+		t.Fatal("another device's confirmation replaced the sign-in in use")
+	}
 
 	st, out = e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/confirm", map[string]string{"confirm": code}, e.phone, "")
 	if st != 200 || out["status"] != StatusConnected {
@@ -202,11 +210,75 @@ func TestANewSignInToAnotherAccountChangesNothing(t *testing.T) {
 	if tok, _, _ := e.s.openToken(ctx, g); tok.Access != old.Access || now.Status != StatusConnected || now.Renewal != nil || now.Account != "acct_1" {
 		t.Fatalf("after another account: %s, renewal %v, account %q", now.Status, now.Renewal, now.Account)
 	}
+	if ev := lastEvent(now); !strings.Contains(ev, "another account") || !strings.Contains(ev, "was refused") || !strings.Contains(ev, "the connection stays as it was") {
+		t.Fatalf("event: %q", ev)
+	}
 	if len(e.vendor.Revoked) != revoked+2 {
 		t.Fatalf("the other account's sign-in wasn't revoked: %v", e.vendor.Revoked[revoked:])
 	}
 	if res, err := e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{}); err != nil || strings.Contains(string(res.Result), "Not sent") {
 		t.Fatalf("a call after: %s %v", res.Result, err)
+	}
+
+	// Once the vendor named the grant's account, a sign-in that names none
+	// can't stand for it either.
+	time.Sleep(1100 * time.Millisecond)
+	st, out = e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/approve", map[string]string{"digest": g.Digest}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("sign in again: %d %v", st, out)
+	}
+	e.vendor.Account = ""
+	resp, err = http.Get(out["sign_in_url"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 409 || !strings.Contains(string(page), "say which account") {
+		t.Fatalf("a sign-in that names no account: %d %s", resp.StatusCode, page)
+	}
+	if tok, _, _ := e.s.openToken(ctx, g); tok.Access != old.Access {
+		t.Fatal("a sign-in that names no account replaced the one in use")
+	}
+}
+
+// A reconnect is held to the grant's account the same way: once the vendor
+// named it, a sign-in in another account, or one that names none, is
+// refused, logged, and the grant waits for a sign-in again.
+func TestAReconnectIsHeldToTheGrantsAccount(t *testing.T) {
+	e := newEnv(t)
+	e.vendor.Account = "acct_1"
+	g := e.connect()
+	ctx := context.Background()
+	tok, it, _ := e.s.openToken(ctx, g)
+	tok.Expiry = time.Now().Add(-time.Second)
+	_ = e.s.storeToken(ctx, g, tok, &it.Ver)
+	e.vendor.SignOut()
+	_, _ = e.kiff.Call(ctx, "k_taf", "list_charges", map[string]any{})
+	now, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	if now.Status != StatusNeedsReconnect {
+		t.Fatalf("signed out: %s", now.Status)
+	}
+	for _, c := range []struct{ account, page string }{{"acct_2", "for another account"}, {"", "say which account"}} {
+		time.Sleep(1100 * time.Millisecond) // a signed request is told apart by its second
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/approve", map[string]string{"digest": now.Digest}, e.phone, "")
+		if st != 200 {
+			t.Fatalf("approve: %d %v", st, out)
+		}
+		e.vendor.Account = c.account
+		resp, err := http.Get(out["sign_in_url"].(string))
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 409 || !strings.Contains(string(page), c.page) {
+			t.Fatalf("a reconnect in account %q: %d %s", c.account, resp.StatusCode, page)
+		}
+		later, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if later.Status != StatusNeedsReconnect || later.Reconnect || later.Account != "acct_1" || !strings.Contains(lastEvent(later), "was refused") {
+			t.Fatalf("after account %q: %s, reconnect %v, account %q, %q", c.account, later.Status, later.Reconnect, later.Account, lastEvent(later))
+		}
 	}
 }
 
@@ -316,5 +388,61 @@ func TestATelegramTokenIsReplacedByTheSameBotsOnly(t *testing.T) {
 	}
 	if tok, _, _ := e.s.openToken(ctx, now); tok.Access != f.token {
 		t.Fatal("the new token isn't the one held")
+	}
+
+	// A replacement that doesn't finish once the webhook moved points it back
+	// at the hook the grant names, with that hook's own secret, and drops the
+	// new one: the taf's messages keep coming.
+	named, secret := f.hookURL, f.secret
+	moved, msg, err := e.s.setTelegramHook(ctx, now, f.token, now.Telegram)
+	if err != nil || msg != "" || f.hookURL == named {
+		t.Fatalf("a second hook: %v %q %q", err, msg, f.hookURL)
+	}
+	e.s.repointTelegramHook(ctx, f.token, now.Telegram.Hook, moved.Hook)
+	if f.hookURL != named || f.secret != secret {
+		t.Fatalf("pointed back: %q (want %q), same secret %v", f.hookURL, named, f.secret == secret)
+	}
+	if _, ok, _ := e.kv.Get(ctx, telegramHookPK, moved.Hook); ok {
+		t.Fatal("the unfinished replacement's hook is still kept")
+	}
+}
+
+// A key's check never leaves the API: an operation whose path isn't one of
+// the API's own (an absolute URL to another host) is never used, so no call
+// goes there, and with no other read the key isn't replaced.
+func TestAKeysCheckStaysOnTheAPIsHost(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	g := e.connectAPI(v)
+	ctx := context.Background()
+	snap, err := e.s.loadSnapshot(ctx, tenant, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, o := range snap.Operations {
+		if o.ReadOnly {
+			snap.Operations[i].Path = v.elsewhere.URL + "/steal"
+		}
+	}
+	if err := e.s.saveSnapshot(ctx, tenant, g.ID, snap); err != nil {
+		t.Fatal(err)
+	}
+	old := v.key
+	v.mu.Lock()
+	v.key = "sk_test_rotated_456"
+	v.mu.Unlock()
+	before := len(v.seen())
+	st, out := e.giveKey(g.ID, g.Digest, v.key)
+	if st != 409 || !strings.Contains(mustJSONString(out), "no read that takes no arguments") {
+		t.Fatalf("a check off the API: %d %v", st, out)
+	}
+	v.mu.Lock()
+	away := v.away
+	v.mu.Unlock()
+	if away != 0 || len(v.seen()) != before {
+		t.Fatalf("calls: %d elsewhere, %d at the vendor", away, len(v.seen())-before)
+	}
+	if tok, _, _ := e.s.openToken(ctx, g); tok.Access != old {
+		t.Fatal("a key checked off the API replaced the one held")
 	}
 }

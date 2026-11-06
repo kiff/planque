@@ -212,6 +212,30 @@ func (s *Server) setTelegramHook(ctx context.Context, g *Grant, token string, sa
 	return &TelegramBot{ID: bot.ID, Username: bot.Username, Hook: hook}, "", nil
 }
 
+// repointTelegramHook points the bot's webhook back at hook, with that hook's
+// own secret, and drops the hook drop, made for a token replacement that
+// didn't finish. token is the bot's, which Telegram takes.
+func (s *Server) repointTelegramHook(ctx context.Context, token, hook, drop string) {
+	var rec telegramHook
+	if _, err := getDoc(ctx, s.KV, telegramHookPK, hook, &rec); err != nil {
+		s.log().WarnContext(ctx, "telegram webhook not pointed back", slog.String("err", err.Error()))
+		return
+	}
+	secret, err := s.Sealer.Open(ctx, rec.Sealed, telegramHookContext(hook))
+	if err != nil {
+		s.log().WarnContext(ctx, "telegram webhook not pointed back", slog.String("err", err.Error()))
+		return
+	}
+	_, _, err = s.telegramCall(ctx, token, "setWebhook", map[string]any{
+		"url": s.BaseURL + "/telegram/" + hook, "secret_token": string(secret), "allowed_updates": []string{"message"}})
+	clear(secret)
+	if err != nil {
+		s.log().WarnContext(ctx, "telegram webhook not pointed back", slog.String("err", err.Error()))
+		return
+	}
+	_, _, _ = s.KV.Delete(ctx, telegramHookPK, drop)
+}
+
 // dropTelegramHook deletes g's webhook at Telegram, while its token is
 // still held, and its record here.
 func (s *Server) dropTelegramHook(ctx context.Context, g *Grant) []string {

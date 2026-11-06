@@ -28,7 +28,8 @@ version headings refer to releases, not merely to merged pull requests.
   at all, until the approving device confirms it, then replaces the one in
   use, which is revoked at the vendor. One not confirmed in time is revoked
   and goes. Either way the grant id, its tools and its Card stay as they
-  were. A managed app can't sign in again in place (409, saying to disconnect
+  were. Once the vendor named a grant's account, a new sign-in that names
+  none is refused like one in another account, for a reconnect too. A managed app can't sign in again in place (409, saying to disconnect
   it and connect it again), since planque can't tell which account a new
   sign-in is.
 - A managed app asked for with the taf's tools (`tools`, the provider's
