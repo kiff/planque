@@ -320,20 +320,24 @@ func TestServerListRows(t *testing.T) {
 	}
 }
 
-// The list shipped with the function decodes, and holds its first rows; a
-// list that isn't exactly servers and entries is refused whole.
-func TestDecodeServerApps(t *testing.T) {
+// The list deploy/aws.sh ships with the function decodes, so a bad edit to
+// it fails here, in CI, and never refuses planque's start at deploy.
+func TestTheShippedServerListDecodes(t *testing.T) {
 	raw, err := os.ReadFile("../../deploy/server-apps.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows, err := DecodeServerApps(raw)
 	if err != nil {
-		t.Fatalf("the shipped list: %v", err)
+		t.Fatalf("deploy/server-apps.json would refuse planque's start: %v", err)
 	}
 	if rows["https://mcp.stripe.com"] != "connector:composio:stripe" || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
 		t.Fatalf("the shipped list's first rows: %v", rows)
 	}
+}
+
+// A list that isn't exactly servers and entries is refused whole.
+func TestDecodeServerApps(t *testing.T) {
 	if _, err := DecodeServerApps([]byte(`{"https://mcp.example.com": "pay@1"}`)); err != nil {
 		t.Fatalf("a reviewed entry's id: %v", err)
 	}
