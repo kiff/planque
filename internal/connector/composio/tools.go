@@ -36,9 +36,11 @@ func (w wireTool) tool() (connector.Tool, error) {
 		return connector.Tool{}, err
 	}
 	t := connector.Tool{Slug: w.Slug, Toolkit: w.Toolkit.Slug, Version: w.Version, Name: w.Name, Description: w.Description, InputSchema: schema, Scopes: w.Scopes}
+	// Read-only only when the provider tags it so and nothing about it says
+	// it can change things (connector.MayChange): unknown means a write.
 	for _, tag := range w.Tags {
 		if tag == "readOnlyHint" {
-			t.ReadOnly = true
+			t.ReadOnly = !connector.MayChange(w.Slug, w.Description, schema)
 		}
 	}
 	if !pinnedVersion.MatchString(w.Version) || w.Deprecated || len(w.Description) > 20000 {
