@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -149,36 +151,60 @@ func TestDeploymentKeepsPointInTimeRecovery(t *testing.T) {
 	if table == "" {
 		t.Fatal("deployment function missing: table")
 	}
-	for _, exists := range []bool{false, true} {
+	// unavailable is how often a new table refuses recovery before it takes
+	// it (ContinuousBackupsUnavailableException): a few times, then never.
+	run := func(exists bool, unavailable int) (string, error) {
 		found := "1"
 		if exists {
 			found = "0"
 		}
-		log := t.TempDir() + "/calls"
+		dir := t.TempDir()
+		log := dir + "/calls"
 		script := `set -euo pipefail
-TABLE=demo
+TABLE=demo PITR_RETRY_SECONDS=0
+refusals=` + strconv.Itoa(unavailable) + `
 aws() {
  echo "$*" >>` + log + `
  case "$1 $2" in
  "dynamodb describe-table") return ` + found + `;;
- "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live"|"dynamodb update-continuous-backups") return 0;;
+ "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live") return 0;;
+ "dynamodb update-continuous-backups")
+  n=$(cat ` + dir + `/refused 2>/dev/null || echo 0)
+  if (( n < refusals )); then echo $((n+1)) >` + dir + `/refused; return 254; fi
+  return 0;;
  *) echo "unexpected deployment operation" >&2; return 1;;
  esac
 }
 ` + table + "\ntable\n"
-		if out, err := exec.Command(bash, "-c", script).CombinedOutput(); err != nil {
-			t.Fatalf("table (exists=%v) failed: %v\n%s", exists, err, out)
-		}
-		logged, err := os.ReadFile(log)
+		out, err := exec.Command(bash, "-c", script).CombinedOutput()
+		logged, _ := os.ReadFile(log)
 		if err != nil {
-			t.Fatal(err)
+			return string(logged), fmt.Errorf("%v: %s", err, out)
 		}
-		calls := string(logged)
+		return string(logged), nil
+	}
+	for _, exists := range []bool{false, true} {
+		calls, err := run(exists, 0)
+		if err != nil {
+			t.Fatalf("table (exists=%v) failed: %v", exists, err)
+		}
 		if !strings.Contains(calls, "dynamodb update-continuous-backups --table-name demo --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true") {
 			t.Fatalf("table (exists=%v) didn't ask for point-in-time recovery:\n%s", exists, calls)
 		}
 		if strings.Contains(calls, "create-table") == exists {
 			t.Fatalf("table (exists=%v) created the table wrongly:\n%s", exists, calls)
 		}
+	}
+	// A new table that refuses recovery for a moment still gets it, and the run goes on.
+	calls, err := run(false, 2)
+	if err != nil {
+		t.Fatalf("a new table that refused recovery twice stopped the run: %v", err)
+	}
+	if n := strings.Count(calls, "update-continuous-backups"); n != 3 {
+		t.Fatalf("recovery asked %d times, want 3 (two refusals, then taken):\n%s", n, calls)
+	}
+	// One that never takes it fails the run, so the deploy says so.
+	if _, err := run(false, 100); err == nil {
+		t.Fatal("a table that never took recovery let the run succeed")
 	}
 }

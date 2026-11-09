@@ -109,9 +109,18 @@ table() {
   fi
   # Point-in-time recovery, asked for on every run, so a table rebuilt or
   # changed by hand gets it back: without it, a bad write can't be undone.
-  aws dynamodb update-continuous-backups --table-name "$TABLE" \
-    --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true \
-    --query ContinuousBackupsDescription.ContinuousBackupsStatus >/dev/null
+  # A table created seconds ago may refuse it for a short while
+  # (ContinuousBackupsUnavailableException), so it's asked again.
+  local try
+  for try in 1 2 3 4 5 6; do
+    if aws dynamodb update-continuous-backups --table-name "$TABLE" \
+      --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true \
+      --query ContinuousBackupsDescription.ContinuousBackupsStatus >/dev/null; then
+      return 0
+    fi
+    [[ $try == 6 ]] && return 1
+    sleep "${PITR_RETRY_SECONDS:-10}"
+  done
 }
 
 kmskey() {
