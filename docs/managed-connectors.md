@@ -232,6 +232,8 @@ nothing about it says it can change things. Unknown means a write.
   `statement`, `script`, `command`, `code` and the like;
 - a `query` argument says it's GraphQL, or doesn't say what it takes;
 - a `method` argument sits beside a `url`, `path` or `endpoint`;
+- an argument, or the schema, is given by reference (`$ref`): it isn't
+  followed;
 - its schema can't be read.
 
 When unsure, it's a write. Some reads come out writes too ("custom

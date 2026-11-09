@@ -52,6 +52,8 @@ func TestAToolThatCanChangeThingsIsNeverReadOnly(t *testing.T) {
 		{"a script argument", "X_RUN_SCRIPT", "Runs.", `{"type":"object","properties":{"script":{"type":"string"}}}`},
 		{"a code argument", "X_EVAL", "Evaluates.", `{"type":"object","properties":{"code":{"type":"string"}}}`},
 		{"a query that doesn't say what it takes", "SHOPIFY_ADMIN_QUERY", "Reads the store.", `{"type":"object","properties":{"query":{"type":"string"}}}`},
+		{"an argument given by reference", "X_FETCH", "Fetches.", `{"type":"object","properties":{"request":{"$ref":"#/$defs/Req"}},"$defs":{"Req":{"type":"object","properties":{"body":{"type":"object"}}}}}`},
+		{"a schema given by reference", "X_GET", "Gets.", `{"$ref":"#/$defs/Args","$defs":{"Args":{"type":"object","properties":{"id":{"type":"string"}}}}}`},
 	} {
 		if !MayChange(c.name, c.desc, json.RawMessage(c.schema)) {
 			t.Errorf("%s: read-only", c.why)

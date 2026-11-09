@@ -48,8 +48,8 @@ var graphQLWords = regexp.MustCompile(`(?i)graphql|mutation`)
 // whatever the vendor's read-only mark: its name (GRAPH_QL, EXECUTE, RAW,
 // CUSTOM), its description ("including mutations", any request), or
 // its arguments, nested ones included: a free-form document, program, body
-// or raw request, a method beside a url, path or endpoint, or a query that
-// takes GraphQL or doesn't say what it takes. A search's query ("from:ana
+// or raw request, a method beside a url, path or endpoint, a query that
+// takes GraphQL or doesn't say what it takes, or one given by reference. A search's query ("from:ana
 // is:unread") is a read's argument, and stays one.
 func MayChange(name, description string, inputSchema json.RawMessage) bool {
 	if mayChangeName.MatchString(name) || mayChangeWords.MatchString(description) {
@@ -78,8 +78,9 @@ func MayChange(name, description string, inputSchema json.RawMessage) bool {
 
 // schemaNode is the part of a JSON Schema MayChange reads: an object's
 // properties, an array's items, and the alternatives of anyOf, oneOf and
-// allOf, at any depth.
+// allOf, at any depth, and a reference ($ref), which it doesn't follow.
 type schemaNode struct {
+	Ref         string                `json:"$ref"`
 	Description string                `json:"description"`
 	Properties  map[string]schemaNode `json:"properties"`
 	Items       *schemaNode           `json:"items"`
@@ -95,7 +96,8 @@ const maxSchemaDepth = 32
 // mayChange reports whether an argument in n says the tool can change
 // things, noting each argument's name in seen for the raw request's shape.
 func (n schemaNode) mayChange(seen map[string]bool, depth int) bool {
-	if depth > maxSchemaDepth {
+	// A node given by reference, or too deep, says nothing it only reads.
+	if depth > maxSchemaDepth || n.Ref != "" {
 		return true
 	}
 	for arg, p := range n.Properties {
