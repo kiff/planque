@@ -113,6 +113,12 @@ func (s *Server) redirect() string { return s.BaseURL + "/oauth/callback" }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
+	// Crawlers keep off planque.kiff.dev: its URLs are for programs, and a
+	// crawler that follows one from a public page only gets errors.
+	mux.HandleFunc("GET /robots.txt", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("User-agent: *\nDisallow: /\n"))
+	})
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
