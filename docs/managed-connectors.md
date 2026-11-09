@@ -215,6 +215,26 @@ Protocol references:
 - [Concrete execution](https://docs.composio.dev/reference/api-reference/tools/postToolsExecuteByToolSlug)
 - [Account deletion and upstream revocation](https://docs.composio.dev/reference/api-reference/connected-accounts/deleteConnectedAccountsByNanoid)
 
+## Which tools are read-only
+
+A tool is read-only only when its vendor marks it so (the provider's
+`readOnlyHint` tag, or MCP's `readOnlyHint` on a vendor's own server) **and**
+nothing about it says it can change things. Unknown means a write.
+`connector.MayChange` counts a tool as a write when:
+
+- its name says it runs whatever it's given (`GRAPH_QL`, `EXECUTE`, a raw or
+  custom request);
+- its description says it can change things ("including mutations", "may
+  perform mutations", any or arbitrary request, a custom document);
+- an argument takes a free-form document, body or raw request, or a `query`
+  whose description says it's GraphQL.
+
+A search's query ("from:ana is:unread") is a read's argument and stays one.
+This matters past planque: KIFF's gateway, Setup's read Card, the meter and
+the runtime all treat a read-only tool as one that only reads, and the owner
+is told "reads only". A GraphQL tool a vendor tags read-only while it "may
+perform mutations" is granted as a write.
+
 ## Read-only live discovery check
 
 With an operator-controlled project already configured, run:

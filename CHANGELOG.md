@@ -7,6 +7,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- A tool is read-only only when its vendor marks it so and nothing about it
+  says it can change things: a GraphQL tool tagged read-only that "may perform
+  mutations", a free-form document or raw request among its arguments, or a
+  name like `GRAPH_QL` or `EXECUTE` makes it a write. Before, the vendor's mark
+  alone made a tool read-only, and the owner was told it "reads only" while it
+  could change things (docs/managed-connectors.md, "Which tools are read-only").
+
 - A managed app's sign-in that never came back to the app no longer waits
   for its deadline behind a 409 ("this connection already has a sign-in").
   The device that approved it signs `/approve` again, and planque asks the
