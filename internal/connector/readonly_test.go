@@ -37,6 +37,21 @@ func TestAToolThatCanChangeThingsIsNeverReadOnly(t *testing.T) {
 		{"a name that runs what it's given", "GRAPHQL_EXECUTE", "Reads data.", `{"type":"object","properties":{}}`},
 		{"a raw request", "vendor_api", "Sends a raw HTTP request to the vendor's API.", `{"type":"object","properties":{}}`},
 		{"a schema that can't be read", "list_orders", "Lists orders.", `{"properties":`},
+		// kiff-admin's probes on the first version (kiff/planque#118 review).
+		{"RAW in the name", "X_RAW", "Reads.", `{}`},
+		{"RAW and a query in the name", "SHOPIFY_RAW_QUERY", "Reads.", `{}`},
+		{"CUSTOM in the name", "NOTION_CUSTOM_ACTION", "Reads.", `{}`},
+		{"GQL in the name", "X_GQL", "Reads.", `{}`},
+		{"a body one level down", "X_FETCH", "Fetches.", `{"type":"object","properties":{"request":{"type":"object","properties":{"body":{"type":"object"},"method":{"type":"string"}}}}}`},
+		{"a body in an array's items", "X_BATCH", "Reads.", `{"type":"object","properties":{"calls":{"type":"array","items":{"type":"object","properties":{"payload":{"type":"object"}}}}}}`},
+		{"a body in one of the alternatives", "X_READ", "Reads.", `{"type":"object","properties":{"input":{"anyOf":[{"type":"string"},{"type":"object","properties":{"document":{"type":"string"}}}]}}}`},
+		{"a method beside a path", "X_SEND_REQUEST", "Sends.", `{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"data":{"type":"object"}}}`},
+		{"a method beside a url", "X_LIST", "Lists.", `{"type":"object","properties":{"method":{"type":"string"},"url":{"type":"string"}}}`},
+		{"a sql argument", "X_RUN_SQL", "Runs.", `{"type":"object","properties":{"sql":{"type":"string"}}}`},
+		{"a statement argument", "X_SQL_QUERY", "Execute SQL against the warehouse.", `{"type":"object","properties":{"statement":{"type":"string"}}}`},
+		{"a script argument", "X_RUN_SCRIPT", "Runs.", `{"type":"object","properties":{"script":{"type":"string"}}}`},
+		{"a code argument", "X_EVAL", "Evaluates.", `{"type":"object","properties":{"code":{"type":"string"}}}`},
+		{"a query that doesn't say what it takes", "SHOPIFY_ADMIN_QUERY", "Reads the store.", `{"type":"object","properties":{"query":{"type":"string"}}}`},
 	} {
 		if !MayChange(c.name, c.desc, json.RawMessage(c.schema)) {
 			t.Errorf("%s: read-only", c.why)

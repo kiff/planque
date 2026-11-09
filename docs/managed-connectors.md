@@ -222,14 +222,22 @@ A tool is read-only only when its vendor marks it so (the provider's
 nothing about it says it can change things. Unknown means a write.
 `connector.MayChange` counts a tool as a write when:
 
-- its name says it runs whatever it's given (`GRAPH_QL`, `EXECUTE`, a raw or
-  custom request);
+- its name has `GRAPH_QL`, `GQL`, `EXECUTE`, `PROXY`, `RAW` or `CUSTOM` as a
+  word, or says it's an API call or HTTP request;
 - its description says it can change things ("including mutations", "may
   perform mutations", any or arbitrary request, a custom document);
-- an argument takes a free-form document, body or raw request, or a `query`
-  whose description says it's GraphQL.
+- an argument, at any depth (inside objects, array items and `anyOf`,
+  `oneOf` or `allOf`), may take a free-form document, program, body or raw
+  request: `document`, `mutation`, `body`, `payload`, `raw`, `sql`,
+  `statement`, `script`, `command`, `code` and the like;
+- a `query` argument says it's GraphQL, or doesn't say what it takes;
+- a `method` argument sits beside a `url`, `path` or `endpoint`;
+- its schema can't be read.
 
-A search's query ("from:ana is:unread") is a read's argument and stays one.
+When unsure, it's a write. Some reads come out writes too ("custom
+properties", raw file content, a discount `code` to look up): that only costs
+Setup a read it can't make. A search's query whose description says so
+("Gmail advanced search query") is a read's argument and stays one.
 This matters past planque: KIFF's gateway, Setup's read Card, the meter and
 the runtime all treat a read-only tool as one that only reads, and the owner
 is told "reads only". A GraphQL tool a vendor tags read-only while it "may

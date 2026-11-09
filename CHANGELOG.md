@@ -9,8 +9,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 - A tool is read-only only when its vendor marks it so and nothing about it
   says it can change things: a GraphQL tool tagged read-only that "may perform
-  mutations", a free-form document or raw request among its arguments, or a
-  name like `GRAPH_QL` or `EXECUTE` makes it a write. Before, the vendor's mark
+  mutations", a free-form document, program or raw request among its
+  arguments at any depth, a query that doesn't say what it takes, a method
+  beside a url or path, or a name with `GRAPH_QL`, `EXECUTE`, `RAW` or
+  `CUSTOM` makes it a write. When unsure, it's a write. Before, the vendor's mark
   alone made a tool read-only, and the owner was told it "reads only" while it
   could change things (docs/managed-connectors.md, "Which tools are read-only").
 
