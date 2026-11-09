@@ -19,6 +19,7 @@ import (
 	"unicode"
 
 	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/oauth"
@@ -1908,17 +1909,19 @@ func (s *Server) confirmRenewal(w http.ResponseWriter, r *http.Request, sr signe
 	writeJSON(w, http.StatusOK, s.view(g))
 }
 
-// readOnlyHint is whether the vendor marks t read-only (MCP's readOnlyHint).
+// readOnlyHint is whether t only reads: the vendor marks it read-only (MCP's
+// readOnlyHint) and nothing about it says it can change things
+// (connector.MayChange). Unknown means a write.
 func readOnlyHint(t mcpTool) bool {
 	var hints struct {
 		ReadOnly bool `json:"readOnlyHint"`
 	}
 	_ = json.Unmarshal(t.Annotations, &hints)
-	return hints.ReadOnly
+	return hints.ReadOnly && !connector.MayChange(t.Name, t.Description, t.InputSchema)
 }
 
 func notReadOnly(g *Grant, tool string) string {
-	return tool + " isn't read-only at " + hostOf(g.Request.Server) + ": the vendor doesn't mark it so, so it can't be granted as a read"
+	return tool + " isn't read-only at " + hostOf(g.Request.Server) + ": the vendor doesn't mark it so, or it can change things (a GraphQL or custom document, a raw request), so it can't be granted as a read"
 }
 
 // list reads the vendor's tools into the grant's catalog, with the token
