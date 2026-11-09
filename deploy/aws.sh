@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # planque on AWS: one Lambda behind a function URL, one DynamoDB table,
-# one KMS key. Idempotent. Never prints account ids or ARNs.
+# one KMS key. Idempotent. Never prints account ids or ARNs. The table keeps
+# point-in-time recovery on.
 #
 #   deploy/aws.sh up      create or update; prints the function URL
 #   deploy/aws.sh down    remove everything (the KMS key is scheduled
@@ -106,6 +107,11 @@ table() {
     aws dynamodb update-time-to-live --table-name "$TABLE" \
       --time-to-live-specification Enabled=true,AttributeName=ttl --query TimeToLiveSpecification.Enabled >/dev/null
   fi
+  # Point-in-time recovery, asked for on every run, so a table rebuilt or
+  # changed by hand gets it back: without it, a bad write can't be undone.
+  aws dynamodb update-continuous-backups --table-name "$TABLE" \
+    --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true \
+    --query ContinuousBackupsDescription.ContinuousBackupsStatus >/dev/null
 }
 
 kmskey() {

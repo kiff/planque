@@ -133,3 +133,52 @@ aws() {
 		})
 	}
 }
+
+// The table keeps point-in-time recovery on, whether this run creates it or
+// finds it: a table rebuilt or changed by hand gets it back.
+func TestDeploymentKeepsPointInTimeRecovery(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is unavailable")
+	}
+	raw, err := os.ReadFile("../../deploy/aws.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := regexp.MustCompile(`(?ms)^table\(\) \{.*?^\}`).FindString(string(raw))
+	if table == "" {
+		t.Fatal("deployment function missing: table")
+	}
+	for _, exists := range []bool{false, true} {
+		found := "1"
+		if exists {
+			found = "0"
+		}
+		log := t.TempDir() + "/calls"
+		script := `set -euo pipefail
+TABLE=demo
+aws() {
+ echo "$*" >>` + log + `
+ case "$1 $2" in
+ "dynamodb describe-table") return ` + found + `;;
+ "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live"|"dynamodb update-continuous-backups") return 0;;
+ *) echo "unexpected deployment operation" >&2; return 1;;
+ esac
+}
+` + table + "\ntable\n"
+		if out, err := exec.Command(bash, "-c", script).CombinedOutput(); err != nil {
+			t.Fatalf("table (exists=%v) failed: %v\n%s", exists, err, out)
+		}
+		logged, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls := string(logged)
+		if !strings.Contains(calls, "dynamodb update-continuous-backups --table-name demo --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true") {
+			t.Fatalf("table (exists=%v) didn't ask for point-in-time recovery:\n%s", exists, calls)
+		}
+		if strings.Contains(calls, "create-table") == exists {
+			t.Fatalf("table (exists=%v) created the table wrongly:\n%s", exists, calls)
+		}
+	}
+}

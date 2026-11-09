@@ -210,7 +210,9 @@ PLANQUE_BASE_URL=http://localhost:8080 PLANQUE_LOCAL_KEY=$(openssl rand -base64 
   go run ./cmd/planque           # self-hosted, records in memory
 ```
 
-Configuration is in `cmd/planque/main.go`.
+Configuration is in `cmd/planque/main.go`. The hosted deployment's table
+keeps point-in-time recovery on: each `deploy/aws.sh up` asks for it, so a
+table rebuilt or changed by hand gets it back.
 
 **The live check** (`live/`) runs against a payment provider's real MCP server
 in test mode and the hosted planque. Until KIFF ships the connector key role, KIFF is
