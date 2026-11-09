@@ -7,6 +7,11 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- The hosted deployment's table keeps point-in-time recovery on. Each
+  `deploy/aws.sh up` asks for it, whether the table is new or already there,
+  so a rebuilt table gets it back. Before, the script never asked for it, and
+  a bad write couldn't be undone unless it had been turned on by hand.
+
 - A tool is read-only only when its vendor marks it so and nothing about it
   says it can change things: a GraphQL tool tagged read-only that "may perform
   mutations", a free-form document, program or raw request among its
