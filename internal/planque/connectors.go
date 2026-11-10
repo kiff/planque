@@ -654,42 +654,54 @@ func (s *Server) signedInConnector(ctx context.Context, g *Grant, what string) (
 }
 
 func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
+	// A person's browser lands here, so every answer is a page in their
+	// language, as the vendor sign-in's callback answers: never JSON.
 	state := r.URL.Query().Get("state")
 	if state == "" {
-		writeErr(w, http.StatusBadRequest, "missing sign-in state")
+		lang, l := speech(r, nil)
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.MissingState)
 		return
 	}
 	it, ok, err := s.KV.Delete(r.Context(), pkSignIn(state), "-")
 	if err != nil {
-		s.fail(w, r, err)
+		s.failPage(w, r, nil, err)
 		return
 	}
 	var pending pendingSignIn
 	if !ok || json.Unmarshal(it.Doc, &pending) != nil || !s.now().Before(pending.Expires) {
-		writeErr(w, http.StatusBadRequest, "unknown, expired or used sign-in")
+		lang, l := speech(r, nil)
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
 	g, err := s.loadGrant(r.Context(), pending.Tenant, pending.Grant)
 	if err != nil {
-		s.fail(w, r, err)
+		s.failPage(w, r, nil, err)
 		return
 	}
+	lang, l := speech(r, g)
 	if g.Request.Connector == nil || g.Status != StatusApproved {
-		writeErr(w, http.StatusConflict, "the connection is not waiting for sign-in")
+		s.page(w, lang, http.StatusConflict, l.NotConnected, l.LinkUsed)
 		return
 	}
 	// Callback parameters never choose an account or establish authentication.
-	if err := s.checkConnector(r.Context(), g); err != nil {
-		s.fail(w, r, err)
+	// No active account for this sign-in: it was cancelled or not finished at
+	// the provider, and nothing was granted.
+	if err := s.checkConnector(r.Context(), g); errors.Is(err, connector.ErrAccount) {
+		g.event(s.now(), "the provider sign-in was not completed")
+		_ = s.saveGrant(r.Context(), g)
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.NotCompleted(vendorName(g)))
+		return
+	} else if err != nil {
+		s.failPage(w, r, g, err)
 		return
 	}
 	u, _, err := s.signedInConnector(r.Context(), g, "signed in; waiting for the approving device to confirm")
 	if errors.Is(err, errNoAppReturn) {
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		s.page(w, lang, http.StatusServiceUnavailable, l.NotConnected, l.CantConfirm)
 		return
 	}
 	if err != nil {
-		s.fail(w, r, err)
+		s.failPage(w, r, g, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

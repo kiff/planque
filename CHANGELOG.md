@@ -48,6 +48,13 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- A managed connector's sign-in that comes back to planque answers the
+  person with a page in their language, as a vendor sign-in does, not
+  planque's JSON. A sign-in cancelled at the provider reads "The sign-in at
+  … was not completed. Nothing was granted." and the connection keeps
+  waiting. A missing, unknown or used link, and a failure on planque's side,
+  read their own pages. The cause is still logged.
+
 - The hosted deployment's table keeps point-in-time recovery on. Each
   `deploy/aws.sh up` asks for it, whether the table is new or already there,
   so a rebuilt table gets it back. Before, the script never asked for it, and

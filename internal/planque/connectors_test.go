@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -1233,4 +1235,60 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	if st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_third", "tools": []any{}}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't connected now") {
 		t.Fatalf("reuse a disconnected one: %d %v", st, out)
 	}
+}
+
+// A person's browser comes back to the connector's callback: whatever went
+// wrong, it reads a page in its language, never planque's JSON. A sign-in
+// cancelled at the provider says nothing was granted, and the grant waits.
+func TestConnectorCallbackAnswersThePersonWithAPage(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	page := func(path, lang string) (int, string, string) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", e.url+path, nil)
+		if lang != "" {
+			req.Header.Set("Accept-Language", lang)
+		}
+		client := e.client
+		if client == nil {
+			client = http.DefaultClient
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, resp.Header.Get("Content-Type"), html.UnescapeString(string(raw))
+	}
+	isPage := func(name string, st int, ct, body, want string) {
+		t.Helper()
+		if !strings.HasPrefix(ct, "text/html") || strings.Contains(body, `{"error"`) || !strings.Contains(body, want) {
+			t.Fatalf("%s: %d %s %q, want a page saying %q", name, st, ct, body, want)
+		}
+	}
+	st, ct, body := page("/connectors/callback", "fr")
+	isPage("no state", st, ct, body, "Ce lien n'a pas son état de connexion.")
+	st, ct, body = page("/connectors/callback?state=nope", "")
+	isPage("unknown state", st, ct, body, "This sign-in link is unknown, expired or already used.")
+
+	// Approved, then cancelled at the provider: no account is active for it.
+	v := requestConnector(t, e)
+	id := v["id"].(string)
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]any{"digest": v["digest"]}, e.phone, ""); st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	f.accountStatus = "INITIATED"
+	u, _ := url.Parse(f.callback)
+	st, ct, body = page(u.RequestURI(), "de")
+	isPage("cancelled", st, ct, body, "wurde nicht abgeschlossen. Es wurde nichts gewährt.")
+	if st == 200 || st == 302 {
+		t.Fatalf("a cancelled sign-in answered %d", st)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.SignedIn || g.Status != StatusApproved {
+		t.Fatalf("a cancelled sign-in moved the grant: %s signed=%v", g.Status, g.SignedIn)
+	}
+	// The link worked once: the same callback again is a used link, as a page.
+	st, ct, body = page(u.RequestURI(), "")
+	isPage("used", st, ct, body, "This sign-in link is unknown, expired or already used.")
 }

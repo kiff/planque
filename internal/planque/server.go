@@ -236,6 +236,15 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	writeErr(w, http.StatusInternalServerError, "planque could not complete this request")
 }
 
+// failPage is fail for a page a person's browser shows: the cause is
+// logged as fail logs it, and the person reads that it couldn't be
+// confirmed, in their language, never planque's JSON.
+func (s *Server) failPage(w http.ResponseWriter, r *http.Request, g *Grant, err error) {
+	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", loggedPath(r.URL.Path)), slog.String("err", err.Error()))
+	lang, l := speech(r, g)
+	s.page(w, lang, http.StatusInternalServerError, l.NotConnected, l.CantConfirm)
+}
+
 // loggedPath is a request's path for the log, with a sign-in view's token
 // (its only credential) left out.
 func loggedPath(p string) string {
