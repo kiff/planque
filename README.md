@@ -108,7 +108,7 @@ It's the same code either way.
 | the browser worker (`cmd/browserworker`) | planque, with `PLANQUE_BROWSER_KEY` | the headless browser a browser grant uses: one Chromium and one egress proxy per session, gone at its end; reports a page's facts with secrets masked at the source; reached at `PLANQUE_BROWSER_URL` on a private address; its image is `deploy/browserworker/Dockerfile`. See [docs/connections.md](docs/connections.md#the-browser) |
 | `POST /v1/accounts/{tenant}/grants/{id}/key` | the phone, signed, body `{"digest", "key_sha256"}`, the key in `Planque-Vendor-Key` | the owner's approval of an API-key grant, with the key: the signed body holds only the key's SHA-256, so the approval kept as evidence never holds the key. The key is sealed like a sign-in's token and never shown again. With no tools the grant is `listed` (its catalog is the snapshot's operations, each with its method and path); with tools it connects at once. Tools set later are approved with `…/approve`, with no second key. A `needs_reconnect` grant takes a new key the same way. A `connected` grant takes a replacement (gap 13 of kiff/tafs#476): planque reads once with the new key and keeps it only if that works, else nothing changes and the old key stays (400 when the vendor refuses it, 502 when it can't tell). The read is a read-only operation that needs no argument, the grant's own tools first, and the grant's event names it; an API with none can't take a replacement (409). A Telegram token is checked with `getMe` and must be the same bot's. The grant, its tools and its Card stay as they were, and a grant that reuses the key gets the new one. Disconnecting deletes the key and the snapshot |
 | `POST /v1/accounts/{tenant}/grants` with `"reuse": "<grant id>"` | an agent, with its KIFF key | a second grant to the same vendor and account uses a connected grant's sign-in or key (kiff/planque#36): the owner's text says so, and approving needs no second sign-in or key. The token isn't copied: both grants use one, refreshed once. A grant that isn't connected, of another account or to another server can't be reused (409). When the first is disconnected, the second is `needs_reconnect` and signs in, or takes a key, on its own. A managed app's connected grant is reused with `tools: []`: the new grant is signed in and listed on the same provider account, its tools are picked from the catalog, and the owner approves them; the account stays while either uses it |
-| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed, unused, and the browser goes on to the owner's app with a confirmation code |
+| `GET /oauth/callback` | the vendor | `state` used once, `iss` checked (required when the server says it sends it), code exchanged with PKCE and the exact redirect; the token is sealed, unused, and the browser goes on to the owner's app with a confirmation code. A page it shows instead (a refusal, a sign-in not completed) is in the pages' language, below |
 | `POST /v1/accounts/{tenant}/grants/{id}/confirm` | the phone that approved, signed, body `{"confirm": …}` | the tools are registered in KIFF's gateway in `relay` mode; for a grant with no tools, the vendor's tools are listed instead (`listed`); for a reconnect, the grant is `connected` again with the new token, its tools in KIFF as they were; for a sign-in again on a connected grant, its new token replaces the one in use, and the old one is revoked at the vendor |
 | `POST /mcp/{tenant}/{id}` | KIFF's gateway, with the relay's transport credential | MCP; each `tools/call` needs KIFF's permit (`KIFF-Permit`) for that exact call |
 | *(a vendor signs planque out)* | | when the vendor refuses the refresh (`invalid_grant`), or a token expires with no refresh token, the grant is **`needs_reconnect`** ("Signed out by the vendor · sign in again"). Its tools stay in KIFF; each call through it is answered "not sent", saying the owner signs in again, and reaches no vendor. The owner's phone approves the same digest again, signs in (once the vendor named the grant's account, a sign-in to another account, or one that names none, is refused), and confirms: the grant is `connected` again. A new sign-in nobody confirms goes, and the grant waits again. planque tells KIFF of each sign-out once (`POST /v1/me/connections/signed-out`, with the connector key: the grant, the taf's agent, the vendor's name, why and when), so the people who see the taf hear of it; one KIFF didn't take is sent again by the sweep |
@@ -200,6 +200,25 @@ tools before the owner approves them, so that tool is connected first (with
 `setup_reads`), and a broad write is added once it's approved; a narrowed
 broad write asked for any other way is refused. The read is on the grant's
 record.
+
+### The pages' language
+
+The pages planque shows a person in a browser (a vendor sign-in's result,
+the sign-in view and its answers) are in English, German, French, Spanish,
+Italian, Portuguese, Dutch or Polish (`internal/words`), the languages the
+tafs apps ship, with tafs' terms for a connection, Approve and Done.
+
+- **The app's language first:** a page speaks the language the app asked
+  in (its `Accept-Language`) when it approved the grant (`/approve`) or
+  opened the sign-in view (`/sign-in`). planque keeps that language on the
+  grant.
+- **Then the browser's:** when there's no grant to go by (an unknown or
+  used link), or the app didn't say, the browser's `Accept-Language`
+  decides.
+- **Else English.**
+
+A translated line takes no value but the vendor's host or name, the site and
+the view's minutes, so nothing a caller sends is shown in it.
 
 ## Run it
 

@@ -182,39 +182,44 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 		return
 	}
 	g.event(now, "a sign-in view was opened "+sr.approval.Who())
+	keepLang(r, g)
 	_ = s.saveGrant(r.Context(), g)
 	writeJSON(w, http.StatusOK, map[string]any{"view": s.BaseURL + "/browser/view/" + token, "expires": rec.Expires.UTC().Format(time.RFC3339),
 		"words": "Sign in to the site yourself in the view. Nothing you type is seen by the taf. Tap Done when you're signed in."})
 }
 
 // viewOf is the open view a token names: its grant and session. why is
-// the refusal in words when there is none.
-func (s *Server) viewOf(ctx context.Context, token string) (g *Grant, sess browser.Session, rec *signInRecord, why string) {
+// the refusal in words when there is none, in the language of r's view:
+// its grant's, once known, else the browser's.
+func (s *Server) viewOf(r *http.Request, token string) (g *Grant, sess browser.Session, rec *signInRecord, why string) {
+	ctx := r.Context()
+	_, l := speech(r, nil)
 	if token == "" || len(token) > 128 {
-		return nil, nil, nil, "This sign-in view is unknown."
+		return nil, nil, nil, l.ViewUnknown
 	}
 	var t signInToken
 	if _, err := getDoc(ctx, s.KV, pkSignInToken(tokenHash(token)), "-", &t); err != nil {
-		return nil, nil, nil, "This sign-in view is unknown, finished or lapsed. Open it again from your phone."
+		return nil, nil, nil, l.ViewGone
 	}
 	if !s.now().Before(t.Expires) {
-		return nil, nil, nil, "This sign-in view has lapsed (ten minutes). Open it again from your phone; nothing was kept."
+		return nil, nil, nil, l.ViewLapsed(int(signInViewTTL.Minutes()))
 	}
 	g, err := s.loadGrant(ctx, t.Tenant, t.Grant)
 	if err != nil {
-		return nil, nil, nil, "This sign-in view's connection is gone."
+		return nil, nil, nil, l.ViewConnectionGone
 	}
+	_, l = speech(r, g)
 	open, err := s.openSignIn(ctx, g)
 	if err != nil || open == nil || open.TokenSHA256 != tokenHash(token) {
-		return nil, nil, nil, "This sign-in view is finished. Open it again from your phone if you need to."
+		return nil, nil, nil, l.ViewFinished
 	}
 	resumer, ok := s.Browser.(browser.Resumer)
 	if !ok {
-		return nil, nil, nil, "This installation's browser can't hold a sign-in view."
+		return nil, nil, nil, l.ViewNoBrowser
 	}
 	sess, err = resumer.Resume(ctx, open.Session)
 	if err != nil {
-		return nil, nil, nil, "The browser behind this view has ended. Open it again from your phone; nothing was kept."
+		return nil, nil, nil, l.ViewBrowserEnded
 	}
 	return g, sess, open, ""
 }
@@ -231,24 +236,27 @@ func viewHeaders(w http.ResponseWriter) {
 func (s *Server) browserView(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
 	token := r.PathValue("token")
-	_, _, rec, why := s.viewOf(r.Context(), token)
+	g, _, rec, why := s.viewOf(r, token)
 	if why != "" {
-		s.page(w, http.StatusNotFound, "Sign-in view", why)
+		lang, l := speech(r, g)
+		s.page(w, lang, http.StatusNotFound, l.SignInView, why)
 		return
 	}
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src blob:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	site := rec.Site
-	if site == "" {
-		site = "the site"
+	lang, l := speech(r, g)
+	minutes := int(signInViewTTL.Minutes())
+	title, note, hint := l.ViewTitleAny, l.ViewNoteAny(minutes), "https://…"
+	if rec.Site != "" {
+		title, note, hint = l.ViewTitle(rec.Site), l.ViewNote(rec.Site, minutes), "https://"+rec.Site+"/…"
 	}
-	_ = viewTmpl.Execute(w, map[string]any{"Token": token, "Site": site, "Minutes": int(signInViewTTL.Minutes())})
+	_ = viewTmpl.Execute(w, map[string]any{"Lang": lang, "Title": title, "Note": note, "URLHint": hint, "L": l})
 }
 
 // browserViewFrame is the browser as shown now, JPEG. Never kept.
 func (s *Server) browserViewFrame(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
-	_, sess, _, why := s.viewOf(r.Context(), r.PathValue("token"))
+	_, sess, _, why := s.viewOf(r, r.PathValue("token"))
 	if why != "" {
 		writeErr(w, http.StatusNotFound, why)
 		return
@@ -266,7 +274,7 @@ func (s *Server) browserViewFrame(w http.ResponseWriter, r *http.Request) {
 // going to a URL, which must be on the grant's sites.
 func (s *Server) browserViewInput(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
-	g, sess, _, why := s.viewOf(r.Context(), r.PathValue("token"))
+	g, sess, _, why := s.viewOf(r, r.PathValue("token"))
 	if why != "" {
 		writeErr(w, http.StatusNotFound, why)
 		return
@@ -307,7 +315,7 @@ func (s *Server) browserViewInput(w http.ResponseWriter, r *http.Request) {
 // says so.
 func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
-	g, sess, rec, why := s.viewOf(r.Context(), r.PathValue("token"))
+	g, sess, rec, why := s.viewOf(r, r.PathValue("token"))
 	if why != "" {
 		writeErr(w, http.StatusNotFound, why)
 		return
@@ -315,8 +323,10 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 	state, err := sess.Close(r.Context())
 	_, _, _ = s.KV.Delete(r.Context(), tenantPK(g.Tenant), skBrowserSignIn(g.ID))
 	_, _, _ = s.KV.Delete(r.Context(), pkSignInToken(rec.TokenSHA256), "-")
+	_, l := speech(r, g)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "the browser didn't hand its sign-in back: "+err.Error())
+		s.log().WarnContext(r.Context(), "a sign-in view's browser didn't hand its sign-in back", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		writeErr(w, http.StatusBadGateway, l.NotHandedBack)
 		return
 	}
 	s.keepBrowserState(r.Context(), g, state, nil)
@@ -326,13 +336,13 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 	}
 	g.event(s.now(), what)
 	_ = s.saveGrant(r.Context(), g)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "words": "Done. The taf can use the site as you signed in. You can close this view."})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "words": l.DoneWords})
 }
 
 // viewTmpl is the view: the browser as frames, the owner's input sent
 // back. Its words are planque's; the app only opens the URL.
-var viewTmpl = template.Must(template.New("view").Parse(`<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in to {{.Site}}</title>
+var viewTmpl = template.Must(template.New("view").Parse(`<!doctype html><html lang="{{.Lang}}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title>
 <style>
 body{margin:0;font:15px system-ui,sans-serif;background:#111;color:#eee}
 .bar{display:flex;gap:6px;padding:8px;flex-wrap:wrap;align-items:center;background:#222}
@@ -343,12 +353,12 @@ button.k{background:#555}
 #frame{display:block;width:100%;height:auto;background:#000;touch-action:manipulation}
 #note{padding:8px;color:#bbb;font-size:13px}
 </style></head><body>
-<div class="bar"><input id="url" placeholder="https://{{.Site}}/…" autocapitalize="off" autocorrect="off"><button id="go">Go</button></div>
-<img id="frame" alt="The browser">
-<div class="bar"><input id="text" placeholder="Type here, then Send" autocapitalize="off" autocorrect="off"><button id="send">Send</button>
-<button class="k" data-key="Enter">Enter</button><button class="k" data-key="Backspace">⌫</button><button class="k" data-key="Tab">Tab</button>
-<button class="k" id="up">▲</button><button class="k" id="down">▼</button><button id="done">Done</button></div>
-<p id="note">Sign in to {{.Site}} yourself: tap the browser where you'd tap, type below and Send. Nothing you type is seen by the taf. This view lapses after {{.Minutes}} minutes; tap Done when you're signed in.</p>
+<div class="bar"><input id="url" placeholder="{{.URLHint}}" autocapitalize="off" autocorrect="off"><button id="go">{{.L.Go}}</button></div>
+<img id="frame" alt="{{.L.FrameAlt}}">
+<div class="bar"><input id="text" placeholder="{{.L.TypeHere}}" autocapitalize="off" autocorrect="off"><button id="send">{{.L.Send}}</button>
+<button class="k" data-key="Enter">{{.L.Enter}}</button><button class="k" data-key="Backspace">⌫</button><button class="k" data-key="Tab">{{.L.Tab}}</button>
+<button class="k" id="up">▲</button><button class="k" id="down">▼</button><button id="done">{{.L.Done}}</button></div>
+<p id="note">{{.Note}}</p>
 <script>
 (() => {
   const base = location.pathname.replace(/\/$/, '');
@@ -361,7 +371,7 @@ button.k{background:#555}
   const post = (path, body) => fetch(base + path, {method: 'POST', headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
   const input = async (body) => {
     const r = await post('/input', body);
-    if (!r.ok) { const e = await r.json().catch(() => ({})); say(e.error || 'That didn\'t work.'); }
+    if (!r.ok) { const e = await r.json().catch(() => ({})); say(e.error || {{.L.DidntWork}}); }
     setTimeout(frame, 250);
   };
   async function frame() {
@@ -387,7 +397,7 @@ button.k{background:#555}
   document.getElementById('done').onclick = async () => {
     stopped = true;
     const r = await post('/done'); const j = await r.json().catch(() => ({}));
-    say(j.words || j.error || 'Done.');
+    say(j.words || j.error || {{.L.Done}});
     for (const b of document.querySelectorAll('button')) b.disabled = true;
   };
 })();

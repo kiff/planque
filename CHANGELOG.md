@@ -26,6 +26,17 @@ version headings refer to releases, not merely to merged pull requests.
   `PLANQUE_KIFF_EVENT_SECRET`). An event kept before its profile stopped
   naming it is dropped, not sent. Without the setting, nothing changes.
 
+### Changed
+
+- planque's pages for a person in a browser speak the app's language: a
+  vendor sign-in's result (not completed, another account, a used link) and
+  the browser sign-in view, with its buttons, its note and its answers, in
+  the eight languages the tafs apps ship. The language is the one the app
+  asked in when it approved or opened the view, kept on the grant, else the
+  browser's, else English (README, "The pages' language"). Before, every
+  page was in English. A browser that didn't hand its sign-in back now logs
+  why instead of showing the worker's error on the page.
+
 ### Fixed
 
 - The hosted deployment's table keeps point-in-time recovery on. Each

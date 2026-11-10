@@ -25,6 +25,7 @@ import (
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/words"
 )
 
 // signInTTL is how long a sign-in link works.
@@ -1326,6 +1327,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
 	}
+	keepLang(r, g)
 	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
 		s.fail(w, r, err)
 		return
@@ -1527,7 +1529,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	state := q.Get("state")
 	if state == "" {
-		s.page(w, http.StatusBadRequest, "Not connected", "This link is missing its sign-in state.")
+		lang, l := speech(r, nil)
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.MissingState)
 		return
 	}
 	// Taking the state deletes it: a link works once.
@@ -1538,7 +1541,8 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	var p pendingSignIn
 	if !ok || json.Unmarshal(it.Doc, &p) != nil || s.now().After(p.Expires) {
-		s.page(w, http.StatusBadRequest, "Not connected", "This sign-in link is unknown, expired or already used. Approve again on your phone.")
+		lang, l := speech(r, nil)
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
 	g, err := s.loadGrant(r.Context(), p.Tenant, p.Grant)
@@ -1546,26 +1550,27 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	lang, l := speech(r, g)
 	renew := g.renewing()
 	if g.Status != StatusApproved && !renew {
-		s.page(w, http.StatusConflict, "Not connected", "This grant is "+g.Status+".")
+		s.page(w, lang, http.StatusConflict, l.NotConnected, l.LinkUsed)
 		return
 	}
 	if e := q.Get("error"); e != "" && renew {
 		s.endRenewal(r.Context(), g, "the new sign-in at "+vendorName(g)+" ended: "+e)
-		s.page(w, http.StatusOK, "Not signed in again", "The sign-in at "+hostOf(g.Vendor.Issuer)+" was not completed. Nothing changed: the connection works as it did.")
+		s.page(w, lang, http.StatusOK, l.NotSignedInAgain, l.NotCompletedRenew(hostOf(g.Vendor.Issuer)))
 		return
 	}
 	if e := q.Get("error"); e != "" {
 		g.event(s.now(), "the vendor sign-in ended: "+e)
 		_ = s.saveGrant(r.Context(), g)
-		s.page(w, http.StatusOK, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" was not completed. Nothing was granted.")
+		s.page(w, lang, http.StatusOK, l.NotConnected, l.NotCompleted(hostOf(g.Vendor.Issuer)))
 		return
 	}
 	// RFC 9207: when the server names itself, it must be the one we used,
 	// and a server that says it always does must have.
 	if iss := q.Get("iss"); (iss == "" && g.Vendor.IssParameter) || (iss != "" && iss != g.Vendor.Issuer) {
-		s.page(w, http.StatusBadRequest, "Not connected", "This answer came from another sign-in server. Nothing was granted.")
+		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.OtherServer)
 		return
 	}
 	verifier, err := s.Sealer.Open(r.Context(), p.Verifier, map[string]string{"tenant": g.Tenant, "grant": g.ID, "kind": "pkce"})
@@ -1582,7 +1587,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	tok, err := s.exchangeToken(r.Context(), eg, q.Get("code"), string(verifier))
 	if err != nil && renew {
 		s.endRenewal(r.Context(), g, "the new sign-in's code was not accepted: "+err.Error())
-		s.page(w, http.StatusBadGateway, "Not signed in again", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished. Nothing changed: the connection works as it did.")
+		s.page(w, lang, http.StatusBadGateway, l.NotSignedInAgain, l.NotFinishedRenew(hostOf(g.Vendor.Issuer)))
 		return
 	}
 	if renew {
@@ -1591,12 +1596,12 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.failGrant(r.Context(), g, "the sign-in code was not accepted: "+err.Error())
-		s.page(w, http.StatusBadGateway, "Not connected", "The sign-in at "+hostOf(g.Vendor.Issuer)+" couldn't be finished.")
+		s.page(w, lang, http.StatusBadGateway, l.NotConnected, l.NotFinished(hostOf(g.Vendor.Issuer)))
 		return
 	}
 	if s.AppReturn == "" {
 		s.failGrant(r.Context(), g, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)")
-		s.page(w, http.StatusInternalServerError, "Not connected", "Sign-ins can't be confirmed right now.")
+		s.page(w, lang, http.StatusInternalServerError, l.NotConnected, l.CantConfirm)
 		return
 	}
 	if g.Reconnect {
@@ -1612,7 +1617,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 			g.Status, g.Reconnect = StatusNeedsReconnect, false
 			g.event(s.now(), otherAccount(g, tok)+" was refused; still waiting for the owner to sign in again")
 			_ = s.saveGrant(r.Context(), g)
-			s.page(w, http.StatusConflict, "Not connected", otherAccountPage(g, tok)+" Sign in to the account this taf uses.")
+			s.page(w, lang, http.StatusConflict, l.NotConnected, otherAccountPage(l, g, tok)+" "+l.SignInTafAccount)
 			return
 		}
 		// The token the vendor ended goes; the new one takes its place.
@@ -1622,7 +1627,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	// that approved confirms with the code only this browser receives.
 	if err := s.storeToken(r.Context(), g, tok, nil); err != nil {
 		s.failGrant(r.Context(), g, "the token could not be stored")
-		s.page(w, http.StatusInternalServerError, "Not connected", "The sign-in couldn't be kept.")
+		s.page(w, lang, http.StatusInternalServerError, l.NotConnected, l.NotKept)
 		return
 	}
 	code := oauth.Random(24)
@@ -1753,25 +1758,26 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 // it never is, the connection works with the sign-in it has.
 func (s *Server) renewed(w http.ResponseWriter, r *http.Request, g *Grant, tok oauth.Token) {
 	ctx := r.Context()
+	lang, l := speech(r, g)
 	refuse := func(status int, why, page string) {
 		if err := s.revokeAt(ctx, g, g.Renewal.ClientID, tok); err != nil {
 			s.log().WarnContext(ctx, "a refused new sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		}
 		s.endRenewal(ctx, g, why)
-		s.page(w, status, "Not signed in again", page)
+		s.page(w, lang, status, l.NotSignedInAgain, page)
 	}
 	if g.Account != "" && tok.Account != g.Account {
 		refuse(http.StatusConflict, otherAccount(g, tok)+" was refused",
-			otherAccountPage(g, tok)+" Sign in to the account this taf uses: nothing changed.")
+			otherAccountPage(l, g, tok)+" "+l.SignInTafAccountRenew)
 		return
 	}
 	u, err := url.Parse(s.AppReturn)
 	if s.AppReturn == "" || err != nil || u.Scheme == "" {
-		refuse(http.StatusInternalServerError, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)", "Sign-ins can't be confirmed right now. Nothing changed.")
+		refuse(http.StatusInternalServerError, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)", l.CantConfirm+" "+l.NothingChanged)
 		return
 	}
 	if err := s.storeRenewal(ctx, g, tok); err != nil {
-		refuse(http.StatusInternalServerError, "the new sign-in's token could not be stored", "The sign-in couldn't be kept. Nothing changed.")
+		refuse(http.StatusInternalServerError, "the new sign-in's token could not be stored", l.NotKept+" "+l.NothingChanged)
 		return
 	}
 	code := oauth.Random(24)
@@ -1802,12 +1808,12 @@ func otherAccount(g *Grant, tok oauth.Token) string {
 	return "a sign-in to another account at " + vendorName(g)
 }
 
-// otherAccountPage says so to the person who signed in.
-func otherAccountPage(g *Grant, tok oauth.Token) string {
+// otherAccountPage says so to the person who signed in, in l.
+func otherAccountPage(l words.Lines, g *Grant, tok oauth.Token) string {
 	if tok.Account == "" {
-		return vendorName(g) + " didn't say which account that sign-in is, so it can't stand for the one this taf uses."
+		return l.OtherAccountUnknown(vendorName(g))
 	}
-	return "That sign-in is for another account at " + vendorName(g) + "."
+	return l.OtherAccount(vendorName(g))
 }
 
 // endRenewal forgets g's new sign-in, saying why (in its events): the

@@ -156,7 +156,9 @@ an optional start `url` (on the grant's sites; the first site's root by
 default). planque starts a session on the worker with the grant's kept
 sign-ins and answers `{view, expires, words}`: a one-time URL under
 `/browser/view/{token}`, good for ten minutes, which the app opens in a
-web view and nothing more; the page's words are planque's. The page shows
+web view and nothing more; the page's words are planque's, in the language
+the app asked in when it opened the view (see "The pages' language" in the
+README). The page shows
 the browser as JPEG frames taken about once a second and sends the
 owner's acts back: a tap at a point, text typed, Enter, Backspace or Tab,
 a scroll, or going to a URL, which must be on the grant's sites. The

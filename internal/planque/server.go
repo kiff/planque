@@ -33,6 +33,7 @@ import (
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/words"
 )
 
 // IdempotencyArg is the argument KIFF's gateway fills with the call's
@@ -560,15 +561,34 @@ func (s *Server) agentKey(r *http.Request, tenant string) (kiff.Me, error) {
 	return me, nil
 }
 
-func (s *Server) page(w http.ResponseWriter, status int, title, msg string) {
+// speech is the language planque's pages speak to r, and its lines: the
+// language g's app asked in, else the browser's, else English. g may be nil.
+func speech(r *http.Request, g *Grant) (string, words.Lines) {
+	stored := ""
+	if g != nil {
+		stored = g.Lang
+	}
+	lang := words.Pick(stored, r.Header.Get("Accept-Language"))
+	return lang, words.For(lang)
+}
+
+// keepLang keeps on g the language the owner's app asks in, when it says.
+func keepLang(r *http.Request, g *Grant) {
+	if a := r.Header.Get("Accept-Language"); a != "" {
+		g.Lang = words.Pick("", a)
+	}
+}
+
+// page is a page in lang: a title and a line, both already in it.
+func (s *Server) page(w http.ResponseWriter, lang string, status int, title, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.WriteHeader(status)
-	_ = pageTmpl.Execute(w, map[string]string{"Title": title, "Message": msg})
+	_ = pageTmpl.Execute(w, map[string]string{"Lang": lang, "Title": title, "Message": msg})
 }
 
-var pageTmpl = template.Must(template.New("p").Parse(`<!doctype html><meta charset="utf-8">
+var pageTmpl = template.Must(template.New("p").Parse(`<!doctype html><html lang="{{.Lang}}"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · planque</title>
 <style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;color:#1d1d1f}
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}}</style>
