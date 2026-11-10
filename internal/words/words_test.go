@@ -39,7 +39,8 @@ func TestEveryLanguageHasEveryLine(t *testing.T) {
 	}
 }
 
-// The app's language wins; then the browser's, in its order; then English.
+// The app's language wins; then the browser's, by its q (earlier on a tie);
+// then English.
 func TestPickTheAppsLanguageThenTheBrowsersThenEnglish(t *testing.T) {
 	for _, c := range []struct{ stored, accept, want string }{
 		{"de", "fr-FR,fr;q=0.9", "de"},
@@ -50,6 +51,9 @@ func TestPickTheAppsLanguageThenTheBrowsersThenEnglish(t *testing.T) {
 		{"", "de;q=0, nl;q=0.5", "nl"},
 		{"PL", "", "pl"},
 		{"", "pt_BR", "pt"},
+		{"", "fr;q=0.5, de;q=0.8", "de"},
+		{"", "nl;q=0.7, it;q=0.7", "nl"},
+		{"", "de;q=2, fr;q=0.1", "fr"},
 	} {
 		if got := Pick(c.stored, c.accept); got != c.want {
 			t.Errorf("Pick(%q, %q) = %q, want %q", c.stored, c.accept, got, c.want)

@@ -89,36 +89,39 @@ func For(lang string) Lines {
 }
 
 // Pick is the language a page speaks: stored (the language the app that
-// started the connection asked in) when planque speaks it, else the first
-// of acceptLanguage (an Accept-Language header, in its order) that planque
-// speaks, else English. A tag counts by its language ("pt-PT" is "pt").
+// started the connection asked in) when planque speaks it, else the
+// acceptLanguage (an Accept-Language header) tag with the highest q that
+// planque speaks, the earlier one on a tie, else English. A tag counts by
+// its language ("pt-PT" is "pt"); q=0 is refused.
 func Pick(stored, acceptLanguage string) string {
 	if code := Code(stored); code != "" {
 		return code
 	}
+	best, bestQ := "en", 0.0
 	for _, part := range strings.Split(acceptLanguage, ",") {
 		tag, params, _ := strings.Cut(strings.TrimSpace(part), ";")
-		if refused(params) {
-			continue
-		}
-		if code := Code(tag); code != "" {
-			return code
+		code := Code(tag)
+		if q := quality(params); code != "" && q > bestQ {
+			best, bestQ = code, q
 		}
 	}
-	return "en"
+	return best
 }
 
-// refused says whether a language's parameters give it q=0: not acceptable.
-func refused(params string) bool {
+// quality is a language's q (1 when it gives none, 0 when it's malformed).
+func quality(params string) float64 {
 	for _, p := range strings.Split(params, ";") {
 		k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
 		if !ok || strings.TrimSpace(k) != "q" {
 			continue
 		}
 		q, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		return err == nil && q == 0
+		if err != nil || q < 0 || q > 1 {
+			return 0
+		}
+		return q
 	}
-	return false
+	return 1
 }
 
 // Code is tag's language when planque speaks it ("de-CH" is "de"), or "".
