@@ -256,3 +256,44 @@ func TestSetupsListingMarksItsOwnReads(t *testing.T) {
 		t.Fatalf("the tools as Setup reads them: %v", marked)
 	}
 }
+
+// A narrowed read is checked at its first call too, where its grant holds
+// the describing tool (a refund connection's case reads, which planque
+// writes and adds unchecked): a path its operation doesn't take is refused
+// in the vendor's words. Without that tool, a narrowed read isn't checked,
+// and isn't marked.
+func TestANarrowedReadIsCheckedWhereItsGrantHoldsTheDescribingTool(t *testing.T) {
+	read := map[string]any{"tool": "stripe_api_read", "name": "refunds_cd34", "title": "List a charge's refunds", "read_only": true,
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetRefunds", "parameters.limit": 100},
+		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.charge", "type": "string", "required": true}}}
+	e := newEnv(t)
+	id, out := e.addToDetails(read)
+	e.approveAddition(id, out)
+	ctx := context.Background()
+	load := func() (*Grant, int) {
+		g, err := e.s.loadGrant(ctx, tenant, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g, slices.IndexFunc(g.Tools, func(gt GrantedTool) bool { return gt.Name == "refunds_cd34" })
+	}
+	// A fixed path GetRefunds doesn't take, as if planque had written it.
+	g, i := load()
+	g.Tools[i].Fixed["parameters.limitt"] = g.Tools[i].Fixed["parameters.limit"]
+	delete(g.Tools[i].Fixed, "parameters.limit")
+	g.Tools[i].FieldsChecked = false
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	g, i = load()
+	if code, why := e.s.fieldsHold(ctx, g, i); code != CodeDefinitionInvalid || !strings.Contains(why, "GetRefunds takes no field limitt") {
+		t.Fatalf("a made-up read path: %q %q", code, why)
+	}
+	// Without the describing tool on the grant: not checked, not marked.
+	g, i = load()
+	g.Tools = slices.DeleteFunc(g.Tools, func(gt GrantedTool) bool { return gt.Tool == "stripe_api_details" })
+	i = slices.IndexFunc(g.Tools, func(gt GrantedTool) bool { return gt.Name == "refunds_cd34" })
+	if code, why := e.s.fieldsHold(ctx, g, i); code != "" || why != "" || g.Tools[i].FieldsChecked {
+		t.Fatalf("no describing tool: %q %q %v", code, why, g.Tools[i].FieldsChecked)
+	}
+}

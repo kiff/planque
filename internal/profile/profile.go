@@ -625,6 +625,11 @@ func validateCase(o Operation, c Case, byTool map[string]Operation) error {
 	if o.Marker == nil {
 		return errors.New("a case needs the operation's marker, to find KIFF's own refunds")
 	}
+	// KIFF compares the refund's currency with the charge's only when the
+	// tool has a fixed unit: a case without one would be counted unchecked.
+	if o.Amount == nil || o.Amount.Unit == "" {
+		return errors.New("a case needs the operation's fixed amount.unit, so a refund is never counted in another currency")
+	}
 	if !argPath.MatchString(c.ChargeArg) {
 		return errors.New("charge_arg is a dotted path in the call's arguments, names only")
 	}
