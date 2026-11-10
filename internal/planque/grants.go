@@ -365,6 +365,11 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
 			return
 		}
+		if sameServer(server, stripeServer) {
+			// Stripe's token answer names the account as stripe_user_id:
+			// kept on the grant, it's the account a refund's case is on.
+			meta.AccountField = stripeAccountField
+		}
 	}
 	asked := me.AgentID
 	header := ""
@@ -1019,16 +1024,16 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
-	// A managed Stripe connection that asks for the refund tool takes
-	// planque's reviewed profile, with the case reads added: a refund's
+	// A direct Stripe connection that asks for the refund takes planque's
+	// whole request, its case reads and its reviewed profile: a refund's
 	// money rules are never a model's draft (stripe_refunds.go).
 	reviewed := false
 	if s.StripeRefunds && stripeRefundsGrant(g) && asksStripeRefund(req.Tools) {
-		if adding {
-			writeErr(w, http.StatusConflict, "the refund tool goes on a Stripe connection of its own, with its three case reads: ask it on a new connection")
+		if adding || len(g.Request.Tools) > 0 {
+			writeErr(w, http.StatusConflict, "refunds go on a Stripe connection of their own, with their case reads: ask for them on a new Stripe connection")
 			return
 		}
-		if req.Tools, req.Profile, err = stripeRefundsAsk(req.Tools, req.Profile, vendorName(g)); err != nil {
+		if req.Tools, req.Profile, err = stripeRefundsAsk(req.Tools, req.Profile, g.Account, g.ID, vendorName(g)); err != nil {
 			s.fail(w, r, err)
 			return
 		}
@@ -1106,8 +1111,13 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Each tool narrowed to one operation takes only the operation's fields,
-	// read with the describing tool the owner approved on this grant.
-	if msg, err := s.operationsCheck(r.Context(), g, has, req.Tools); err != nil {
+	// read with the describing tool the owner approved on this grant. A
+	// refund connection's are planque's own, asked with that tool: they're
+	// checked once the owner approved it, before the refund is first sent
+	// (fieldsHold).
+	if reviewed && stripeRefundsGrant(g) {
+		// checked at first use
+	} else if msg, err := s.operationsCheck(r.Context(), g, has, req.Tools); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	} else if msg != "" {

@@ -43,6 +43,11 @@ type Metadata struct {
 	AuthorizationParams map[string]string `json:"authorization_params,omitempty"`
 	// IssParameter: the server always names itself in its answer (RFC 9207).
 	IssParameter bool `json:"iss_parameter,omitempty"`
+	// AccountField names the token answer's field that gives the vendor
+	// account, for a server whose answer names it its own way (Stripe's
+	// stripe_user_id). Set by planque for a server it knows, never from
+	// discovery; "account" is read either way.
+	AccountField string `json:"account_field,omitempty"`
 }
 
 // Client speaks to authorization servers.
@@ -337,8 +342,9 @@ type Token struct {
 	Expiry  time.Time `json:"expiry,omitzero"`
 	Scope   string    `json:"scope,omitempty"`
 	// Account is the vendor account the token acts in, when the token
-	// response names it as "account". No vendor's own field is read: what a
-	// sign-in covers comes from the vendor's tools (kiff/tafs#89).
+	// response names it as "account", or in the field the server's
+	// Metadata.AccountField names. What a sign-in covers still comes from
+	// the vendor's tools (kiff/tafs#89).
 	Account string `json:"account,omitempty"`
 }
 
@@ -386,6 +392,10 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values, registr
 		return Token{}, err
 	}
 	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return Token{}, fmt.Errorf("token endpoint (%d): %w", resp.StatusCode, err)
+	}
 	var r struct {
 		Access      string `json:"access_token"`
 		Type        string `json:"token_type"`
@@ -396,8 +406,14 @@ func (c *Client) token(ctx context.Context, m Metadata, form url.Values, registr
 		Error       string `json:"error"`
 		Description string `json:"error_description"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&r); err != nil {
+	if err := json.Unmarshal(raw, &r); err != nil {
 		return Token{}, fmt.Errorf("token endpoint (%d): not a JSON token response", resp.StatusCode)
+	}
+	if r.Account == "" && m.AccountField != "" {
+		var named map[string]json.RawMessage
+		if json.Unmarshal(raw, &named) == nil {
+			_ = json.Unmarshal(named[m.AccountField], &r.Account)
+		}
 	}
 	if r.Error == "invalid_grant" {
 		return Token{}, ErrInvalidGrant

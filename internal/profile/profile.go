@@ -603,6 +603,14 @@ func validateAmount(a Amount, byTool map[string]Operation) error {
 	return nil
 }
 
+// NarrowedParams is where a broad tool narrowed to one operation takes the
+// operation's fields (Stripe's stripe_api_write: parameters). The marker of
+// such a tool is written inside them, so the record the operation makes
+// carries it without this prefix: a case's refunds read may name the
+// marker so, and nothing looser. planque allows that form only for a
+// narrowed write.
+const NarrowedParams = "parameters"
+
 // validateCase checks a case block: a refund that moves money, whose
 // marker the case's refunds read finds, with reads of the same profile whose
 // only reference is the call's charge, a dispute signal, and a well-formed
@@ -663,8 +671,8 @@ func validateCase(o Operation, c Case, byTool map[string]Operation) error {
 			return fmt.Errorf("%s is a dotted path", p[0])
 		}
 	}
-	if c.RefundsRead.Marker != o.Marker.Field {
-		return fmt.Errorf("refunds_read.marker is the operation's marker, %s", o.Marker.Field)
+	if c.RefundsRead.Marker != o.Marker.Field && o.Marker.Field != NarrowedParams+"."+c.RefundsRead.Marker {
+		return fmt.Errorf("refunds_read.marker is the operation's marker, %s, or, for a tool narrowed to one operation, the marker inside its %s", o.Marker.Field, NarrowedParams)
 	}
 	switch {
 	case c.ChargeRead.Disputed != "" && c.ChargeRead.DisputeStatus != "":
