@@ -2523,6 +2523,11 @@ type setupGrantTool struct {
 	Tool     string `json:"tool"`
 	Title    string `json:"title,omitempty"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	// SetupReads: one of Setup's own reads, on Setup's reader Card, never
+	// the taf's: a check that the taf's Card covers its tools leaves it out.
+	// Always sent, false too, so a reader can tell a listing that marks
+	// them from one made before it did.
+	SetupReads bool `json:"setup_reads"`
 }
 
 // grantAPI is the public facts of a key grant's API, to ask for the same
@@ -2587,7 +2592,7 @@ type setupGrant struct {
 func setupGrantOf(g *Grant) setupGrant {
 	v := setupGrant{ID: g.ID, connection: connectionOf(g), Server: g.Request.Server, Account: g.Account, Created: g.Request.CreatedAt, Tools: []setupGrantTool{}}
 	for _, t := range g.Request.Tools {
-		v.Tools = append(v.Tools, setupGrantTool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly})
+		v.Tools = append(v.Tools, setupGrantTool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly, SetupReads: t.SetupReads})
 	}
 	return v
 }

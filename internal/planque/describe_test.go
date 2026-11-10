@@ -234,3 +234,25 @@ func TestANarrowedWriteFromBeforeTheCheckIsCheckedAtItsFirstCall(t *testing.T) {
 		t.Fatal("a checked tool was read again")
 	}
 }
+
+// Setup's listing of a taf's grants says which tools are Setup's own reads,
+// so a check that the taf's Card covers its tools can leave them out.
+func TestSetupsListingMarksItsOwnReads(t *testing.T) {
+	e := newEnv(t)
+	id, out := e.addToDetails(map[string]any{"tool": "create_refund", "name": "refund_cd34", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2})
+	e.approveAddition(id, out)
+	st, list := e.do("GET", "/v1/accounts/"+tenant+"/agents/agt_taf/grants", nil, nil, "k_setup")
+	gs, _ := list["grants"].([]any)
+	if st != 200 || len(gs) != 1 {
+		t.Fatalf("Setup's list: %d %v", st, list)
+	}
+	marked := map[string]any{}
+	for _, raw := range gs[0].(map[string]any)["tools"].([]any) {
+		tool := raw.(map[string]any)
+		marked[tool["name"].(string)] = tool["setup_reads"]
+	}
+	// Always said, false too, so a reader knows the listing marks them.
+	if marked["fields_ab12"] != true || marked["refund_cd34"] != false || len(marked) != 2 {
+		t.Fatalf("the tools as Setup reads them: %v", marked)
+	}
+}
