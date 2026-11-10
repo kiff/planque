@@ -20,7 +20,11 @@
 # similarly names the {secret} handoff credential; PLANQUE_DOOR_URL is the
 # fixed HTTPS event receiver, and PLANQUE_EVENT_URL the fixed HTTPS receiver
 # of app events, signed with the same handoff credential. Each configured
-# secret gets its own exact resource.
+# secret gets its own exact resource. PLANQUE_KIFF_EVENT_URL is KIFF's fixed
+# HTTPS receiver of the refund events a profile's case block names, and
+# PLANQUE_KIFF_EVENT_SECRET names the Secrets Manager secret they're signed
+# with: both or neither, and the function may read that one secret only.
+# Without them, no event goes to KIFF.
 #
 # deploy/server-apps.json, the reviewed list of which app a vendor's own
 # server is, ships with the function and is read at start
@@ -84,8 +88,14 @@ role() {
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
+    # KIFF's receiver and its signing secret go together, as planque checks
+    # at start: half of the pair is refused here, before anything changes.
+    if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then
+      echo "PLANQUE_KIFF_EVENT_URL and PLANQUE_KIFF_EVENT_SECRET go together: set both, or neither" >&2
+      return 1
+    fi
     local secret_reference
-    for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}"; do
+    for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}" "${PLANQUE_KIFF_EVENT_SECRET:-}"; do
       [[ -z "$secret_reference" ]] && continue
       local connector_secret
       connector_secret=$(aws secretsmanager describe-secret --secret-id "$secret_reference" --query ARN)
@@ -140,7 +150,7 @@ function_env() {
     # deploy/browserworker/aws.sh and kept here as they are.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json"}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
 for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY"):
