@@ -40,9 +40,9 @@ version headings refer to releases, not merely to merged pull requests.
   the eight languages the tafs apps ship. The language is the one the app
   asked in when it approved or opened the view, kept on the grant, else the
   browser's (the language it rates highest), else English (README, "The
-  pages' language"). Before, every
-  page was in English. A browser that didn't hand its sign-in back now logs
-  why instead of showing the worker's error on the page.
+  pages' language"). Before, every page was in English. A browser that
+  didn't hand its sign-in back now logs why instead of showing the worker's
+  error on the page.
 
 ### Fixed
 
