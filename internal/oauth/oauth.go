@@ -48,6 +48,12 @@ type Metadata struct {
 	// stripe_user_id). Set by planque for a server it knows, never from
 	// discovery; "account" is read either way.
 	AccountField string `json:"account_field,omitempty"`
+	// AccountsTool names the vendor's own tool that lists the accounts a
+	// sign-in covers (Stripe's list_available_accounts_or_orgs), for a
+	// vendor whose token answer names none: planque calls it once, itself,
+	// right after the sign-in. Set by planque for a server it knows, never
+	// from discovery.
+	AccountsTool string `json:"accounts_tool,omitempty"`
 }
 
 // Client speaks to authorization servers.
@@ -365,6 +371,9 @@ func (c *Client) Exchange(ctx context.Context, m Metadata, clientID, redirect, c
 
 // accountPattern is what a vendor's account id may be: short, one word.
 var accountPattern = regexp.MustCompile(`^[A-Za-z0-9_.:@+-]{1,64}$`)
+
+// ValidAccount reports whether id looks like a vendor's account id.
+func ValidAccount(id string) bool { return accountPattern.MatchString(id) }
 
 // Refresh trades a refresh token for a new token.
 func (c *Client) Refresh(ctx context.Context, m Metadata, clientID, refresh string, registrations ...Registration) (Token, error) {

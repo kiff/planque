@@ -366,9 +366,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			return
 		}
 		if sameServer(server, stripeServer) {
-			// Stripe's token answer names the account as stripe_user_id:
-			// kept on the grant, it's the account a refund's case is on.
+			// Stripe's token answer names no account (stripe_user_id is
+			// Connect's, not the MCP sign-in's): planque reads the accounts
+			// the sign-in covers with Stripe's own tool, once, right after
+			// it (signedInAccount). Kept on the grant, it's the account a
+			// refund's case is on.
 			meta.AccountField = stripeAccountField
+			meta.AccountsTool = stripeAccountsTool
 		}
 	}
 	asked := me.AgentID
@@ -1033,7 +1037,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "refunds go on a Stripe connection of their own, with their case reads: ask for them on a new Stripe connection")
 			return
 		}
-		if req.Tools, req.Profile, err = stripeRefundsAsk(req.Tools, req.Profile, g.Account, g.ID, vendorName(g)); err != nil {
+		if req.Tools, req.Profile, err = stripeRefundsAsk(req.Tools, req.Profile, g.Account, g.AccountLive, g.ID, vendorName(g)); err != nil {
 			s.fail(w, r, err)
 			return
 		}
@@ -1628,6 +1632,12 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.failGrant(r.Context(), g, "planque has no app to confirm sign-ins with (PLANQUE_APP_RETURN)")
 		s.page(w, lang, http.StatusInternalServerError, l.NotConnected, l.CantConfirm)
 		return
+	}
+	// A vendor whose token answer names no account: planque asks it which
+	// account the sign-in covers, once, itself, with the new token, never
+	// from a caller's word (signedInAccount).
+	if tok.Account == "" && g.Vendor.AccountsTool != "" {
+		tok.Account, g.AccountLive = s.signedInAccount(r.Context(), g, tok.Access)
 	}
 	if g.Reconnect {
 		// Reconnecting acts in the same vendor account, or not at all: once

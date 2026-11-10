@@ -1,9 +1,14 @@
 package planque
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 
+	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/profile"
 )
 
@@ -52,6 +57,93 @@ const stripeServer = "https://mcp.stripe.com"
 // sign-in is for (Stripe Connect's OAuth). planque keeps it as the grant's
 // account (oauth.Metadata.AccountField).
 const stripeAccountField = "stripe_user_id"
+
+// stripeAccountsTool is Stripe's own tool that lists the accounts a sign-in
+// covers: {"accounts":[{"stripe_context":"acct_…","livemode":false,
+// "name":"…"}]}, in the result's structuredContent and, as text, in its
+// content, as a test-mode sign-in showed.
+const stripeAccountsTool = "list_available_accounts_or_orgs"
+
+// signedInAccount is the account a sign-in covers, read with the vendor's
+// own accounts tool (oauth.Metadata.AccountsTool), once, by planque itself,
+// right after the owner signed in, with the new token: never a caller's
+// word. It returns the account and its mode only when the list has exactly
+// one account; with none, several, or a failed read it returns "", and a
+// refund connection then asks the owner to sign in to one account. The read
+// is on the grant's record.
+func (s *Server) signedInAccount(ctx context.Context, g *Grant, access string) (string, *bool) {
+	if s.MCP == nil {
+		return "", nil
+	}
+	res, err := s.MCP.CallTool(ctx, g.Request.Server, access, g.Vendor.AccountsTool, json.RawMessage(`{}`))
+	if err != nil {
+		s.log().WarnContext(ctx, "the sign-in's accounts couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		g.event(s.now(), "couldn't read which account the sign-in covers")
+		return "", nil
+	}
+	accounts, ok := sessionAccounts(res)
+	switch {
+	case !ok:
+		g.event(s.now(), "read which account the sign-in covers; the answer named none")
+		return "", nil
+	case len(accounts) != 1:
+		g.event(s.now(), fmt.Sprintf("read which account the sign-in covers: %d accounts, so none is kept", len(accounts)))
+		return "", nil
+	}
+	live := accounts[0].Live
+	g.event(s.now(), "read which account the sign-in covers: one, kept as the connection's account")
+	return accounts[0].Context, &live
+}
+
+// sessionAccount is one account a sign-in covers, as Stripe lists it.
+type sessionAccount struct {
+	Context string `json:"stripe_context"`
+	Live    bool   `json:"livemode"`
+}
+
+// sessionAccounts reads an accounts tool's result: its structuredContent,
+// or else the same JSON as its text content. ok is false for an error, an
+// answer of another shape, or an entry whose id isn't an account's.
+func sessionAccounts(res json.RawMessage) ([]sessionAccount, bool) {
+	type list struct {
+		Accounts *[]struct {
+			Context string `json:"stripe_context"`
+			Live    *bool  `json:"livemode"`
+		} `json:"accounts"`
+	}
+	var out struct {
+		Structured *list `json:"structuredContent"`
+		Content    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if json.Unmarshal(res, &out) != nil || out.IsError {
+		return nil, false
+	}
+	l := out.Structured
+	if l == nil || l.Accounts == nil {
+		for _, c := range out.Content {
+			var t list
+			if c.Type == "text" && json.Unmarshal([]byte(c.Text), &t) == nil && t.Accounts != nil {
+				l = &t
+				break
+			}
+		}
+	}
+	if l == nil || l.Accounts == nil {
+		return nil, false
+	}
+	accounts := make([]sessionAccount, 0, len(*l.Accounts))
+	for _, a := range *l.Accounts {
+		if !strings.HasPrefix(a.Context, "acct_") || !oauth.ValidAccount(a.Context) || a.Live == nil {
+			return nil, false
+		}
+		accounts = append(accounts, sessionAccount{Context: a.Context, Live: *a.Live})
+	}
+	return accounts, true
+}
 
 // stripeVendor is the name people read.
 const stripeVendor = "Stripe"
@@ -114,15 +206,15 @@ func asksStripeRefund(tools []ToolRequest) bool {
 // errStripeRefundsAsk: a refund connection is asked as one tool.
 var errStripeRefundsAsk = apiError{400, "a Stripe connection with refunds asks one tool and no profile: " + stripeWrite +
 	" with fixed_arguments " + stripeOperation + " " + stripeRefund + " and " + stripeLivemode +
-	" (true for live mode, false for test mode), and nothing else. planque adds the case reads and the profile (" + StripeRefundsEntry +
+	" (false: test mode, the only one offered for now), and nothing else. planque adds the case reads and the profile (" + StripeRefundsEntry +
 	"). Ask the taf's other Stripe tools on another connection"}
 
 // stripeRefundsAsk is the request for a refund connection: the five tools,
 // in a fixed order with the refund last, each named for grant, and
-// planque's reviewed profile for them. account is the grant's, from
-// Stripe's sign-in answer. A caller's own profile is refused, since this
+// planque's reviewed profile for them. account is the grant's, as Stripe's
+// accounts tool named it right after the sign-in, with its mode. A caller's own profile is refused, since this
 // one is planque's.
-func stripeRefundsAsk(tools []ToolRequest, callerProfile json.RawMessage, account, grant, vendor string) ([]ToolRequest, json.RawMessage, error) {
+func stripeRefundsAsk(tools []ToolRequest, callerProfile json.RawMessage, account string, accountLive *bool, grant, vendor string) ([]ToolRequest, json.RawMessage, error) {
 	if len(callerProfile) > 0 {
 		return nil, nil, apiError{400, "the refund's profile is planque's reviewed one (" + StripeRefundsEntry + "): send the tool without a profile"}
 	}
@@ -134,8 +226,17 @@ func stripeRefundsAsk(tools []ToolRequest, callerProfile json.RawMessage, accoun
 	if json.Unmarshal(asked.Fixed[stripeLivemode], &live) != nil || stripeOperationOf(asked) != stripeRefund {
 		return nil, nil, errStripeRefundsAsk
 	}
+	if live {
+		// Stripe may ask the owner to confirm each refund in its Dashboard
+		// when the sign-in is a person's own and the mode is live; only test
+		// mode has been seen to refund at once.
+		return nil, nil, apiError{409, "refunds are offered in Stripe's test mode only for now (livemode false): in live mode, Stripe may ask you to confirm each refund in its Dashboard, and that hasn't been checked yet"}
+	}
 	if account == "" {
-		return nil, nil, apiError{409, "this Stripe connection doesn't know its Stripe account, since its sign-in didn't name it: sign in to Stripe again, then ask for refunds"}
+		return nil, nil, apiError{409, "this Stripe connection doesn't know its Stripe account: sign in to Stripe again, choosing one account in test mode, then ask for refunds"}
+	}
+	if accountLive != nil && *accountLive != live {
+		return nil, nil, apiError{409, "this Stripe connection's account is in live mode, and refunds are offered in test mode only for now: sign in to Stripe again in test mode"}
 	}
 	out := stripeRefundTools(account, live, grant, asked.Name, asked.Title)
 	raw, err := stripeRefundsProfile(out, vendor)
@@ -160,11 +261,12 @@ func stripeRefundTools(account string, live bool, grant, name, title string) []T
 	charge := Argument{Path: narrowedParams + ".charge", Type: "string", Required: true, Description: "The charge's id (ch_…)."}
 	limit, _ := json.Marshal(stripeRefundsLimit)
 	details := ToolRequest{Tool: stripeDetails, Name: toolKey(stripeDetails, grant), Title: "Read a Stripe operation's fields", SetupReads: true, ReadOnly: true}
-	// The account read takes the account from the grant; a narrowed tool
-	// still names one argument (checkNarrowing): Stripe's expand, which KIFF
-	// never sends.
+	// The account read takes the account from the grant, at the operation's
+	// id (GetAccountsAccount, as stripe_api_details lists it); a narrowed
+	// tool still names one argument (checkNarrowing): Stripe's expand, which
+	// KIFF never sends.
 	account_ := narrowed(stripeRead, stripeGetAccount, "Look up the Stripe account",
-		map[string]json.RawMessage{narrowedParams + ".account": acct},
+		map[string]json.RawMessage{narrowedParams + ".id": acct},
 		map[string]Argument{"expand": {Path: narrowedParams + ".expand", Type: "string", Description: "Leave out."}})
 	chargeRead := narrowed(stripeRead, stripeGetCharge, "Look up a charge", nil,
 		map[string]Argument{"charge": {Path: narrowedParams + ".id", Type: "string", Required: true, Description: "The charge's id (ch_…)."}})

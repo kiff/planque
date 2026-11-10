@@ -7,6 +7,15 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- **A Stripe connection's account comes from Stripe's own accounts tool.** Stripe's MCP sign-in names no account in its token answer (`stripe_user_id` is Connect's). Right after the owner signs in, planque calls `list_available_accounts_or_orgs` once, itself, with the new token, and keeps the account, with its mode, when it lists exactly one (`oauth.Metadata.AccountsTool`, set for Stripe's server only). With several or none it keeps none, and the read is on the connection's record. A refund connection pins that account, and is refused when the account is in live mode.
+- **Stripe refunds are offered in test mode only.** A refund connection asked with `livemode: true` is refused (409) with the reason: in live mode, Stripe may ask the owner to confirm each refund in its Dashboard, which hasn't been checked yet. In test mode, a refund through the direct sign-in went through at once.
+
+### Fixed
+
+- **A refund connection's account read takes the account at `parameters.id`.** `GetAccountsAccount` takes its account as `id`, as a test-mode read showed; it was pinned at `parameters.account`, which the first-call field check would have refused, so no refund could have been decided.
+
+### Changed
+
 - **A refund connection's case reads are checked against Stripe's description.** A narrowed read is now checked at its first call, like a narrowed write, where its connection holds the describing tool (`stripe_api_details`): a path its operation doesn't take is refused with Stripe's own list. Without that tool, a narrowed read isn't checked, as before.
 - **A case needs a fixed currency.** A profile's `case` block is refused unless its operation has a fixed `amount.unit`: KIFF compares the charge's currency only with a fixed unit.
 

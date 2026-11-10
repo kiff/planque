@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func refundAsk(live bool) []ToolRequest {
 // profile for them: the refund moves money in euros, its marker inside the
 // operation's parameters, and every case read is one of the three granted.
 func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
-	tools, raw, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, "grt_abcd", "Stripe")
+	tools, raw, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, nil, "grt_abcd", "Stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
 			t.Fatalf("tool %d: %s", i, msg)
 		}
 	}
-	if string(tools[3].Fixed["parameters.limit"]) != "100" || string(tools[1].Fixed["parameters.account"]) != `"`+stripeTestAccount+`"` {
+	if string(tools[3].Fixed["parameters.limit"]) != "100" || string(tools[1].Fixed["parameters.id"]) != `"`+stripeTestAccount+`"` {
 		t.Fatalf("the reads' fixed fields: %s %s", tools[3].Fixed, tools[1].Fixed)
 	}
 	if tools[4].Name != "stripe_refund" || tools[4].Arguments["charge"].Path != "parameters.charge" || tools[4].Arguments["amount"].Path != "parameters.amount" {
@@ -95,9 +96,10 @@ func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
 	if rc := q.Operations[4].Case; rc.AccountRead.Tool != named[1].Name || rc.ChargeRead.Tool != named[2].Name || rc.RefundsRead.Tool != named[3].Name {
 		t.Fatalf("case reads after renaming: %+v", rc)
 	}
-	// Live mode is asked the same way.
-	if live, _, err := stripeRefundsAsk(refundAsk(true), nil, stripeTestAccount, "grt_abcd", "Stripe"); err != nil || string(live[4].Fixed[stripeLivemode]) != "true" {
-		t.Fatalf("live: %v %+v", err, live)
+	// Live mode isn't offered yet: Stripe may ask for its own confirmation
+	// of each refund there, which hasn't been checked.
+	if _, _, err := stripeRefundsAsk(refundAsk(true), nil, stripeTestAccount, nil, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "test mode only") {
+		t.Fatalf("live: %v", err)
 	}
 }
 
@@ -125,14 +127,14 @@ func TestStripeRefundsAskTakesOneToolAndNoProfile(t *testing.T) {
 		if name == "a mode that isn't a bool" {
 			tools[0].Fixed = map[string]json.RawMessage{stripeOperation: tools[0].Fixed[stripeOperation], stripeLivemode: json.RawMessage(`"false"`)}
 		}
-		if _, _, err := stripeRefundsAsk(tools, nil, stripeTestAccount, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "asks one tool") {
+		if _, _, err := stripeRefundsAsk(tools, nil, stripeTestAccount, nil, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "asks one tool") {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, _, err := stripeRefundsAsk(refundAsk(false), json.RawMessage(`{"v":"kiff.profile.v1"}`), stripeTestAccount, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "without a profile") {
+	if _, _, err := stripeRefundsAsk(refundAsk(false), json.RawMessage(`{"v":"kiff.profile.v1"}`), stripeTestAccount, nil, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "without a profile") {
 		t.Errorf("a caller's profile: %v", err)
 	}
-	if _, _, err := stripeRefundsAsk(refundAsk(false), nil, "", "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "sign in to Stripe again") {
+	if _, _, err := stripeRefundsAsk(refundAsk(false), nil, "", nil, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "sign in to Stripe again") {
 		t.Errorf("no account from the sign-in: %v", err)
 	}
 }
@@ -152,7 +154,7 @@ func TestADraftedProfileWithACaseBlockIsRefused(t *testing.T) {
 // other prefix is refused by the profile's own rules, and a tool that isn't
 // narrowed is refused by planque.
 func TestTheCaseMarkerInsideParametersIsOnlyForANarrowedWrite(t *testing.T) {
-	tools, raw, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, "grt_abcd", "Stripe")
+	tools, raw, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, nil, "grt_abcd", "Stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +182,7 @@ func TestTheCaseMarkerInsideParametersIsOnlyForANarrowedWrite(t *testing.T) {
 // against the operation's own description, like its arguments: an
 // operation that lists no metadata refuses it.
 func TestANarrowedWritesMarkerIsOneOfItsOperationsFields(t *testing.T) {
-	tools, _, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, "grt_abcd", "Stripe")
+	tools, _, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, nil, "grt_abcd", "Stripe")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +206,7 @@ func TestANarrowedWritesMarkerIsOneOfItsOperationsFields(t *testing.T) {
 	// marker is left to that check, for a narrowed write only.
 	schema := json.RawMessage(`{"type":"object","properties":{"stripe_api_operation_id":{"type":"string"},"parameters":{"type":"object"}}}`)
 	g := &Grant{Request: Request{Tools: tools}}
-	_, g.Request.Profile, _ = stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, "grt_abcd", "Stripe")
+	_, g.Request.Profile, _ = stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, nil, "grt_abcd", "Stripe")
 	if err := profileVendorSchema(g, tools[4].Name, schema); err != nil {
 		t.Fatalf("a narrowed write's marker against the broad schema: %v", err)
 	}
@@ -383,5 +385,103 @@ func TestTheAppShowsOneStripe(t *testing.T) {
 	}
 	if st != 200 || !listed {
 		t.Fatalf("the old managed Stripe connection: %d %v", st, out["entries"])
+	}
+}
+
+// Stripe's accounts tool is read from its structuredContent, or else from
+// the same JSON as text; anything else names no account.
+func TestTheSessionsAccountsAreReadAsStripeAnswers(t *testing.T) {
+	one := `{"accounts":[{"stripe_context":"acct_1","livemode":false,"name":"Shop"}]}`
+	for name, c := range map[string]struct {
+		res  string
+		want []sessionAccount
+		ok   bool
+	}{
+		"structured":             {`{"content":[{"type":"text","text":"x"}],"structuredContent":` + one + `}`, []sessionAccount{{"acct_1", false}}, true},
+		"text only":              {`{"content":[{"type":"text","text":` + strconvQuote(one) + `}]}`, []sessionAccount{{"acct_1", false}}, true},
+		"two":                    {`{"structuredContent":{"accounts":[{"stripe_context":"acct_1","livemode":false},{"stripe_context":"acct_2","livemode":true}]}}`, []sessionAccount{{"acct_1", false}, {"acct_2", true}}, true},
+		"none":                   {`{"structuredContent":{"accounts":[]}}`, []sessionAccount{}, true},
+		"an error":               {`{"isError":true,"structuredContent":` + one + `}`, nil, false},
+		"another shape":          {`{"structuredContent":{"data":[]}}`, nil, false},
+		"not an account":         {`{"structuredContent":{"accounts":[{"stripe_context":"org_1","livemode":false}]}}`, nil, false},
+		"a sentence":             {`{"structuredContent":{"accounts":[{"stripe_context":"acct_1 or another","livemode":false}]}}`, nil, false},
+		"no mode":                {`{"structuredContent":{"accounts":[{"stripe_context":"acct_1"}]}}`, nil, false},
+		"not even an MCP result": {`[1]`, nil, false},
+	} {
+		got, ok := sessionAccounts(json.RawMessage(c.res))
+		if ok != c.ok || (ok && !slices.Equal(got, c.want)) {
+			t.Errorf("%s: %v %v", name, got, ok)
+		}
+	}
+}
+
+func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+// A Stripe sign-in whose token answer names no account: right after it,
+// planque reads the account with Stripe's own tool, itself, and keeps it
+// with its mode, as the grant's account. A refund connection then pins it;
+// one whose account is in live mode is refused.
+func TestASignInWithNoAccountKeepsTheOneItsAccountsToolLists(t *testing.T) {
+	e := newEnv(t)
+	e.vendor.UnnamedAccount = true
+	e.enrol()
+	id, digest := e.request()
+	ctx := context.Background()
+	g, err := e.s.loadGrant(ctx, tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Vendor.AccountsTool = stripeAccountsTool
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e.approveAndSignIn(id, digest); st != 200 {
+		t.Fatalf("sign in: %d %v", st, out)
+	}
+	if g, err = e.s.loadGrant(ctx, tenant, id); err != nil {
+		t.Fatal(err)
+	}
+	if g.Account != "acct_fake123" || g.AccountLive == nil || *g.AccountLive {
+		t.Fatalf("the grant's account: %q %v", g.Account, g.AccountLive)
+	}
+	if !strings.Contains(string(mustJSON(g.Events)), "read which account the sign-in covers: one, kept") {
+		t.Fatalf("the read isn't on the record: %s", mustJSON(g.Events))
+	}
+	// A sign-in that covers two accounts keeps neither: the owner signs in
+	// to one.
+	e3 := newEnv(t)
+	e3.vendor.UnnamedAccount, e3.vendor.MoreAccounts = true, []string{"acct_other456"}
+	e3.enrol()
+	id3, digest3 := e3.request()
+	g3, _ := e3.s.loadGrant(ctx, tenant, id3)
+	g3.Vendor.AccountsTool = stripeAccountsTool
+	if err := e3.s.saveGrant(ctx, g3); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e3.approveAndSignIn(id3, digest3); st != 200 {
+		t.Fatalf("sign in: %d %v", st, out)
+	}
+	if g3, _ = e3.s.loadGrant(ctx, tenant, id3); g3.Account != "" || !strings.Contains(string(mustJSON(g3.Events)), "2 accounts, so none is kept") {
+		t.Fatalf("two accounts: %q %s", g3.Account, mustJSON(g3.Events))
+	}
+	// Without the tool set, nothing is read and no account is kept.
+	e2 := newEnv(t)
+	e2.vendor.UnnamedAccount = true
+	e2.enrol()
+	id2, digest2 := e2.request()
+	if st, out := e2.approveAndSignIn(id2, digest2); st != 200 {
+		t.Fatalf("sign in: %d %v", st, out)
+	}
+	if g2, _ := e2.s.loadGrant(ctx, tenant, id2); g2.Account != "" || g2.AccountLive != nil {
+		t.Fatalf("an account kept with no tool to read it: %q", g2.Account)
+	}
+	// The account's mode must be the one asked.
+	live := true
+	if _, _, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, &live, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "account is in live mode") {
+		t.Fatalf("a live account for a test-mode refund: %v", err)
+	}
+	test := false
+	if _, _, err := stripeRefundsAsk(refundAsk(false), nil, stripeTestAccount, &test, "grt_abcd", "Stripe"); err != nil {
+		t.Fatalf("a test account: %v", err)
 	}
 }
