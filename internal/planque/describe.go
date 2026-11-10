@@ -246,14 +246,21 @@ func (s *Server) describe(ctx context.Context, g *Grant, d describer, op string,
 	return parseFields(text.String()), "", nil
 }
 
-// fieldsHold checks g's i-th tool, once, when it is a narrowed write not yet
+// fieldsHold checks g's i-th tool, once, when it is a narrowed tool not yet
 // checked: against its operation's fields, read with the describing tool
-// the owner approved on g, as adding it is checked now. It returns the
-// refusal's code and reason, or "". A tool that holds is marked so; that
-// mark failing to save only means it is checked again next time.
+// the owner approved on g, as adding it is checked now. A narrowed write is
+// always checked, and refused without its describing tool; a narrowed read
+// only where g has that tool (a refund connection's case reads), so a wrong
+// path is named in the vendor's words, not left to fail each read. It
+// returns the refusal's code and reason, or "". A tool that holds is marked
+// so; that mark failing to save only means it is checked again next time.
 func (s *Server) fieldsHold(ctx context.Context, g *Grant, i int) (code, why string) {
 	t := g.Tools[i]
-	if _, _, write, ok := narrowedTo(t.ToolRequest); !ok || !write || t.FieldsChecked {
+	d, _, write, ok := narrowedTo(t.ToolRequest)
+	if !ok || t.FieldsChecked {
+		return "", ""
+	}
+	if !write && !slices.ContainsFunc(g.Tools, func(gt GrantedTool) bool { return gt.Tool == d.Tool }) {
 		return "", ""
 	}
 	approved := make([]ToolRequest, len(g.Tools))

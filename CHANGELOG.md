@@ -5,6 +5,11 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Changed
+
+- **A refund connection's case reads are checked against Stripe's description.** A narrowed read is now checked at its first call, like a narrowed write, where its connection holds the describing tool (`stripe_api_details`): a path its operation doesn't take is refused with Stripe's own list. Without that tool, a narrowed read isn't checked, as before.
+- **A case needs a fixed currency.** A profile's `case` block is refused unless its operation has a fixed `amount.unit`: KIFF compares the charge's currency only with a fixed unit.
+
 ### Fixed
 
 - **An existing managed Stripe connection stays in the catalog.** Since the app shows one Stripe, a managed Stripe connection made before wasn't listed anywhere the owner could disconnect it. The catalog now lists it, connected, while it exists; a new one still can't be asked for.

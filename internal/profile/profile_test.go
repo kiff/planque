@@ -171,6 +171,11 @@ func TestACaseBlock(t *testing.T) {
 		p["operations"] = append(ops, map[string]any{"tool": "get_account", "title": "Look up the account", "kind": "read"})
 		for _, o := range ops {
 			if op := o.(map[string]any); op["tool"] == "create_refund" {
+				// A case's refund has a fixed currency, which KIFF compares
+				// with the charge's.
+				a := op["amount"].(map[string]any)
+				delete(a, "unit_read")
+				a["unit"] = "EUR"
 				c := good()
 				edit(c, op)
 				op["case"] = c
@@ -187,7 +192,12 @@ func TestACaseBlock(t *testing.T) {
 		t.Fatalf("without a refund event: %v", err)
 	}
 	for name, edit := range map[string]func(c, op map[string]any){
-		"another kind":      func(c, _ map[string]any) { c["kind"] = "coupon" },
+		"another kind": func(c, _ map[string]any) { c["kind"] = "coupon" },
+		"no fixed unit": func(_, op map[string]any) {
+			a := op["amount"].(map[string]any)
+			delete(a, "unit")
+			a["unit_read"] = map[string]any{"tool": "get_payment_intent", "path": "currency"}
+		},
 		"no marker":         func(_, op map[string]any) { delete(op, "marker") },
 		"another marker":    func(c, _ map[string]any) { c["refunds_read"].(map[string]any)["marker"] = "metadata.other" },
 		"a write as a read": func(c, _ map[string]any) { c["account_read"].(map[string]any)["tool"] = "create_refund" },
