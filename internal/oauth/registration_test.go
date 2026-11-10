@@ -89,3 +89,38 @@ func TestMalformedTokenResponsesAreNotAccepted(t *testing.T) {
 		}
 	}
 }
+
+// A server whose token answer names the account its own way (Stripe's
+// stripe_user_id) gives it only where planque set Metadata.AccountField;
+// "account" is read either way, and a value that isn't an account is left out.
+func TestTheAccountFieldIsReadOnlyWhereSet(t *testing.T) {
+	answer := ""
+	c := &Client{HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(answer))}, nil
+	})}}
+	exchange := func(field string) string {
+		t.Helper()
+		tok, err := c.Exchange(context.Background(), Metadata{Token: "https://auth.example/token", Resource: "https://mcp.example", AccountField: field}, "client", "https://planque.example/oauth/callback", "code", "verifier")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok.Account
+	}
+	answer = `{"access_token":"a","token_type":"bearer","stripe_user_id":"acct_1"}`
+	if got := exchange("stripe_user_id"); got != "acct_1" {
+		t.Fatalf("with the field set: %q", got)
+	}
+	if got := exchange(""); got != "" {
+		t.Fatalf("a vendor's own field read without being set: %q", got)
+	}
+	answer = `{"access_token":"a","token_type":"bearer","account":"acct_2","stripe_user_id":"acct_1"}`
+	if got := exchange("stripe_user_id"); got != "acct_2" {
+		t.Fatalf("account comes first: %q", got)
+	}
+	for _, bad := range []string{`"two words"`, `7`, `{"id":"acct_1"}`} {
+		answer = `{"access_token":"a","token_type":"bearer","stripe_user_id":` + bad + `}`
+		if got := exchange("stripe_user_id"); got != "" {
+			t.Fatalf("%s read as %q", bad, got)
+		}
+	}
+}

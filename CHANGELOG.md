@@ -11,6 +11,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A direct Stripe connection keeps its Stripe account.** Stripe's sign-in answer names the account as `stripe_user_id`; planque now keeps it as the connection's `account`, for Stripe's server only (`oauth.Metadata.AccountField`). Before, a direct Stripe connection had no account. Connections made before this keep none until they sign in again.
 - **One Stripe in the app: the direct sign-in, with test mode.** The catalog lists `stripe`, a direct sign-in to Stripe's MCP server (`https://mcp.stripe.com`), whose consent page offers live mode, sandboxes and test mode, so a taf can be tried on a test account first. The managed connector's Stripe is no longer listed, found in a tool search, or connected (409, naming `stripe`), and `deploy/server-apps.json` lists Stripe's server under `stripe`.
 - **Stripe refunds get a reviewed profile (off by default).** With `PLANQUE_STRIPE_REFUNDS=on`, a managed Stripe connection that asks for the refund tool takes planque's own profile, `stripe-refunds@1`: the refund in euros with its marker and its `case` block, granted with its three case reads, and no other tool. A drafted profile can no longer carry a `case` block (docs/managed-connectors.md).
 - Setup's listing of a taf's grants (`GET /v1/accounts/{tenant}/agents/{agent}/grants`)

@@ -253,7 +253,8 @@ func TestTheAppShowsOneStripe(t *testing.T) {
 		t.Fatalf("Stripe asked: %d %v", st, out)
 	}
 	g, err := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
-	if err != nil || g.Request.Server != stripeServer || g.Request.Connector != nil || g.Request.CatalogEntry != StripeEntry {
+	if err != nil || g.Request.Server != stripeServer || g.Request.Connector != nil || g.Request.CatalogEntry != StripeEntry ||
+		g.Vendor.AccountField != stripeAccountField {
 		t.Fatalf("the grant: %v %+v", err, g.Request)
 	}
 

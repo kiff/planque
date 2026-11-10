@@ -40,6 +40,11 @@ const StripeEntry = "stripe"
 // stripeServer is Stripe's own MCP server.
 const stripeServer = "https://mcp.stripe.com"
 
+// stripeAccountField is where Stripe's token answer names the account the
+// sign-in is for (Stripe Connect's OAuth). planque keeps it as the grant's
+// account (oauth.Metadata.AccountField).
+const stripeAccountField = "stripe_user_id"
+
 // stripeVendor is the name people read.
 const stripeVendor = "Stripe"
 

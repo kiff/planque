@@ -365,6 +365,11 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
 			return
 		}
+		if sameServer(server, stripeServer) {
+			// Stripe's token answer names the account as stripe_user_id:
+			// kept on the grant, it's the account a refund's case is on.
+			meta.AccountField = stripeAccountField
+		}
 	}
 	asked := me.AgentID
 	header := ""
