@@ -202,6 +202,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		DoorSink:      doorSink,
 		EventSink:     eventSink,
 		KIFFEventSink: kiffEventSink,
+		// The reviewed Stripe refunds profile, off unless turned on.
+		StripeRefunds: os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
 		Connectors:    connectors,
 		BaseURL:       base,
 		AppReturn:     appReturn,

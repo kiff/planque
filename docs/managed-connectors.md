@@ -387,6 +387,30 @@ owner approved for the taf.
 - Taking back on failure, the cleanup sweep, disabling and disconnecting work
   as for doors.
 
+### Stripe refunds through KIFF's governed path
+
+A refund's money rules are reviewed code, never a model's draft. When
+`PLANQUE_STRIPE_REFUNDS=on` and a managed Stripe connection asks for
+`STRIPE_CREATE_REFUND`, planque supplies the whole profile itself
+(`stripe-refunds@1`, `internal/planque/stripe_refunds.go`), the way it supplies
+the browser's.
+
+- **The tools:** the request names exactly four tools from the app's catalog,
+  and no profile: `STRIPE_CREATE_REFUND` and its three case reads,
+  `STRIPE_GET_ACCOUNT`, `STRIPE_RETRIEVE_CHARGE` and `STRIPE_LIST_REFUNDS`.
+  Anything else is refused. The taf's other Stripe tools go on another
+  connection, with the profile Coach drafts. The refund tool can't be added
+  to a connection that already has tools.
+- **The profile:** the refund moves money, in `EUR` minor units, marked with
+  `metadata.kiff_op`. Its `case` block names the three reads, and
+  `STRIPE_REFUND_CREATED` as the refund event. KIFF refuses a refund on a
+  charge in another currency.
+- **Off by default.** The paths are the Stripe objects' own. Turn it on only
+  after a read of each case tool on a test-mode connection shows the
+  connector answers with them.
+
+A drafted profile with a `case` block is refused on every connection.
+
 The receiver gets `{v:"planque.event.v1", id, tenant, agent, grant, provider,
 account, subscription, event, payload, timestamp}`: `event` is the event's
 slug, `subscription` the approved subscription and `payload` the event's data

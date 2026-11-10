@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Stripe refunds get a reviewed profile (off by default).** With `PLANQUE_STRIPE_REFUNDS=on`, a managed Stripe connection that asks for the refund tool takes planque's own profile, `stripe-refunds@1`: the refund in euros with its marker and its `case` block, granted with its three case reads, and no other tool. A drafted profile can no longer carry a `case` block (docs/managed-connectors.md).
 - Setup's listing of a taf's grants (`GET /v1/accounts/{tenant}/agents/{agent}/grants`)
   gives every tool's `setup_reads`: true for one of Setup's own reads, false
   otherwise. Those reads are on Setup's reader Card, never the taf's, so a
