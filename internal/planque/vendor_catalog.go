@@ -244,12 +244,13 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		skipped = page.Skipped
 		partial = page.Partial
 		for _, app := range page.Items {
+			id := "connector:" + providerID + ":" + app.Slug
 			// The managed connector's Stripe isn't offered: Stripe is the
-			// direct entry above, the one that has test mode.
-			if managedStripe(app.Slug) {
+			// direct entry above, the one that has test mode. A connection
+			// made to it before stays listed, so it can be disconnected.
+			if _, made := states[id]; managedStripe(app.Slug) && !made {
 				continue
 			}
-			id := "connector:" + providerID + ":" + app.Slug
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
 			// An app that needs an operator's own credentials first is listed,
 			// said as such, and not started (kiff/planque#87).

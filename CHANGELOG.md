@@ -5,6 +5,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- **An existing managed Stripe connection stays in the catalog.** Since the app shows one Stripe, a managed Stripe connection made before wasn't listed anywhere the owner could disconnect it. The catalog now lists it, connected, while it exists; a new one still can't be asked for.
+
 ### Added
 
 - **One Stripe in the app: the direct sign-in, with test mode.** The catalog lists `stripe`, a direct sign-in to Stripe's MCP server (`https://mcp.stripe.com`), whose consent page offers live mode, sandboxes and test mode, so a taf can be tried on a test account first. The managed connector's Stripe is no longer listed, found in a tool search, or connected (409, naming `stripe`), and `deploy/server-apps.json` lists Stripe's server under `stripe`.

@@ -256,4 +256,23 @@ func TestTheAppShowsOneStripe(t *testing.T) {
 	if err != nil || g.Request.Server != stripeServer || g.Request.Connector != nil || g.Request.CatalogEntry != StripeEntry {
 		t.Fatalf("the grant: %v %+v", err, g.Request)
 	}
+
+	// A managed Stripe connection made before stays listed, connected, so
+	// the owner can disconnect it.
+	old := &Grant{ID: "grt_oldstripe", Tenant: tenant, Status: StatusConnected, VendorName: "Stripe",
+		Request: Request{Version: "planque.grant.v1", Grant: "grt_oldstripe", Tenant: tenant, Agent: "agt_taf", Kind: "connector", Tools: []ToolRequest{},
+			Connector: &ConnectorRequest{Provider: "fake", Toolkit: stripeToolkit, Title: "Stripe"}}}
+	if err := e.s.saveGrant(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	st, out = e.do("GET", base, nil, nil, "k_setup")
+	listed := false
+	for _, v := range out["entries"].([]any) {
+		if v := v.(map[string]any); v["entry"] == "connector:fake:"+stripeToolkit {
+			listed = v["state"] == "connected" && v["grant"] == old.ID
+		}
+	}
+	if st != 200 || !listed {
+		t.Fatalf("the old managed Stripe connection: %d %v", st, out["entries"])
+	}
 }
