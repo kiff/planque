@@ -363,6 +363,15 @@ invoice, a reaction. Configure `PLANQUE_EVENT_URL` as its fixed HTTPS
 receiver; events are signed with the same `PLANQUE_DOOR_SECRET`. Without it,
 no app event can be approved (503).
 
+The refund event a profile's case block names also goes to KIFF, which
+follows a refund it decided until the payment processor says how it ended.
+`PLANQUE_KIFF_EVENT_URL` is KIFF's fixed HTTPS receiver and
+`PLANQUE_KIFF_EVENT_SECRET` names the Secrets Manager secret those events are
+signed with: both or neither, at start and in `deploy/aws.sh`, which gives the
+function a read of that one secret and nothing wider. Without them, no event
+goes to KIFF. Either way, an event reaches KIFF only on a subscription the
+owner approved for the taf.
+
 - `GET .../triggers/types?slug=...` reads any event the connection's app
   lists, with its config schema and `door` saying whether it is a Slack door's
   event instead.

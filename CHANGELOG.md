@@ -25,6 +25,12 @@ version headings refer to releases, not merely to merged pull requests.
   taf, once, under an id of its own (`PLANQUE_KIFF_EVENT_URL`, signed with
   `PLANQUE_KIFF_EVENT_SECRET`). An event kept before its profile stopped
   naming it is dropped, not sent. Without the setting, nothing changes.
+- The hosted deployment carries KIFF's refund-event receiver:
+  `deploy/aws.sh` passes `PLANQUE_KIFF_EVENT_URL` and
+  `PLANQUE_KIFF_EVENT_SECRET` to the function, both or neither, and lets it
+  read that one secret only (`secretsmanager:GetSecretValue` on its exact
+  ARN). Half of the pair is refused before anything changes
+  (docs/managed-connectors.md, "App events for a taf").
 
 ### Changed
 
@@ -33,9 +39,10 @@ version headings refer to releases, not merely to merged pull requests.
   the browser sign-in view, with its buttons, its note and its answers, in
   the eight languages the tafs apps ship. The language is the one the app
   asked in when it approved or opened the view, kept on the grant, else the
-  browser's, else English (README, "The pages' language"). Before, every
-  page was in English. A browser that didn't hand its sign-in back now logs
-  why instead of showing the worker's error on the page.
+  browser's (the language it rates highest), else English (README, "The
+  pages' language"). Before, every page was in English. A browser that
+  didn't hand its sign-in back now logs why instead of showing the worker's
+  error on the page.
 
 ### Fixed
 
