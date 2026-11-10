@@ -398,7 +398,9 @@ supplies the whole request itself (`stripe-refunds@1`,
 
 - **What's asked:** one tool and no profile: `stripe_api_write` with
   `fixed_arguments` `{"stripe_api_operation_id": "PostRefunds", "livemode":
-  false}` (`true` for live mode). Anything else is refused, the caller's own
+  false}`. Only test mode is offered for now: in live mode, Stripe may ask the
+  owner to confirm each refund in its Dashboard, and that hasn't been checked,
+  so `livemode: true` is refused (409). Anything else is refused, the caller's own
   account, arguments or profile included. Refunds go on a Stripe connection
   of their own, asked before it has tools; the taf's other Stripe tools go on
   another connection, with the profile Coach drafts.

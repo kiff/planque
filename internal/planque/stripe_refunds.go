@@ -114,7 +114,7 @@ func asksStripeRefund(tools []ToolRequest) bool {
 // errStripeRefundsAsk: a refund connection is asked as one tool.
 var errStripeRefundsAsk = apiError{400, "a Stripe connection with refunds asks one tool and no profile: " + stripeWrite +
 	" with fixed_arguments " + stripeOperation + " " + stripeRefund + " and " + stripeLivemode +
-	" (true for live mode, false for test mode), and nothing else. planque adds the case reads and the profile (" + StripeRefundsEntry +
+	" (false: test mode, the only one offered for now), and nothing else. planque adds the case reads and the profile (" + StripeRefundsEntry +
 	"). Ask the taf's other Stripe tools on another connection"}
 
 // stripeRefundsAsk is the request for a refund connection: the five tools,
@@ -133,6 +133,12 @@ func stripeRefundsAsk(tools []ToolRequest, callerProfile json.RawMessage, accoun
 	var live bool
 	if json.Unmarshal(asked.Fixed[stripeLivemode], &live) != nil || stripeOperationOf(asked) != stripeRefund {
 		return nil, nil, errStripeRefundsAsk
+	}
+	if live {
+		// Stripe may ask the owner to confirm each refund in its Dashboard
+		// when the sign-in is a person's own and the mode is live; only test
+		// mode has been seen to refund at once.
+		return nil, nil, apiError{409, "refunds are offered in Stripe's test mode only for now (livemode false): in live mode, Stripe may ask you to confirm each refund in its Dashboard, and that hasn't been checked yet"}
 	}
 	if account == "" {
 		return nil, nil, apiError{409, "this Stripe connection doesn't know its Stripe account, since its sign-in didn't name it: sign in to Stripe again, then ask for refunds"}

@@ -5,6 +5,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Changed
+
+- **Stripe refunds are offered in test mode only.** A refund connection asked with `livemode: true` is refused (409) with the reason: in live mode, Stripe may ask the owner to confirm each refund in its Dashboard, which hasn't been checked yet. In test mode, a refund through the direct sign-in went through at once.
+
 ### Fixed
 
 - **A refund connection's account read takes the account at `parameters.id`.** `GetAccountsAccount` takes its account as `id`, as a test-mode read showed; it was pinned at `parameters.account`, which the first-call field check would have refused, so no refund could have been decided.

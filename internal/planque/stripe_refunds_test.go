@@ -95,9 +95,10 @@ func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
 	if rc := q.Operations[4].Case; rc.AccountRead.Tool != named[1].Name || rc.ChargeRead.Tool != named[2].Name || rc.RefundsRead.Tool != named[3].Name {
 		t.Fatalf("case reads after renaming: %+v", rc)
 	}
-	// Live mode is asked the same way.
-	if live, _, err := stripeRefundsAsk(refundAsk(true), nil, stripeTestAccount, "grt_abcd", "Stripe"); err != nil || string(live[4].Fixed[stripeLivemode]) != "true" {
-		t.Fatalf("live: %v %+v", err, live)
+	// Live mode isn't offered yet: Stripe may ask for its own confirmation
+	// of each refund there, which hasn't been checked.
+	if _, _, err := stripeRefundsAsk(refundAsk(true), nil, stripeTestAccount, "grt_abcd", "Stripe"); err == nil || !strings.Contains(err.Error(), "test mode only") {
+		t.Fatalf("live: %v", err)
 	}
 }
 
