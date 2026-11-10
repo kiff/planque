@@ -58,6 +58,7 @@ const (
 	CodeProfileNotApplied = "profile_not_applied"    // KIFF hasn't applied the owner-approved profile
 	CodeDefinitionInvalid = "definition_invalid"     // the action names a field its operation doesn't take
 	CodeDefinitionUnread  = "definition_unread"      // the operation's fields couldn't be read to check the action
+	CodeSignedOut         = "signed_out"             // the vendor ended the sign-in; the owner signs in again
 	CodeOperationChanged  = "operation_changed"      // a tool the owner approved changed at the vendor; the grant is paused
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
 )

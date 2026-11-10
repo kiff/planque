@@ -297,3 +297,36 @@ func TestANarrowedReadIsCheckedWhereItsGrantHoldsTheDescribingTool(t *testing.T)
 		t.Fatalf("no describing tool: %q %q %v", code, why, g.Tools[i].FieldsChecked)
 	}
 }
+
+// A narrowed tool whose vendor ended the sign-in is refused as signed out,
+// in planque's words for it, so the owner is told to sign in again rather
+// than that its fields couldn't be read; it isn't marked checked.
+func TestAFieldCheckOnAnEndedSignInSaysSignInAgain(t *testing.T) {
+	refund := map[string]any{"tool": "stripe_api_write", "name": "refund_cd34", "title": "Refund a payment", "amount_argument": "amount",
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "PostRefunds"},
+		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.charge", "type": "string"}, "amount": map[string]any{"path": "parameters.amount", "type": "integer"}}}
+	e := newEnv(t)
+	id, out := e.addToDetails(refund)
+	e.approveAddition(id, out)
+	ctx := context.Background()
+	g, err := e.s.loadGrant(ctx, tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(g.Tools, func(gt GrantedTool) bool { return gt.Name == "refund_cd34" })
+	g.Tools[i].FieldsChecked = false
+	g.Status = StatusNeedsReconnect
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if g, err = e.s.loadGrant(ctx, tenant, id); err != nil {
+		t.Fatal(err)
+	}
+	code, why := e.s.fieldsHold(ctx, g, i)
+	if code != CodeSignedOut || !strings.Contains(why, "ended the sign-in planque holds; the owner signs in to") || strings.Contains(why, "fields") {
+		t.Fatalf("an ended sign-in: %q %q", code, why)
+	}
+	if g.Tools[i].FieldsChecked {
+		t.Fatal("a tool on an ended sign-in was marked checked")
+	}
+}

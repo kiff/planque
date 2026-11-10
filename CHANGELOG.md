@@ -21,6 +21,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- **A field check on an ended sign-in says to sign in again.** When the vendor had ended the sign-in planque holds, the first-call check of a narrowed tool refused with `definition_unread` ("couldn't read the operation's fields"), and the taf told the owner to fix its tools. It now refuses with a new code, `signed_out`, in the words for an ended sign-in: the owner signs in again. The tool stays unchecked until a call after the new sign-in.
 - **An existing managed Stripe connection stays in the catalog.** Since the app shows one Stripe, a managed Stripe connection made before wasn't listed anywhere the owner could disconnect it. The catalog now lists it, connected, while it exists; a new one still can't be asked for.
 
 ### Added
