@@ -73,7 +73,12 @@ type Server struct {
 	EventSink door.EventSink
 	// KIFFEventSink takes the refund events a profile's case block names,
 	// for KIFF (refund_events.go); nil hands them to no one but the taf.
-	KIFFEventSink          door.EventSink
+	KIFFEventSink door.EventSink
+	// StripeRefunds offers planque's reviewed Stripe refunds profile
+	// (stripe_refunds.go) on a managed Stripe connection that asks for the
+	// refund tool. Off, the refund tool takes a drafted profile as any
+	// other tool does, with no case block.
+	StripeRefunds          bool
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger

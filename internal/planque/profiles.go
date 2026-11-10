@@ -62,6 +62,9 @@ func deriveProfileFields(raw json.RawMessage, tools []ToolRequest, reviewed bool
 	if !reviewed && (p.Source != "drafted" || p.TestProven) {
 		return nil, errors.New("only a reviewed catalog entry or a recorded test can supply catalog or test-proven evidence")
 	}
+	if draftedCase(p) {
+		return nil, errors.New("a refund's case block comes from a reviewed profile only, never a drafted one")
+	}
 	if len(p.Operations) != len(tools) {
 		return nil, errors.New("the profile must name every requested tool exactly once")
 	}

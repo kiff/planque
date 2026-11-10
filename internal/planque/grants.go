@@ -1019,6 +1019,21 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
+	// A managed Stripe connection that asks for the refund tool takes
+	// planque's reviewed profile, with the case reads added: a refund's
+	// money rules are never a model's draft (stripe_refunds.go).
+	reviewed := false
+	if s.StripeRefunds && stripeRefundsGrant(g) && asksStripeRefund(req.Tools) {
+		if adding {
+			writeErr(w, http.StatusConflict, "the refund tool goes on a Stripe connection of its own, with its three case reads: ask it on a new connection")
+			return
+		}
+		if req.Tools, req.Profile, err = stripeRefundsAsk(req.Tools, req.Profile, vendorName(g)); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		reviewed = true
+	}
 	if g.Request.Connector != nil {
 		if err := s.selectConnectorTools(r.Context(), g, req.Tools); err != nil {
 			s.fail(w, r, err)
@@ -1053,7 +1068,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a connector connection requires an owner-approved profile")
 		return
 	}
-	if req.Profile, err = profileFields(req.Profile, all); err != nil {
+	if req.Profile, err = deriveProfileFields(req.Profile, all, reviewed); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
