@@ -26,7 +26,8 @@ type eventDelivery struct {
 	State    string `json:"state"`
 	Attempts int    `json:"attempts"`
 	Status   int    `json:"status,omitempty"`
-	// Kind is "app_event" for planque.event.v1; empty for a door message.
+	// Kind is "app_event" for planque.event.v1, "kiff_event" for the same
+	// event handed to KIFF (refund_events.go); empty for a door message.
 	Kind string `json:"kind,omitempty"`
 }
 
@@ -123,6 +124,17 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// A refund's later state goes to KIFF too, as its own delivery.
+	if e, ok := kiffEvent(g, route, event); ok && s.KIFFEventSink != nil {
+		b, _ := json.Marshal(e)
+		again, err := s.enqueueDoor(r.Context(), g, provider, route.ID, e.ID, kindKIFFEvent, b)
+		clear(b)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		retry = retry || again
+	}
 	if retry {
 		writeErr(w, 503, "the event is pending delivery")
 		return
@@ -132,7 +144,7 @@ func (s *Server) connectorWebhook(w http.ResponseWriter, r *http.Request) {
 
 // sealContext binds a sealed delivery to its kind and id.
 func sealContext(kind, id string) map[string]string {
-	if kind == "app_event" || kind == "telegram" {
+	if kind == "app_event" || kind == "telegram" || kind == kindKIFFEvent {
 		return map[string]string{"kind": kind, "id": id}
 	}
 	return map[string]string{"kind": "door_event", "id": id}
@@ -246,8 +258,12 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 	var valid bool
 	if delivery.Kind == "telegram" {
 		valid = json.Unmarshal(cleartext, &tg) == nil && tg.ID == id && tg.Tenant == g.Tenant && tg.Agent == g.Request.Agent && tg.Grant == g.ID
-	} else if delivery.Kind == "app_event" {
+	} else if delivery.Kind == "app_event" || delivery.Kind == kindKIFFEvent {
 		valid = json.Unmarshal(cleartext, &app) == nil && app.ID == id && app.Tenant == g.Tenant && app.Agent == g.Request.Agent && app.Account == route.Account && app.Subscription == route.ID && route.AppEvent
+		if delivery.Kind == kindKIFFEvent {
+			// Still the refund event a case block names, now.
+			valid = valid && refundEventOf(g, app.Event)
+		}
 	} else {
 		valid = json.Unmarshal(cleartext, &message) == nil && message.ID == id && message.Tenant == g.Tenant && message.Agent == g.Request.Agent && message.Account == route.Account && message.Trigger == route.ID && slices.Contains(route.Channels, message.Channel)
 	}
@@ -269,6 +285,8 @@ func (s *Server) deliverEvent(ctx context.Context, id string) (bool, error) {
 		result, err = tgSink.DeliverTelegram(ctx, tg)
 	case delivery.Kind == "app_event" && s.EventSink != nil:
 		result, err = s.EventSink.DeliverEvent(ctx, app)
+	case delivery.Kind == kindKIFFEvent && s.KIFFEventSink != nil:
+		result, err = s.KIFFEventSink.DeliverEvent(ctx, app)
 	case delivery.Kind == "" && s.DoorSink != nil:
 		result, err = s.DoorSink.Deliver(ctx, message)
 	}

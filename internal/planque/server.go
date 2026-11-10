@@ -69,7 +69,10 @@ type Server struct {
 	DoorSink   door.Sink
 	// EventSink takes app events for tafs (planque.event.v1); nil, no app
 	// event can be approved.
-	EventSink              door.EventSink
+	EventSink door.EventSink
+	// KIFFEventSink takes the refund events a profile's case block names,
+	// for KIFF (refund_events.go); nil hands them to no one but the taf.
+	KIFFEventSink          door.EventSink
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger
