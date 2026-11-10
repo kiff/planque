@@ -160,11 +160,12 @@ func stripeRefundTools(account string, live bool, grant, name, title string) []T
 	charge := Argument{Path: narrowedParams + ".charge", Type: "string", Required: true, Description: "The charge's id (ch_…)."}
 	limit, _ := json.Marshal(stripeRefundsLimit)
 	details := ToolRequest{Tool: stripeDetails, Name: toolKey(stripeDetails, grant), Title: "Read a Stripe operation's fields", SetupReads: true, ReadOnly: true}
-	// The account read takes the account from the grant; a narrowed tool
-	// still names one argument (checkNarrowing): Stripe's expand, which KIFF
-	// never sends.
+	// The account read takes the account from the grant, at the operation's
+	// id (GetAccountsAccount, as stripe_api_details lists it); a narrowed
+	// tool still names one argument (checkNarrowing): Stripe's expand, which
+	// KIFF never sends.
 	account_ := narrowed(stripeRead, stripeGetAccount, "Look up the Stripe account",
-		map[string]json.RawMessage{narrowedParams + ".account": acct},
+		map[string]json.RawMessage{narrowedParams + ".id": acct},
 		map[string]Argument{"expand": {Path: narrowedParams + ".expand", Type: "string", Description: "Leave out."}})
 	chargeRead := narrowed(stripeRead, stripeGetCharge, "Look up a charge", nil,
 		map[string]Argument{"charge": {Path: narrowedParams + ".id", Type: "string", Required: true, Description: "The charge's id (ch_…)."}})

@@ -5,6 +5,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Fixed
+
+- **A refund connection's account read takes the account at `parameters.id`.** `GetAccountsAccount` takes its account as `id`, as a test-mode read showed; it was pinned at `parameters.account`, which the first-call field check would have refused, so no refund could have been decided.
+
 ### Changed
 
 - **A refund connection's case reads are checked against Stripe's description.** A narrowed read is now checked at its first call, like a narrowed write, where its connection holds the describing tool (`stripe_api_details`): a path its operation doesn't take is refused with Stripe's own list. Without that tool, a narrowed read isn't checked, as before.

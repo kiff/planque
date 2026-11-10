@@ -50,7 +50,7 @@ func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
 			t.Fatalf("tool %d: %s", i, msg)
 		}
 	}
-	if string(tools[3].Fixed["parameters.limit"]) != "100" || string(tools[1].Fixed["parameters.account"]) != `"`+stripeTestAccount+`"` {
+	if string(tools[3].Fixed["parameters.limit"]) != "100" || string(tools[1].Fixed["parameters.id"]) != `"`+stripeTestAccount+`"` {
 		t.Fatalf("the reads' fixed fields: %s %s", tools[3].Fixed, tools[1].Fixed)
 	}
 	if tools[4].Name != "stripe_refund" || tools[4].Arguments["charge"].Path != "parameters.charge" || tools[4].Arguments["amount"].Path != "parameters.amount" {
