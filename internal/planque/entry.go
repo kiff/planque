@@ -134,7 +134,8 @@ func DecodeServerApps(raw []byte) (map[string]string, error) {
 		if !catalogHTTPS(server) {
 			return nil, fmt.Errorf("server apps: %q isn't a fixed HTTPS server", server)
 		}
-		if _, _, ok := connectorEntry(entry); !ok && !catalogID.MatchString(entry) {
+		// planque's own direct Stripe entry is named as itself.
+		if _, _, ok := connectorEntry(entry); !ok && !catalogID.MatchString(entry) && entry != StripeEntry {
 			return nil, fmt.Errorf("server apps: %q names %q, which isn't a catalog entry", server, entry)
 		}
 	}

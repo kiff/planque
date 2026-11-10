@@ -206,6 +206,15 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, v)
 	}
+	// Stripe: planque's own entry, a direct sign-in to Stripe's MCP server
+	// with test mode (stripe_refunds.go), listed on the first page.
+	if r.URL.Query().Get("cursor") == "" && (q == "" || strings.Contains(strings.ToLower(stripeVendor), q)) {
+		v := catalogEntryView{Entry: StripeEntry, Vendor: stripeVendor, Title: stripeVendor, How: "oauth", State: "available"}
+		if state, ok := states[StripeEntry]; ok {
+			v.State, v.Grant = state.State, state.Grant
+		}
+		entries = append(entries, v)
+	}
 	providerID := r.URL.Query().Get("provider")
 	if providerID == "" {
 		ids := make([]string, 0, len(s.Connectors))
@@ -235,6 +244,11 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		skipped = page.Skipped
 		partial = page.Partial
 		for _, app := range page.Items {
+			// The managed connector's Stripe isn't offered: Stripe is the
+			// direct entry above, the one that has test mode.
+			if managedStripe(app.Slug) {
+				continue
+			}
 			id := "connector:" + providerID + ":" + app.Slug
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
 			// An app that needs an operator's own credentials first is listed,
@@ -259,6 +273,12 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("entry")
+	if id == StripeEntry {
+		// A direct sign-in to Stripe's MCP server, connected first: its
+		// tools are chosen from what the server lists.
+		s.requestGrantFrom(w, r, &CatalogEntry{ID: StripeEntry, Vendor: stripeVendor, Title: stripeVendor, Server: stripeServer, Tools: []ToolRequest{}})
+		return
+	}
 	if id == BrowserEntry {
 		if s.Browser == nil {
 			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
@@ -270,6 +290,10 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 	entry, ok := s.CatalogEntries[id]
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {
+			if managedStripe(toolkit) {
+				writeErr(w, http.StatusConflict, "Stripe connects directly, with test mode: ask for catalog entry "+StripeEntry)
+				return
+			}
 			s.requestConnectorGrant(w, r, provider, toolkit)
 			return
 		}

@@ -30,6 +30,23 @@ import (
 // mismatch, before anything is counted or sent.
 const stripeRefundUnit = "EUR"
 
+// StripeEntry is Stripe in the vendor catalog: planque's own entry for a
+// direct sign-in to Stripe's MCP server, which offers live mode, sandboxes
+// and test mode on one consent page, so a taf can be tried on a test
+// account before going live. Where it exists, the managed connector's
+// Stripe isn't offered: the app shows one Stripe.
+const StripeEntry = "stripe"
+
+// stripeServer is Stripe's own MCP server.
+const stripeServer = "https://mcp.stripe.com"
+
+// stripeVendor is the name people read.
+const stripeVendor = "Stripe"
+
+// managedStripe reports whether toolkit is the managed connector's Stripe,
+// which the direct entry replaces.
+func managedStripe(toolkit string) bool { return toolkit == stripeToolkit }
+
 // StripeRefundsEntry names planque's reviewed profile for it.
 const StripeRefundsEntry = "stripe-refunds@1"
 

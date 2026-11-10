@@ -192,3 +192,68 @@ func TestAStripeRefundConnectionTakesPlanquesReviewedProfile(t *testing.T) {
 		t.Fatalf("connector definitions bound: %d", len(g.Request.Connector.Tools))
 	}
 }
+
+// fakeCatalogProvider lists the managed connector's Stripe and one other
+// app, in its catalog and in a tool search.
+type fakeCatalogProvider struct{ connector.Provider }
+
+func (fakeCatalogProvider) Platform() connector.Platform {
+	return connector.Platform{Name: "Provider", URL: "https://connect.example"}
+}
+func (fakeCatalogProvider) Catalog(context.Context, string, string) (connector.Page[connector.App], error) {
+	return connector.Page[connector.App]{Items: []connector.App{
+		{Slug: stripeToolkit, Name: "Stripe", Setup: connector.SetupReady},
+		{Slug: "desk_demo", Name: "Desk", Setup: connector.SetupReady}}}, nil
+}
+func (fakeCatalogProvider) Search(context.Context, string, []string, string) (connector.Search, error) {
+	return connector.Search{
+		Tools: []connector.Tool{{Slug: stripeRefund, Toolkit: stripeToolkit, Name: "Refund"}, {Slug: "DESK_LIST", Toolkit: "desk_demo", Name: "List"}},
+		Apps: map[string]connector.App{stripeToolkit: {Slug: stripeToolkit, Name: "Stripe", Setup: connector.SetupReady},
+			"desk_demo": {Slug: "desk_demo", Name: "Desk", Setup: connector.SetupReady}}}, nil
+}
+
+// In the app, Stripe is one entry: planque's direct sign-in to Stripe's MCP
+// server, the one with test mode. The managed connector's Stripe is neither
+// listed, nor found in a tool search, nor connected.
+func TestTheAppShowsOneStripe(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}
+	base := "/v1/accounts/" + tenant + "/catalog"
+
+	st, out := e.do("GET", base, nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	stripes := []string{}
+	for _, v := range out["entries"].([]any) {
+		if v := v.(map[string]any); v["title"] == "Stripe" {
+			stripes = append(stripes, v["entry"].(string))
+		}
+	}
+	if len(stripes) != 1 || stripes[0] != StripeEntry {
+		t.Fatalf("Stripe entries: %v", stripes)
+	}
+
+	st, out = e.do("GET", base+"/tools?q=refund", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("search: %d %v", st, out)
+	}
+	for _, v := range out["tools"].([]any) {
+		if v.(map[string]any)["app"] == stripeToolkit {
+			t.Fatalf("the managed Stripe found: %v", v)
+		}
+	}
+
+	if st, out := e.do("POST", base+"/connector:fake:"+stripeToolkit+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 409 {
+		t.Fatalf("the managed Stripe asked: %d %v", st, out)
+	}
+	st, out = e.do("POST", base+"/"+StripeEntry+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("Stripe asked: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if err != nil || g.Request.Server != stripeServer || g.Request.Connector != nil || g.Request.CatalogEntry != StripeEntry {
+		t.Fatalf("the grant: %v %+v", err, g.Request)
+	}
+}

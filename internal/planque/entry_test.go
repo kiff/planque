@@ -199,7 +199,7 @@ func TestTheCatalogCountsACoachStartedConnection(t *testing.T) {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
 	entries := out["entries"].([]any)
-	if len(entries) != 1 {
+	if len(entries) != 2 || entries[1].(map[string]any)["entry"] != StripeEntry {
 		t.Fatalf("entries: %v", entries)
 	}
 	if v := entries[0].(map[string]any); v["entry"] != "refunds@1" || v["state"] != "connected" || v["grant"] != g.ID {
@@ -331,7 +331,7 @@ func TestTheShippedServerListDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy/server-apps.json would refuse planque's start: %v", err)
 	}
-	if rows["https://mcp.stripe.com"] != "connector:composio:stripe" || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
+	if rows["https://mcp.stripe.com"] != StripeEntry || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
 		t.Fatalf("the shipped list's first rows: %v", rows)
 	}
 }
@@ -351,7 +351,7 @@ func TestDecodeServerApps(t *testing.T) {
 		"a query":       `{"https://mcp.example.com?x=1": "connector:composio:app"}`,
 		"a fragment":    `{"https://mcp.example.com#a": "connector:composio:app"}`,
 		"user info":     `{"https://u@mcp.example.com": "connector:composio:app"}`,
-		"not an entry":  `{"https://mcp.example.com": "stripe"}`,
+		"not an entry":  `{"https://mcp.example.com": "pay"}`,
 		"half an entry": `{"https://mcp.example.com": "connector:composio:"}`,
 		"not an object": `["https://mcp.example.com"]`,
 		"trailing data": `{"https://mcp.example.com": "connector:composio:app"} {}`,

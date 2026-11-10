@@ -72,7 +72,9 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 	tools := []foundTool{}
 	for _, t := range found.Tools {
 		app, ok := found.Apps[t.Toolkit]
-		if !ok {
+		// The managed connector's Stripe isn't offered: Stripe is planque's
+		// direct entry.
+		if !ok || managedStripe(t.Toolkit) {
 			continue
 		}
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),

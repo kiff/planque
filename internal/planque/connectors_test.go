@@ -369,7 +369,7 @@ func TestConnectorCatalogAndApprovalBoundary(t *testing.T) {
 	// One read walks the provider's pages until it has enough apps that can
 	// be connected, or reaches the end.
 	st, out := e.do("GET", path, nil, nil, "k_setup")
-	if st != 200 || out["next_cursor"] != "" || out["provider"] != "composio" || len(out["entries"].([]any)) != 2 {
+	if st != 200 || out["next_cursor"] != "" || out["provider"] != "composio" || len(out["entries"].([]any)) != 3 {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
 	st, out = e.do("GET", path+"?provider=composio&cursor=next", nil, nil, "k_setup")
