@@ -174,6 +174,18 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
 		eventSink = &door.HTTP{URL: eventURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
+	// The refund events a profile's case block names, for KIFF: its own
+	// fixed HTTPS receiver and its own signing secret.
+	var kiffEventSink door.EventSink
+	kiffURL, kiffSecret := strings.TrimSpace(os.Getenv("PLANQUE_KIFF_EVENT_URL")), strings.TrimSpace(os.Getenv("PLANQUE_KIFF_EVENT_SECRET"))
+	if kiffURL != "" || kiffSecret != "" {
+		u, err := url.Parse(kiffURL)
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || kiffSecret == "" {
+			return nil, errors.New("PLANQUE_KIFF_EVENT_URL and PLANQUE_KIFF_EVENT_SECRET must name KIFF's fixed HTTPS receiver and its secret reference")
+		}
+		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, kiffSecret, "secret")
+		kiffEventSink = &door.HTTP{URL: kiffURL, Secret: reader, Client: egress.Client(10 * time.Second)}
+	}
 	// The browser worker (kiff/planque#86): where it listens, on a private
 	// address, and the key it checks. Without both, no browser is offered.
 	var browserWorker browser.Worker
@@ -186,15 +198,16 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
 	}
 	return &planque.Server{
-		Browser:    browserWorker,
-		DoorSink:   doorSink,
-		EventSink:  eventSink,
-		Connectors: connectors,
-		BaseURL:    base,
-		AppReturn:  appReturn,
-		KV:         kv,
-		Sealer:     sealer,
-		KIFF:       &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
+		Browser:       browserWorker,
+		DoorSink:      doorSink,
+		EventSink:     eventSink,
+		KIFFEventSink: kiffEventSink,
+		Connectors:    connectors,
+		BaseURL:       base,
+		AppReturn:     appReturn,
+		KV:            kv,
+		Sealer:        sealer,
+		KIFF:          &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
 		OAuth:                  &oauth.Client{HTTP: vendors},

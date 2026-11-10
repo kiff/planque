@@ -224,6 +224,14 @@ func renameProfile(raw json.RawMessage, before []string, tools []ToolRequest) (j
 				o.StatusRead.Tool = name
 			}
 		}
+		if c := o.Case; c != nil {
+			// KIFF makes the case reads as the agent, by its own names.
+			for _, tool := range []*string{&c.AccountRead.Tool, &c.ChargeRead.Tool, &c.RefundsRead.Tool} {
+				if name, ok := names[*tool]; ok {
+					*tool = name
+				}
+			}
+		}
 	}
 	return json.Marshal(p)
 }

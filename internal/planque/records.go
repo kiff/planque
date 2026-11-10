@@ -252,6 +252,10 @@ type Grant struct {
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
 	VendorName string `json:"vendor_name,omitempty"`
+	// Lang is the language the owner's app asked in (its Accept-Language)
+	// when it approved or opened a sign-in: the language of the pages planque
+	// then shows in the browser.
+	Lang string `json:"lang,omitempty"`
 	// Entry is the catalog entry for the grant's app, which planque recorded
 	// on a grant made before its request named it (entry.go). It's kept
 	// outside the request on purpose: the request is what the owner signed,
