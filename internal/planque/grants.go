@@ -2525,7 +2525,9 @@ type setupGrantTool struct {
 	ReadOnly bool   `json:"read_only,omitempty"`
 	// SetupReads: one of Setup's own reads, on Setup's reader Card, never
 	// the taf's: a check that the taf's Card covers its tools leaves it out.
-	SetupReads bool `json:"setup_reads,omitempty"`
+	// Always sent, false too, so a reader can tell a listing that marks
+	// them from one made before it did.
+	SetupReads bool `json:"setup_reads"`
 }
 
 // grantAPI is the public facts of a key grant's API, to ask for the same

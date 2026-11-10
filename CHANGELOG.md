@@ -8,9 +8,11 @@ version headings refer to releases, not merely to merged pull requests.
 ### Added
 
 - Setup's listing of a taf's grants (`GET /v1/accounts/{tenant}/agents/{agent}/grants`)
-  marks each of Setup's own reads with `setup_reads: true`. Those reads are on
-  Setup's reader Card, never the taf's, so a check that the taf's Card covers
-  every tool it was given can leave them out. Other tools read as before.
+  gives every tool's `setup_reads`: true for one of Setup's own reads, false
+  otherwise. Those reads are on Setup's reader Card, never the taf's, so a
+  check that the taf's Card covers every tool it was given can leave them out.
+  The field is always sent, so a reader can tell this listing from an older
+  one that had no such field.
 
 ### Fixed
 

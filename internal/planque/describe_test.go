@@ -251,7 +251,8 @@ func TestSetupsListingMarksItsOwnReads(t *testing.T) {
 		tool := raw.(map[string]any)
 		marked[tool["name"].(string)] = tool["setup_reads"]
 	}
-	if marked["fields_ab12"] != true || marked["refund_cd34"] != nil || len(marked) != 2 {
+	// Always said, false too, so a reader knows the listing marks them.
+	if marked["fields_ab12"] != true || marked["refund_cd34"] != false || len(marked) != 2 {
 		t.Fatalf("the tools as Setup reads them: %v", marked)
 	}
 }
