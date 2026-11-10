@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/kiff/planque/internal/kiff"
@@ -88,6 +89,14 @@ func deriveProfileFields(raw json.RawMessage, tools []ToolRequest, reviewed bool
 		t := byName[op.Tool]
 		if t == nil {
 			return nil, fmt.Errorf("profile operation %s is not one of the requested tools", op.Tool)
+		}
+		// A case's marker inside the operation's fields is for a broad tool
+		// narrowed to one write, whose fields are its parameters: on any
+		// other tool, planque would write it where the record never shows it.
+		if c := op.Case; c != nil && op.Marker != nil && op.Marker.Field != c.RefundsRead.Marker {
+			if d, _, write, narrowed := narrowedTo(*t); !narrowed || !write || d.Params != profile.NarrowedParams {
+				return nil, fmt.Errorf("%s's marker is inside %s, which only a tool narrowed to one write operation takes", op.Tool, profile.NarrowedParams)
+			}
 		}
 		t.ReadOnly = op.Kind == "read"
 		t.AmountArg, t.AmountPath, t.AmountFormat, t.AmountUnit, t.AmountScale, t.AmountLookup, t.UnitLookup = "", "", "", "", nil, nil, nil
@@ -309,6 +318,14 @@ func profileVendorSchema(g *Grant, name string, schema json.RawMessage) error {
 	op, ok := profileOperation(g.Request.Profile, name)
 	if !ok || op.Marker == nil {
 		return nil
+	}
+	// A narrowed write's marker goes inside its operation's fields, which the
+	// broad tool's schema doesn't list: it's checked against the operation's
+	// own description instead (fieldsHold), before the tool is first sent.
+	if i := slices.IndexFunc(g.Request.Tools, func(t ToolRequest) bool { return t.Name == name }); i >= 0 {
+		if d, _, write, narrowed := narrowedTo(g.Request.Tools[i]); narrowed && write && strings.HasPrefix(op.Marker.Field, d.Params+".") {
+			return nil
+		}
 	}
 	if strings.ContainsAny(op.Marker.Field, "[]") || schemaType(schema, op.Marker.Field) != "string" {
 		return errors.New("the marker must name a string field in the vendor's input schema")

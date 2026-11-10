@@ -38,7 +38,7 @@ type describer struct {
 	Context []string
 }
 
-var describers = []describer{{Tool: "stripe_api_details", OpArg: "stripe_api_operation_id", Params: "parameters",
+var describers = []describer{{Tool: "stripe_api_details", OpArg: "stripe_api_operation_id", Params: narrowedParams,
 	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context", "livemode"}}}
 
 // narrowedTo is the describer of t and the operation t pins, when t is a
@@ -101,12 +101,16 @@ func parseFields(text string) map[string]*field {
 
 // fieldsCheck says which of t's paths into d's fields op doesn't take, with
 // the fields it does take, or "".
-func fieldsCheck(t ToolRequest, d describer, op string, fields map[string]*field) string {
+// marker is the path planque writes the profile's marker at, or "".
+func fieldsCheck(t ToolRequest, d describer, op string, fields map[string]*field, marker string) string {
 	var paths []string
 	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 		paths = append(paths, t.Arguments[name].Path)
 	}
 	paths = append(paths, slices.Sorted(maps.Keys(t.Fixed))...)
+	if marker != "" {
+		paths = append(paths, marker)
+	}
 	for _, p := range paths {
 		if p == d.Params {
 			return fmt.Sprintf("%s: %s takes one field of %s, never all of %s", t.Tool, p, op, d.Params)
@@ -177,7 +181,13 @@ func (s *Server) operationsCheck(ctx context.Context, g *Grant, approved, tools 
 			}
 			read[key] = fields
 		}
-		if msg := fieldsCheck(t, d, op, fields); msg != "" {
+		// The marker planque writes into a write's fields is one of them too
+		// (profileVendorSchema leaves it to this check).
+		marker := ""
+		if po, ok := profileOperation(activeProfile(g), name); ok && write && po.Marker != nil {
+			marker = po.Marker.Field
+		}
+		if msg := fieldsCheck(t, d, op, fields, marker); msg != "" {
 			return msg, nil
 		}
 	}

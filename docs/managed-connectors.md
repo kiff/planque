@@ -389,25 +389,44 @@ owner approved for the taf.
 
 ### Stripe refunds through KIFF's governed path
 
-A refund's money rules are reviewed code, never a model's draft. When
-`PLANQUE_STRIPE_REFUNDS=on` and a managed Stripe connection asks for
-`STRIPE_CREATE_REFUND`, planque supplies the whole profile itself
-(`stripe-refunds@1`, `internal/planque/stripe_refunds.go`), the way it supplies
-the browser's.
+A refund's money rules are reviewed code, never a model's draft. Refunds go
+through the direct Stripe connection (catalog entry `stripe`, a sign-in to
+`https://mcp.stripe.com` whose consent page offers test mode). When
+`PLANQUE_STRIPE_REFUNDS=on` and such a connection asks for the refund, planque
+supplies the whole request itself (`stripe-refunds@1`,
+`internal/planque/stripe_refunds.go`), the way it supplies the browser's.
 
-- **The tools:** the request names exactly four tools from the app's catalog,
-  and no profile: `STRIPE_CREATE_REFUND` and its three case reads,
-  `STRIPE_GET_ACCOUNT`, `STRIPE_RETRIEVE_CHARGE` and `STRIPE_LIST_REFUNDS`.
-  Anything else is refused. The taf's other Stripe tools go on another
-  connection, with the profile Coach drafts. The refund tool can't be added
-  to a connection that already has tools.
-- **The profile:** the refund moves money, in `EUR` minor units, marked with
-  `metadata.kiff_op`. Its `case` block names the three reads, and
-  `STRIPE_REFUND_CREATED` as the refund event. KIFF refuses a refund on a
-  charge in another currency.
-- **Off by default.** The paths are the Stripe objects' own. Turn it on only
-  after a read of each case tool on a test-mode connection shows the
-  connector answers with them.
+- **What's asked:** one tool and no profile: `stripe_api_write` with
+  `fixed_arguments` `{"stripe_api_operation_id": "PostRefunds", "livemode":
+  false}` (`true` for live mode). Anything else is refused, the caller's own
+  account, arguments or profile included. Refunds go on a Stripe connection
+  of their own, asked before it has tools; the taf's other Stripe tools go on
+  another connection, with the profile Coach drafts.
+- **What's granted:** five tools, each on the account Stripe's sign-in named
+  (the connection's `account`, from `stripe_user_id`) and in the asked mode:
+  - `stripe_api_details`, Setup's read of an operation's fields;
+  - `stripe_api_read` narrowed to `GetAccountsAccount` (the account read),
+    `GetChargesCharge` (the charge, by `charge`) and `GetRefunds` (its
+    refunds, by `charge`, at most 100);
+  - `stripe_api_write` narrowed to `PostRefunds`, with `charge` and `amount`.
+
+  A connection whose sign-in didn't name its account is asked to sign in
+  again (409).
+- **The profile:** the refund moves money, in `EUR` minor units. planque
+  writes its marker at `parameters.metadata.kiff_op`, inside the operation's
+  fields, and the refund Stripe makes carries it at `metadata.kiff_op`, where
+  the case's refunds read finds it. The case reads `id` from the account,
+  `currency`, `amount_captured` and `disputed` from the charge, and `data[]`
+  with `id`, `amount`, `status` and `metadata.kiff_op` from the refunds list.
+  Stripe writes the currency in lower case (`eur`), and KIFF compares it
+  without case. KIFF refuses a refund on a charge in another currency.
+- **Checked against Stripe's own description:** the narrowed tools' paths,
+  the marker included, are checked against the fields `stripe_api_details`
+  lists for each operation, once the owner approved it, before the refund is
+  first sent. A marker inside `parameters` is allowed only on a tool narrowed
+  to one write, and only under exactly that prefix.
+- **Off by default.** Stripe's shapes were read on a test-mode connection;
+  turn it on only after the account read is confirmed there too.
 
 A drafted profile with a `case` block is refused on every connection.
 
