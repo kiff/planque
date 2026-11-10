@@ -603,8 +603,10 @@ func validateAmount(a Amount, byTool map[string]Operation) error {
 	return nil
 }
 
-// readOf checks that tool is a read of the same profile, and that its
-// argument references are well formed.
+// validateCase checks a case block: a refund that moves money, whose
+// marker the case's refunds read finds, with reads of the same profile whose
+// only reference is the call's charge, a dispute signal, and a well-formed
+// refund event when it names one.
 func validateCase(o Operation, c Case, byTool map[string]Operation) error {
 	if c.Kind != CaseKindRefund {
 		return errors.New(`kind is "refund"`)
@@ -682,6 +684,8 @@ func validateCase(o Operation, c Case, byTool map[string]Operation) error {
 	return nil
 }
 
+// readOf checks that tool is a read of the same profile, and that its
+// argument references are well formed.
 func readOf(tool string, args map[string]string, byTool map[string]Operation) error {
 	o, ok := byTool[tool]
 	if !ok {
