@@ -276,7 +276,15 @@ func (g *Grant) signedOut() bool {
 // signedOutErr is what a call through a signed-out grant answers: the
 // taf says it can't be done now, and the owner reads why in tafs.
 func signedOutErr(g *Grant) error {
-	return fmt.Errorf("%s ended the sign-in planque holds; the owner signs in to %s again in tafs", vendorName(g), vendorName(g))
+	return signedOutError{vendorName(g)}
+}
+
+// signedOutError is the vendor ending the sign-in planque holds, told
+// apart from other failures so a check that needed the vendor says so.
+type signedOutError struct{ vendor string }
+
+func (e signedOutError) Error() string {
+	return fmt.Sprintf("%s ended the sign-in planque holds; the owner signs in to %s again in tafs", e.vendor, e.vendor)
 }
 
 // signOut marks a connected grant as signed out by its vendor, so its

@@ -268,6 +268,11 @@ func (s *Server) fieldsHold(ctx context.Context, g *Grant, i int) (code, why str
 		approved[j] = gt.ToolRequest
 	}
 	msg, err := s.operationsCheck(ctx, g, approved, []ToolRequest{t.ToolRequest})
+	// The vendor ended the sign-in: that's what the owner fixes, by signing
+	// in again, not the tool's fields.
+	if out := (signedOutError{}); errors.As(err, &out) {
+		return CodeSignedOut, out.Error()
+	}
 	if err != nil {
 		s.log().WarnContext(ctx, "fields unread; refusing", slog.String("grant", g.ID), slog.String("tool", t.Name), slog.String("err", err.Error()))
 		return CodeDefinitionUnread, "planque couldn't read the operation's fields to check " + t.Name
