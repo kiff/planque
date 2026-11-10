@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- **A Stripe connection's account comes from Stripe's own accounts tool.** Stripe's MCP sign-in names no account in its token answer (`stripe_user_id` is Connect's). Right after the owner signs in, planque calls `list_available_accounts_or_orgs` once, itself, with the new token, and keeps the account, with its mode, when it lists exactly one (`oauth.Metadata.AccountsTool`, set for Stripe's server only). With several or none it keeps none, and the read is on the connection's record. A refund connection pins that account, and is refused when the account is in live mode.
 - **Stripe refunds are offered in test mode only.** A refund connection asked with `livemode: true` is refused (409) with the reason: in live mode, Stripe may ask the owner to confirm each refund in its Dashboard, which hasn't been checked yet. In test mode, a refund through the direct sign-in went through at once.
 
 ### Fixed

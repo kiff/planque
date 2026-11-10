@@ -404,16 +404,20 @@ supplies the whole request itself (`stripe-refunds@1`,
   account, arguments or profile included. Refunds go on a Stripe connection
   of their own, asked before it has tools; the taf's other Stripe tools go on
   another connection, with the profile Coach drafts.
-- **What's granted:** five tools, each on the account Stripe's sign-in named
-  (the connection's `account`, from `stripe_user_id`) and in the asked mode:
+- **What's granted:** five tools, each on the connection's account and in the asked mode:
   - `stripe_api_details`, Setup's read of an operation's fields;
   - `stripe_api_read` narrowed to `GetAccountsAccount` (the account read),
     `GetChargesCharge` (the charge, by `charge`) and `GetRefunds` (its
     refunds, by `charge`, at most 100);
   - `stripe_api_write` narrowed to `PostRefunds`, with `charge` and `amount`.
 
-  A connection whose sign-in didn't name its account is asked to sign in
-  again (409).
+  **Which account:** Stripe's sign-in answer names none. Right after the
+  owner signs in, planque calls Stripe's own `list_available_accounts_or_orgs`
+  once, itself, with the new token, never on a caller's word. When it lists
+  exactly one account, planque keeps it, with its mode, as the connection's
+  `account`; with several or none, it keeps none. A refund connection without
+  an account is asked to sign in again choosing one account in test mode
+  (409), and one whose account is in live mode is refused (409).
 - **The profile:** the refund moves money, in `EUR` minor units. planque
   writes its marker at `parameters.metadata.kiff_op`, inside the operation's
   fields, and the refund Stripe makes carries it at `metadata.kiff_op`, where

@@ -249,6 +249,9 @@ type Grant struct {
 	Vendor   oauth.Metadata `json:"vendor"`
 	ClientID string         `json:"client_id,omitempty"`
 	Account  string         `json:"account,omitempty"` // the vendor account the token is bound to
+	// AccountLive is the account's mode, where the vendor's own list of
+	// the sign-in's accounts said it (Stripe's livemode); nil when unsaid.
+	AccountLive *bool `json:"account_live,omitempty"`
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
 	VendorName string `json:"vendor_name,omitempty"`

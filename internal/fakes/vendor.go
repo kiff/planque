@@ -32,6 +32,12 @@ type Vendor struct {
 	CallDelay    time.Duration // a slow tools/call
 	AdvertiseIss bool          // authorization_response_iss_parameter_supported
 	Account      string        // named in the token response
+	// UnnamedAccount leaves the account out of the token response, as
+	// Stripe's MCP sign-in does; its accounts tool still lists it.
+	UnnamedAccount bool
+	// MoreAccounts are other accounts the sign-in covers, listed by its
+	// accounts tool after Account.
+	MoreAccounts []string
 	// Base is the vendor's public URL when it isn't served by the embedded
 	// test server (a deployed fake, cmd/fakevendor).
 	Base string
@@ -198,8 +204,11 @@ func (v *Vendor) issue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "server_error"})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"access_token": a, "token_type": "bearer", "expires_in": int(ttl.Seconds()),
-		"refresh_token": rt, "account": v.Account})
+	answer := map[string]any{"access_token": a, "token_type": "bearer", "expires_in": int(ttl.Seconds()), "refresh_token": rt, "account": v.Account}
+	if v.UnnamedAccount {
+		delete(answer, "account")
+	}
+	writeJSON(w, 200, answer)
 }
 
 func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
@@ -409,6 +418,11 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 				result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(e)}}, "isError": true, "_meta": meta})
 				return
 			}
+			if st, isStructured := out.(vendorStructured); isStructured {
+				b, _ := json.Marshal(st)
+				result(map[string]any{"content": []map[string]string{{"type": "text", "text": string(b)}}, "structuredContent": st, "_meta": meta})
+				return
+			}
 			text, isText := out.(vendorText)
 			if !isText {
 				b, _ := json.Marshal(out)
@@ -443,6 +457,14 @@ func (v *Vendor) read(ctx context.Context, tool string, args map[string]any) (an
 	switch tool {
 	case "list_accounts":
 		return map[string]any{"accounts": []map[string]string{{"account": v.Account, "mode": "test"}}}, true
+	case "list_available_accounts_or_orgs":
+		// As Stripe answers it: the list in structuredContent, and the same
+		// JSON as text.
+		accounts := []map[string]any{{"stripe_context": v.Account, "livemode": false, "name": "Test shop"}}
+		for _, a := range v.MoreAccounts {
+			accounts = append(accounts, map[string]any{"stripe_context": a, "livemode": false, "name": "Another shop"})
+		}
+		return vendorStructured{"accounts": accounts}, true
 	case "list_charges":
 		// Business data, so a test sees it if it's ever read where it mustn't be.
 		return map[string]any{"data": []any{map[string]any{"id": "ch_customer_1", "amount": 4200, "currency": "eur",
@@ -566,6 +588,10 @@ var operations = map[string]map[string]any{
 			{"name": "metadata", "in": "body", "type": "object", "description": "Your own keys and values."},
 			{"name": "payment_intent", "in": "body", "type": "string", "description": "The payment intent to refund."}}},
 }
+
+// vendorStructured is a tool's answer with structuredContent, and the same
+// JSON as text, as Stripe's accounts tool answers.
+type vendorStructured map[string]any
 
 // vendorText is a tool's answer as text, sent as it is.
 type vendorText string
