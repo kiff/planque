@@ -7,7 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
-- **Qonto, signed in to directly.** The catalog lists `qonto`, a direct sign-in to Qonto's MCP server (`https://mcp.qonto.com/mcp`), where the owner signs in on Qonto's page with Qonto's own approval step. The sign-in asks only for reviewed scopes: reading the business, its clients, its invoices and their e-invoicing state, and writing clients and client invoices. It never asks for transfers, cards, bank accounts, direct debits, team or members, though Qonto's server lists them. `deploy/server-apps.json` lists Qonto's server under `qonto`.
+- **Qonto, signed in to directly.** The catalog lists `qonto`, a direct sign-in to Qonto's MCP server (`https://mcp.qonto.com/mcp`), where the owner signs in on Qonto's page with Qonto's own approval step. The sign-in asks only for reviewed scopes: reading the business, its clients, its invoices and their e-invoicing state, and writing clients and client invoices. It never asks for transfers, cards, bank accounts, direct debits, team or members, though Qonto's server lists them, and it fails closed: the server being connected, or any resource on Qonto's host, gets the reviewed list. The managed connector's Qonto is no longer listed, found in a tool search, or connected (409, naming `qonto`): one way to connect a bank. `deploy/server-apps.json` lists Qonto's server under `qonto`.
 
 ### Changed
 
