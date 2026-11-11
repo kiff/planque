@@ -205,6 +205,13 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 			if _, ok := args[name]; a.Required && !ok {
 				return nil, fmt.Errorf("argument %s is required", name)
 			}
+			// The object an argument goes in is sent even when the agent set
+			// none of its arguments: a read called with {} (a schedule's
+			// check) still sends Stripe its parameters object, which its
+			// tool requires.
+			if parts, _ := pathParts(a.Path); len(parts) > 1 {
+				parents(out, parts[:len(parts)-1])
+			}
 		}
 	}
 	for p, raw := range t.Fixed {
@@ -216,6 +223,18 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 		set(out, parts, v)
 	}
 	return json.Marshal(out)
+}
+
+// parents makes sure the nested objects at path exist in m, empty when new.
+func parents(m map[string]any, path []string) {
+	for _, k := range path {
+		next, ok := m[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			m[k] = next
+		}
+		m = next
+	}
 }
 
 func set(m map[string]any, parts []string, v any) {
