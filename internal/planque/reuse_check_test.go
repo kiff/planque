@@ -76,3 +76,20 @@ func TestAnUnreachableVendorStillReuses(t *testing.T) {
 		t.Fatalf("the reused grant: %s", old.Status)
 	}
 }
+
+// An MCP server that's down when the sign-in is read hasn't refused it
+// either: the reuse goes on, however often the read fails.
+func TestAServerThatIsDownStillReuses(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	first := e.connect()
+	e.vendor.ListFails = 2
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID, "agent": "agt_taf",
+		"tools": []map[string]any{{"tool": "list_charges", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+	if st != 201 || !strings.Contains(out["text"].(string), "already signed in") {
+		t.Fatalf("reuse with the server down: %d %v", st, out)
+	}
+	if old, _ := e.s.loadGrant(ctx, tenant, first.ID); old.Status != StatusConnected {
+		t.Fatalf("the reused grant: %s", old.Status)
+	}
+}

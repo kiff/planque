@@ -70,6 +70,9 @@ type Vendor struct {
 	// RefreshFails is how many refreshes to answer 503 first, as a
 	// vendor's token endpoint that is down.
 	RefreshFails int
+	// ListFails is how many tools/list calls to answer 503 first, as an MCP
+	// server that is down.
+	ListFails int
 	// ChangeTools, when set, rewrites the tools tools/list answers (a copy
 	// of each), as a vendor that changes a tool after it was approved.
 	ChangeTools func([]map[string]any) []map[string]any
@@ -426,7 +429,15 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 		v.mu.Lock()
 		v.Lists++
 		change := v.ChangeTools
+		down := v.ListFails > 0
+		if down {
+			v.ListFails--
+		}
 		v.mu.Unlock()
+		if down {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		tools := vendorTools
 		if change != nil {
 			tools = make([]map[string]any, len(vendorTools))
