@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/oauth"
 )
 
@@ -25,9 +26,16 @@ var neverAskedOfABank = []string{"transfer", "card", "bank_account", "sepa", "te
 // A sign-in to Qonto asks for exactly the reviewed scopes, never all its
 // server lists, and nothing that moves money or changes who may.
 func TestQontoSignInAsksForTheReviewedScopesOnly(t *testing.T) {
-	for _, resource := range []string{"https://mcp.qonto.com", "https://mcp.qonto.com/", "https://MCP.qonto.com"} {
-		meta := oauth.Metadata{Resource: resource, Scopes: slices.Clone(qontoListed)}
-		reviewScopes(&meta)
+	// It fails closed: whatever path Qonto's metadata names, and whatever it
+	// names when the server connected is Qonto's, the list is the reviewed one.
+	for _, c := range []struct{ server, resource string }{
+		{qontoServer, "https://mcp.qonto.com"}, {qontoServer, "https://mcp.qonto.com/"}, {qontoServer, "https://MCP.qonto.com"},
+		{qontoServer, "https://mcp.qonto.com/mcp"}, {"https://mcp.qonto.com/mcp/", "https://mcp.qonto.com/mcp"},
+		{qontoServer, "https://auth.qonto.example"}, {"https://tools.example/mcp", "https://mcp.qonto.com/mcp"},
+	} {
+		resource := c.server + " → " + c.resource
+		meta := oauth.Metadata{Resource: c.resource, Scopes: slices.Clone(qontoListed)}
+		reviewScopes(c.server, &meta)
 		if !slices.Equal(meta.Scopes, qontoScopes) {
 			t.Fatalf("%s: asked for %v", resource, meta.Scopes)
 		}
@@ -54,10 +62,12 @@ func TestQontoSignInAsksForTheReviewedScopesOnly(t *testing.T) {
 		}
 	}
 	// Another server's sign-in is as it was: all its server lists.
-	other := oauth.Metadata{Resource: "https://mcp.qonto.com.example", Scopes: []string{"a", "b"}}
-	reviewScopes(&other)
-	if !slices.Equal(other.Scopes, []string{"a", "b"}) {
-		t.Fatalf("another server's scopes changed: %v", other.Scopes)
+	for _, server := range []string{"https://mcp.qonto.com.example/mcp", "https://qonto.example/mcp", "https://mcp.stripe.com"} {
+		other := oauth.Metadata{Resource: server, Scopes: []string{"a", "b"}}
+		reviewScopes(server, &other)
+		if !slices.Equal(other.Scopes, []string{"a", "b"}) {
+			t.Fatalf("%s: scopes changed: %v", server, other.Scopes)
+		}
 	}
 }
 
@@ -87,5 +97,39 @@ func TestTheCatalogOffersQontoDirectly(t *testing.T) {
 	}
 	if g.Vendor.Resource != "https://mcp.qonto.com" || !slices.Equal(g.Vendor.Scopes, qontoScopes) {
 		t.Fatalf("the sign-in: resource %q, scopes %v", g.Vendor.Resource, g.Vendor.Scopes)
+	}
+}
+
+// One way to connect a bank: the managed connector's Qonto is neither
+// listed, nor found in a tool search, nor connected.
+func TestTheAppShowsOneQonto(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}
+	base := "/v1/accounts/" + tenant + "/catalog"
+	st, out := e.do("GET", base, nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	qontos := []string{}
+	for _, v := range out["entries"].([]any) {
+		if v := v.(map[string]any); v["title"] == "Qonto" {
+			qontos = append(qontos, v["entry"].(string))
+		}
+	}
+	if len(qontos) != 1 || qontos[0] != QontoEntry {
+		t.Fatalf("Qonto entries: %v", qontos)
+	}
+	st, out = e.do("GET", base+"/tools?q=invoices", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("search: %d %v", st, out)
+	}
+	for _, v := range out["tools"].([]any) {
+		if v.(map[string]any)["app"] == qontoToolkit {
+			t.Fatalf("the managed Qonto found: %v", v)
+		}
+	}
+	if st, out := e.do("POST", base+"/connector:fake:"+qontoToolkit+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), QontoEntry) {
+		t.Fatalf("the managed Qonto asked: %d %v", st, out)
 	}
 }

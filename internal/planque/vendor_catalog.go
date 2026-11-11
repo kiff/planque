@@ -254,10 +254,11 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		partial = page.Partial
 		for _, app := range page.Items {
 			id := "connector:" + providerID + ":" + app.Slug
-			// The managed connector's Stripe isn't offered: Stripe is the
-			// direct entry above, the one that has test mode. A connection
-			// made to it before stays listed, so it can be disconnected.
-			if _, made := states[id]; managedStripe(app.Slug) && !made {
+			// The managed connector's Stripe and Qonto aren't offered: each is
+			// a direct entry above, Stripe's the one with test mode, Qonto's
+			// the one with reviewed scopes. A connection made to one before
+			// stays listed, so it can be disconnected.
+			if _, made := states[id]; directEntryFor(app.Slug) != "" && !made {
 				continue
 			}
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}
@@ -306,8 +307,12 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 	entry, ok := s.CatalogEntries[id]
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {
-			if managedStripe(toolkit) {
+			switch directEntryFor(toolkit) {
+			case StripeEntry:
 				writeErr(w, http.StatusConflict, "Stripe connects directly, with test mode: ask for catalog entry "+StripeEntry)
+				return
+			case QontoEntry:
+				writeErr(w, http.StatusConflict, "Qonto connects directly, with reviewed scopes: ask for catalog entry "+QontoEntry)
 				return
 			}
 			s.requestConnectorGrant(w, r, provider, toolkit)

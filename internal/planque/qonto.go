@@ -1,7 +1,9 @@
 package planque
 
 import (
+	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/kiff/planque/internal/oauth"
 )
@@ -40,11 +42,38 @@ var qontoScopes = []string{
 	"attachment.read",
 }
 
+// qontoHost is the host of Qonto's MCP server and of the resource its
+// metadata names.
+const qontoHost = "mcp.qonto.com"
+
+// qontoToolkit is the managed connector's Qonto, which the direct entry
+// replaces: one way to connect a bank.
+const qontoToolkit = "qonto"
+
 // reviewScopes keeps a sign-in to a server planque knows to its reviewed
-// scopes. Matched on the resource the server's own metadata names, so a
-// grant that names Qonto's server another way gets the same list.
-func reviewScopes(meta *oauth.Metadata) {
-	if sameServer(meta.Resource, "https://mcp.qonto.com") {
+// scopes. It fails closed: the server being connected, or any resource on
+// Qonto's host, whatever path the metadata names, gets the reviewed list,
+// never all the server lists.
+func reviewScopes(server string, meta *oauth.Metadata) {
+	if onHost(server, qontoHost) || onHost(meta.Resource, qontoHost) {
 		meta.Scopes = slices.Clone(qontoScopes)
 	}
+}
+
+// onHost reports whether raw is a URL on host, whatever its scheme, port or path.
+func onHost(raw, host string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && strings.EqualFold(u.Hostname(), host)
+}
+
+// directEntryFor is planque's own entry that replaces the managed
+// connector's toolkit, or "" for a toolkit offered as it is.
+func directEntryFor(toolkit string) string {
+	switch toolkit {
+	case stripeToolkit:
+		return StripeEntry
+	case qontoToolkit:
+		return QontoEntry
+	}
+	return ""
 }
