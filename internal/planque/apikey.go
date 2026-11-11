@@ -217,6 +217,46 @@ func (s *Server) reusable(ctx context.Context, tenant, id, kind, server string) 
 	return g, "", nil
 }
 
+// errSignInRefused: the vendor no longer takes the sign-in a request asked to
+// reuse, so reusing it would only fail once the owner approved.
+var errSignInRefused = errors.New("planque: the vendor refused the sign-in to reuse")
+
+// signInWorks checks, before a request is offered with "no second sign-in",
+// that g's sign-in still works at its vendor: a live token (refreshed when
+// due) and one read of its server's tools, the token refreshed once if the
+// server refuses it. A refusal is errSignInRefused, and g is signed out as
+// any refused refresh signs it out. A vendor that can't be reached isn't a
+// refusal: reuse goes on, as it did. Only an OAuth sign-in to an MCP server
+// is read; a key or a managed app's sign-in is checked where it's used.
+func (s *Server) signInWorks(ctx context.Context, g *Grant) error {
+	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindAPIKey || g.Request.Kind == KindBrowser {
+		return nil
+	}
+	refused := func(err error) error {
+		var so signedOutError
+		if errors.As(err, &so) || errors.Is(err, errNoToken) {
+			return errSignInRefused
+		}
+		return err
+	}
+	access, ver, err := s.accessToken(ctx, g, 0)
+	if err != nil {
+		return refused(err)
+	}
+	for attempt := 0; ; attempt++ {
+		_, _, err = s.MCP.ListTools(ctx, g.Request.Server, access)
+		if !errors.Is(err, mcp.ErrUnauthorized) {
+			return nil
+		}
+		if attempt > 0 {
+			return errSignInRefused
+		}
+		if access, ver, err = s.accessToken(ctx, g, ver); err != nil {
+			return refused(err)
+		}
+	}
+}
+
 // vendorTools are the tools g's vendor offers, as an MCP server lists them:
 // listed by its MCP server, or read from an API-key grant's snapshot.
 func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mcpTool, mcp.Server, error) {
