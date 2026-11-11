@@ -117,14 +117,14 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 			t.Fatalf("older signed fields changed: %s %v", raw, err)
 		}
 		q := Request{Agent: "agt_taf", Connector: &binding}
-		if got := connectorText(q); got != prefix+" Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet." {
+		if got := connectorText(english, q); got != prefix+" Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet." {
 			t.Fatalf("older approval words changed: %q", got)
 		}
 	}
 	// Its actions too: the account and each action's version, as it was signed.
 	q := Request{Agent: "agt_taf", Tools: []ToolRequest{{Tool: "connector_x", Name: "reply_ticket"}}, Connector: &ConnectorRequest{Provider: "composio", Toolkit: "desk_demo", Account: "ca_old",
 		Tools: []connector.Tool{{Slug: "DESK_REPLY", Toolkit: "desk_demo", Version: "20251001_00", Name: "Reply to a ticket"}}}}
-	if got, want := connectorText(q), "Connect desk_demo through composio for agt_taf. This connection provider holds the vendor credentials. Use only connected account ca_old. Approve these exact versioned actions: Reply to a ticket (DESK_REPLY, 20251001_00)."; got != want {
+	if got, want := connectorText(english, q), "Connect desk_demo through composio for agt_taf. This connection provider holds the vendor credentials. Use only connected account ca_old. Approve these exact versioned actions: Reply to a ticket (DESK_REPLY, 20251001_00)."; got != want {
 		t.Fatalf("older actions' words changed:\n%q\nwant\n%q", got, want)
 	}
 }

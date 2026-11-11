@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
+	"github.com/kiff/planque/internal/words"
 )
 
 // ApplicationApproval freezes the public app configuration and client id
@@ -117,18 +119,18 @@ func (s *Server) revokeToken(ctx context.Context, g *Grant, token, hint string) 
 	return s.OAuth.Revoke(ctx, g.Vendor, g.ClientID, token, hint, registration...)
 }
 
-func appWords(request Request) string {
+func appWords(w words.Approval, request Request) string {
 	if request.Application == nil {
 		return ""
 	}
 	app := request.Application.Definition
-	var words strings.Builder
-	words.WriteString("\n\nAccess at " + app.Name + ":")
+	var b strings.Builder
+	fmt.Fprintf(&b, w.AccessAtF, app.Name)
 	for _, permission := range app.Permissions {
-		words.WriteString("\n• " + permission)
+		b.WriteString("\n• " + permission)
 	}
 	if request.API != nil {
-		words.WriteString("\nThe approved operations are the reviewed definitions from " + app.Source + ".")
+		fmt.Fprintf(&b, w.ReviewedFromF, app.Source)
 	}
-	return words.String()
+	return b.String()
 }
