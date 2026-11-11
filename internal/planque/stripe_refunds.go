@@ -148,6 +148,10 @@ func sessionAccounts(res json.RawMessage) ([]sessionAccount, bool) {
 // stripeVendor is the name people read.
 const stripeVendor = "Stripe"
 
+// stripeIcon is the Stripe entry's logo, the one the managed connector's
+// Stripe lists: the apps load it through tafs cloud, never from here.
+const stripeIcon = "https://logos.composio.dev/api/stripe"
+
 // stripeToolkit is the managed connector's Stripe, which the direct entry
 // replaces.
 const stripeToolkit = "stripe"
