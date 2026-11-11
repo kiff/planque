@@ -268,6 +268,26 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, `unsupported connection kind`)
 		return
 	}
+	// A sign-in to reuse must still work: one the vendor refused would only
+	// fail once the owner approved. Then the request signs in anew, to the
+	// same server, on its first card, and says why.
+	refusedReuse := ""
+	if req.Reuse != "" {
+		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Status == StatusConnected && from.SignedIn &&
+			from.Request.Connector == nil && (strings.TrimSpace(req.Server) == "" || strings.TrimSpace(req.Server) == from.Request.Server) {
+			switch err := s.signInWorks(r.Context(), from); {
+			case errors.Is(err, errSignInRefused):
+				refusedReuse, req.Reuse, req.Kind = from.ID, "", from.Request.Kind
+				req.Server = from.Request.Server
+				if from.Request.Application != nil {
+					req.Application, req.Server = from.Request.Application.ID, ""
+				}
+			case err != nil:
+				s.fail(w, r, err)
+				return
+			}
+		}
+	}
 	if (req.Kind == appconfig.MCP || req.Kind == appconfig.REST) && req.Application == "" && req.Reuse == "" {
 		writeErr(w, http.StatusBadRequest, "a registered OAuth connection needs its configured application id")
 		return
@@ -445,11 +465,14 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	g.event(s.now(), "requested by "+asked+" for agent "+req.Agent)
+	if refusedReuse != "" {
+		g.event(s.now(), "the sign-in of "+refusedReuse+" was refused at "+hostOf(server)+", so this one signs in anew")
+	}
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)))
+	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)), slog.Bool("reuse_refused", refusedReuse != ""))
 	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
