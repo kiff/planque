@@ -67,6 +67,9 @@ type Vendor struct {
 	// RevokeFails is how many revocations to answer 503 first, as a
 	// vendor's revocation endpoint that is down.
 	RevokeFails int
+	// RefreshFails is how many refreshes to answer 503 first, as a
+	// vendor's token endpoint that is down.
+	RefreshFails int
 	// ChangeTools, when set, rewrites the tools tools/list answers (a copy
 	// of each), as a vendor that changes a tool after it was approved.
 	ChangeTools func([]map[string]any) []map[string]any
@@ -243,6 +246,16 @@ func (v *Vendor) token(w http.ResponseWriter, r *http.Request) {
 		}
 		v.issue(w, r)
 	case "refresh_token":
+		v.mu.Lock()
+		down := v.RefreshFails > 0
+		if down {
+			v.RefreshFails--
+		}
+		v.mu.Unlock()
+		if down {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		time.Sleep(v.RefreshDelay)
 		// Rotated: the old one stops working.
 		if _, ok, err := v.KV.Delete(r.Context(), kvRefresh, r.PostForm.Get("refresh_token")); err != nil || !ok {

@@ -58,3 +58,21 @@ func TestALiveSignInIsStillReused(t *testing.T) {
 		t.Fatalf("the check read the server %d times", e.vendor.Lists-lists)
 	}
 }
+
+// A vendor whose token endpoint is down hasn't refused anything: the reuse
+// goes on, as before, and nothing is signed out.
+func TestAnUnreachableVendorStillReuses(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	first := e.connect()
+	e.vendor.Expire()
+	e.vendor.RefreshFails = 1
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID, "agent": "agt_taf",
+		"tools": []map[string]any{{"tool": "list_charges", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+	if st != 201 || !strings.Contains(out["text"].(string), "already signed in") {
+		t.Fatalf("reuse with the token endpoint down: %d %v", st, out)
+	}
+	if old, _ := e.s.loadGrant(ctx, tenant, first.ID); old.Status != StatusConnected {
+		t.Fatalf("the reused grant: %s", old.Status)
+	}
+}

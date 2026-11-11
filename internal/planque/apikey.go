@@ -225,19 +225,21 @@ var errSignInRefused = errors.New("planque: the vendor refused the sign-in to re
 // that g's sign-in still works at its vendor: a live token (refreshed when
 // due) and one read of its server's tools, the token refreshed once if the
 // server refuses it. A refusal is errSignInRefused, and g is signed out as
-// any refused refresh signs it out. A vendor that can't be reached isn't a
-// refusal: reuse goes on, as it did. Only an OAuth sign-in to an MCP server
+// any refused refresh signs it out. A vendor that can't be reached, its
+// tools or its token endpoint, isn't a refusal: reuse goes on, as it did. Only an OAuth sign-in to an MCP server
 // is read; a key or a managed app's sign-in is checked where it's used.
 func (s *Server) signInWorks(ctx context.Context, g *Grant) error {
 	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindAPIKey || g.Request.Kind == KindBrowser {
 		return nil
 	}
+	// Signed out, or no token: refused. Anything else (a token endpoint that
+	// can't be reached) isn't, and reuse goes on.
 	refused := func(err error) error {
 		var so signedOutError
 		if errors.As(err, &so) || errors.Is(err, errNoToken) {
 			return errSignInRefused
 		}
-		return err
+		return nil
 	}
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
