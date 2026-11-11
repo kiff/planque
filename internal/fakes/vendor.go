@@ -48,6 +48,12 @@ type Vendor struct {
 	// register: a deployed fake consents on its own, so any other would
 	// make it an open redirector.
 	Redirects []string
+	// RefusalWords is the error_description a refused registration gives:
+	// the vendor's own words, which planque never repeats.
+	RefusalWords string
+	// RegisterStatus, when set, is every registration's answer, a busy
+	// server's (429, 503…), with the code temporarily_unavailable.
+	RegisterStatus int
 
 	// DeskKey is the API key the desk takes (desk.go); without one the desk
 	// refuses every call.
@@ -155,8 +161,16 @@ func (v *Vendor) register(w http.ResponseWriter, r *http.Request) {
 		RedirectURIs []string `json:"redirect_uris"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
+	if v.RegisterStatus != 0 {
+		writeJSON(w, v.RegisterStatus, map[string]string{"error": "temporarily_unavailable", "error_description": v.RefusalWords})
+		return
+	}
 	if len(req.RedirectURIs) != 1 || len(v.Redirects) > 0 && !slices.Contains(v.Redirects, req.RedirectURIs[0]) {
-		writeJSON(w, 400, map[string]string{"error": "invalid_redirect_uri"})
+		refusal := map[string]string{"error": "invalid_redirect_uri"}
+		if v.RefusalWords != "" {
+			refusal["error_description"] = v.RefusalWords
+		}
+		writeJSON(w, 400, refusal)
 		return
 	}
 	id := next("client")

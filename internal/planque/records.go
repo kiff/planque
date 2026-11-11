@@ -149,6 +149,11 @@ type Approval struct {
 	// made in, so an audit tells a tap from a fingerprint.
 	Key    string `json:"key,omitempty"`
 	Window string `json:"window,omitempty"`
+	// Lang and Text are the words the owner signed with digest_v 2, and
+	// their language: the receipt of what they read. Empty for a digest
+	// that covers the request alone.
+	Lang string `json:"lang,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // Who names who signed, for the grant's events: the person and their

@@ -46,6 +46,8 @@ type env struct {
 	client *http.Client // optional in-process transport for protocol tests
 	// enrolled: enrol has run, so a helper that needs it can call it again.
 	enrolled bool
+	// lang is the Accept-Language each request carries, as an app's does.
+	lang string
 }
 
 func newEnv(t *testing.T) *env {
@@ -103,6 +105,9 @@ func (e *env) do(method, path string, body any, phone *fakes.Phone, key string) 
 	}
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if e.lang != "" {
+		req.Header.Set("Accept-Language", e.lang)
 	}
 	client := e.client
 	if client == nil {

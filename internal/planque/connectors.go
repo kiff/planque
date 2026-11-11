@@ -500,7 +500,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(g), "needs_key": false})
+	writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": false})
 }
 
 func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant) {
@@ -530,7 +530,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 			s.fail(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	// A sign-in under way that never came back to the app: the approving

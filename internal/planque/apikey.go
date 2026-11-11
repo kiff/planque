@@ -292,6 +292,8 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		s.fail(w, r, err)
 		return
 	}
+	lang, text, signedOK := g.signed(req.Digest)
+	sr.approval.Lang, sr.approval.Text = lang, text
 	switch {
 	case g.Request.Kind != KindAPIKey:
 		writeErr(w, http.StatusConflict, "this grant signs in at the vendor; it takes no key")
@@ -302,7 +304,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 	case g.TokenOf != "":
 		writeErr(w, http.StatusConflict, "this grant uses another connection's key: approve it with no key")
 		return
-	case req.Digest != g.Digest:
+	case !signedOK:
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
 	case g.Status != StatusPending && g.Status != StatusNeedsReconnect && g.Status != StatusConnected, g.SignedIn && g.Status == StatusPending:
@@ -352,7 +354,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 			s.fail(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	g.event(s.now(), "approved, with the key, "+a.Who())
@@ -365,7 +367,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 			withOperations(g, snap)
 			_ = s.saveGrant(r.Context(), g)
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	if err := s.connect(r.Context(), g, key); err != nil {
@@ -373,7 +375,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusBadGateway, g.Reason)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // replaceKey is a new key for a connected API-key grant (gap 13 of
@@ -443,7 +445,7 @@ func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request, a Approval, 
 		_, _, _ = s.KV.Delete(ctx, telegramHookPK, oldHook)
 	}
 	s.log().InfoContext(ctx, "key replaced", slog.String("grant", g.ID))
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // checkKey reads once with a new key for g, before it replaces the one

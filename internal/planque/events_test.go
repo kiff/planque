@@ -466,12 +466,12 @@ func TestChannelsListThroughTheConnectionsReadOnlyAction(t *testing.T) {
 
 func TestGrantViewNamesItsEntryAndProvider(t *testing.T) {
 	e, _, g := newEventFixture(t)
-	v := e.s.view(g)
+	v := e.s.view(nil, g)
 	if v.Entry != "connector:composio:slackbot" || v.Provider != "composio" {
 		t.Fatalf("view: entry %q provider %q", v.Entry, v.Provider)
 	}
 	g.Request.CatalogEntry = "connector:composio:slackbot"
-	if v := e.s.view(g); v.Entry != "connector:composio:slackbot" {
+	if v := e.s.view(nil, g); v.Entry != "connector:composio:slackbot" {
 		t.Fatalf("view entry %q", v.Entry)
 	}
 }

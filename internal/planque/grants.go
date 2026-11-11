@@ -451,9 +451,9 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)))
 	if fromCatalog {
-		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(g), "needs_key": g.Request.Kind == KindAPIKey})
+		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
-		writeJSON(w, http.StatusCreated, s.view(g))
+		writeJSON(w, http.StatusCreated, s.view(r, g))
 	}
 }
 
@@ -516,7 +516,7 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("reuses", from.ID))
-	writeJSON(w, http.StatusCreated, s.view(g))
+	writeJSON(w, http.StatusCreated, s.view(r, g))
 }
 
 func checkTools(agent string, tools []ToolRequest) string {
@@ -774,6 +774,63 @@ func digest(q Request) (string, error) {
 	return jcs.SHA256(b)
 }
 
+// digestV2 is the SHA-256 of the canonical JSON of {"lang", "request",
+// "text"}: what the phone signs with digest_v 2, the words it showed and
+// their language with the request, the very object planque sent.
+func digestV2(request json.RawMessage, lang, text string) (string, error) {
+	b, err := json.Marshal(struct {
+		Lang    string          `json:"lang"`
+		Request json.RawMessage `json:"request"`
+		Text    string          `json:"text"`
+	}{lang, request, text})
+	if err != nil {
+		return "", err
+	}
+	return jcs.SHA256(b)
+}
+
+// shown is g's words in lang, and the language they're in: English for a
+// language planque doesn't speak, or for a grant made before it wrote its
+// words in each.
+func (g *Grant) shown(lang string) (string, string) {
+	if text, ok := g.Texts[lang]; ok {
+		return lang, text
+	}
+	return "en", g.Text
+}
+
+// digestIn is g's digest_v 2 over its words in lang, as shown.
+func (g *Grant) digestIn(lang string) (string, error) {
+	request, err := json.Marshal(g.Request)
+	if err != nil {
+		return "", err
+	}
+	lang, text := g.shown(lang)
+	return digestV2(request, lang, text)
+}
+
+// signed is what a phone signed when it sent sum: the request alone (v1,
+// no words), or the request with g's words in one language (v2), which it
+// returns. ok is false when sum is neither: nothing was approved.
+func (g *Grant) signed(sum string) (lang, text string, ok bool) {
+	if sum != "" && sum == g.Digest {
+		return "", "", true
+	}
+	langs := []string{"en"}
+	for _, l := range words.Languages {
+		if _, has := g.Texts[l]; has && l != "en" {
+			langs = append(langs, l)
+		}
+	}
+	for _, l := range langs {
+		if d, err := g.digestIn(l); err == nil && sum == d {
+			lang, text = g.shown(l)
+			return lang, text, true
+		}
+	}
+	return "", "", false
+}
+
 // grantView is a grant as planque shows it: never a secret.
 type grantView struct {
 	ID string `json:"id"`
@@ -796,8 +853,15 @@ type grantView struct {
 	Text        string `json:"text"`
 	// Terms are each tool's exact terms, for the owner who opens Details:
 	// the text names the tools in words (kiff/tafs#138, item 52).
-	Terms    []string      `json:"terms,omitempty"`
-	Digest   string        `json:"digest"`
+	Terms []string `json:"terms,omitempty"`
+	// Lang is Text's language: the one the app asked in (Accept-Language)
+	// when planque speaks it and the grant has its words in it, else "en".
+	// StatusWords are in the language asked, too.
+	Lang   string `json:"lang"`
+	Digest string `json:"digest"`
+	// DigestV is 2 when Digest covers Lang and Text with the request
+	// (digestV2), and absent when it covers the request alone.
+	DigestV  int           `json:"digest_v,omitempty"`
 	Request  Request       `json:"request"`
 	Account  string        `json:"account,omitempty"`
 	Tools    []string      `json:"tools,omitempty"`
@@ -841,10 +905,19 @@ type approvalView struct {
 	Signature   string    `json:"signature"`
 	SignedAt    string    `json:"signed_at"`
 	ApprovedAt  time.Time `json:"approved_at"`
+	// Lang and Text are the words signed with digest_v 2 (Approval).
+	Lang string `json:"lang,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
-func (s *Server) view(g *Grant) grantView {
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusWords(g), Text: g.Text, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+// view is g as r's app reads it, in the language it asks in (keepLang).
+func (s *Server) view(r *http.Request, g *Grant) grantView {
+	asked := "en"
+	if r != nil {
+		asked = words.Pick("", r.Header.Get("Accept-Language"))
+	}
+	lang, text := g.shown(asked)
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -873,7 +946,12 @@ func (s *Server) view(g *Grant) grantView {
 	}
 	if a := g.Approval; a != nil {
 		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, DeviceID: a.DeviceID, Message: a.Message,
-			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt}
+			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt, Lang: a.Lang, Text: a.Text}
+	}
+	if s.DigestV2 {
+		if d, err := g.digestIn(lang); err == nil {
+			v.Digest, v.DigestV = d, 2
+		}
 	}
 	return v
 }
@@ -936,7 +1014,7 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.expire(r.Context(), g)
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // catalog is what the vendor's server lists, for the agent choosing the
@@ -1193,7 +1271,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // expire ends a sign-in nobody confirmed in time: its token is revoked at
@@ -1359,10 +1437,12 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		s.fail(w, r, err)
 		return
 	}
-	if req.Digest != g.Digest {
+	lang, text, ok := g.signed(req.Digest)
+	if !ok {
 		writeErr(w, http.StatusConflict, "the signed digest is not this grant's: nothing was granted")
 		return
 	}
+	sr.approval.Lang, sr.approval.Text = lang, text
 	keepLang(r, g)
 	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
 		s.fail(w, r, err)
@@ -1423,7 +1503,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	if g.SignedIn && g.Status == StatusPending {
@@ -1443,7 +1523,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 				writeErr(w, http.StatusBadGateway, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, s.view(g))
+			writeJSON(w, http.StatusOK, s.view(r, g))
 			return
 		}
 		g.Approval = &a
@@ -1453,7 +1533,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	if g.Status == StatusSignedIn {
@@ -1767,7 +1847,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			s.fail(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	tok, _, err := s.openToken(r.Context(), g)
@@ -1786,7 +1866,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		s.log().InfoContext(r.Context(), "grant reconnected", slog.String("grant", g.ID))
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	if len(g.Request.Tools) == 0 {
@@ -1796,7 +1876,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	if err := s.connect(r.Context(), g, tok.Access); err != nil {
@@ -1804,7 +1884,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusBadGateway, g.Reason)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // renewed finishes a connected grant's new sign-in at the vendor's redirect
@@ -1968,7 +2048,7 @@ func (s *Server) confirmRenewal(w http.ResponseWriter, r *http.Request, sr signe
 		return
 	}
 	s.log().InfoContext(ctx, "grant signed in again", slog.String("grant", g.ID))
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // readOnlyHint is whether t only reads: the vendor marks it read-only (MCP's
@@ -2403,7 +2483,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		return
 	}
 	if g.Status == StatusDisconnected {
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	var problems []string
@@ -2444,10 +2524,11 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(g))
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
-func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error) {
+func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
+	ctx := r.Context()
 	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
 	if err != nil {
 		return nil, err
@@ -2463,7 +2544,7 @@ func (s *Server) grants(ctx context.Context, tenant string) ([]grantView, error)
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		out = append(out, s.view(&g))
+		out = append(out, s.view(r, &g))
 	}
 	return out, nil
 }
@@ -2712,7 +2793,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 // account ends (its vendor tokens are gone at disconnect), and
 // ?include=disconnected lists it too, as the export does.
 func (s *Server) listGrants(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	gs, err := s.grants(r.Context(), sr.tenant)
+	gs, err := s.grants(r, sr.tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -2727,7 +2808,7 @@ func (s *Server) listGrants(w http.ResponseWriter, r *http.Request, sr signedReq
 // owner read, and the phone's signature with what is needed to check it
 // without planque.
 func (s *Server) export(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	gs, err := s.grants(r.Context(), sr.tenant)
+	gs, err := s.grants(r, sr.tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return
