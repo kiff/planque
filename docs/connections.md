@@ -22,6 +22,15 @@ leading segments, as Qonto names `https://mcp.qonto.com` for its server at
 `/mcp`. The sign-in is bound to the resource the metadata names. Another
 host, a port, a query or a sibling path (`/mcpx` for `/mcp`) is refused.
 
+**A vendor that refuses planque's client.** Some authorization servers let
+only the clients they allow register (Qonto allow-lists the redirect URIs of
+MCP clients). When one refuses planque's registration with a 4xx, approving
+the grant answers 502 with `code: "vendor_refused_client"` and words the apps
+can show: the vendor doesn't allow tafs to sign in yet, and nothing was
+connected. One log line says it too, `client registration refused`, with the
+grant, the vendor's host, its status and its OAuth error code, never its
+description. The grant stays pending.
+
 **The scopes.** planque asks for the scopes a server's metadata lists
 (`scopes_supported`), except at a server it reviewed. Qonto's sign-in asks
 only for reading the business, its clients, its invoices and their

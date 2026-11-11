@@ -299,7 +299,7 @@ func (c *Client) Register(ctx context.Context, m Metadata, name, redirect string
 	}
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&r)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK || r.ClientID == "" {
-		return "", fmt.Errorf("client registration failed (%d): %s", resp.StatusCode, short(r.Error))
+		return "", &RegistrationError{Status: resp.StatusCode, Code: short(r.Error)}
 	}
 	// The server may not change where it sends the owner back.
 	if len(r.RedirectURIs) > 0 && !slices.Equal(r.RedirectURIs, []string{redirect}) {
@@ -487,6 +487,23 @@ func (c *Client) Revoke(ctx context.Context, m Metadata, clientID, token, hint s
 
 // short keeps an OAuth error code readable and bounded; descriptions are
 // not repeated.
+// RegistrationError is an authorization server's refusal of planque's
+// client: its HTTP status and its OAuth error code (RFC 7591 §3.2.2), never
+// its description, which is the vendor's own words.
+type RegistrationError struct {
+	Status int
+	Code   string
+}
+
+func (e *RegistrationError) Error() string {
+	return fmt.Sprintf("client registration failed (%d): %s", e.Status, e.Code)
+}
+
+// Refused reports whether the server refused the client itself (a 4xx): its
+// redirect URI or its metadata isn't allowed there, which trying again won't
+// change.
+func (e *RegistrationError) Refused() bool { return e.Status >= 400 && e.Status < 500 }
+
 func short(code string) string {
 	if len(code) > 64 {
 		code = code[:64]

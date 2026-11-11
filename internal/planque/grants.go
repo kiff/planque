@@ -1467,7 +1467,21 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		clientID, err = s.client(r.Context(), g.Vendor)
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "Couldn't register with "+hostOf(g.Vendor.Issuer)+": "+err.Error())
+		// Said once in the log, at the source: the vendor's host, its status and its error code, never its words.
+		host := hostOf(g.Vendor.Issuer)
+		var re *oauth.RegistrationError
+		if errors.As(err, &re) {
+			s.log().WarnContext(r.Context(), "client registration refused", slog.String("grant", g.ID), slog.String("host", host),
+				slog.Int("status", re.Status), slog.String("code", re.Code))
+		} else {
+			s.log().WarnContext(r.Context(), "client registration failed", slog.String("grant", g.ID), slog.String("host", host), slog.String("err", err.Error()))
+		}
+		if re != nil && re.Refused() {
+			// The vendor doesn't let planque's client sign in: nothing the owner can do now, and trying again won't help.
+			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client"})
+			return
+		}
+		writeErr(w, http.StatusBadGateway, "Couldn't register with "+host+": "+err.Error())
 		return
 	}
 	pkce := oauth.NewPKCE()
