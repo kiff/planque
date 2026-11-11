@@ -209,7 +209,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	// Stripe: planque's own entry, a direct sign-in to Stripe's MCP server
 	// with test mode (stripe_refunds.go), listed on the first page.
 	if r.URL.Query().Get("cursor") == "" && (q == "" || strings.Contains(strings.ToLower(stripeVendor), q)) {
-		v := catalogEntryView{Entry: StripeEntry, Vendor: stripeVendor, Title: stripeVendor, How: "oauth", State: "available"}
+		v := catalogEntryView{Entry: StripeEntry, Vendor: stripeVendor, Title: stripeVendor, Icon: stripeIcon, How: "oauth", State: "available"}
 		if state, ok := states[StripeEntry]; ok {
 			v.State, v.Grant = state.State, state.Grant
 		}

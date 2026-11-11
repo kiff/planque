@@ -202,6 +202,10 @@ func TestTheCatalogCountsACoachStartedConnection(t *testing.T) {
 	if len(entries) != 2 || entries[1].(map[string]any)["entry"] != StripeEntry {
 		t.Fatalf("entries: %v", entries)
 	}
+	// planque's own Stripe entry carries its logo, as the managed apps do.
+	if icon := entries[1].(map[string]any)["icon"]; icon != stripeIcon || !catalogHTTPS(stripeIcon) {
+		t.Fatalf("Stripe's icon: %v", icon)
+	}
 	if v := entries[0].(map[string]any); v["entry"] != "refunds@1" || v["state"] != "connected" || v["grant"] != g.ID {
 		t.Fatalf("state: %v", v)
 	}
