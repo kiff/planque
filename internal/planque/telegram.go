@@ -23,6 +23,7 @@ import (
 	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/words"
 )
 
 // A Telegram bot is an API-key grant (kiff/planque#83): the owner gives the
@@ -83,21 +84,17 @@ func (s *Server) telegramAPIBase() string {
 
 // telegramText is what the owner reads for a Telegram bot grant: the token
 // they give, the webhook it sets, what reaches the taf, and the tools.
-func telegramText(q Request, held bool, account string, catalog ...CatalogTool) string {
-	hook := "Giving it points the bot's webhook at planque, replacing any the bot had: messages people send the bot in a private chat, " +
-		"and group messages that mention it, go to " + tafWords(q) + " as they arrive. Other messages are dropped."
-	vault := "The token is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to Telegram."
+func telegramText(w words.Approval, q Request, held bool, account string, catalog ...CatalogTool) string {
+	hook := fmt.Sprintf(w.TelegramHookF, tafWords(w, q))
 	if len(q.Tools) == 0 {
-		return "Connect a Telegram bot with its token from BotFather, for " + tafWords(q) + ". Telegram checks the token first.\n\n" +
-			hook + " The taf can't answer until you approve its tools next. If they aren't approved within a day, the token is deleted.\n\n" +
-			vault + " You can disconnect at any time, which deletes the webhook and the token."
+		return fmt.Sprintf(w.TelegramConnectF, tafWords(w, q), hook, w.TelegramVault)
 	}
 	var b strings.Builder
 	if !held {
-		b.WriteString("You will give a Telegram bot's token from BotFather.\n" + hook + "\n\n")
+		fmt.Fprintf(&b, w.TelegramWillGiveF, hook)
 	}
-	b.WriteString(toolLines(q, held, account, catalog...))
-	b.WriteString("\n" + vault + " Each message is sent only with KIFF's permit for that exact call. You can disconnect at any time, which deletes the webhook and the token.")
+	b.WriteString(toolLines(w, q, held, account, catalog...))
+	b.WriteString("\n" + w.TelegramVault + w.TelegramTail)
 	return b.String()
 }
 

@@ -198,6 +198,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
 	}
 	return &planque.Server{
+		DigestV2:      os.Getenv("PLANQUE_DIGEST") == "v2",
 		Browser:       browserWorker,
 		DoorSink:      doorSink,
 		EventSink:     eventSink,

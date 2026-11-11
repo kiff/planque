@@ -21,6 +21,7 @@ import (
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/words"
 )
 
 // ConnectorRequest is part of the device-signed grant. Once tools are chosen,
@@ -488,7 +489,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	if g.Request.AskedBy == "" {
 		g.Request.AskedBy = askedByAccountKey
 	}
-	g.Text = grantText(g.Request)
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, false, "") })
 	g.Digest, err = digest(g.Request)
 	if err != nil {
 		s.fail(w, r, err)
@@ -499,7 +500,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(g), "needs_key": false})
+	writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": false})
 }
 
 func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant) {
@@ -529,7 +530,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 			s.fail(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, s.view(g))
+		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
 	// A sign-in under way that never came back to the app: the approving
@@ -949,15 +950,15 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 // scopeWords is what the sign-in asks the vendor for, when the taf named its
 // tools (gap 5 of kiff/tafs#476): only what they need, or, when that couldn't
 // be narrowed, the app's usual access, said plainly. Nothing otherwise.
-func scopeWords(c *ConnectorRequest) string {
+func scopeWords(w words.Approval, c *ConnectorRequest) string {
 	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {
 		return ""
 	}
 	tools := toolWords(c.Toolkit, c.AskedTools)
 	if c.UsualAccess {
-		return " " + c.Title + " will ask for more access than this taf uses. The taf can still only use: " + tools + "."
+		return fmt.Sprintf(w.MoreAccessF, c.Title, tools)
 	}
-	return " " + c.Title + " is asked only for what this taf uses: " + tools + "."
+	return fmt.Sprintf(w.OnlyWhatItUsesF, c.Title, tools)
 }
 
 // toolWords names a provider's tools as people read them: "List events" for
@@ -996,44 +997,46 @@ var connectorTool = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{0,127}$`)
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
 // signed with.
-func connectorText(q Request) string {
-	// Made before titles: kept as signed, for the agent it was asked for.
-	text := "Connect " + q.Connector.Toolkit + " through " + q.Connector.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
-	if q.Connector.Title != "" {
-		text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". Your sign-in to " + q.Connector.Title + " stays with the connection service; the taf never sees it."
-		if q.Reuse != "" {
-			// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
-			text = "Connect " + q.Connector.Title + " for " + tafWords(q) + " with the sign-in you already have there: no second sign-in or key. It stays with the connection service; the taf never sees it."
-			if len(q.Tools) == 0 {
-				return text + scopeWords(q.Connector) + " The actions to approve come next. No actions are granted yet."
-			}
+func connectorText(w words.Approval, q Request) string {
+	c := q.Connector
+	if c.Title == "" {
+		// Made before titles: kept as signed, for the agent it was asked
+		// for, in the English it was signed in.
+		text := "Connect " + c.Toolkit + " through " + c.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
+		if len(q.Tools) == 0 {
+			return text + english.SignInThenChoose
 		}
-		text += scopeWords(q.Connector)
-		switch q.Connector.AuthScheme {
-		case "API_KEY", "BEARER_TOKEN":
-			credential := "key"
-			if q.Connector.AuthScheme == "BEARER_TOKEN" {
-				credential = "token"
-			}
-			if q.Reuse == "" {
-				text = "Connect " + q.Connector.Title + " for " + tafWords(q) + ". You'll enter your " + q.Connector.Title + " " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it." + scopeWords(q.Connector)
-			}
-		}
-	}
-	if len(q.Tools) == 0 {
-		return text + " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
-	}
-	if q.Connector.Title == "" {
-		text += " Use only connected account " + q.Connector.Account + ". Approve these exact versioned actions:"
-		for _, t := range q.Connector.Tools {
+		text += " Use only connected account " + c.Account + ". Approve these exact versioned actions:"
+		for _, t := range c.Tools {
 			text += " " + t.Name + " (" + t.Slug + ", " + t.Version + ")."
 		}
 		return text
 	}
+	taf := tafWords(w, q)
+	text := fmt.Sprintf(w.ConnectTitledF, c.Title, taf)
+	if q.Reuse != "" {
+		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
+		text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		if len(q.Tools) == 0 {
+			return text + scopeWords(w, c) + w.ReusedNext
+		}
+	}
+	text += scopeWords(w, c)
+	if q.Reuse == "" {
+		switch c.AuthScheme {
+		case "API_KEY":
+			text = fmt.Sprintf(w.EnterKeyF, c.Title, taf) + scopeWords(w, c)
+		case "BEARER_TOKEN":
+			text = fmt.Sprintf(w.EnterTokenF, c.Title, taf) + scopeWords(w, c)
+		}
+	}
+	if len(q.Tools) == 0 {
+		return text + w.SignInThenChoose
+	}
 	// The account's id, and each action's exact version, are under Details
 	// (requestTerms): the words name them as people do (kiff/tafs#476).
-	text += " Use only your connected " + q.Connector.Title + " account. Approve these actions:"
-	for _, t := range q.Connector.Tools {
+	text += fmt.Sprintf(w.OnlyYourAccountF, c.Title)
+	for _, t := range c.Tools {
 		text += " " + t.Name + "."
 	}
 	return text

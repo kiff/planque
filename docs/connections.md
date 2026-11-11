@@ -528,3 +528,36 @@ in a grant request. The exact header and value are in
 REST operation alongside the stored credential. Later configuration changes
 cannot change an existing grant's pin. Header names must identify a version;
 control characters and collisions with the credential header are refused.
+
+## The words, in the owner's language
+
+A grant's words (`text`) and its status line (`status_words`) are written
+in each language tafs ships: en, de, fr, es, it, pt, nl and pl
+(`internal/words`, held to tafs' glossary: taf and Card stay names). A view
+of a grant, wherever planque shows one, is in the language its app asks in
+(`Accept-Language`, by q), and says which (`lang`). A language planque
+doesn't speak, or a grant made before it wrote its words in each, reads in
+English (`lang: "en"`). The exact terms under Details (`terms`), the
+vendor's, the app's and the taf's own names, and a managed connection made
+before titles stay as signed.
+
+What the phone signs is the grant's `digest`:
+
+- **v1, today, with no `digest_v`:** the SHA-256 of the request's canonical
+  JSON (RFC 8785). It covers the request, not the words.
+- **v2, `digest_v: 2`:** the SHA-256 of the canonical JSON of
+  `{"lang": lang, "request": request, "text": text}`, where `request` is the
+  very object the view sent. It covers the words the phone showed, and
+  their language. An app that doesn't know `digest_v`, or reads v2 without
+  `lang` or `text`, signs nothing.
+
+`/approve` takes either digest. With v2, the approval keeps the words
+signed and their language (`approval.lang`, `approval.text`): the receipt of
+what the owner read. A digest over words planque didn't write, or over a
+grant's words relabelled with another language, approves nothing (409).
+Views carry v2 only with `PLANQUE_DIGEST=v2`, once both apps check it.
+
+The shared vector, which both apps pin: the request
+`{"agent":"books","asked_by":"setup-agent","created_at":"2026-11-11T16:00:00Z","grant":"g_02","server":"https://mcp.qonto.com/mcp","tenant":"t_01","tools":[{"read_only":true,"tool":"list_invoices"}],"v":"planque.grant.v1"}`,
+`lang` `fr` and `text` `books pourra lire vos factures sur mcp.qonto.com`
+give `f1ca3ab371ecf97a82d134204e4931ef39ea474b7cd6a3e233b36f97499fbb32`.

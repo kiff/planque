@@ -46,12 +46,16 @@ type Server struct {
 	// BaseURL is where planque is reached publicly, without a trailing
 	// slash: the vendor redirects the owner back to BaseURL/oauth/callback.
 	BaseURL string
-	KV      store.KV
-	Sealer  seal.Sealer
-	KIFF    *kiff.Client
-	Permits *permit.Verifier
-	OAuth   *oauth.Client
-	MCP     *mcp.Client
+	// DigestV2: a grant's view carries digest_v 2, a digest over its words
+	// in the app's language with the request (digestV2), once both apps
+	// check it. Approval takes either digest all the same.
+	DigestV2 bool
+	KV       store.KV
+	Sealer   seal.Sealer
+	KIFF     *kiff.Client
+	Permits  *permit.Verifier
+	OAuth    *oauth.Client
+	MCP      *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
 	REST *rest.Client
 	// TelegramBase is the Telegram Bot API; empty, Telegram's own.

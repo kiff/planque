@@ -19,6 +19,7 @@ import (
 	"github.com/kiff/planque/internal/permit"
 	"github.com/kiff/planque/internal/profile"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/words"
 )
 
 // A browser grant (kiff/planque#86) lets a taf use websites: planque
@@ -249,33 +250,32 @@ func browserVendorName(b *BrowserRequest) string {
 }
 
 // browserText is what the owner reads before approving a browser grant.
-func browserText(q Request, catalog ...CatalogTool) string {
+func browserText(w words.Approval, q Request, catalog ...CatalogTool) string {
 	b := q.Browser
 	if b == nil {
 		b = &BrowserRequest{}
 	}
-	var w strings.Builder
+	var out strings.Builder
 	switch len(b.Sites) {
 	case 0:
-		fmt.Fprintf(&w, "%s may use websites, in a browser planque runs for it alone. Any public site; nothing is kept between calls except a sign-in you make yourself.\n\n%s may:\n", tafWordsFirst(q), tafWordsFirst(q))
+		fmt.Fprintf(&out, w.AnySiteF, tafWordsFirst(w, q))
 	default:
-		fmt.Fprintf(&w, "%s may use these sites, in a browser planque runs for it alone: %s. No other site; nothing is kept between calls except a sign-in you make yourself.\n\n%s may:\n", tafWordsFirst(q), strings.Join(b.Sites, ", "), tafWordsFirst(q))
+		fmt.Fprintf(&out, w.TheseSitesF, tafWordsFirst(w, q), strings.Join(b.Sites, ", "))
 	}
 	for _, t := range q.Tools {
-		how := "makes changes, only within the taf's Card"
+		how := w.Changes
 		switch t.Tool {
 		case browseOpen, browseRead, browseCheckout:
-			how = "reads only"
+			how = w.ReadsOnly
 		case browseAct:
-			how = "fills in forms and clicks, only within the taf's Card; never a payment, a password, a card number or a code"
+			how = w.BrowserFills
 		case browsePay:
-			how = "pays a checkout in " + b.Currency + " only, with the total read from the page, held for your approval each time"
+			how = fmt.Sprintf(w.BrowserPaysF, b.Currency)
 		}
-		fmt.Fprintf(&w, "• %s: %s\n", toolTitle(t, catalog...), how)
+		fmt.Fprintf(&out, "• %s: %s\n", toolTitle(t, catalog...), how)
 	}
-	w.WriteString("\nWhen a site needs a sign-in, you sign in yourself, on your phone; the taf never sees a password, a card number, a code or a cookie. " +
-		"Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time, which deletes the kept sign-ins.")
-	return w.String()
+	out.WriteString(w.BrowserTail)
+	return out.String()
 }
 
 // The browser's records: the grant's storage state (its sign-ins), sealed,

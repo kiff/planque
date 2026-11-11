@@ -485,8 +485,6 @@ func (c *Client) Revoke(ctx context.Context, m Metadata, clientID, token, hint s
 	return nil
 }
 
-// short keeps an OAuth error code readable and bounded; descriptions are
-// not repeated.
 // RegistrationError is an authorization server's refusal of planque's
 // client: its HTTP status and its OAuth error code (RFC 7591 §3.2.2), never
 // its description, which is the vendor's own words.
@@ -501,9 +499,14 @@ func (e *RegistrationError) Error() string {
 
 // Refused reports whether the server refused the client itself (a 4xx): its
 // redirect URI or its metadata isn't allowed there, which trying again won't
-// change.
-func (e *RegistrationError) Refused() bool { return e.Status >= 400 && e.Status < 500 }
+// change. A timeout (408) or too many requests (429) is no refusal: those
+// pass, and trying again later may work.
+func (e *RegistrationError) Refused() bool {
+	return e.Status >= 400 && e.Status < 500 && e.Status != http.StatusRequestTimeout && e.Status != http.StatusTooManyRequests
+}
 
+// short keeps an OAuth error code readable and bounded; descriptions are
+// not repeated.
 func short(code string) string {
 	if len(code) > 64 {
 		code = code[:64]

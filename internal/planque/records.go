@@ -149,6 +149,11 @@ type Approval struct {
 	// made in, so an audit tells a tap from a fingerprint.
 	Key    string `json:"key,omitempty"`
 	Window string `json:"window,omitempty"`
+	// Lang and Text are the words the owner signed with digest_v 2, and
+	// their language: the receipt of what they read. Empty for a digest
+	// that covers the request alone.
+	Lang string `json:"lang,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // Who names who signed, for the grant's events: the person and their
@@ -242,7 +247,11 @@ type Grant struct {
 	Status  string  `json:"status"`
 	Request Request `json:"request"`
 	Text    string  `json:"text"`
-	Digest  string  `json:"digest"`
+	// Texts are Text in every language planque speaks, by language, written
+	// with it: what the owner's phone shows, and signs with digest_v 2. A
+	// grant made before has none, and is shown in English.
+	Texts  map[string]string `json:"texts,omitempty"`
+	Digest string            `json:"digest"`
 	// Proposer is the agent that proposed the tools of a grant an account
 	// key asked (its taf, or the account's Setup); empty otherwise.
 	Proposer string         `json:"proposer,omitempty"`

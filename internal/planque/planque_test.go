@@ -46,6 +46,8 @@ type env struct {
 	client *http.Client // optional in-process transport for protocol tests
 	// enrolled: enrol has run, so a helper that needs it can call it again.
 	enrolled bool
+	// lang is the Accept-Language each request carries, as an app's does.
+	lang string
 }
 
 func newEnv(t *testing.T) *env {
@@ -103,6 +105,9 @@ func (e *env) do(method, path string, body any, phone *fakes.Phone, key string) 
 	}
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if e.lang != "" {
+		req.Header.Set("Accept-Language", e.lang)
 	}
 	client := e.client
 	if client == nil {
@@ -1451,7 +1456,7 @@ func TestTheOwnerReadsNoPlanque(t *testing.T) {
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
 			Tools: []ToolRequest{{Tool: "stripe_api_details", Name: "fields_ab12", ReadOnly: true, SetupReads: true}}},
 	} {
-		for _, text := range []string{grantText(q), requestText(q, true, "acct_1")} {
+		for _, text := range []string{grantText(q), requestText(english, q, true, "acct_1")} {
 			if strings.Contains(strings.ToLower(text), "planque") || !strings.Contains(text, "sealed vault") {
 				t.Fatalf("the owner reads: %s", text)
 			}
@@ -1470,7 +1475,7 @@ func TestSetupReadsAreSaidOnce(t *testing.T) {
 			{Tool: "stripe_api_details", Name: "fields_ab12", Title: "Look up a request's fields", ReadOnly: true, SetupReads: true},
 			{Tool: "list_available_accounts_or_orgs", Name: "accounts_ab12", Title: "List your accounts", ReadOnly: true, SetupReads: true},
 		}}
-	text := requestText(q, true, "acct_1")
+	text := requestText(english, q, true, "acct_1")
 	if strings.Count(text, "Setup reads") != 1 ||
 		!strings.Contains(text, "Setup reads, to set this up: Look up a request's fields and List your accounts. It only reads them") {
 		t.Fatalf("the owner reads: %s", text)
