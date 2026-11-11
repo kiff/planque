@@ -303,8 +303,8 @@ func TestAStripeRefundConnectionTakesPlanquesReviewedRequest(t *testing.T) {
 	}
 }
 
-// fakeCatalogProvider lists the managed connector's Stripe and one other
-// app, in its catalog and in a tool search.
+// fakeCatalogProvider lists the managed connector's Stripe and Qonto and one
+// other app, in its catalog and in a tool search.
 type fakeCatalogProvider struct{ connector.Provider }
 
 func (fakeCatalogProvider) Platform() connector.Platform {
@@ -313,13 +313,16 @@ func (fakeCatalogProvider) Platform() connector.Platform {
 func (fakeCatalogProvider) Catalog(context.Context, string, string) (connector.Page[connector.App], error) {
 	return connector.Page[connector.App]{Items: []connector.App{
 		{Slug: stripeToolkit, Name: "Stripe", Setup: connector.SetupReady},
+		{Slug: qontoToolkit, Name: "Qonto", Setup: connector.SetupReady},
 		{Slug: "desk_demo", Name: "Desk", Setup: connector.SetupReady}}}, nil
 }
 func (fakeCatalogProvider) Search(context.Context, string, []string, string) (connector.Search, error) {
 	return connector.Search{
-		Tools: []connector.Tool{{Slug: stripeRefund, Toolkit: stripeToolkit, Name: "Refund"}, {Slug: "DESK_LIST", Toolkit: "desk_demo", Name: "List"}},
+		Tools: []connector.Tool{{Slug: stripeRefund, Toolkit: stripeToolkit, Name: "Refund"}, {Slug: "QONTO_LIST_INVOICES", Toolkit: qontoToolkit, Name: "List invoices"},
+			{Slug: "DESK_LIST", Toolkit: "desk_demo", Name: "List"}},
 		Apps: map[string]connector.App{stripeToolkit: {Slug: stripeToolkit, Name: "Stripe", Setup: connector.SetupReady},
-			"desk_demo": {Slug: "desk_demo", Name: "Desk", Setup: connector.SetupReady}}}, nil
+			qontoToolkit: {Slug: qontoToolkit, Name: "Qonto", Setup: connector.SetupReady},
+			"desk_demo":  {Slug: "desk_demo", Name: "Desk", Setup: connector.SetupReady}}}, nil
 }
 
 // In the app, Stripe is one entry: planque's direct sign-in to Stripe's MCP

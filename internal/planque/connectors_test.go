@@ -369,9 +369,9 @@ func TestConnectorCatalogAndApprovalBoundary(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	path := "/v1/accounts/" + tenant + "/catalog"
 	// One read walks the provider's pages until it has enough apps that can
-	// be connected, or reaches the end.
+	// be connected, or reaches the end, beside planque's own Stripe and Qonto.
 	st, out := e.do("GET", path, nil, nil, "k_setup")
-	if st != 200 || out["next_cursor"] != "" || out["provider"] != "composio" || len(out["entries"].([]any)) != 3 {
+	if st != 200 || out["next_cursor"] != "" || out["provider"] != "composio" || len(out["entries"].([]any)) != 4 {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
 	st, out = e.do("GET", path+"?provider=composio&cursor=next", nil, nil, "k_setup")

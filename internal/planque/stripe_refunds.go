@@ -156,9 +156,6 @@ const stripeIcon = "https://logos.composio.dev/api/stripe"
 // replaces.
 const stripeToolkit = "stripe"
 
-// managedStripe reports whether toolkit is the managed connector's Stripe.
-func managedStripe(toolkit string) bool { return toolkit == stripeToolkit }
-
 // StripeRefundsEntry names planque's reviewed profile for it.
 const StripeRefundsEntry = "stripe-refunds@1"
 
