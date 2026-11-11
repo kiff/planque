@@ -16,6 +16,18 @@ Servers offering dynamic registration continue to use that flow when they
 do not advertise client metadata support. PKCE, resource binding, one-use
 state and confirmation on the approving device apply to both flows.
 
+**The resource.** A server's metadata must name the server planque calls:
+the same URL, or the same scheme and host with a path made of the server's
+leading segments, as Qonto names `https://mcp.qonto.com` for its server at
+`/mcp`. The sign-in is bound to the resource the metadata names. Another
+host, a port, a query or a sibling path (`/mcpx` for `/mcp`) is refused.
+
+**The scopes.** planque asks for the scopes a server's metadata lists
+(`scopes_supported`), except at a server it reviewed. Qonto's sign-in asks
+only for reading the business, its clients, its invoices and their
+e-invoicing state, and writing clients and client invoices. It never asks
+for transfers, cards, bank accounts, direct debits, team or members.
+
 Reference: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
 
 ## Selecting REST operations

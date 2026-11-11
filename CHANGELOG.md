@@ -5,7 +5,14 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+### Added
+
+- **Qonto, signed in to directly.** The catalog lists `qonto`, a direct sign-in to Qonto's MCP server (`https://mcp.qonto.com/mcp`), where the owner signs in on Qonto's page with Qonto's own approval step. The sign-in asks only for reviewed scopes: reading the business, its clients, its invoices and their e-invoicing state, and writing clients and client invoices. It never asks for transfers, cards, bank accounts, direct debits, team or members, though Qonto's server lists them. `deploy/server-apps.json` lists Qonto's server under `qonto`.
+
 ### Changed
+
+- **A server's metadata may name its origin.** The resource in a server's metadata must be the server planque calls, or the same scheme and host with a path made of its leading segments: Qonto names `https://mcp.qonto.com` for its server at `/mcp`. The sign-in is bound to the resource named. Another host, a port, a query or a sibling path (`/mcpx` for `/mcp`) is still refused.
+- **Stripe's own catalog entry carries Stripe's logo**, as the managed apps do.
 
 - **A Stripe connection's account comes from Stripe's own accounts tool.** Stripe's MCP sign-in names no account in its token answer (`stripe_user_id` is Connect's). Right after the owner signs in, planque calls `list_available_accounts_or_orgs` once, itself, with the new token, and keeps the account, with its mode, when it lists exactly one (`oauth.Metadata.AccountsTool`, set for Stripe's server only). With several or none it keeps none, and the read is on the connection's record. A refund connection pins that account, and is refused when the account is in live mode.
 - **Stripe refunds are offered in test mode only.** A refund connection asked with `livemode: true` is refused (409) with the reason: in live mode, Stripe may ask the owner to confirm each refund in its Dashboard, which hasn't been checked yet. In test mode, a refund through the direct sign-in went through at once.

@@ -93,7 +93,7 @@ func (c *Client) Discover(ctx context.Context, server string) (Metadata, error) 
 		return Metadata{}, fmt.Errorf("protected resource metadata: %w", err)
 	}
 	// RFC 9728 §3.3: the metadata must be for the resource we called.
-	if trim(prm.Resource) != trim(server) {
+	if !coversServer(prm.Resource, server) {
 		return Metadata{}, fmt.Errorf("the server's metadata names resource %q, not %q", prm.Resource, server)
 	}
 	if len(prm.AuthorizationServers) == 0 {
@@ -218,6 +218,24 @@ func wellKnown(id, name string) string {
 }
 
 func trim(s string) string { return strings.TrimRight(s, "/") }
+
+// coversServer is whether a server's metadata, naming resource, is for the
+// MCP server planque calls: the same URL, or the same scheme and host with
+// a path made of the server's leading segments. Qonto names its origin,
+// https://mcp.qonto.com, for its server at /mcp, and the token is bound to
+// what it names. Another host, a port, a query, or a sibling path (/mcpx for
+// /mcp) is another resource.
+func coversServer(resource, server string) bool {
+	r, err := url.Parse(trim(resource))
+	if err != nil || r.Host == "" || r.User != nil || r.RawQuery != "" || r.Fragment != "" {
+		return false
+	}
+	s, err := url.Parse(trim(server))
+	if err != nil || !strings.EqualFold(r.Scheme, s.Scheme) || !strings.EqualFold(r.Host, s.Host) || r.RawQuery != s.RawQuery {
+		return false
+	}
+	return r.EscapedPath() == s.EscapedPath() || r.EscapedPath() == "" || strings.HasPrefix(s.EscapedPath(), r.EscapedPath()+"/")
+}
 
 func (c *Client) checkURL(s string) error {
 	u, err := url.Parse(s)

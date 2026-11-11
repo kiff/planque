@@ -199,14 +199,17 @@ func TestTheCatalogCountsACoachStartedConnection(t *testing.T) {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
 	entries := out["entries"].([]any)
-	if len(entries) != 2 || entries[1].(map[string]any)["entry"] != StripeEntry {
+	if len(entries) != 3 || entries[0].(map[string]any)["entry"] != QontoEntry || entries[2].(map[string]any)["entry"] != StripeEntry {
 		t.Fatalf("entries: %v", entries)
 	}
-	// planque's own Stripe entry carries its logo, as the managed apps do.
-	if icon := entries[1].(map[string]any)["icon"]; icon != stripeIcon || !catalogHTTPS(stripeIcon) {
+	// planque's own Stripe and Qonto entries carry their logos, as the managed apps do.
+	if icon := entries[2].(map[string]any)["icon"]; icon != stripeIcon || !catalogHTTPS(stripeIcon) {
 		t.Fatalf("Stripe's icon: %v", icon)
 	}
-	if v := entries[0].(map[string]any); v["entry"] != "refunds@1" || v["state"] != "connected" || v["grant"] != g.ID {
+	if icon := entries[0].(map[string]any)["icon"]; icon != qontoIcon || !catalogHTTPS(qontoIcon) {
+		t.Fatalf("Qonto's icon: %v", icon)
+	}
+	if v := entries[1].(map[string]any); v["entry"] != "refunds@1" || v["state"] != "connected" || v["grant"] != g.ID {
 		t.Fatalf("state: %v", v)
 	}
 }
@@ -335,7 +338,7 @@ func TestTheShippedServerListDecodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deploy/server-apps.json would refuse planque's start: %v", err)
 	}
-	if rows["https://mcp.stripe.com"] != StripeEntry || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
+	if rows["https://mcp.stripe.com"] != StripeEntry || rows["https://mcp.qonto.com/mcp"] != QontoEntry || rows["https://mcp.agentmail.to"] != "connector:composio:agent_mail" {
 		t.Fatalf("the shipped list's first rows: %v", rows)
 	}
 }

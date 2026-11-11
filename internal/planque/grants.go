@@ -374,6 +374,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			meta.AccountField = stripeAccountField
 			meta.AccountsTool = stripeAccountsTool
 		}
+		reviewScopes(&meta)
 	}
 	asked := me.AgentID
 	header := ""
