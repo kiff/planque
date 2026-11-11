@@ -205,6 +205,14 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 			if _, ok := args[name]; a.Required && !ok {
 				return nil, fmt.Errorf("argument %s is required", name)
 			}
+			// A read sends the object an argument goes in even when the
+			// agent set none of its arguments: called with {} (a schedule's
+			// check), Stripe's read still gets its parameters object, which
+			// its tool requires. Never a write's: an empty object there could
+			// mean something the owner didn't approve.
+			if parts, _ := pathParts(a.Path); t.ReadOnly && len(parts) > 1 {
+				parents(out, parts[:len(parts)-1])
+			}
 		}
 	}
 	for p, raw := range t.Fixed {
@@ -216,6 +224,26 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 		set(out, parts, v)
 	}
 	return json.Marshal(out)
+}
+
+// parents makes sure the nested objects at path exist in m, empty when new.
+// It only adds what's absent: a value already at a key, of any kind, is never
+// replaced, so nothing the owner approved is dropped.
+func parents(m map[string]any, path []string) {
+	for _, k := range path {
+		v, ok := m[k]
+		if !ok {
+			next := map[string]any{}
+			m[k] = next
+			m = next
+			continue
+		}
+		next, isObject := v.(map[string]any)
+		if !isObject {
+			return
+		}
+		m = next
+	}
 }
 
 func set(m map[string]any, parts []string, v any) {
