@@ -56,11 +56,11 @@ func TestClientDocumentUsesOnlyFixedHTTPSURLs(t *testing.T) {
 // does for https://mcp.qonto.com/mcp: the token is bound to what it names.
 // Another host, or a sibling path, is someone else's resource.
 func TestDiscoverAcceptsTheServersOriginAndRefusesAnotherResource(t *testing.T) {
-	discover := func(resource string) (Metadata, error) {
+	discoverAt := func(server, resource string) (Metadata, error) {
 		c := &Client{HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			status, body, h := 200, "", make(http.Header)
 			switch r.URL.String() {
-			case "https://bank.example/mcp":
+			case server:
 				status = 401
 				h.Set("WWW-Authenticate", `Bearer resource_metadata="https://bank.example/.well-known/oauth-protected-resource"`)
 			case "https://bank.example/.well-known/oauth-protected-resource":
@@ -72,8 +72,9 @@ func TestDiscoverAcceptsTheServersOriginAndRefusesAnotherResource(t *testing.T) 
 			}
 			return &http.Response{StatusCode: status, Header: h, Body: io.NopCloser(strings.NewReader(body))}, nil
 		})}}
-		return c.Discover(context.Background(), "https://bank.example/mcp")
+		return c.Discover(context.Background(), server)
 	}
+	discover := func(resource string) (Metadata, error) { return discoverAt("https://bank.example/mcp", resource) }
 	for _, resource := range []string{"https://bank.example", "https://bank.example/", "https://bank.example/mcp", "https://BANK.example"} {
 		m, err := discover(resource)
 		if err != nil || m.Resource != resource {
@@ -88,5 +89,12 @@ func TestDiscoverAcceptsTheServersOriginAndRefusesAnotherResource(t *testing.T) 
 		if m, err := discover(resource); err == nil {
 			t.Fatalf("%q accepted as the resource for /mcp: %+v", resource, m)
 		}
+	}
+	// A path covers its own segments only: /mcp isn't /mcpx's resource.
+	if m, err := discoverAt("https://bank.example/mcpx", "https://bank.example/mcp"); err == nil {
+		t.Fatalf("/mcp accepted as the resource for /mcpx: %+v", m)
+	}
+	if _, err := discoverAt("https://bank.example/mcp/v2", "https://bank.example/mcp"); err != nil {
+		t.Fatalf("/mcp refused as the resource for /mcp/v2: %v", err)
 	}
 }
