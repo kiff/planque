@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"net/http"
 	"sort"
 	"strings"
@@ -29,10 +30,12 @@ func appState(app connector.App) string {
 	return "available"
 }
 
-// searchTools finds tools across the provider's apps by words, for Coach to
-// propose apps before connecting: GET /v1/accounts/{tenant}/catalog/tools
-// ?q=…&apps=slug,slug&cursor=…. Only the provider's catalog is searched;
-// configured reviewed entries are found by name through the catalog read.
+// searchTools finds tools across the catalog by words, for Coach to propose
+// apps before connecting: GET /v1/accounts/{tenant}/catalog/tools
+// ?q=…&apps=slug,slug&cursor=…. The reviewed entries come first, on the first
+// page, when a word of the search names their app or one of their tools:
+// Coach's only way to find an app is this search, so an entry it can't find
+// here can't be connected from a conversation. Then the provider's apps.
 // Platform meta tools never come back.
 func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
@@ -60,16 +63,29 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			apps = append(apps, a)
 		}
 	}
+	tools := []foundTool{}
+	if r.URL.Query().Get("cursor") == "" && len(apps) == 0 {
+		states, err := s.entryStates(r.Context(), tenant)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		tools = append(tools, s.reviewedTools(q, states)...)
+	}
 	found, err := provider.Search(r.Context(), q, apps, r.URL.Query().Get("cursor"))
 	if err != nil {
 		if err == connector.ErrDefinition {
 			writeErr(w, http.StatusBadRequest, "apps names at most 20 apps, as the catalog names them")
 			return
 		}
+		// The reviewed entries found are said, with the provider's part missing.
+		if len(tools) > 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "partial": true})
+			return
+		}
 		writeErr(w, http.StatusServiceUnavailable, "the connection catalog is unavailable")
 		return
 	}
-	tools := []foundTool{}
 	for _, t := range found.Tools {
 		app, ok := found.Apps[t.Toolkit]
 		// The managed connector's Stripe and Qonto aren't offered: each is
@@ -81,6 +97,49 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.ReadOnly})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "next_cursor": found.Next, "skipped": found.Skipped})
+}
+
+// reviewedTools is each tool of the reviewed entries a word of q names: the
+// entry's vendor or title, or the tool's name or title. Words shorter than
+// three letters name nothing. Entries in id order, tools in the entry's.
+func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) []foundTool {
+	var words []string
+	for _, w := range strings.Fields(strings.ToLower(q)) {
+		if len([]rune(w)) >= 3 {
+			words = append(words, w)
+		}
+	}
+	names := func(text string) bool {
+		text = strings.ToLower(text)
+		for _, w := range words {
+			if strings.Contains(text, w) {
+				return true
+			}
+		}
+		return false
+	}
+	ids := make([]string, 0, len(s.CatalogEntries))
+	for id := range s.CatalogEntries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := []foundTool{}
+	for _, id := range ids {
+		e := s.CatalogEntries[id]
+		app := names(e.Vendor + " " + e.Title)
+		state := "available"
+		if st, ok := states[id]; ok {
+			state = st.State
+		}
+		for _, t := range e.Tools {
+			if !app && !names(t.Tool+" "+t.Name+" "+t.Title) {
+				continue
+			}
+			out = append(out, foundTool{Entry: id, App: e.Vendor, AppTitle: e.Title, AppState: state,
+				Slug: t.Tool, Name: cmp.Or(t.Title, t.Tool), ReadOnly: t.ReadOnly})
+		}
+	}
+	return out
 }
 
 // An app's event, for a listing (kiff/planque#87): what Coach reads to pick
