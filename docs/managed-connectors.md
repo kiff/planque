@@ -72,7 +72,13 @@ The account-authenticated catalog endpoints include upstream discovery:
    (`GET /tools?query=`), at most 50 a page, narrowed upstream to one app when
    `apps` names one and here when it names several; each tool comes with its
    app as it stands, read once per app, so Coach can propose apps before any
-   connection exists. Platform meta tools never come back. An app's events
+   connection exists. The reviewed catalog's entries are in it, on the
+   first page and when `apps` names none, with the entry's id and state:
+   every tool of an entry whose app a word of `q` names (three letters or
+   more) first, and a tool a word names only by its own words after the
+   provider's apps. Coach finds apps only this way. With the provider
+   down, the entries found still come back, with `partial: true`. Platform
+   meta tools never come back. An app's events
    are listed the same way (`…/catalog/{entry}/events`, and
    `…/grants/{id}/events` for a connection), from `GET /triggers_types`, each
    pinned to a version; the approval of one stays as below.

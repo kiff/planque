@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -150,37 +151,10 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "GRANT#")
+	states, err := s.entryStates(r.Context(), tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return
-	}
-	states := map[string]catalogEntryView{}
-	for _, it := range items {
-		var g Grant
-		if json.Unmarshal(it.Doc, &g) != nil || g.Tenant != tenant {
-			continue
-		}
-		// Any connection to the app counts, a Coach-started one included.
-		entry := s.appEntry(&g)
-		if entry == "" {
-			continue
-		}
-		state := ""
-		switch {
-		case len(g.TriggerIDs) > 0 && g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed && g.Status != StatusNeedsReconnect, g.Status == StatusConnected || g.Status == StatusPending && len(g.Connected) > 0:
-			state = "connected"
-		case g.Status == StatusNeedsReconnect:
-			state = "needs_reconnect"
-		}
-		if state == "" {
-			continue
-		}
-		previous := states[entry]
-		if previous.State == "connected" || previous.State == state && previous.Grant < g.ID {
-			continue
-		}
-		states[entry] = catalogEntryView{State: state, Grant: g.ID}
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
@@ -275,6 +249,44 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
+}
+
+// entryStates is each catalog entry the tenant has a connection to, with its
+// state (connected, or needs_reconnect) and the grant that says so: the
+// catalog and the tool search mark an app the same way.
+func (s *Server) entryStates(ctx context.Context, tenant string) (map[string]catalogEntryView, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	states := map[string]catalogEntryView{}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.Tenant != tenant {
+			continue
+		}
+		// Any connection to the app counts, a Coach-started one included.
+		entry := s.appEntry(&g)
+		if entry == "" {
+			continue
+		}
+		state := ""
+		switch {
+		case len(g.TriggerIDs) > 0 && g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed && g.Status != StatusNeedsReconnect, g.Status == StatusConnected || g.Status == StatusPending && len(g.Connected) > 0:
+			state = "connected"
+		case g.Status == StatusNeedsReconnect:
+			state = "needs_reconnect"
+		}
+		if state == "" {
+			continue
+		}
+		previous := states[entry]
+		if previous.State == "connected" || previous.State == state && previous.Grant < g.ID {
+			continue
+		}
+		states[entry] = catalogEntryView{State: state, Grant: g.ID}
+	}
+	return states, nil
 }
 
 func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
