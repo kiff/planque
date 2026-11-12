@@ -152,6 +152,7 @@ func relayTools(g *Grant) []mcp.Tool {
 		if json.Unmarshal(t.InputSchema, &schema) != nil || schema == nil {
 			schema = map[string]any{"type": "object"}
 		}
+		forAgent(schema)
 		props, _ := schema["properties"].(map[string]any)
 		if props == nil {
 			props = map[string]any{}
@@ -241,6 +242,8 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return refused(CodeRecordUnavailable, "planque could not record the operation")
 	}
 	delete(args, IdempotencyArg)
+	// The agent was given names its model takes; the vendor gets its own.
+	fromAgent(tool.InputSchema, args)
 	// A call whose outcome comes later as an event the taf doesn't listen
 	// for is refused before sending: nothing would ever resume the run.
 	if c := completesOf(g, name); c != nil {
