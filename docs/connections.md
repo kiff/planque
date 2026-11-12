@@ -94,7 +94,54 @@ posted to `POST /v1/accounts/{tenant}/catalog/qonto-key@1/grants`.
   and one client invoice. Creating an invoice isn't offered: Qonto's create makes
   a real (`unpaid`) invoice unless `status: draft` is sent, and a draft-only tool
   needs `status` fixed on the grant, with the invoice's lines still the agent's
-  to give. A later entry (`qonto-key@2`) adds it, approved anew.
+  to give. A later entry (`qonto-key@2`, below) adds it, approved anew.
+
+### `qonto-key@2`: reads, and invoice drafts from quotes
+
+`qonto-key@2` is `@1` plus the quotes and supplier invoices, as reads, and
+one write: an invoice drafted from an accepted quote. It's posted the same way,
+to `POST /v1/accounts/{tenant}/catalog/qonto-key@2/grants`, and the owner
+approves it anew: a grant from `@1` stays as it was.
+
+- **Its description** is `deploy/specs/qonto-invoicing-openapi-2.json`: `@1`'s
+  reviewed copy, with `GET /quotes`, `GET /quotes/{id}` and
+  `GET /supplier_invoices` added from Qonto's reference pages, their prose left
+  out. The entry pins its SHA-256. `@1`'s file is unchanged, since `@1`'s grants
+  pin it.
+- **The reads:** `qonto_list_quotes` (filter `approved`), `qonto_get_quote`
+  (its client, lines, prices, and `invoice_ids`, empty while no invoice comes
+  from it) and `qonto_list_supplier_invoices`, beside `@1`'s four.
+- **The one write, `qonto_draft_client_invoice`:** Qonto's
+  `POST /client_invoices` with `status: "draft"` fixed on the grant. A draft
+  goes to no one, and it's never finalised or sent: no operation that does
+  either is offered, nor any that pays, cancels or deletes.
+  - **Its arguments:** `quote_id` (required, the call's resource, so the Card
+    and the record name the quote), the client, the dates, the currency, the
+    IBAN the customer pays to, and `items`.
+  - **The IBAN** must be one of the business's own accounts: before each
+    call, planque reads `GET /organization` with the same key and refuses an
+    IBAN it doesn't list (spaces and case aside), so one planted in a quote or
+    a client's note never becomes the payee. A read that fails refuses the
+    call.
+  - **`items`** is an array argument with a reviewed schema: Qonto's own line
+    fields, without `discount`. A line with a field the schema doesn't name is
+    refused before anything reaches Qonto, and so is the invoice's own
+    `discount`, which isn't one of the arguments.
+  - **The write's effect** is `none_until_approved`, and `claim: invoice_draft`
+    means one taf at a time drafts from a given quote.
+
+**Array arguments** (`narrow.go`): a narrowed tool's argument may be
+`"type": "array"` with a `schema`, a JSON Schema of `type`, `properties`,
+`required`, `items`, `enum`, `maxLength`, `maxItems` and `description` only.
+Its items are objects, and every object names its fields. The agent sees that
+schema. A call whose value has a field the schema doesn't name, the wrong kind
+of value, a value outside its list, or a missing required field is refused.
+
+**Arguments checked against the account** (`one_of`): a string argument may
+name a read-only tool of the same grant and the dotted path of the values it
+allows (`{"tool": "get_organization", "path": "organization.bank_accounts.iban"}`).
+On an API-key grant, planque makes that read with the grant's key before each
+call and refuses a value it doesn't list.
 
 ## Telegram bots
 
