@@ -131,6 +131,20 @@ func TestTheCatalogKeptAsData(t *testing.T) {
 	if _, served := e.s.catalogEntries()["qonto-read@1"]; served {
 		t.Fatal("a draft was served")
 	}
+	// A device reads it with no credential, and planque's own reading of
+	// each tool from the pinned description, not the entry's labels.
+	st, one := e.do("GET", base+"/qonto-read@1", nil, nil, "")
+	described, _ := one["described"].(map[string]any)
+	tools, _ := described["tools"].([]any)
+	if st != 200 || one["digest"] != digest || described["from"] != "description" || len(tools) != len(entry.Tools) {
+		t.Fatalf("one revision: %d %v", st, one)
+	}
+	for _, x := range tools {
+		tool := x.(map[string]any)
+		if tool["method"] != "GET" || tool["read_only"] != true || tool["why"] != nil {
+			t.Fatalf("a Qonto read as planque reads it: %v", tool)
+		}
+	}
 	publish := func(op, action, id, digest, nonce string, at time.Time) (int, map[string]any) {
 		t.Helper()
 		ts := at.UTC().Format(time.RFC3339)

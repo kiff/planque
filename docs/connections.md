@@ -547,7 +547,13 @@ credential and no device, so it has no path to `published`.
   closed.
 - `GET /v1/catalog/entries` lists every revision for an operator.
   `GET /v1/catalog/entries/{id}` reads one, with the digest a device signs,
-  and needs no credential: an entry holds no secret.
+  and needs no credential: an entry holds no secret. It also carries
+  `described`, outside the digest: for a key entry, each tool as planque reads
+  the pinned description (`method`, `path`, `read_only`, and the
+  `final_arguments` with the value each would be pinned to), or `why` it
+  can't be read. A device draws read or write from this, never from the
+  entry's own labels. An MCP entry's tools are listed by its server once
+  connected, so it says so.
 
 planque serves a published revision only while its stored digest is the one
 its publish signature covers, and that signature verifies, with the key of an

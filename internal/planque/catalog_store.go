@@ -581,7 +581,69 @@ func (s *Server) getCatalogEntry(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no catalog revision "+r.PathValue("id"))
 		return
 	}
-	writeJSON(w, http.StatusOK, catalogRowView(row))
+	view := catalogRowView(row)
+	if e, err := decodeEntryDocument(row.Entry); err == nil {
+		view["described"] = s.describeEntry(r.Context(), e)
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// describedTool is one of an entry's tools as planque reads its pinned
+// description, never as the entry labels it.
+type describedTool struct {
+	Tool     string           `json:"tool"`
+	Method   string           `json:"method,omitempty"`
+	Path     string           `json:"path,omitempty"`
+	ReadOnly bool             `json:"read_only"`
+	Final    []describedFinal `json:"final_arguments,omitempty"`
+	Why      string           `json:"why,omitempty"` // why it can't be read
+}
+
+type describedFinal struct {
+	Argument string `json:"argument"`
+	Undo     any    `json:"undo"`
+}
+
+// describeEntry is what a device signing e draws for read or write: each
+// tool as planque reads the description e pins, with the arguments that can
+// make it final. It's outside the signed digest: the device checks the
+// entry, and this tells it what the entry's tools do. A key entry's
+// description is read and must match its pin; an MCP entry's tools are
+// listed by its server once connected, so there's nothing to read here.
+func (s *Server) describeEntry(ctx context.Context, e CatalogEntry) map[string]any {
+	if e.Kind != KindAPIKey || e.API == nil {
+		return map[string]any{"from": "server", "why": "an MCP server lists its tools once connected: nothing is read before"}
+	}
+	raw, err := s.REST.Fetch(ctx, e.API.URL)
+	if err != nil {
+		return map[string]any{"from": "description", "why": "its description couldn't be read: " + err.Error()}
+	}
+	if sum := sha256.Sum256(raw); hex.EncodeToString(sum[:]) != e.DescriptionSHA256 {
+		return map[string]any{"from": "description", "why": "its description changed since it was pinned"}
+	}
+	snap, err := openapi.Parse(raw, e.API.Auth)
+	if err != nil {
+		return map[string]any{"from": "description", "why": err.Error()}
+	}
+	tools := make([]describedTool, 0, len(e.Tools))
+	for _, t := range e.Tools {
+		i := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == t.Tool })
+		if i < 0 {
+			tools = append(tools, describedTool{Tool: t.Tool, Why: "not in its description"})
+			continue
+		}
+		op := snap.Operations[i]
+		d := describedTool{Tool: t.Tool, Method: op.Method, Path: op.Path, ReadOnly: op.ReadOnly}
+		finals, err := FinalArguments(op)
+		if err != nil {
+			d.Why = err.Error()
+		}
+		for _, f := range finals {
+			d.Final = append(d.Final, describedFinal{Argument: f.Argument, Undo: f.Undo})
+		}
+		tools = append(tools, d)
+	}
+	return map[string]any{"from": "description", "description_sha256": e.DescriptionSHA256, "tools": tools}
 }
 
 // readCatalogEntry reads {entry} and checks it as the shipped catalog is.
