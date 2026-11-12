@@ -71,9 +71,14 @@ type ToolRequest struct {
 // Argument is one argument of a narrowed tool.
 type Argument struct {
 	Path        string `json:"path"` // dotted path in the vendor's arguments
-	Type        string `json:"type"` // string, integer, number or boolean
+	Type        string `json:"type"` // string, integer, number, boolean or array
 	Required    bool   `json:"required,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Schema is an array argument's reviewed shape (an invoice's lines): its
+	// items, each an object whose fields are all named. A call is refused if
+	// it sends a field the schema doesn't name, so a field left out of it (a
+	// line's discount) can't be set. Only an array argument has one.
+	Schema json.RawMessage `json:"schema,omitempty"`
 }
 
 // Request is exactly what is asked, and what the owner signs.

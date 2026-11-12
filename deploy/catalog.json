@@ -78,5 +78,319 @@
         }
       ]
     }
+  },
+  "qonto-key@2": {
+    "vendor": "Qonto",
+    "title": "Qonto invoicing: reads, and invoice drafts from quotes",
+    "kind": "api_key",
+    "api": {
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi-2.json",
+      "base": "https://thirdparty.qonto.com/v2",
+      "auth": {
+        "in": "header",
+        "name": "Authorization"
+      },
+      "operations": [
+        "get_organization",
+        "list_clients",
+        "list_client_invoices",
+        "get_client_invoice",
+        "list_quotes",
+        "get_quote",
+        "list_supplier_invoices",
+        "create_client_invoice"
+      ]
+    },
+    "description_sha256": "9c3270688adc07aa5c818c31a8f8167105fa5ae7223e305352043e7ccfe707cf",
+    "tools": [
+      {
+        "tool": "get_organization",
+        "name": "qonto_organization",
+        "title": "Read the business and its bank accounts",
+        "read_only": true
+      },
+      {
+        "tool": "list_clients",
+        "name": "qonto_list_clients",
+        "title": "List the clients",
+        "read_only": true
+      },
+      {
+        "tool": "list_client_invoices",
+        "name": "qonto_list_client_invoices",
+        "title": "List the client invoices",
+        "read_only": true
+      },
+      {
+        "tool": "get_client_invoice",
+        "name": "qonto_get_client_invoice",
+        "title": "Read one client invoice",
+        "read_only": true
+      },
+      {
+        "tool": "list_quotes",
+        "name": "qonto_list_quotes",
+        "title": "List the quotes",
+        "read_only": true
+      },
+      {
+        "tool": "get_quote",
+        "name": "qonto_get_quote",
+        "title": "Read one quote",
+        "read_only": true
+      },
+      {
+        "tool": "list_supplier_invoices",
+        "name": "qonto_list_supplier_invoices",
+        "title": "List the supplier invoices",
+        "read_only": true
+      },
+      {
+        "tool": "create_client_invoice",
+        "name": "qonto_draft_client_invoice",
+        "title": "Draft an invoice from an accepted quote",
+        "fixed_arguments": {
+          "status": "draft"
+        },
+        "arguments": {
+          "quote_id": {
+            "path": "quote_id",
+            "type": "string",
+            "required": true,
+            "description": "The accepted quote this invoice is drafted from"
+          },
+          "client_id": {
+            "path": "client_id",
+            "type": "string",
+            "required": true,
+            "description": "The quote's client"
+          },
+          "issue_date": {
+            "path": "issue_date",
+            "type": "string",
+            "required": true,
+            "description": "YYYY-MM-DD"
+          },
+          "due_date": {
+            "path": "due_date",
+            "type": "string",
+            "required": true,
+            "description": "YYYY-MM-DD"
+          },
+          "currency": {
+            "path": "currency",
+            "type": "string",
+            "required": true,
+            "description": "The quote's currency, e.g. EUR"
+          },
+          "iban": {
+            "path": "payment_methods.iban",
+            "type": "string",
+            "required": true,
+            "description": "The business's IBAN the customer pays to"
+          },
+          "performance_start_date": {
+            "path": "performance_start_date",
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "performance_end_date": {
+            "path": "performance_end_date",
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "items": {
+            "path": "items",
+            "type": "array",
+            "required": true,
+            "description": "The quote's own lines",
+            "schema": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 1800
+                  },
+                  "quantity": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "unit_price": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "currency": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "currency"
+                    ]
+                  },
+                  "vat_rate": {
+                    "type": "string"
+                  },
+                  "vat_exemption_reason": {
+                    "type": "string",
+                    "enum": [
+                      "N1",
+                      "N2",
+                      "N2.1",
+                      "N2.2",
+                      "N3",
+                      "N3.1",
+                      "N3.2",
+                      "N3.3",
+                      "N3.4",
+                      "N3.5",
+                      "N3.6",
+                      "N4",
+                      "N5",
+                      "N6",
+                      "N6.1",
+                      "N6.2",
+                      "N6.3",
+                      "N6.4",
+                      "N6.5",
+                      "N6.6",
+                      "N6.7",
+                      "N6.8",
+                      "N6.9",
+                      "N7",
+                      "S293B",
+                      "S262.1",
+                      "S259",
+                      "S283",
+                      "S261",
+                      "S262",
+                      "S263",
+                      "S19.1",
+                      "S4.1B",
+                      "S4.1A",
+                      "S4",
+                      "S13B",
+                      "S122",
+                      "S25",
+                      "S21",
+                      "S69",
+                      "S20",
+                      "S84.1.2",
+                      "S6.1.27",
+                      "S11.1A",
+                      "S6.1.16",
+                      "S6.1.13",
+                      "S6.1.19",
+                      "S44.1",
+                      "S44.3.11",
+                      "S44.3.2",
+                      "S44.3.4",
+                      "S39bis",
+                      "S56bis",
+                      "S39",
+                      "S9",
+                      "S11",
+                      "S12",
+                      "S53",
+                      "S9.29.30",
+                      "S9.27.28",
+                      "S9.1-5"
+                    ]
+                  }
+                },
+                "required": [
+                  "title",
+                  "quantity",
+                  "unit_price",
+                  "vat_rate"
+                ]
+              }
+            }
+          }
+        },
+        "resource_argument": "quote_id"
+      }
+    ],
+    "profile": {
+      "v": "kiff.profile.v1",
+      "vendor": "Qonto",
+      "transport": "rest",
+      "pin": {
+        "kind": "base_path",
+        "value": "/v2"
+      },
+      "source": "catalog",
+      "catalog_entry": "qonto-key@2",
+      "test_proven": false,
+      "operations": [
+        {
+          "tool": "qonto_organization",
+          "title": "Read the business and its bank accounts",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_clients",
+          "title": "List the clients",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_client_invoices",
+          "title": "List the client invoices",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_get_client_invoice",
+          "title": "Read one client invoice",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_quotes",
+          "title": "List the quotes",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_get_quote",
+          "title": "Read one quote",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_supplier_invoices",
+          "title": "List the supplier invoices",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_draft_client_invoice",
+          "title": "Draft an invoice from an accepted quote",
+          "kind": "write",
+          "effect": "none_until_approved",
+          "shape": "single",
+          "resource": {
+            "arg": "quote_id",
+            "noun": "quote"
+          },
+          "claim": "invoice_draft",
+          "required_arguments": [
+            "quote_id",
+            "client_id",
+            "issue_date",
+            "due_date",
+            "currency",
+            "iban",
+            "items"
+          ]
+        }
+      ]
+    }
   }
 }

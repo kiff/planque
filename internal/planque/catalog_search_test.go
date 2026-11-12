@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/kiff/planque/internal/connector"
@@ -44,7 +45,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 	reviewed := func(tools []map[string]any) (n int) {
 		for _, x := range tools {
-			if x["entry"] == "qonto-key@1" {
+			if e, _ := x["entry"].(string); strings.HasPrefix(e, "qonto-key@") {
 				n++
 			}
 		}
@@ -52,11 +53,13 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 
 	st, tools, out := search("q=Qonto")
-	if st != 200 || reviewed(tools) != 4 || tools[0]["entry"] != "qonto-key@1" {
+	// Both entries: @1's 4 reads, and @2's 7 reads and its one draft.
+	if st != 200 || reviewed(tools) != 12 || reviewed(tools[:12]) != 12 {
 		t.Fatalf("by the app's name: %d %v", st, out)
 	}
-	for _, x := range tools[:4] {
-		if x["app_title"] != "Qonto invoicing, read only" || x["app_state"] != "available" || x["read_only"] != true || x["slug"] == "" || x["name"] == "" {
+	for _, x := range tools[:12] {
+		draft := x["entry"] == "qonto-key@2" && x["slug"] == "create_client_invoice"
+		if !strings.HasPrefix(x["app_title"].(string), "Qonto invoicing") || x["app_state"] != "available" || x["read_only"] != !draft || x["slug"] == "" || x["name"] == "" {
 			t.Fatalf("a reviewed tool as found: %v", x)
 		}
 	}
@@ -69,11 +72,11 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	// By a tool's words alone: only the tools they name, and after the
 	// provider's apps. A word as generic as "invoices" doesn't put a reviewed
 	// entry ahead of the app the person may use.
-	if st, tools, out := search("q=invoices"); st != 200 || reviewed(tools) != 1 || tools[0]["entry"] == "qonto-key@1" || tools[len(tools)-1]["entry"] != "qonto-key@1" {
+	if st, tools, out := search("q=invoices"); st != 200 || reviewed(tools) != 3 || reviewed(tools[:1]) != 0 || reviewed(tools[len(tools)-3:]) != 3 {
 		t.Fatalf("by the tools' words: %d %v", st, out)
 	}
 	// The app's name and a tool's words: the app's name puts it first.
-	if st, tools, out := search("q=qonto%20invoices"); st != 200 || reviewed(tools) != 4 || tools[0]["entry"] != "qonto-key@1" {
+	if st, tools, out := search("q=qonto%20invoices"); st != 200 || reviewed(tools) != 12 || reviewed(tools[:1]) != 1 {
 		t.Fatalf("by the app's name and the tools' words: %d %v", st, out)
 	}
 	// Words that name nothing reviewed, short words, a next page, or apps
@@ -86,7 +89,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 
 	// The provider's search down: the reviewed entries found are said, as partial.
 	e.s.Connectors = map[string]connector.Provider{"fake": searchDown{}}
-	if st, tools, out := search("q=Qonto"); st != 200 || reviewed(tools) != 4 || out["partial"] != true {
+	if st, tools, out := search("q=Qonto"); st != 200 || reviewed(tools) != 12 || out["partial"] != true {
 		t.Fatalf("provider down, reviewed found: %d %v", st, out)
 	}
 	if st, _, out := search("q=refund"); st != 503 {
