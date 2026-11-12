@@ -43,6 +43,10 @@ func TestTheDeskIsAnAPIKeyVendor(t *testing.T) {
 		{"POST", "/workspaces/ws_demo/tickets/tk_1001/replies", v.DeskKey, `{"body":""}`, 422},
 		{"POST", "/workspaces/ws_demo/tickets/tk_1001/replies", v.DeskKey, `{"body":"Sorry, a new one is on its way."}`, 201},
 		{"POST", "/workspaces/ws_demo/tickets/tk_1001/labels", v.DeskKey, `{"label":"damaged"}`, 201},
+		// The Eval's workspace is its own: its tickets aren't the setup test's, and theirs aren't in it.
+		{"GET", "/workspaces/ws_eval/tickets/T-3006", v.DeskKey, "", 200},
+		{"GET", "/workspaces/ws_eval/tickets/tk_1001", v.DeskKey, "", 404},
+		{"GET", "/workspaces/ws_demo/tickets/T-3001", v.DeskKey, "", 404},
 	} {
 		if got := do(c.method, c.path, c.key, c.body); got != c.want {
 			t.Errorf("%s %s: %d, want %d", c.method, c.path, got, c.want)
