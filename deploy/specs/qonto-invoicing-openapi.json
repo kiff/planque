@@ -1,0 +1,2825 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Qonto Business API, invoicing subset (reviewed for planque)",
+    "version": "2026-11-12"
+  },
+  "servers": [
+    {
+      "url": "https://thirdparty.qonto.com/v2"
+    }
+  ],
+  "paths": {
+    "/organization": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Retrieve the authenticated organization and list bank accounts",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Qonto-Staging-Token"
+          },
+          {
+            "name": "include_external_accounts",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "organization": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "legal_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "locale": {
+                          "type": "string"
+                        },
+                        "legal_share_capital": {
+                          "type": "number"
+                        },
+                        "legal_country": {
+                          "type": "string"
+                        },
+                        "legal_registration_date": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "legal_form": {
+                          "type": "string"
+                        },
+                        "legal_address": {
+                          "type": "string"
+                        },
+                        "legal_sector": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "contract_signed_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "legal_number": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bank_accounts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "iban": {
+                                "type": "string"
+                              },
+                              "bic": {
+                                "type": "string"
+                              },
+                              "currency": {
+                                "type": "string"
+                              },
+                              "balance": {
+                                "type": "number",
+                                "format": "float"
+                              },
+                              "balance_cents": {
+                                "type": "integer"
+                              },
+                              "authorized_balance": {
+                                "type": "number",
+                                "format": "float"
+                              },
+                              "authorized_balance_cents": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "updated_at": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "closed"
+                                ]
+                              },
+                              "main": {
+                                "type": "boolean"
+                              },
+                              "is_external_account": {
+                                "type": "boolean"
+                              },
+                              "account_number": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400-Bad-request"
+          },
+          "401": {
+            "$ref": "#/components/responses/401-Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403-Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/500-Internal-Server-Error"
+          }
+        },
+        "security": [
+          {
+            "SecretKey": [
+
+            ]
+          }
+        ],
+        "operationId": "get_organization"
+      }
+    },
+    "/clients": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List clients",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Qonto-Staging-Token"
+          },
+          {
+            "name": "filter[]",
+            "in": "query",
+            "style": "deepObject",
+            "explode": true,
+            "schema": {
+              "type": "object",
+              "enum": [
+                "filter[tax_identification_number]",
+                "filter[vat_number]",
+                "filter[email]",
+                "filter[name]"
+              ]
+            }
+          },
+          {
+            "name": "filter[updated_at_from]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "filter[updated_at_to]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at:asc",
+                "created_at:desc",
+                "updated_at:asc",
+                "updated_at:desc",
+                "name:asc",
+                "name:desc"
+              ],
+              "default": "name:asc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "clients": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Client"
+                      }
+                    },
+                    "meta": {
+                      "$ref": "#/components/schemas/ClientsPagination"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400-Bad-request"
+          },
+          "401": {
+            "$ref": "#/components/responses/401-Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403-Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/422-Unprocessable-Entity"
+          },
+          "500": {
+            "$ref": "#/components/responses/500-Internal-Server-Error"
+          }
+        },
+        "security": [
+          {
+            "SecretKey": [
+
+            ]
+          }
+        ],
+        "operationId": "list_clients"
+      }
+    },
+    "/client_invoices": {
+      "get": {
+        "tags": [
+          "Client Invoices"
+        ],
+        "summary": "List client invoices",
+        "operationId": "list_client_invoices",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Qonto-Staging-Token"
+          },
+          {
+            "name": "filter[status]",
+            "in": "query",
+            "style": "form",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "unpaid",
+                  "paid",
+                  "canceled"
+                ]
+              }
+            }
+          },
+          {
+            "name": "filter[created_at_from]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "filter[created_at_to]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "filter[updated_at_from]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "filter[updated_at_to]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "filter[due_date]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "filter[due_date_from]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "filter[due_date_to]",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "exclude_imported",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_at:desc",
+                "created_at:asc"
+              ],
+              "default": "created_at:desc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client_invoices": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ClientInvoice"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "current_page": {
+                          "type": "integer"
+                        },
+                        "next_page": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "prev_page": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "total_pages": {
+                          "type": "integer"
+                        },
+                        "total_count": {
+                          "type": "integer"
+                        },
+                        "per_page": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400-Client-Invoice-Bad-Request"
+          },
+          "401": {
+            "$ref": "#/components/responses/401-Client-Invoice-Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403-Client-Invoice-Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/422-Client-Invoice-Unprocessable-Entity"
+          },
+          "500": {
+            "$ref": "#/components/responses/500-Client-Invoice-Internal-Server-Error"
+          }
+        },
+        "security": [
+          {
+            "SecretKey": [
+
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Client Invoices"
+        ],
+        "summary": "Create a client invoice",
+        "operationId": "create_client_invoice",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Qonto-Staging-Token"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientInvoiceCreatePayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client_invoice": {
+                      "$ref": "#/components/schemas/ClientInvoice"
+                    }
+                  },
+                  "required": [
+                    "client_invoice"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400-Client-Invoice-Bad-Request"
+          },
+          "401": {
+            "$ref": "#/components/responses/401-Client-Invoice-Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403-Client-Invoice-Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/409-Client-Invoice-Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/422-Client-Invoice-Unprocessable-Entity"
+          },
+          "500": {
+            "$ref": "#/components/responses/500-Client-Invoice-Internal-Server-Error"
+          }
+        },
+        "security": [
+          {
+            "SecretKey": [
+
+            ]
+          }
+        ]
+      }
+    },
+    "/client_invoices/{id}": {
+      "get": {
+        "tags": [
+          "Client Invoices"
+        ],
+        "summary": "Retrieve a client invoice",
+        "operationId": "get_client_invoice",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Qonto-Staging-Token"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "client_invoice": {
+                      "$ref": "#/components/schemas/ClientInvoice"
+                    }
+                  },
+                  "required": [
+                    "client_invoice"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400-Bad-request"
+          },
+          "401": {
+            "$ref": "#/components/responses/401-Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/403-Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/404-Not-Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/422-Unprocessable-Entity"
+          },
+          "500": {
+            "$ref": "#/components/responses/500-Internal-Server-Error"
+          }
+        },
+        "security": [
+          {
+            "SecretKey": [
+
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BadRequestResponseBody": {
+        "type": "object",
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BadRequestError"
+            }
+          }
+        },
+        "required": [
+          "errors"
+        ]
+      },
+      "UnauthorizedResponseBody": {
+        "type": "object",
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnauthorizedError"
+            }
+          }
+        },
+        "required": [
+          "errors"
+        ]
+      },
+      "ForbiddenResponseBody": {
+        "type": "object",
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ForbiddenError"
+            }
+          }
+        },
+        "required": [
+          "errors"
+        ]
+      },
+      "BadRequestError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "pointer": {
+                "type": "string"
+              },
+              "parameter": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "x-examples": {
+          "Authorization field missing": {
+            "code": "bad_request",
+            "detail": "Authorization field missing"
+          }
+        }
+      },
+      "UnauthorizedError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "x-examples": {
+          "Invalid credentials": {
+            "code": "unauthorized",
+            "detail": "Invalid credentials"
+          }
+        }
+      },
+      "ForbiddenError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "x-examples": {
+          "Insufficient permissions": {
+            "code": "forbidden",
+            "detail": "User does not have sufficient permissions for this action."
+          }
+        }
+      },
+      "Client": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ClientCompany"
+          },
+          {
+            "$ref": "#/components/schemas/ClientIndividual"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "company": "#/components/schemas/ClientCompany",
+            "freelancer": "#/components/schemas/ClientCompany",
+            "individual": "#/components/schemas/ClientIndividual"
+          }
+        }
+      },
+      "ClientsPagination": {
+        "type": "object",
+        "required": [
+          "current_page",
+          "next_page",
+          "previous_page",
+          "total_pages",
+          "total_count",
+          "per_page"
+        ],
+        "properties": {
+          "current_page": {
+            "type": "integer"
+          },
+          "next_page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "previous_page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "total_pages": {
+            "type": "integer"
+          },
+          "total_count": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      },
+      "ClientCompany": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string",
+            "deprecated": true
+          },
+          "phone": {
+            "type": "object",
+            "properties": {
+              "country_code": {
+                "type": "string"
+              },
+              "number": {
+                "type": "string"
+              }
+            }
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "company",
+              "freelancer"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "deprecated": true,
+            "enum": [
+              "company",
+              "individual",
+              "freelancer"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "extra_emails": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 250
+            },
+            "maxItems": 100
+          },
+          "currency": {
+            "type": "string"
+          },
+          "e_invoicing_address": {
+            "type": "string"
+          },
+          "e_invoicing_reachable": {
+            "type": "boolean"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "tax_identification_number": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "zip_code": {
+            "type": "string"
+          },
+          "province_code": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "billing_address": {
+            "type": "object",
+            "properties": {
+              "street_address": {
+                "type": "string",
+                "maxLength": 250
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "zip_code": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "province_code": {
+                "type": "string",
+                "maxLength": 2
+              },
+              "country_code": {
+                "type": "string",
+                "maxLength": 2
+              }
+            }
+          },
+          "delivery_address": {
+            "type": "object",
+            "properties": {
+              "street_address": {
+                "type": "string",
+                "maxLength": 250
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "zip_code": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "province_code": {
+                "type": "string",
+                "maxLength": 2
+              },
+              "country_code": {
+                "type": "string",
+                "maxLength": 2
+              }
+            }
+          },
+          "recipient_code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "ClientIndividual": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string",
+            "deprecated": true
+          },
+          "phone": {
+            "type": "object",
+            "properties": {
+              "country_code": {
+                "type": "string"
+              },
+              "number": {
+                "type": "string"
+              }
+            }
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "individual"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "individual",
+              "freelancer"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "extra_emails": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "format": "email",
+              "maxLength": 250
+            },
+            "maxItems": 100
+          },
+          "currency": {
+            "type": "string"
+          },
+          "e_invoicing_address": {
+            "type": "string"
+          },
+          "e_invoicing_reachable": {
+            "type": "boolean"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "tax_identification_number": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "zip_code": {
+            "type": "string"
+          },
+          "province_code": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "billing_address": {
+            "type": "object",
+            "properties": {
+              "street_address": {
+                "type": "string",
+                "maxLength": 250
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "zip_code": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "province_code": {
+                "type": "string",
+                "maxLength": 2
+              },
+              "country_code": {
+                "type": "string",
+                "maxLength": 2
+              }
+            }
+          },
+          "delivery_address": {
+            "type": "object",
+            "properties": {
+              "street_address": {
+                "type": "string",
+                "maxLength": 250
+              },
+              "city": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "zip_code": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "province_code": {
+                "type": "string",
+                "maxLength": 2
+              },
+              "country_code": {
+                "type": "string",
+                "maxLength": 2
+              }
+            }
+          },
+          "recipient_code": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "UnprocessableEntityError": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "pointer": {
+                "type": "string"
+              },
+              "parameter": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ]
+      },
+      "ClientInvoice": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attachment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "string"
+          },
+          "purchase_order": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "unpaid",
+              "paid",
+              "canceled"
+            ]
+          },
+          "invoice_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "contact_email": {
+            "type": "string",
+            "format": "email"
+          },
+          "terms_and_conditions": {
+            "type": "string"
+          },
+          "discount_conditions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "late_payment_penalties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "legal_fixed_compensation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "header": {
+            "type": "string"
+          },
+          "footer": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "percentage",
+                  "absolute"
+                ]
+              },
+              "value": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "total_amount": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "total_amount_cents": {
+            "type": "integer"
+          },
+          "vat_amount": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "vat_amount_cents": {
+            "type": "integer"
+          },
+          "issue_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "expected_date": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "client_average",
+                  "manual"
+                ]
+              },
+              "client_average_delay_days": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "date",
+              "source"
+            ]
+          },
+          "performance_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "deprecated": true
+          },
+          "performance_start_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "performance_end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finalized_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "paid_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "amount_paid": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "stamp_duty_amount": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 15
+          },
+          "items": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DocumentItem"
+            }
+          },
+          "client": {
+            "$ref": "#/components/schemas/EmbeddedClient"
+          },
+          "payment_methods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "beneficiary_name": {
+                  "type": "string"
+                },
+                "bic": {
+                  "type": "string"
+                },
+                "iban": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "transfer"
+                  ]
+                }
+              }
+            }
+          },
+          "credit_notes_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "readOnly": true
+            }
+          },
+          "organization": {
+            "$ref": "#/components/schemas/EmbeddedInvoiceOrganization"
+          },
+          "einvoicing_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "submitted",
+              "declined",
+              "approved",
+              "not_delivered",
+              "submission_failed"
+            ]
+          },
+          "welfare_fund": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "TC01",
+                  "TC02",
+                  "TC03",
+                  "TC04",
+                  "TC05",
+                  "TC06",
+                  "TC07",
+                  "TC08",
+                  "TC09",
+                  "TC10",
+                  "TC11",
+                  "TC12",
+                  "TC13",
+                  "TC14",
+                  "TC15",
+                  "TC16",
+                  "TC17",
+                  "TC18",
+                  "TC19",
+                  "TC20",
+                  "TC21",
+                  "TC22"
+                ]
+              },
+              "rate": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 6
+              }
+            }
+          },
+          "withholding_tax": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "RF01",
+                  "RF02",
+                  "RF03",
+                  "RF04",
+                  "RF05",
+                  "RF06"
+                ]
+              },
+              "rate": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 6
+              },
+              "payment_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2
+              },
+              "amount": {
+                "type": "string"
+              }
+            }
+          },
+          "payment_reporting": {
+            "type": "object",
+            "properties": {
+              "conditions": {
+                "type": "string",
+                "enum": [
+                  "TP01",
+                  "TP02",
+                  "TP03"
+                ]
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "MP01",
+                  "MP02",
+                  "MP03",
+                  "MP04",
+                  "MP05",
+                  "MP06",
+                  "MP07",
+                  "MP08",
+                  "MP09",
+                  "MP10",
+                  "MP11",
+                  "MP12",
+                  "MP13",
+                  "MP14",
+                  "MP15",
+                  "MP16",
+                  "MP17",
+                  "MP18",
+                  "MP19",
+                  "MP20",
+                  "MP21",
+                  "MP22"
+                ]
+              }
+            }
+          },
+          "quote_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "invoice_type": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "deposit",
+              "partial",
+              "balance"
+            ]
+          },
+          "einvoicing_lifecycle_events": {
+            "$ref": "#/components/schemas/EinvoicingLifecycleEvents"
+          }
+        },
+        "required": [
+          "id",
+          "organization_id",
+          "number",
+          "purchase_order",
+          "status",
+          "invoice_url",
+          "contact_email",
+          "terms_and_conditions",
+          "discount_conditions",
+          "late_payment_penalties",
+          "legal_fixed_compensation",
+          "header",
+          "footer",
+          "currency",
+          "total_amount",
+          "total_amount_cents",
+          "vat_amount",
+          "vat_amount_cents",
+          "issue_date",
+          "due_date",
+          "performance_date",
+          "performance_start_date",
+          "performance_end_date",
+          "created_at",
+          "finalized_at",
+          "paid_at",
+          "stamp_duty_amount",
+          "items",
+          "client",
+          "payment_methods",
+          "credit_notes_ids",
+          "organization",
+          "invoice_type"
+        ],
+        "x-examples": {
+        }
+      },
+      "DocumentItem": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "unit_price": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "unit_price_cents": {
+            "type": "integer"
+          },
+          "vat_rate": {
+            "type": "string"
+          },
+          "vat_exemption_reason": {
+            "type": "string",
+            "enum": [
+              "N1",
+              "N2",
+              "N2.1",
+              "N2.2",
+              "N3",
+              "N3.1",
+              "N3.2",
+              "N3.3",
+              "N3.4",
+              "N3.5",
+              "N3.6",
+              "N4",
+              "N5",
+              "N6",
+              "N6.1",
+              "N6.2",
+              "N6.3",
+              "N6.4",
+              "N6.5",
+              "N6.6",
+              "N6.7",
+              "N6.8",
+              "N6.9",
+              "N7",
+              "S293B",
+              "S262.1",
+              "S259",
+              "S283",
+              "S261",
+              "S262",
+              "S263",
+              "S19.1",
+              "S4.1B",
+              "S4.1A",
+              "S4",
+              "S13B",
+              "S122",
+              "S25",
+              "S21",
+              "S69",
+              "S20",
+              "S84.1.2",
+              "S6.1.27",
+              "S11.1A",
+              "S6.1.16",
+              "S6.1.13",
+              "S6.1.19",
+              "S44.1",
+              "S44.3.11",
+              "S44.3.2",
+              "S44.3.4",
+              "S39bis",
+              "S56bis",
+              "S39",
+              "S9",
+              "S11",
+              "S12",
+              "S53",
+              "S9.29.30",
+              "S9.27.28",
+              "S9.1-5"
+            ]
+          },
+          "discount": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "percentage",
+                  "absolute"
+                ]
+              },
+              "value": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "total_vat": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "total_vat_cents": {
+            "type": "integer"
+          },
+          "total_amount": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "total_amount_cents": {
+            "type": "integer"
+          },
+          "subtotal": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            }
+          },
+          "subtotal_cents": {
+            "type": "integer"
+          }
+        }
+      },
+      "EmbeddedClient": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "individual",
+              "company",
+              "freelancer"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "tax_identification_number": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "zip_code": {
+            "type": "string"
+          },
+          "province_code": {
+            "type": "string"
+          },
+          "country_code": {
+            "type": "string"
+          },
+          "recipient_code": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "billing_address": {
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClientBillingAddress"
+              }
+            ]
+          },
+          "delivery_address": {
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClientDeliveryAddress"
+              }
+            ]
+          }
+        }
+      },
+      "EmbeddedInvoiceOrganization": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "legal_name": {
+            "type": "string"
+          },
+          "legal_number": {
+            "type": "string"
+          },
+          "legal_country": {
+            "type": "string"
+          },
+          "address_line_1": {
+            "type": "string"
+          },
+          "address_line_2": {
+            "type": "string"
+          },
+          "address_zipcode": {
+            "type": "string"
+          },
+          "address_city": {
+            "type": "string"
+          },
+          "address_country": {
+            "type": "string"
+          },
+          "company_leadership": {
+            "type": "string"
+          },
+          "district_court": {
+            "type": "string"
+          },
+          "commercial_register_number": {
+            "type": "string"
+          },
+          "vat_number": {
+            "type": "string"
+          },
+          "tax_number": {
+            "type": "string"
+          },
+          "legal_capital_share": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 12
+              },
+              "currency": {
+                "$ref": "#/components/schemas/Currency"
+              }
+            }
+          },
+          "transaction_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "goods",
+              "services",
+              "goods_and_services",
+              null
+            ]
+          },
+          "vat_payment_condition": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "on_receipts",
+              "compensated_for_sales",
+              "exempt",
+              null
+            ]
+          }
+        }
+      },
+      "EinvoicingLifecycleEvents": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/EInvoicingLifecycleEvent"
+        }
+      },
+      "ClientBillingAddress": {
+        "type": "object",
+        "properties": {
+          "street_address": {
+            "type": "string",
+            "maxLength": 250
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "province_code": {
+            "type": "string",
+            "maxLength": 2
+          },
+          "country_code": {
+            "type": "string",
+            "maxLength": 2
+          }
+        }
+      },
+      "ClientDeliveryAddress": {
+        "type": "object",
+        "properties": {
+          "street_address": {
+            "type": "string",
+            "maxLength": 250
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "zip_code": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "province_code": {
+            "type": "string",
+            "maxLength": 2
+          },
+          "country_code": {
+            "type": "string",
+            "maxLength": 2
+          }
+        }
+      },
+      "Currency": {
+        "type": "string",
+        "enum": [
+          "AED",
+          "AUD",
+          "BGN",
+          "CAD",
+          "CHF",
+          "CNY",
+          "CZK",
+          "DKK",
+          "EUR",
+          "GBP",
+          "GHS",
+          "HKD",
+          "HUF",
+          "ILS",
+          "MXN",
+          "NOK",
+          "NZD",
+          "PEN",
+          "PLN",
+          "RON",
+          "RSD",
+          "SAR",
+          "SEK",
+          "SGD",
+          "TRY",
+          "USD",
+          "ZAR",
+          "ZMW"
+        ],
+        "default": "EUR"
+      },
+      "EInvoicingLifecycleEvent": {
+        "type": "object",
+        "properties": {
+          "status_code": {
+            "$ref": "#/components/schemas/EInvoicingLifecycleEventStatusCode"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reason_message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "EInvoicingLifecycleEventStatusCode": {
+        "type": "integer",
+        "enum": [
+          200,
+          201,
+          202,
+          203,
+          204,
+          205,
+          206,
+          207,
+          208,
+          209,
+          210,
+          211,
+          212,
+          213,
+          214
+        ]
+      },
+      "NotFoundError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "parameter": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "x-examples": {
+          "Object not found": {
+            "code": "not_found",
+            "detail": "Object not found",
+            "source": {
+              "parameter": "id"
+            }
+          }
+        }
+      },
+      "ClientInvoiceCreatePayload": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quote_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issue_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "performance_date": {
+            "type": "string",
+            "format": "date",
+            "deprecated": true
+          },
+          "performance_start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "performance_end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "unpaid"
+            ]
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "purchase_order": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "terms_and_conditions": {
+            "type": "string",
+            "maxLength": 525
+          },
+          "header": {
+            "type": "string"
+          },
+          "footer": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "EUR",
+              "AED",
+              "AUD",
+              "BGN",
+              "CAD",
+              "CHF",
+              "CNY",
+              "CZK",
+              "DKK",
+              "GBP",
+              "GHS",
+              "HKD",
+              "HUF",
+              "ILS",
+              "MXN",
+              "NOK",
+              "NZD",
+              "PEN",
+              "PLN",
+              "RON",
+              "RSD",
+              "SAR",
+              "SEK",
+              "SGD",
+              "TRY",
+              "USD",
+              "ZAR",
+              "ZMW"
+            ]
+          },
+          "payment_methods": {
+            "type": "object",
+            "properties": {
+              "iban": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "iban"
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/InvoiceSettingsOverride"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentItemPayload"
+            }
+          },
+          "report_einvoicing": {
+            "type": "boolean"
+          },
+          "payment_reporting": {
+            "type": "object",
+            "properties": {
+              "conditions": {
+                "type": "string",
+                "enum": [
+                  "TP01",
+                  "TP02",
+                  "TP03"
+                ]
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "MP01",
+                  "MP02",
+                  "MP03",
+                  "MP04",
+                  "MP05",
+                  "MP06",
+                  "MP07",
+                  "MP08",
+                  "MP09",
+                  "MP10",
+                  "MP11",
+                  "MP12",
+                  "MP13",
+                  "MP14",
+                  "MP15",
+                  "MP16",
+                  "MP17",
+                  "MP18",
+                  "MP19",
+                  "MP20",
+                  "MP21",
+                  "MP22"
+                ]
+              }
+            },
+            "required": [
+              "conditions",
+              "method"
+            ]
+          },
+          "welfare_fund": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "TC01",
+                  "TC02",
+                  "TC03",
+                  "TC04",
+                  "TC05",
+                  "TC06",
+                  "TC07",
+                  "TC08",
+                  "TC09",
+                  "TC10",
+                  "TC11",
+                  "TC12",
+                  "TC13",
+                  "TC14",
+                  "TC15",
+                  "TC16",
+                  "TC17",
+                  "TC18",
+                  "TC19",
+                  "TC20",
+                  "TC21",
+                  "TC22"
+                ]
+              },
+              "rate": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 6
+              }
+            },
+            "required": [
+              "type",
+              "rate"
+            ]
+          },
+          "withholding_tax": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "RF01",
+                  "RF02",
+                  "RF03",
+                  "RF04",
+                  "RF05",
+                  "RF06"
+                ]
+              },
+              "rate": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 6
+              },
+              "payment_reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2
+              }
+            },
+            "required": [
+              "reason",
+              "rate",
+              "payment_reason"
+            ]
+          },
+          "stamp_duty_amount": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 15
+          },
+          "discount": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "percentage",
+                  "absolute"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "client_id",
+          "issue_date",
+          "due_date",
+          "currency",
+          "payment_methods",
+          "items"
+        ]
+      },
+      "InvoiceSettingsOverride": {
+        "type": "object",
+        "properties": {
+          "vat_number": {
+            "type": "string"
+          },
+          "company_leadership": {
+            "type": "string"
+          },
+          "district_court": {
+            "type": "string"
+          },
+          "commercial_register_number": {
+            "type": "string"
+          },
+          "tax_number": {
+            "type": "string"
+          },
+          "legal_capital_share": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 12
+              },
+              "currency": {
+                "$ref": "#/components/schemas/Currency"
+              }
+            }
+          },
+          "transaction_type": {
+            "type": "string",
+            "enum": [
+              "goods",
+              "services",
+              "goods_and_services"
+            ]
+          },
+          "vat_payment_condition": {
+            "type": "string",
+            "enum": [
+              "on_receipts",
+              "compensated_for_sales"
+            ]
+          },
+          "discount_conditions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "late_payment_penalties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "legal_fixed_compensation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DocumentItemPayload": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1800
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "unit_price": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "currency"
+            ]
+          },
+          "vat_rate": {
+            "type": "string"
+          },
+          "vat_exemption_reason": {
+            "type": "string",
+            "enum": [
+              "N1",
+              "N2",
+              "N2.1",
+              "N2.2",
+              "N3",
+              "N3.1",
+              "N3.2",
+              "N3.3",
+              "N3.4",
+              "N3.5",
+              "N3.6",
+              "N4",
+              "N5",
+              "N6",
+              "N6.1",
+              "N6.2",
+              "N6.3",
+              "N6.4",
+              "N6.5",
+              "N6.6",
+              "N6.7",
+              "N6.8",
+              "N6.9",
+              "N7",
+              "S293B",
+              "S262.1",
+              "S259",
+              "S283",
+              "S261",
+              "S262",
+              "S263",
+              "S19.1",
+              "S4.1B",
+              "S4.1A",
+              "S4",
+              "S13B",
+              "S122",
+              "S25",
+              "S21",
+              "S69",
+              "S20",
+              "S84.1.2",
+              "S6.1.27",
+              "S11.1A",
+              "S6.1.16",
+              "S6.1.13",
+              "S6.1.19",
+              "S44.1",
+              "S44.3.11",
+              "S44.3.2",
+              "S44.3.4",
+              "S39bis",
+              "S56bis",
+              "S39",
+              "S9",
+              "S11",
+              "S12",
+              "S53",
+              "S9.29.30",
+              "S9.27.28",
+              "S9.1-5"
+            ]
+          },
+          "discount": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "percentage",
+                  "absolute"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "title",
+          "quantity",
+          "unit_price",
+          "vat_rate"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "SecretKey": {
+        "type": "apiKey",
+        "name": "Authorization",
+        "in": "header"
+      }
+    },
+    "parameters": {
+      "X-Qonto-Staging-Token": {
+        "name": "X-Qonto-Staging-Token",
+        "in": "header",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "400-Bad-request": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BadRequestResponseBody"
+            }
+          }
+        }
+      },
+      "401-Unauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UnauthorizedResponseBody"
+            }
+          }
+        }
+      },
+      "403-Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ForbiddenResponseBody"
+            }
+          }
+        }
+      },
+      "500-Internal-Server-Error": {
+      },
+      "422-Unprocessable-Entity": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnprocessableEntityError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "400-Client-Invoice-Bad-Request": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "bad_request",
+                          "invalid_request_format",
+                          "malformed_json"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "401-Client-Invoice-Unauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "unauthorized",
+                          "invalid_token",
+                          "token_expired"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "403-Client-Invoice-Forbidden": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "forbidden",
+                          "insufficient_permissions",
+                          "access_denied"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "422-Client-Invoice-Unprocessable-Entity": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "invalid",
+                          "missing_field",
+                          "invalid_format",
+                          "invalid_client_id",
+                          "invalid_invoice_data"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "object",
+                        "properties": {
+                          "pointer": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "meta": {
+                        "type": "object",
+                        "properties": {
+                          "validation_param": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "500-Client-Invoice-Internal-Server-Error": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "internal_server_error",
+                          "service_unavailable",
+                          "processing_error"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "404-Not-Found": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotFoundError"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "409-Client-Invoice-Conflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "invoice_number_already_exists",
+                          "client_invoice_conflict"
+                        ]
+                      },
+                      "source": {
+                        "type": "object",
+                        "properties": {
+                          "pointer": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

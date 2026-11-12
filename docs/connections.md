@@ -71,6 +71,31 @@ locations, argument schema and request-body form. Descriptions and titles
 are excluded. Argument names, including an argument named `description`,
 and schema constants remain part of the fingerprint.
 
+## Qonto by key
+
+Qonto's MCP server can't take planque's callback yet, so Qonto also connects
+by key through the reviewed catalog entry `qonto-key@1` (`deploy/catalog.json`):
+
+```json
+{"agent": "invoicing"}
+```
+
+posted to `POST /v1/accounts/{tenant}/catalog/qonto-key@1/grants`.
+
+- **The key** is the owner's own, from Qonto's settings: `<organisation login>:<secret key>`,
+  sent as is in `Authorization`, with no prefix. The owner gives it on the phone
+  (the signed `/key`); no agent sees it.
+- **The description** is planque's reviewed copy of Qonto's Business API for
+  these operations (`deploy/specs/qonto-invoicing-openapi.json`), taken from the
+  OpenAPI on Qonto's reference pages, with the prose left out and `/v2` moved
+  into the server. Qonto publishes no single file to fetch. The entry pins its
+  SHA-256, so a changed copy is refused, never used.
+- **Reads only:** the business and its bank accounts, clients, client invoices
+  and one client invoice. Creating an invoice isn't offered: Qonto's create makes
+  a real (`unpaid`) invoice unless `status: draft` is sent, and a draft-only tool
+  needs `status` fixed on the grant, with the invoice's lines still the agent's
+  to give. A later entry (`qonto-key@2`) adds it, approved anew.
+
 ## Telegram bots
 
 A Telegram bot connects as an API-key grant with planque's own description of
