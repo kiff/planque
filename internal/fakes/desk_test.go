@@ -38,6 +38,7 @@ func TestTheDeskIsAnAPIKeyVendor(t *testing.T) {
 		{"GET", "/workspaces/ws_demo/tickets", "wrong", "", 401},
 		{"GET", "/workspaces/ws_other/tickets", v.DeskKey, "", 404},
 		{"GET", "/workspaces/ws_demo/tickets?status=open", v.DeskKey, "", 200},
+		{"GET", "/workspaces/ws_eval/tickets?status=new", v.DeskKey, "", 400},
 		{"GET", "/workspaces/ws_demo/tickets/tk_1001", v.DeskKey, "", 200},
 		{"GET", "/workspaces/ws_demo/tickets/tk_9", v.DeskKey, "", 404},
 		{"POST", "/workspaces/ws_demo/tickets/tk_1001/replies", v.DeskKey, `{"body":""}`, 422},

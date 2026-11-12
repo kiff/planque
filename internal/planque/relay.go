@@ -258,6 +258,14 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err := profileArguments(g, name, args); err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 	}
+	// A value the vendor doesn't list ("new" for open, pending or solved)
+	// would get an empty answer, not an error: refused here, with the values
+	// it takes, so the agent asks again in the same run.
+	if tool.narrowed() {
+		if err := outsideEnum(tool.InputSchema, args); err != nil {
+			return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
+		}
+	}
 	vendorArgs, err := tool.vendorArgs(args)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))

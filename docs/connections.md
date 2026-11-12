@@ -137,6 +137,16 @@ Its items are objects, and every object names its fields. The agent sees that
 schema. A call whose value has a field the schema doesn't name, the wrong kind
 of value, a value outside its list, or a missing required field is refused.
 
+**The vendor's allowed values** (`narrow.go`, `schemaOver`): a narrowed
+string, number or boolean argument keeps the `enum` the vendor's description
+gives at its path (at most 50 values, each of the argument's type), so the
+agent is shown the values the vendor takes instead of a bare string. A call
+with another value is refused before anything is sent, naming the values it
+takes: a desk asked for `status=new` when its statuses are open, pending and
+solved answers an empty list, not an error, and the taf would read that as
+"no tickets". A grant connected before keeps its schema until its tools are
+connected again.
+
 **Arguments checked against the account** (`one_of`): a string argument may
 name a read-only tool of the same grant and the dotted path of the values it
 allows (`{"tool": "get_organization", "path": "organization.bank_accounts.iban"}`).

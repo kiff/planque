@@ -26,6 +26,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- **A narrowed argument keeps the values the vendor allows.** When planque narrowed a tool, the agent saw each argument as a bare type, so the vendor's `enum` (a desk's `open`, `pending`, `solved`) was dropped, and a guessed value (`new`) got an empty answer that read as "nothing to do". The argument now carries the vendor's `enum`, and a call with a value outside it is refused before anything is sent, naming the values it takes. Grants connected before keep their schema until their tools are connected again ([connections](docs/connections.md)).
 - **A narrowed read called with no arguments still sends its arguments' object.** A grant that lifts only some of a tool's arguments into an object (Stripe's `stripe_api_read`: `limit` → `parameters.limit`) sent no `parameters` object at all when the agent set none of them, as a schedule's check does with `{}`, and the tool answered with an error, so the check never read. That object is now always sent, empty when nothing is set. Set arguments and fixed ones are unchanged.
 - **A refund connection's account read takes the account at `parameters.id`.** `GetAccountsAccount` takes its account as `id`, as a test-mode read showed; it was pinned at `parameters.account`, which the first-call field check would have refused, so no refund could have been decided.
 
