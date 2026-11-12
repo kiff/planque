@@ -250,16 +250,43 @@ func TestAWriteThatCanBeFinalIsPinnedBeforePublishing(t *testing.T) {
 		"status":{"type":"string","enum":["draft","finalized"],"default":"finalized"},
 		"send_email":{"type":"boolean"},
 		"currency":{"type":"string","enum":["eur","usd"]}}}`)}
-	got := FinalArguments(create)
-	if len(got) != 2 || got[0].Argument != "send_email" || got[0].Undo != false || got[1].Argument != "status" || got[1].Undo != "draft" {
-		t.Fatalf("final arguments: %+v", got)
+	got, err := FinalArguments(create)
+	if err != nil || len(got) != 2 || got[0].Argument != "send_email" || got[0].Undo != false || got[1].Argument != "status" || got[1].Undo != "draft" {
+		t.Fatalf("final arguments: %+v %v", got, err)
 	}
-	if read := (openapi.Operation{Name: "list", ReadOnly: true, InputSchema: create.InputSchema}); FinalArguments(read) != nil {
+	if read := (openapi.Operation{Name: "list", ReadOnly: true, InputSchema: create.InputSchema}); func() bool { f, _ := FinalArguments(read); return f != nil }() {
 		t.Fatal("a read has no final argument")
 	}
-	// An enum with no undoable value (Stripe's "open" is issued) isn't offered a pin.
-	if got := FinalArguments(openapi.Operation{Name: "x", InputSchema: json.RawMessage(`{"properties":{"state":{"type":"string","enum":["open","paid"]}}}`)}); got != nil {
-		t.Fatalf("no undoable value, nothing to pin: %+v", got)
+	for name, c := range map[string]struct {
+		schema string
+		want   string // "path=undo", "" for none, "error" when unreadable
+	}{
+		// OpenAPI 3.1's nullable types don't turn the check off.
+		"a nullable property beside it": {`{"properties":{"note":{"type":["string","null"]},"status":{"type":"string","enum":["draft","unpaid"]}}}`, `status="draft"`},
+		"nested in an object":           {`{"properties":{"invoice":{"type":"object","properties":{"status":{"type":"string","enum":["draft","finalized"]}}}}}`, `invoice.status="draft"`},
+		"under the whole body":          {`{"properties":{"body":{"type":["object","null"],"properties":{"status":{"enum":["draft","issued"]}}}}}`, `body.status="draft"`},
+		"a boolean for the draft state": {`{"properties":{"is_draft":{"type":"boolean","default":false}}}`, `is_draft=true`},
+		"a boolean for a final step":    {`{"properties":{"send_now":{"type":"boolean"}}}`, `send_now=false`},
+		"a final value not in any list": {`{"properties":{"status":{"type":"string","enum":["draft","open"],"default":"open"}}}`, `status="draft"`},
+		"nothing undoable to pin to":    {`{"properties":{"state":{"type":"string","enum":["open","paid"]}}}`, ``},
+		"an undoable value alone":       {`{"properties":{"status":{"enum":["draft"]}}}`, ``},
+		"a type that isn't a schema's":  {`{"properties":{"status":{"type":7,"enum":["draft","sent"]}}}`, `error`},
+		"properties that aren't a map":  {`{"properties":["status"]}`, `error`},
+	} {
+		got, err := FinalArguments(openapi.Operation{Name: "create_invoice", Method: "POST", InputSchema: json.RawMessage(c.schema)})
+		var gotS string
+		switch {
+		case err != nil:
+			gotS = "error"
+		case len(got) == 1:
+			u, _ := json.Marshal(got[0].Undo)
+			gotS = got[0].Argument + "=" + string(u)
+		case len(got) > 1:
+			gotS = "several"
+		}
+		if gotS != c.want {
+			t.Errorf("%s: %q, want %q", name, gotS, c.want)
+		}
 	}
 
 	// Through a key entry's description: refused unpinned, then published pinned.

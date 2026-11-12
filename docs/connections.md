@@ -536,11 +536,15 @@ credential and no device, so it has no path to `published`.
   holds for 5 minutes, and each nonce counts once. Who drafted or last changed
   a revision can't publish it. A revision is published only reviewed, and
   only when no write it holds can be made final by an argument it leaves
-  unpinned: for a key entry, planque reads its pinned description, and an
-  argument whose values include a final one (`finalized`, `issued`, `sent`, …)
-  and an undoable one (`draft`, `pending`, …), or a boolean named for a final
-  step, must be fixed to the undoable value (`fixed_arguments`), or the tool
-  left out.
+  unpinned: for a key entry, planque reads its pinned description, and walks
+  each write's arguments, nested objects included, by their dotted paths (as
+  `fixed_arguments` name them, up to four parts). An enum that holds an
+  undoable value (`draft`, `pending`, …) and any other, a boolean named for a
+  final step (`send`, `issue`, …, pinned `false`) or for the undoable state
+  (`draft`, `is_draft`, pinned `true`) must be fixed to the undoable value, or
+  the tool left out. OpenAPI 3.1's list types (`["string", "null"]`) are read.
+  A write whose arguments can't be read isn't published: the check fails
+  closed.
 - `GET /v1/catalog/entries` lists every revision for an operator.
   `GET /v1/catalog/entries/{id}` reads one, with the digest a device signs,
   and needs no credential: an entry holds no secret.

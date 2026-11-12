@@ -617,70 +617,131 @@ func nextRevision(id string) string {
 	return fmt.Sprintf("%s@%d", name, n+1)
 }
 
-// finalValues are the words that make a write final: done, and can't be
-// taken back.
-var finalValues = []string{"final", "finalized", "finalised", "issued", "issue", "sent", "send", "posted", "post", "confirmed", "confirm", "published", "publish", "submitted", "submit", "approved", "paid", "booked", "closed", "completed", "unpaid", "validated", "committed"}
+// undoableValues are the values that keep a write undoable, in the order
+// a pin prefers them. An enum that holds one is flagged, whatever its other
+// values are: pinning to it is the safe direction, and a person can still
+// leave the tool out.
+var undoableValues = []string{"draft", "pending", "unsent", "saved", "proposal", "quote", "preview"}
 
-// undoableValues are the values a write can be pinned to instead, in order.
-var undoableValues = []string{"draft", "pending", "unsent", "saved", "proposal", "quote"}
+// finalWords name a boolean that makes a write final when true; undoWords
+// name one that keeps it undoable when true ("draft", "is_draft").
+var (
+	finalWords = []string{"send", "final", "issue", "confirm", "publish", "submit", "post", "commit", "approve", "pay"}
+	undoWords  = []string{"draft", "preview"}
+)
 
 // FinalArgument is a write's argument whose value makes the write final,
-// and the value that keeps it undoable.
+// by its dotted path, and the value that keeps it undoable.
 type FinalArgument struct {
 	Tool     string
 	Argument string
 	Undo     any
 }
 
-// FinalArguments are the arguments of op that make it final: an enum with
-// a final value and an undoable one, or a boolean named for a final step.
-// A read has none.
-func FinalArguments(op openapi.Operation) []FinalArgument {
+// errArgumentsUnread: a write's arguments couldn't be read to check them.
+var errArgumentsUnread = errors.New("its arguments couldn't be read to check them")
+
+// FinalArguments are the arguments of op that can make it final, nested
+// objects included, each by its dotted path (as fixed_arguments name them,
+// up to maxPathParts parts): an enum that holds an undoable value and
+// another, a boolean named for a final step (pinned false) or for the
+// undoable state (pinned true). A read has none. A write whose arguments
+// can't be read is an error: the check fails closed.
+func FinalArguments(op openapi.Operation) ([]FinalArgument, error) {
 	if op.ReadOnly || len(op.InputSchema) == 0 {
-		return nil
+		return nil, nil
 	}
-	var schema struct {
-		Properties map[string]struct {
-			Type        string `json:"type"`
-			Enum        []any  `json:"enum"`
-			Description string `json:"description"`
-		} `json:"properties"`
-	}
-	if json.Unmarshal(op.InputSchema, &schema) != nil {
-		return nil
+	var root map[string]json.RawMessage
+	if json.Unmarshal(op.InputSchema, &root) != nil {
+		return nil, errArgumentsUnread
 	}
 	var out []FinalArgument
-	for name, p := range schema.Properties {
-		if p.Type == "boolean" {
-			n := strings.ToLower(name)
-			for _, w := range []string{"send", "final", "issue", "confirm", "publish", "submit", "post"} {
-				if strings.Contains(n, w) {
-					out = append(out, FinalArgument{Tool: op.Name, Argument: name, Undo: false})
-					break
-				}
-			}
-			continue
-		}
-		var final bool
-		var undo any
-		for _, v := range p.Enum {
-			s, _ := v.(string)
-			s = strings.ToLower(s)
-			if slices.Contains(finalValues, s) {
-				final = true
-			}
-			for _, u := range undoableValues {
-				if s == u && undo == nil {
-					undo = v
-				}
-			}
-		}
-		if final && undo != nil {
-			out = append(out, FinalArgument{Tool: op.Name, Argument: name, Undo: undo})
-		}
+	if err := finalIn(op.Name, root, nil, &out); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(out, func(a, b FinalArgument) int { return strings.Compare(a.Argument, b.Argument) })
-	return out
+	return out, nil
+}
+
+// finalIn walks one object schema's properties, at path.
+func finalIn(tool string, schema map[string]json.RawMessage, path []string, out *[]FinalArgument) error {
+	raw, ok := schema["properties"]
+	if !ok {
+		return nil
+	}
+	var props map[string]map[string]json.RawMessage
+	if json.Unmarshal(raw, &props) != nil {
+		return errArgumentsUnread
+	}
+	for name, p := range props {
+		at := append(slices.Clone(path), name)
+		types, err := schemaTypes(p["type"])
+		if err != nil {
+			return err
+		}
+		switch {
+		case slices.Contains(types, "object") || p["properties"] != nil:
+			if len(at) < maxPathParts {
+				if err := finalIn(tool, p, at, out); err != nil {
+					return err
+				}
+			}
+		case slices.Contains(types, "boolean"):
+			n := strings.ToLower(name)
+			if containsAny(n, undoWords) {
+				*out = append(*out, FinalArgument{Tool: tool, Argument: strings.Join(at, "."), Undo: true})
+			} else if containsAny(n, finalWords) {
+				*out = append(*out, FinalArgument{Tool: tool, Argument: strings.Join(at, "."), Undo: false})
+			}
+		case p["enum"] != nil:
+			var values []any
+			if json.Unmarshal(p["enum"], &values) != nil {
+				return errArgumentsUnread
+			}
+			var undo any
+			others := 0
+			for _, v := range values {
+				s, isString := v.(string)
+				if isString && undo == nil && slices.Contains(undoableValues, strings.ToLower(s)) {
+					undo = v
+					continue
+				}
+				if v != nil {
+					others++
+				}
+			}
+			if undo != nil && others > 0 {
+				*out = append(*out, FinalArgument{Tool: tool, Argument: strings.Join(at, "."), Undo: undo})
+			}
+		}
+	}
+	return nil
+}
+
+// schemaTypes reads a JSON Schema type: a string, a list (OpenAPI 3.1's
+// ["string", "null"]), or absent.
+func schemaTypes(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var one string
+	if json.Unmarshal(raw, &one) == nil {
+		return []string{one}, nil
+	}
+	var many []string
+	if json.Unmarshal(raw, &many) == nil {
+		return many, nil
+	}
+	return nil, errArgumentsUnread
+}
+
+func containsAny(s string, words []string) bool {
+	for _, w := range words {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // unpinnedFinal says why e can't be published while one of its writes can
@@ -709,7 +770,11 @@ func (s *Server) unpinnedFinal(ctx context.Context, e CatalogEntry) (string, err
 		if i < 0 {
 			return e.ID + ": " + t.Tool + " isn't in its description", nil
 		}
-		for _, f := range FinalArguments(snap.Operations[i]) {
+		finals, err := FinalArguments(snap.Operations[i])
+		if err != nil {
+			return e.ID + ": " + t.Tool + ": " + err.Error(), nil
+		}
+		for _, f := range finals {
 			want, _ := json.Marshal(f.Undo)
 			if got, pinned := t.Fixed[f.Argument]; !pinned || !sameJSON(got, want) {
 				return fmt.Sprintf("%s: %s's %s can make it final; pin it to %s in fixed_arguments, or leave the tool out", e.ID, t.Tool, f.Argument, want), nil
