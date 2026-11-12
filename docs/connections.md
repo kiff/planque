@@ -405,7 +405,14 @@ where the owner looks at the vendor's own record of its resource
 (`record_url`, an https address with the resource's id path-escaped into
 `{resource}`; reviewed catalog only, as `no_effect` is) and which read of the
 profile gives the resource's own name (`label_read`, for an operation with a
-`resource`): KIFF shows both when it asks the owner "Did this happen?". Agent proposals
+`resource`): KIFF shows both when it asks the owner "Did this happen?". A write
+with a `resource` may name the kind of action it is (`claim`, such as
+`dispute_answer` or `reminder`): KIFF then lets one agent at a time act on one
+object for it, and refuses another agent's call of that kind on that object
+while the first agent's is being decided, held or sent. A write may also name
+where its amount lookup's read gives a related charge (`claim_related`,
+`{kind: "refund", path}`): KIFF shows the agent the refunds already made on it,
+and blocks nothing. Agent proposals
 cannot claim reviewed catalog status or successful test calls. Profiles needing a nominal-currency lookup definition are refused until
 that definition is supported. Version-header pins use the reviewed
 configuration described below.

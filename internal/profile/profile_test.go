@@ -219,3 +219,49 @@ func TestACaseBlock(t *testing.T) {
 		}
 	}
 }
+
+// planque carries a write's claim and claim_related to KIFF as KIFF checks
+// them: a claim is a kind of action on a resource, claim_related a related
+// refund's charge by its path. A read takes neither.
+func TestAClaimAndAClaimRelated(t *testing.T) {
+	raw, _ := os.ReadFile("testdata/stripe-refunds.json")
+	with := func(tool string, changes map[string]any) error {
+		var p map[string]any
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range p["operations"].([]any) {
+			if op := o.(map[string]any); op["tool"] == tool {
+				for k, v := range changes {
+					if v == nil {
+						delete(op, k)
+					} else {
+						op[k] = v
+					}
+				}
+			}
+		}
+		out, _ := json.Marshal(p)
+		_, err := Parse(out)
+		return err
+	}
+	related := map[string]any{"kind": "refund", "path": "charge"}
+	if err := with("create_refund", map[string]any{"claim": "dispute_answer", "claim_related": related}); err != nil {
+		t.Fatalf("a claim and a claim_related on a write with a resource: %v", err)
+	}
+	for name, c := range map[string]struct {
+		tool    string
+		changes map[string]any
+	}{
+		"a claim that isn't a kind":        {"create_refund", map[string]any{"claim": "Dispute Answer"}},
+		"a claim without a resource":       {"create_refund", map[string]any{"claim": "dispute_answer", "resource": nil}},
+		"a claim on a read":                {"list_refunds", map[string]any{"claim": "dispute_answer"}},
+		"a related kind that isn't refund": {"create_refund", map[string]any{"claim_related": map[string]any{"kind": "invoice", "path": "charge"}}},
+		"a related path that isn't one":    {"create_refund", map[string]any{"claim_related": map[string]any{"kind": "refund", "path": "$args.charge"}}},
+		"a claim_related on a read":        {"list_refunds", map[string]any{"claim_related": related}},
+	} {
+		if err := with(c.tool, c.changes); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
