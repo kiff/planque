@@ -64,8 +64,10 @@ type Vendor struct {
 	DeskCalls []VendorCall // this instance's desk writes
 	// BillingCalls are this instance's billing writes (billing.go).
 	BillingCalls []VendorCall
-	Refreshes    int
-	Revoked      []string
+	// LedgerCalls are this instance's calls to the ledger (hostile.go).
+	LedgerCalls []VendorCall
+	Refreshes   int
+	Revoked     []string
 	// RevokeFails is how many revocations to answer 503 first, as a
 	// vendor's revocation endpoint that is down.
 	RevokeFails int
@@ -122,6 +124,7 @@ func NewVendorAt(base string) (*Vendor, http.Handler) {
 	v.deskRoutes(mux)
 	v.billingRoutes(mux)
 	v.billingDocsRoutes(mux)
+	v.ledgerRoutes(mux)
 	return v, mux
 }
 
