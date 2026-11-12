@@ -132,6 +132,9 @@ func ParseHeader(h string) (Signed, error) {
 			}
 			version, s.Signature = k, v // Cut splits at the first '=', so base64 padding stays
 		case "with":
+			if s.With != "" {
+				return Signed{}, ErrHeader
+			}
 			sum, ok := strings.CutPrefix(v, "sha256:")
 			if _, err := hex.DecodeString(sum); !ok || err != nil || len(sum) != 64 || strings.ToLower(sum) != sum {
 				return Signed{}, ErrHeader

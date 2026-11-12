@@ -27,6 +27,8 @@ type Phone struct {
 	// With, when set, is the lowercase hex SHA-256 of another request's
 	// message: the phone signs both under one signature (kiff.requests.v1).
 	With string
+	// WithItself, for a test, pairs the request with its own message.
+	WithItself bool
 }
 
 // NewPhone makes a phone with a fresh key.
@@ -57,9 +59,13 @@ func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
 	if p.Window != "" {
 		h = "t=" + at + ",v2=" + p.SignBytes(msg) + ",w=" + p.Window
 	}
-	if p.With != "" {
+	if p.With != "" || p.WithItself {
 		own := sha256.Sum256(msg)
-		h = "t=" + at + ",v3=" + p.SignBytes(device.RequestsMessage(tenant, at, hex.EncodeToString(own[:]), p.With)) + ",with=sha256:" + p.With
+		with := p.With
+		if p.WithItself {
+			with = hex.EncodeToString(own[:])
+		}
+		h = "t=" + at + ",v3=" + p.SignBytes(device.RequestsMessage(tenant, at, hex.EncodeToString(own[:]), with)) + ",with=sha256:" + with
 	}
 	if p.DeviceID != "" {
 		h += ",d=" + p.DeviceID
