@@ -398,7 +398,10 @@ owner approved for the taf.
 A refund's money rules are reviewed code, never a model's draft. Refunds go
 through the direct Stripe connection (catalog entry `stripe`, a sign-in to
 `https://mcp.stripe.com` whose consent page offers test mode). When
-`PLANQUE_STRIPE_REFUNDS=on` and such a connection asks for the refund, planque
+`PLANQUE_STRIPE_REFUNDS` offers refunds to the account (`on`: every account,
+for self-hosting and tests; `tenants:<id>[,<id>]`: those accounts only, the
+others answered as if it were off; anything else: off) and such a connection
+asks for the refund, planque
 supplies the whole request itself (`stripe-refunds@1`,
 `internal/planque/stripe_refunds.go`), the way it supplies the browser's.
 

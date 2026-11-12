@@ -84,9 +84,12 @@ type Server struct {
 	KIFFEventSink door.EventSink
 	// StripeRefunds offers planque's reviewed Stripe refunds profile
 	// (stripe_refunds.go) on a managed Stripe connection that asks for the
-	// refund tool. Off, the refund tool takes a drafted profile as any
-	// other tool does, with no case block.
-	StripeRefunds          bool
+	// refund tool, to every account. Off, the refund tool takes a drafted
+	// profile as any other tool does, with no case block.
+	StripeRefunds bool
+	// StripeRefundsTenants offers it to these accounts only, the others as
+	// if it were off: how an installation tries it on one account.
+	StripeRefundsTenants   map[string]bool
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger

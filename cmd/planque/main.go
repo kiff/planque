@@ -216,13 +216,14 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		EventSink:     eventSink,
 		KIFFEventSink: kiffEventSink,
 		// The reviewed Stripe refunds profile, off unless turned on.
-		StripeRefunds: os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
-		Connectors:    connectors,
-		BaseURL:       base,
-		AppReturn:     appReturn,
-		KV:            kv,
-		Sealer:        sealer,
-		KIFF:          &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
+		StripeRefunds:        os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
+		StripeRefundsTenants: refundTenants(os.Getenv("PLANQUE_STRIPE_REFUNDS")),
+		Connectors:           connectors,
+		BaseURL:              base,
+		AppReturn:            appReturn,
+		KV:                   kv,
+		Sealer:               sealer,
+		KIFF:                 &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
 		Permits: &permit.Verifier{Issuer: issuer, Keys: &permit.JWKS{
 			URL: cmp.Or(os.Getenv("KIFF_JWKS_URL"), issuer+"/.well-known/kiff-permit-keys.json"), HTTP: hc}},
 		OAuth:                  &oauth.Client{HTTP: vendors},
@@ -236,4 +237,20 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,
 	}, nil
+}
+
+// refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
+// accounts offered the Stripe refunds profile. Anything else lists none.
+func refundTenants(v string) map[string]bool {
+	list, ok := strings.CutPrefix(strings.TrimSpace(v), "tenants:")
+	if !ok {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, t := range strings.Split(list, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out[t] = true
+		}
+	}
+	return out
 }

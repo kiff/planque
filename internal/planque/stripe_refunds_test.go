@@ -488,3 +488,26 @@ func TestASignInWithNoAccountKeepsTheOneItsAccountsToolLists(t *testing.T) {
 		t.Fatalf("a test account: %v", err)
 	}
 }
+
+// An installation can offer refunds to some accounts only: an account it
+// doesn't list is answered as if refunds were off, one it lists gets
+// planque's reviewed request, and live mode stays refused for it.
+func TestRefundsOfferedToTheListedAccountsOnly(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	path := stripeDirectGrant(t, e, stripeTestAccount)
+	ask := func(live bool) (int, map[string]any) {
+		return e.do("POST", path+"/tools", map[string]any{"tools": refundAsk(live)}, nil, "k_setup")
+	}
+	e.s.StripeRefundsTenants = map[string]bool{"tnt_other": true}
+	if st, out := ask(false); st != 400 || out["status"] != nil {
+		t.Fatalf("not listed, answered as off: %d %v", st, out)
+	}
+	e.s.StripeRefundsTenants[tenant] = true
+	if st, out := ask(true); st != 409 || !strings.Contains(out["error"].(string), "test mode only") {
+		t.Fatalf("listed, live: %d %v", st, out)
+	}
+	if st, out := ask(false); st != 200 || out["status"] != StatusPending {
+		t.Fatalf("listed, test mode: %d %v", st, out)
+	}
+}
