@@ -29,6 +29,9 @@ type Phone struct {
 	With string
 	// WithItself, for a test, pairs the request with its own message.
 	WithItself bool
+	// Now, when set, is the phone's clock, for a test that moves the
+	// server's: its signatures are made at that time. Nil is the real time.
+	Now func() time.Time
 }
 
 // NewPhone makes a phone with a fresh key.
@@ -53,7 +56,11 @@ func (p *Phone) SignBytes(msg []byte) string {
 // Sign adds Planque-Device-Signature to req, whose body is body, for the
 // planque req is sent to.
 func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
-	at := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now
+	if p.Now != nil {
+		now = p.Now
+	}
+	at := now().UTC().Format(time.RFC3339)
 	msg := device.MessageWindow(req.URL.Scheme+"://"+req.URL.Host, tenant, req.Method, req.URL.RequestURI(), body, at, p.Window)
 	h := "t=" + at + ",v1=" + p.SignBytes(msg)
 	if p.Window != "" {
