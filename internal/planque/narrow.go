@@ -170,7 +170,13 @@ func (t ToolRequest) narrowed() bool { return len(t.Arguments) > 0 }
 
 // schema is the input schema of a narrowed tool: its arguments, nothing
 // else.
-func (t ToolRequest) schema() json.RawMessage {
+func (t ToolRequest) schema() json.RawMessage { return t.schemaOver(nil) }
+
+// schemaOver is schema with each scalar argument's allowed values, as the
+// vendor's input schema lists them at its path (its enum): the agent sees
+// "open, pending or solved", not a bare string it has to guess, and a call
+// with another value is refused before the vendor gets it (outsideEnum).
+func (t ToolRequest) schemaOver(vendor json.RawMessage) json.RawMessage {
 	props := map[string]any{}
 	required := []string{}
 	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
@@ -179,6 +185,8 @@ func (t ToolRequest) schema() json.RawMessage {
 		if a.Type == "array" {
 			p = map[string]any{}
 			_ = json.Unmarshal(a.Schema, &p)
+		} else if e := vendorEnum(vendor, a.Path, a.Type); e != nil {
+			p["enum"] = e
 		}
 		if a.Description != "" {
 			p["description"] = a.Description
@@ -325,23 +333,10 @@ func narrowingText(t ToolRequest, catalog ...CatalogTool) string {
 // path in a tool's input schema, on one line and at most 200 characters; ""
 // when the schema doesn't describe it.
 func argDescription(schema json.RawMessage, path string) string {
-	for _, name := range strings.Split(path, ".") {
-		var s struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-		}
-		if json.Unmarshal(schema, &s) != nil {
-			return ""
-		}
-		next, ok := s.Properties[name]
-		if !ok {
-			return ""
-		}
-		schema = next
-	}
 	var leaf struct {
 		Description string `json:"description"`
 	}
-	if json.Unmarshal(schema, &leaf) != nil {
+	if json.Unmarshal(vendorLeaf(schema, path), &leaf) != nil {
 		return ""
 	}
 	d := strings.Join(strings.Fields(leaf.Description), " ")
@@ -350,6 +345,96 @@ func argDescription(schema json.RawMessage, path string) string {
 		d = strings.TrimSpace(string(r[:199])) + "…"
 	}
 	return d
+}
+
+// vendorLeaf is the schema at a dotted path in a tool's input schema, through
+// its properties; nil when the schema doesn't have it.
+func vendorLeaf(schema json.RawMessage, path string) json.RawMessage {
+	for _, name := range strings.Split(path, ".") {
+		var s struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if json.Unmarshal(schema, &s) != nil {
+			return nil
+		}
+		next, ok := s.Properties[name]
+		if !ok {
+			return nil
+		}
+		schema = next
+	}
+	return schema
+}
+
+// maxEnum bounds the allowed values an argument carries from the vendor's
+// schema, and the length of each: a longer list, or a value of another type
+// than the argument's, isn't carried, and the argument stays as it was.
+const (
+	maxEnum      = 50
+	maxEnumValue = 128
+)
+
+// vendorEnum is the vendor's allowed values for the argument at path, each of
+// the argument's type, or nil.
+func vendorEnum(schema json.RawMessage, path, typ string) []any {
+	leaf := vendorLeaf(schema, path)
+	if leaf == nil {
+		return nil
+	}
+	var s struct {
+		Enum []json.RawMessage `json:"enum"`
+	}
+	if json.Unmarshal(leaf, &s) != nil || len(s.Enum) == 0 || len(s.Enum) > maxEnum {
+		return nil
+	}
+	out := make([]any, 0, len(s.Enum))
+	for _, raw := range s.Enum {
+		var v any
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber()
+		if dec.Decode(&v) != nil || !hasType(v, typ) {
+			return nil
+		}
+		if str, ok := v.(string); ok && len([]rune(str)) > maxEnumValue {
+			return nil
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// outsideEnum says which argument of a call has a value its tool's schema
+// doesn't allow, naming the values it does, or nil. The schema is the one
+// the agent was given (GrantedTool.InputSchema), whose enums schemaOver
+// carried from the vendor's.
+func outsideEnum(schema json.RawMessage, args map[string]any) error {
+	var s struct {
+		Properties map[string]struct {
+			Enum []json.RawMessage `json:"enum"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(schema, &s) != nil {
+		return nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(args)) {
+		allowed := s.Properties[name].Enum
+		if len(allowed) == 0 {
+			continue
+		}
+		got, err := json.Marshal(args[name])
+		if err != nil {
+			return fmt.Errorf("argument %s can't be read", name)
+		}
+		if slices.ContainsFunc(allowed, func(a json.RawMessage) bool { return bytes.Equal(a, got) }) {
+			continue
+		}
+		words := make([]string, len(allowed))
+		for i, a := range allowed {
+			words[i] = strings.Trim(string(a), `"`)
+		}
+		return fmt.Errorf("argument %s must be one of %s", name, strings.Join(words, ", "))
+	}
+	return nil
 }
 
 // shape is the part of JSON Schema an array argument's reviewed schema may

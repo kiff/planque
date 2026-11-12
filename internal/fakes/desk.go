@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -84,6 +85,12 @@ func (v *Vendor) deskRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /desk/v1/workspaces/{workspace}/tickets", v.desk(func(w http.ResponseWriter, r *http.Request) {
 		status := r.URL.Query().Get("status")
+		// A status the desk doesn't have is the caller's mistake, as a real
+		// desk says, never an empty list that reads as "no tickets".
+		if status != "" && !slices.Contains([]string{"open", "pending", "solved"}, status) {
+			writeJSON(w, 400, map[string]string{"error": "status is open, pending or solved"})
+			return
+		}
 		out := []map[string]any{}
 		for _, t := range deskWorkspaces[r.PathValue("workspace")] {
 			if status == "" || t["status"] == status {

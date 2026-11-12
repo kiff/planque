@@ -2244,7 +2244,7 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 		return GrantedTool{}, err.Error()
 	}
 	if t.narrowed() {
-		gt.InputSchema = t.schema()
+		gt.InputSchema = t.schemaOver(listed[i].InputSchema)
 		gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
 	}
 	if err := profileSchema(g, gt); err != nil {
