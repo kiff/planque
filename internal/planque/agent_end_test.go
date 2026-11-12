@@ -2,20 +2,35 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/kiff/planque/internal/kiff"
 )
 
 // Ending an agent's grants when its taf is removed: a route that only takes
 // away, POST /v1/accounts/{tenant}/agents/{agent}/end, called with the
-// account's Setup key. Every grant of that agent ends, whatever its status;
-// a sign-in another agent's grant still uses stays; it is idempotent; and
-// another account's key ends nothing. These are the negatives for it: what
-// must not survive a removed taf, and what must not be taken from another.
+// person's own KIFF session, which must manage the account's tafs
+// (cards.manage). Every grant of that agent ends, whatever its status; a
+// sign-in another agent's grant still uses stays; it is idempotent; with
+// ?preview=1 it ends nothing and answers what it would end and keep. No
+// service key ends anyone's connections, and another account's session ends
+// nothing. These are the negatives: what must not survive a removed taf,
+// and what must not be taken from anyone else.
 
-func (e *env) endAgent(tenantID, agent, key string) (int, map[string]any) {
+// people adds the sessions the route is called with: a person who manages
+// the account's tafs, one who only reads, and one who manages another
+// account's.
+func (e *env) people() {
+	e.kiff.Keys["s_owner"] = kiff.Me{TenantID: tenant, Capabilities: []string{"read", "tools.connect", "cards.manage"}}
+	e.kiff.Keys["s_viewer"] = kiff.Me{TenantID: tenant, Capabilities: []string{"read"}}
+	e.kiff.Keys["s_other_owner"] = kiff.Me{TenantID: "tnt_other", Capabilities: []string{"read", "tools.connect", "cards.manage"}}
+}
+
+func (e *env) endAgent(tenantID, agent, key, query string) (int, map[string]any) {
 	e.t.Helper()
-	return e.do("POST", "/v1/accounts/"+tenantID+"/agents/"+agent+"/end", map[string]any{}, nil, key)
+	return e.do("POST", "/v1/accounts/"+tenantID+"/agents/"+agent+"/end"+query, map[string]any{}, nil, key)
 }
 
 // requestFor asks, as Setup, for a pending grant for agent.
@@ -34,20 +49,29 @@ func (e *env) requestFor(agent string) string {
 var live = map[string]bool{StatusPending: true, StatusApproved: true, StatusSignedIn: true, StatusListed: true,
 	StatusConnected: true, StatusNeedsReconnect: true}
 
-func TestEndingARemovedTafsAgentEndsEveryGrantItHas(t *testing.T) {
-	e := newEnv(t)
+// removedTaf gives agt_taf a failed, a pending and a connected grant, and
+// another agent a pending one.
+func (e *env) removedTaf() (failed, pending string, connected *Grant, other string) {
+	e.t.Helper()
 	e.enrol()
+	e.people()
 	// A failed one: a sign-in whose tools nobody approved within a day.
-	failed := e.listedGrant()
+	failed = e.listedGrant()
 	e.later(holdTTL + time.Minute)
 	if s := e.status(failed); s != StatusFailed {
-		t.Fatalf("setup: %s, want failed", s)
+		e.t.Fatalf("setup: %s, want failed", s)
 	}
-	pending, _ := e.request()
-	connected := e.connect()
-	other := e.requestFor("agt_other")
+	pending, _ = e.request()
+	connected = e.connect()
+	other = e.requestFor("agt_other")
+	return
+}
 
-	st, out := e.endAgent(tenant, "agt_taf", "k_setup")
+func TestEndingARemovedTafsAgentEndsEveryGrantItHas(t *testing.T) {
+	e := newEnv(t)
+	failed, pending, connected, other := e.removedTaf()
+
+	st, out := e.endAgent(tenant, "agt_taf", "s_owner", "")
 	if st != 200 {
 		t.Fatalf("end: %d %v", st, out)
 	}
@@ -67,7 +91,7 @@ func TestEndingARemovedTafsAgentEndsEveryGrantItHas(t *testing.T) {
 	}
 
 	// Again: nothing more to end, nothing changed, no error.
-	if st, out := e.endAgent(tenant, "agt_taf", "k_setup"); st != 200 {
+	if st, out := e.endAgent(tenant, "agt_taf", "s_owner", ""); st != 200 {
 		t.Fatalf("end again: %d %v", st, out)
 	}
 	if s := e.status(other); s != StatusPending {
@@ -75,21 +99,66 @@ func TestEndingARemovedTafsAgentEndsEveryGrantItHas(t *testing.T) {
 	}
 }
 
+// The preview ends nothing, revokes nothing, and answers what the call
+// that follows then does.
+func TestThePreviewOfEndingAnAgentEndsNothing(t *testing.T) {
+	e := newEnv(t)
+	failed, pending, connected, _ := e.removedTaf()
+	before := map[string]string{}
+	for _, id := range []string{failed, pending, connected.ID} {
+		before[id] = e.status(id)
+	}
+	liveA, liveR := e.vendor.Live()
+
+	st, preview := e.endAgent(tenant, "agt_taf", "s_owner", "?preview=1")
+	if st != 200 {
+		t.Fatalf("preview: %d %v", st, preview)
+	}
+	for id, was := range before {
+		if s := e.status(id); s != was {
+			t.Errorf("the preview changed %s from %s to %s", id, was, s)
+		}
+	}
+	if a, r := e.vendor.Live(); a != liveA || r != liveR {
+		t.Errorf("the preview revoked tokens: %d, %d (was %d, %d)", a, r, liveA, liveR)
+	}
+	if code := e.relayCallRaw(connected); code != 200 {
+		t.Errorf("after a preview the connection relays %d, want it still working", code)
+	}
+
+	st, done := e.endAgent(tenant, "agt_taf", "s_owner", "")
+	if st != 200 {
+		t.Fatalf("end: %d %v", st, done)
+	}
+	list := func(v any) []any { l, _ := v.([]any); return l }
+	if len(list(preview["ended"])) == 0 || len(list(preview["ended"])) != len(list(done["ended"])) {
+		t.Errorf("the preview said it would end %v; the call ended %v", preview["ended"], done["ended"])
+	}
+	p, _ := json.Marshal(preview["kept"])
+	d, _ := json.Marshal(done["kept"])
+	if string(p) != string(d) {
+		t.Errorf("the preview said it would keep %s; the call kept %s", p, d)
+	}
+}
+
 // A provider's sign-in that another taf's connection uses stays signed in
-// when one agent ends; it is revoked when the last agent using it ends.
+// when one agent ends, and the preview says so; it is revoked when the
+// last agent using it ends.
 func TestEndingAnAgentKeepsASignInAnotherTafUses(t *testing.T) {
 	e, f := newConnectorFixture(t)
+	e.people()
 	ctx := context.Background()
 	a := connectConnector(t, e, f)
 	b := connectConnector(t, e, f)
 	b.Request.Agent = "agt_refunds"
-	if b.Connector.Account != a.Connector.Account {
-		b.Connector.Account = a.Connector.Account
-	}
+	b.Connector.Account = a.Connector.Account
 	if err := e.s.saveGrant(ctx, b); err != nil {
 		t.Fatal(err)
 	}
-	if st, out := e.endAgent(tenant, a.Request.Agent, "k_setup"); st != 200 {
+	if st, out := e.endAgent(tenant, a.Request.Agent, "s_owner", "?preview=1"); st != 200 || len(out["kept"].([]any)) == 0 {
+		t.Fatalf("the preview doesn't say the shared sign-in stays: %d %v", st, out)
+	}
+	if st, out := e.endAgent(tenant, a.Request.Agent, "s_owner", ""); st != 200 {
 		t.Fatalf("end the first agent: %d %v", st, out)
 	}
 	if f.revocations != 0 {
@@ -101,7 +170,7 @@ func TestEndingAnAgentKeepsASignInAnotherTafUses(t *testing.T) {
 	if g, _ := e.s.loadGrant(ctx, tenant, a.ID); live[g.Status] {
 		t.Fatalf("the ended agent's connection is still %s", g.Status)
 	}
-	if st, out := e.endAgent(tenant, "agt_refunds", "k_setup"); st != 200 {
+	if st, out := e.endAgent(tenant, "agt_refunds", "s_owner", ""); st != 200 {
 		t.Fatalf("end the second agent: %d %v", st, out)
 	}
 	if f.revocations != 1 {
@@ -109,29 +178,39 @@ func TestEndingAnAgentKeepsASignInAnotherTafUses(t *testing.T) {
 	}
 }
 
-// Another account's Setup key ends nothing here, through its own account's
-// path or this one's; and a request with no key ends nothing.
-func TestAnotherAccountsKeyEndsNoGrant(t *testing.T) {
+// Only a person who manages this account's tafs ends an agent: no service
+// key (Setup's, a taf's own, an admin key), no person who only reads, no
+// one from another account by either path, and no call without a key.
+// Each refusal ends nothing, preview or not.
+func TestOnlyThePersonWhoManagesTheTafsEndsAnAgent(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
+	e.people()
 	pending, _ := e.request()
 	connected := e.connect()
-	for _, c := range []struct{ path, key string }{
-		{tenant, "k_other"},
-		{"tnt_other", "k_setup"},
-		{tenant, ""},
+	for _, c := range []struct{ name, path, key string }{
+		{"Setup's key", tenant, "k_setup"},
+		{"the taf's own key", tenant, "k_taf"},
+		{"an admin API key", tenant, "k_admin"},
+		{"a person who only reads", tenant, "s_viewer"},
+		{"another account's owner, on this account", tenant, "s_other_owner"},
+		{"this account's owner, on another account's path", "tnt_other", "s_owner"},
+		{"another account's key", tenant, "k_other"},
+		{"no key", tenant, ""},
 	} {
-		if st, out := e.endAgent(c.path, "agt_taf", c.key); st == 200 {
-			t.Errorf("end on %s with %q: %d %v", c.path, c.key, st, out)
+		for _, q := range []string{"", "?preview=1"} {
+			if st, out := e.endAgent(c.path, "agt_taf", c.key, q); st == 200 {
+				t.Errorf("%s%s ended an agent: %d %v", c.name, q, st, out)
+			}
 		}
 	}
 	if s := e.status(pending); s != StatusPending {
-		t.Errorf("the pending grant after another account's end: %s", s)
+		t.Errorf("the pending grant after the refused calls: %s", s)
 	}
 	if s := e.status(connected.ID); s != StatusConnected {
-		t.Errorf("the connected grant after another account's end: %s", s)
+		t.Errorf("the connected grant after the refused calls: %s", s)
 	}
 	if a, _ := e.vendor.Live(); a == 0 {
-		t.Error("another account's end revoked a token here")
+		t.Error("a refused call revoked a token")
 	}
 }
