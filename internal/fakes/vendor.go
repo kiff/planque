@@ -121,6 +121,7 @@ func NewVendorAt(base string) (*Vendor, http.Handler) {
 	mux.HandleFunc("POST /mcp", v.mcp)
 	v.deskRoutes(mux)
 	v.billingRoutes(mux)
+	v.billingDocsRoutes(mux)
 	return v, mux
 }
 
