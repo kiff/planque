@@ -23,6 +23,9 @@
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
 //	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
+//	PLANQUE_CATALOG_OPERATORS optional JSON list of the catalog's operators:
+//	                   {id, token_sha256, device_key}; unset, the catalog kept
+//	                   as data can't be drafted or published
 package main
 
 import (
@@ -124,6 +127,15 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	// Who may work on the catalog kept as data: each operator's credential
+	// (by its SHA-256) and enrolled device, catalog-only.
+	var operators map[string]planque.CatalogOperator
+	if raw := os.Getenv("PLANQUE_CATALOG_OPERATORS"); raw != "" {
+		var err error
+		if operators, err = planque.DecodeCatalogOperators([]byte(raw)); err != nil {
+			return nil, err
+		}
+	}
 	// Which app a vendor's own server is: a reviewed list, read like the
 	// catalog, shipped with the function by deploy/aws.sh.
 	var serverApps map[string]string
@@ -219,6 +231,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		Logger:                 logger,
 		WindowRequired:         strings.EqualFold(strings.TrimSpace(os.Getenv("PLANQUE_WINDOW_REQUIRED")), "true"),
 		CatalogEntries:         catalog,
+		CatalogOperators:       operators,
 		ServerApps:             serverApps,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,

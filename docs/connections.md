@@ -505,6 +505,54 @@ Both catalog endpoints require a bearer KIFF key for the account:
   request creates no sign-in link and grants no tools. The existing signed
   approval or key flow, including KIFF's profile and words digests, follows.
 
+### The catalog kept as data
+
+The reviewed catalog is also kept in planque's table, so an entry is added
+without a deploy. These entries are the **verified** tier: a person vouched for
+each one. Connecting never requires one. Each revision (`name@n`) moves
+`draft` → `reviewed` → `published` → `retired`, and never changes once
+published: a change is a new revision. A grant keeps the revision it was
+approved with, so retiring one stops only new grants.
+
+`PLANQUE_CATALOG_OPERATORS` lists who may work on it, as
+`[{id, token_sha256, device_key}]`. Each operator has two identities that
+never stand in for each other: an API credential (`Authorization: Bearer`,
+kept only as its SHA-256) drafts, changes and reviews, and an enrolled device
+(a P-256 key, base64 SPKI DER, catalog-only and apart from any account's
+phone) publishes and retires. An agent drafting through the API has a
+credential and no device, so it has no path to `published`.
+
+- `POST /v1/catalog/entries` `{entry}` drafts a new revision, with its `id`,
+  checked as a shipped entry is. A revision that exists is never replaced (409,
+  naming the next one).
+- `PUT /v1/catalog/entries/{id}` `{entry}` changes a draft or a reviewed
+  revision, which is a draft again, changed by that operator.
+- `POST /v1/catalog/entries/{id}/review` `{digest}` reviews the draft as read.
+- `POST /v1/catalog/entries/{id}/publish` and `…/retire`
+  `{operator, digest, nonce, signed_at, signature}`: the operator's device
+  signs, over the SHA-256 of
+  `planque.catalog.v1\n<planque base URL>\n<publish|retire>\n<id>\n<digest>\n<nonce>\n<signed_at>`,
+  where `digest` is the JCS SHA-256 of the entry with its id. The signature
+  holds for 5 minutes, and each nonce counts once. Who drafted or last changed
+  a revision can't publish it. A revision is published only reviewed, and
+  only when no write it holds can be made final by an argument it leaves
+  unpinned: for a key entry, planque reads its pinned description, and an
+  argument whose values include a final one (`finalized`, `issued`, `sent`, …)
+  and an undoable one (`draft`, `pending`, …), or a boolean named for a final
+  step, must be fixed to the undoable value (`fixed_arguments`), or the tool
+  left out.
+- `GET /v1/catalog/entries` lists every revision for an operator.
+  `GET /v1/catalog/entries/{id}` reads one, with the digest a device signs,
+  and needs no credential: an entry holds no secret.
+
+planque serves a published revision only while its stored digest is the one
+its publish signature covers. A row changed after that isn't served. Each
+publish and retire is kept as a record that is never edited (the device's
+fingerprint, the digest and the time). The table is read at most once a
+minute, alongside `PLANQUE_CATALOG_FILE`'s entries, which are served as
+before until they're published here. A revision retired here isn't served,
+whether or not it was shipped.
+
 ### Which app a grant is for
 
 Every grant's view names its app's catalog `entry` when it's certain, so an
