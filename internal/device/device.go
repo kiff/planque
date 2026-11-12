@@ -46,7 +46,7 @@ var (
 	ErrKey       = errors.New("the device key must be a P-256 public key, base64 SPKI DER")
 	ErrSignature = errors.New("the device signature does not verify for this request")
 	ErrSignedAt  = errors.New("signed_at must be RFC 3339, within 5 minutes of now")
-	ErrHeader    = errors.New(Header + " must be t=<signed_at>,v1=<signature>, and d=<device id> for a device KIFF knows; inside an approval window, v2=<signature>,w=<window id>")
+	ErrHeader    = errors.New(Header + " must be t=<signed_at>,v1=<signature>, and d=<device id> for a device KIFF knows; inside an approval window, v2=<signature>,w=<window id>; signed together with another request, v3=<signature>,with=sha256:<hex>")
 )
 
 // ParseKey decodes a base64 SPKI DER key and accepts only P-256 ECDSA.
@@ -111,6 +111,9 @@ type Signed struct {
 	// Window is the approval window the device key signed in (win_…), a v2
 	// signature (kiff/tafs#494); empty for a v1.
 	Window string
+	// With is a v3's other request (kiff.requests.v1): the lowercase hex
+	// SHA-256 of the request message it was signed together with.
+	With string
 }
 
 // ParseHeader splits t=<signed_at>,v1=<signature>[,d=<device id>], or
@@ -123,11 +126,20 @@ func ParseHeader(h string) (Signed, error) {
 		switch k {
 		case "t":
 			s.At = v
-		case "v1", "v2":
+		case "v1", "v2", "v3":
 			if version != "" {
 				return Signed{}, ErrHeader
 			}
 			version, s.Signature = k, v // Cut splits at the first '=', so base64 padding stays
+		case "with":
+			if s.With != "" {
+				return Signed{}, ErrHeader
+			}
+			sum, ok := strings.CutPrefix(v, "sha256:")
+			if _, err := hex.DecodeString(sum); !ok || err != nil || len(sum) != 64 || strings.ToLower(sum) != sum {
+				return Signed{}, ErrHeader
+			}
+			s.With = sum
 		case "w":
 			s.Window = v
 		case "d":
@@ -136,10 +148,25 @@ func ParseHeader(h string) (Signed, error) {
 	}
 	// A v2 names its window, a v1 none.
 	if s.At == "" || s.Signature == "" || (s.Device != "" && !validDeviceID(s.Device)) ||
-		(version == "v2") != (s.Window != "") || (s.Window != "" && !validWindowID(s.Window)) {
+		(version == "v2") != (s.Window != "") || (s.Window != "" && !validWindowID(s.Window)) ||
+		(version == "v3") != (s.With != "") {
 		return Signed{}, ErrHeader
 	}
 	return s, nil
+}
+
+// RequestsMessage is what a phone signs, once, with its approval key, to send
+// two requests under one fingerprint (kiff.requests.v1, kiff/tafs
+// docs/secure-connection.md): the tenant, signed_at, and the two request
+// messages' SHA-256 in lowercase hex, sorted. Each service rebuilds its own
+// request message (Message here, kiff.request.v1 at KIFF) and takes the
+// other's hash as given. KIFF builds the same lines.
+func RequestsMessage(tenant, signedAt, oneSHA256, otherSHA256 string) []byte {
+	a, b := oneSHA256, otherSHA256
+	if b < a {
+		a, b = b, a
+	}
+	return []byte(strings.Join([]string{"kiff.requests.v1", tenant, signedAt, a, b}, "\n"))
 }
 
 // validWindowID: KIFF makes them win_ and 26 lowercase base32 characters.

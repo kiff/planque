@@ -332,6 +332,18 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 		return Approval{}, apiError{http.StatusUnauthorized, "this request needs the owner's signature from their device (" + device.Header + ")"}
 	}
 	msg := device.MessageWindow(s.BaseURL, tenant, r.Method, r.URL.RequestURI(), body, sg.At, sg.Window)
+	// Signed together with another request (kiff.requests.v1): the phone
+	// signed this request's message's hash beside the other's, once, with
+	// its approval key. The use is this request's alone.
+	var own string
+	if sg.With != "" {
+		sum := sha256.Sum256(msg)
+		own = hex.EncodeToString(sum[:])
+		if own == sg.With {
+			return Approval{}, apiError{http.StatusUnauthorized, "a request can't be signed together with itself"}
+		}
+		msg = device.RequestsMessage(tenant, sg.At, own, sg.With)
+	}
 	a := Approval{Message: string(msg), Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
 	// What the replay record names as the signer, with the message.
 	if sg.Device == "" {
@@ -368,6 +380,10 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 				slog.String("reason", v.Reason), slog.String("capability", capability))
 			return Approval{}, deviceRefused(v.Reason, capability)
 		}
+		if sg.With != "" && v.Key != kiff.KeyCritical {
+			s.log().WarnContext(r.Context(), "a signature over two requests not by the approval key", slog.String("tenant", tenant), slog.String("device", sg.Device), slog.String("key", v.Key))
+			return Approval{}, apiError{http.StatusForbidden, "two requests signed together need the phone's approval key, behind its fingerprint"}
+		}
 		if err := keyFits(kind, v, sg.Window, s.WindowRequired); err != nil {
 			s.log().WarnContext(r.Context(), "device key short of the route", slog.String("tenant", tenant), slog.String("device", sg.Device),
 				slog.String("kind", kind), slog.String("key", v.Key), slog.String("window", sg.Window))
@@ -379,7 +395,11 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 		}
 		signer = []byte("kiff-device\n" + v.DeviceID + "\n")
 	}
-	sum := sha256.Sum256(append(append([]byte{}, signer...), msg...))
+	used := append(append([]byte{}, signer...), msg...)
+	if own != "" {
+		used = append(append(used, 0), own...)
+	}
+	sum := sha256.Sum256(used)
 	ttl := s.now().Add(2 * device.MaxSkew).Unix()
 	err = s.KV.Put(r.Context(), store.Item{PK: pkSigned(hex.EncodeToString(sum[:])), SK: "-", Doc: []byte("{}"), TTL: ttl},
 		store.Cond{NotExists: true})
