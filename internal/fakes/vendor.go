@@ -62,8 +62,10 @@ type Vendor struct {
 	mu        sync.Mutex
 	Calls     []VendorCall // this instance's
 	DeskCalls []VendorCall // this instance's desk writes
-	Refreshes int
-	Revoked   []string
+	// BillingCalls are this instance's billing writes (billing.go).
+	BillingCalls []VendorCall
+	Refreshes    int
+	Revoked      []string
 	// RevokeFails is how many revocations to answer 503 first, as a
 	// vendor's revocation endpoint that is down.
 	RevokeFails int
@@ -118,6 +120,7 @@ func NewVendorAt(base string) (*Vendor, http.Handler) {
 	mux.HandleFunc("POST /as/revoke", v.revoke)
 	mux.HandleFunc("POST /mcp", v.mcp)
 	v.deskRoutes(mux)
+	v.billingRoutes(mux)
 	return v, mux
 }
 
