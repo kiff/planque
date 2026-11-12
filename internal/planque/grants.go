@@ -591,6 +591,9 @@ func checkTools(agent string, tools []ToolRequest) string {
 		}
 		seen[name] = true
 	}
+	if msg := checkOneOf(tools); msg != "" {
+		return msg
+	}
 	return checkLookups(tools)
 }
 

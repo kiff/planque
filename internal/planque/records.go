@@ -79,6 +79,19 @@ type Argument struct {
 	// it sends a field the schema doesn't name, so a field left out of it (a
 	// line's discount) can't be set. Only an array argument has one.
 	Schema json.RawMessage `json:"schema,omitempty"`
+	// OneOf is a string argument whose value must be one the account's own
+	// read gives (an invoice's IBAN among the business's bank accounts):
+	// before each call planque makes that read, with the grant's key, and
+	// refuses a value it doesn't list. API-key grants only.
+	OneOf *OneOf `json:"one_of,omitempty"`
+}
+
+// OneOf names a read-only operation of the same grant, called with no
+// arguments, and the dotted path of the values it allows in its answer
+// (through any lists on the way: "organization.bank_accounts.iban").
+type OneOf struct {
+	Tool string `json:"tool"`
+	Path string `json:"path"`
 }
 
 // Request is exactly what is asked, and what the owner signs.

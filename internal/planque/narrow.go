@@ -51,6 +51,8 @@ func checkNarrowing(t ToolRequest) string {
 			return "argument " + name + "'s schema: " + checkShape(a.Schema, true)
 		case a.Type != "array" && len(a.Schema) > 0:
 			return "argument " + name + " is a " + a.Type + ": only an array argument has a schema"
+		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
+			return "argument " + name + "'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values"
 		}
 		if _, ok := pathParts(a.Path); !ok {
 			return "argument " + name + " needs a dotted path in the vendor's arguments"
@@ -477,4 +479,71 @@ func fits(v any, raw json.RawMessage, at string) string {
 		}
 	}
 	return ""
+}
+
+// pathExpr says whether p is a dotted path of plain field names.
+func pathExpr(p string) bool {
+	parts, ok := pathParts(p)
+	if !ok {
+		return false
+	}
+	for _, k := range parts {
+		if !toolName.MatchString(k) {
+			return false
+		}
+	}
+	return true
+}
+
+// checkOneOf says what is wrong with the tools' one_of reads, or "": each
+// names a read-only tool of the same request, by its vendor tool.
+func checkOneOf(tools []ToolRequest) string {
+	for _, t := range tools {
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			o := t.Arguments[name].OneOf
+			if o == nil {
+				continue
+			}
+			i := slices.IndexFunc(tools, func(r ToolRequest) bool { return r.Tool == o.Tool })
+			if i < 0 || !tools[i].ReadOnly {
+				return t.Tool + "'s argument " + name + ": one_of must name a read-only tool of the same request"
+			}
+		}
+	}
+	return ""
+}
+
+// valuesAt is every string at a dotted path in v, going through lists.
+func valuesAt(v any, parts []string) []string {
+	if len(parts) == 0 {
+		switch x := v.(type) {
+		case string:
+			return []string{x}
+		case []any:
+			var out []string
+			for _, e := range x {
+				out = append(out, valuesAt(e, nil)...)
+			}
+			return out
+		}
+		return nil
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		return valuesAt(x[parts[0]], parts[1:])
+	case []any:
+		var out []string
+		for _, e := range x {
+			out = append(out, valuesAt(e, parts)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// sameValue compares an argument with an allowed value as people write
+// them: spaces dropped, letters in any case ("FR76 3000…" is "fr763000…").
+func sameValue(a, b string) bool {
+	norm := func(s string) string { return strings.ToUpper(strings.Join(strings.Fields(s), "")) }
+	return norm(a) != "" && norm(a) == norm(b)
 }

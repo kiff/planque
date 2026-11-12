@@ -118,6 +118,11 @@ approves it anew: a grant from `@1` stays as it was.
   - **Its arguments:** `quote_id` (required, the call's resource, so the Card
     and the record name the quote), the client, the dates, the currency, the
     IBAN the customer pays to, and `items`.
+  - **The IBAN** must be one of the business's own accounts: before each
+    call, planque reads `GET /organization` with the same key and refuses an
+    IBAN it doesn't list (spaces and case aside), so one planted in a quote or
+    a client's note never becomes the payee. A read that fails refuses the
+    call.
   - **`items`** is an array argument with a reviewed schema: Qonto's own line
     fields, without `discount`. A line with a field the schema doesn't name is
     refused before anything reaches Qonto, and so is the invoice's own
@@ -131,6 +136,12 @@ approves it anew: a grant from `@1` stays as it was.
 Its items are objects, and every object names its fields. The agent sees that
 schema. A call whose value has a field the schema doesn't name, the wrong kind
 of value, a value outside its list, or a missing required field is refused.
+
+**Arguments checked against the account** (`one_of`): a string argument may
+name a read-only tool of the same grant and the dotted path of the values it
+allows (`{"tool": "get_organization", "path": "organization.bank_accounts.iban"}`).
+On an API-key grant, planque makes that read with the grant's key before each
+call and refuses a value it doesn't list.
 
 ## Telegram bots
 

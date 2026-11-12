@@ -187,7 +187,11 @@
             "path": "payment_methods.iban",
             "type": "string",
             "required": true,
-            "description": "The business's IBAN the customer pays to"
+            "description": "One of the business's own Qonto IBANs (qonto_organization lists them): any other is refused",
+            "one_of": {
+              "tool": "get_organization",
+              "path": "organization.bank_accounts.iban"
+            }
           },
           "performance_start_date": {
             "path": "performance_start_date",

@@ -65,6 +65,11 @@ func TestShippedQontoKey2ReadsAndDraftsOnly(t *testing.T) {
 			t.Fatalf("the taf can set %s (%s)", name, a.Path)
 		}
 	}
+	// The IBAN the customer pays into is one of the business's own accounts,
+	// read with the same key before each call: never one planted in a quote.
+	if o := draft.Arguments["iban"].OneOf; o == nil || o.Tool != "get_organization" || o.Path != "organization.bank_accounts.iban" {
+		t.Fatalf("the IBAN isn't checked against the business's accounts: %+v", draft.Arguments["iban"])
+	}
 	if strings.Contains(string(draft.Arguments["items"].Schema), "discount") {
 		t.Fatal("an invoice line can carry a discount")
 	}
