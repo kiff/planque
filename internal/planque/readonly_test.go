@@ -13,11 +13,11 @@ func TestReadOnlyIsTheVendorsWord(t *testing.T) {
 	e := newEnv(t)
 	id := e.listedGrant()
 	at := "/v1/accounts/" + tenant + "/grants/" + id + "/tools"
-	st, out := e.do("POST", at, map[string]any{"tools": []any{map[string]any{"tool": "payout_balance", "read_only": true}}}, nil, "k_setup")
+	st, out := e.do("POST", at, map[string]any{"tools": []any{map[string]any{"tool": "payout_balance", "title": "Payout balance", "read_only": true}}}, nil, "k_setup")
 	if st != 400 || !strings.Contains(out["error"].(string), "isn't read-only") {
 		t.Fatalf("a vendor write asked for as a read: %d %v", st, out)
 	}
-	if st, out := e.do("POST", at, map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 ||
+	if st, out := e.do("POST", at, map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}}, nil, "k_setup"); st != 200 ||
 		!strings.Contains(out["text"].(string), "reads only") {
 		t.Fatalf("a vendor read: %d %v", st, out)
 	}
@@ -26,7 +26,7 @@ func TestReadOnlyIsTheVendorsWord(t *testing.T) {
 	e2 := newEnv(t)
 	e2.enrol()
 	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e2.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{map[string]any{"tool": "payout_balance", "read_only": true}}}, nil, "k_setup")
+		"tools": []any{map[string]any{"tool": "payout_balance", "title": "Payout balance", "read_only": true}}}, nil, "k_setup")
 	if st != 201 {
 		t.Fatalf("request: %d %v", st, out)
 	}

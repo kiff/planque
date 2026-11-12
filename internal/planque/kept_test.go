@@ -44,7 +44,7 @@ func TestTheSweepRevokesASignInNoLiveGrantUses(t *testing.T) {
 	first := e.connect()
 	e.kiff.Cards["k_taf"]["list_charges_b"] = 0
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID, "agent": "agt_taf",
-		"tools": []map[string]any{{"tool": "list_charges", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+		"tools": []map[string]any{{"tool": "list_charges", "title": "List charges b", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
 	if st != 201 {
 		t.Fatalf("reuse: %d %v", st, out)
 	}

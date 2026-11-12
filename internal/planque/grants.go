@@ -258,6 +258,15 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	// An agent's own ask names each tool by what it does: the owner's approval,
+	// KIFF's Card and the record read the title, never the tool's name. A
+	// catalog entry's tools are planque's own, reviewed when it is installed.
+	if entry == nil {
+		if msg := untitledTools(*req.Tools); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
 	// Nothing is approved on a grant not made yet: a broad write narrowed
 	// to an operation waits for the vendor's describing tool.
 	if msg, _ := s.operationsCheck(r.Context(), nil, nil, *req.Tools); msg != "" {
@@ -583,6 +592,23 @@ func checkTools(agent string, tools []ToolRequest) string {
 		seen[name] = true
 	}
 	return checkLookups(tools)
+}
+
+// untitledTools is the refusal of an ask whose tools aren't all titled, in
+// the words kiff/agents refuses with before it asks: nothing reaches the
+// owner's approval named by a tool's name. Empty when every tool has a title.
+func untitledTools(tools []ToolRequest) string {
+	var missing []string
+	for _, t := range tools {
+		if strings.TrimSpace(t.Title) == "" {
+			missing = append(missing, t.Tool)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "each tool needs a title, what it does in the owner's words and language on one line (e.g. Refund a payment): the owner's approval names the tool by it, never by its name. " +
+		strings.Join(missing, ", ") + " has none. Nothing was asked: add the titles and ask again."
 }
 
 // grantText is what the owner reads before approving, in English.
@@ -1197,6 +1223,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	originalNames := toolNames(req.Tools)
 
 	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := untitledTools(req.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}

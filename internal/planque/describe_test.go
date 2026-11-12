@@ -16,7 +16,7 @@ func (e *env) detailsGrant() string {
 	e.t.Helper()
 	id := e.listedGrant()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
-	details := map[string]any{"tool": "stripe_api_details", "name": "fields_ab12", "read_only": true, "setup_reads": true}
+	details := map[string]any{"tool": "stripe_api_details", "title": "Fields ab12", "name": "fields_ab12", "read_only": true, "setup_reads": true}
 	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{details}}, nil, "k_setup")
 	if st != 200 {
 		e.t.Fatalf("set tools: %d %v", st, out)
@@ -122,7 +122,7 @@ func TestANarrowedWriteTakesOnlyTheOperationsFields(t *testing.T) {
 // it refused every narrowed tool on a real account (the 1 Nov phone run).
 func TestTheFieldsAreReadInTheNarrowedToolsAccount(t *testing.T) {
 	search := func(acct string, live bool) map[string]any {
-		return map[string]any{"tool": "stripe_api_read", "name": "search_charges", "read_only": true,
+		return map[string]any{"tool": "stripe_api_read", "name": "search_charges", "title": "Search charges", "read_only": true,
 			"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge", "stripe_context": acct, "livemode": live},
 			"arguments":       map[string]any{"id": map[string]any{"path": "parameters.id", "type": "string"}}}
 	}
@@ -148,7 +148,7 @@ func TestTheFieldsAreReadInTheNarrowedToolsAccount(t *testing.T) {
 func TestANarrowedReadNeedsNoDescribingTool(t *testing.T) {
 	e := newEnv(t)
 	id := e.listedGrant()
-	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "read_only": true,
+	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "title": "Get charge", "read_only": true,
 		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"},
 		"arguments":       map[string]any{"id": map[string]any{"path": "parameters.id", "type": "string"}}}
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools", map[string]any{"tools": []any{read}}, nil, "k_setup"); st != 200 {
@@ -239,7 +239,7 @@ func TestANarrowedWriteFromBeforeTheCheckIsCheckedAtItsFirstCall(t *testing.T) {
 // so a check that the taf's Card covers its tools can leave them out.
 func TestSetupsListingMarksItsOwnReads(t *testing.T) {
 	e := newEnv(t)
-	id, out := e.addToDetails(map[string]any{"tool": "create_refund", "name": "refund_cd34", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2})
+	id, out := e.addToDetails(map[string]any{"tool": "create_refund", "title": "Refund cd34", "name": "refund_cd34", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2})
 	e.approveAddition(id, out)
 	st, list := e.do("GET", "/v1/accounts/"+tenant+"/agents/agt_taf/grants", nil, nil, "k_setup")
 	gs, _ := list["grants"].([]any)

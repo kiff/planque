@@ -57,7 +57,7 @@ func TestTheTafsToolsAndSetupsReadsAreTwoLists(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
 	details := map[string]any{"tool": "stripe_api_details", "title": "Look up an operation's fields", "read_only": true, "setup_reads": true}
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount"}
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount"}
 	grants := "/v1/accounts/" + tenant + "/grants"
 	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "agent_name": "Refunds",
 		"tools": []any{details, refund}}, nil, "k_setup")
@@ -66,7 +66,7 @@ func TestTheTafsToolsAndSetupsReadsAreTwoLists(t *testing.T) {
 	}
 	text := out["text"].(string)
 	taf, setup, ok := strings.Cut(text, "Setup reads, to set this up: ")
-	if !ok || !strings.Contains(taf, "Refunds may:\n• create_refund: moves money (amount)") || strings.Contains(taf, "Look up an operation's fields") ||
+	if !ok || !strings.Contains(taf, "Refunds may:\n• Refund a charge: moves money (amount)") || strings.Contains(taf, "Look up an operation's fields") ||
 		!strings.HasPrefix(setup, "Look up an operation's fields.") || strings.Contains(text, "The taf may:") {
 		t.Fatalf("text:\n%s", text)
 	}
@@ -91,7 +91,7 @@ func TestManagedActionsAreNamedInWords(t *testing.T) {
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
 		Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
 			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
-	st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
+	st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("set tools: %d %v", st, out)
 	}

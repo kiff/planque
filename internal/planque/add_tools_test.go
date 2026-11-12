@@ -20,7 +20,7 @@ func (e *env) connectedRefunds() string {
 	e.t.Helper()
 	id := e.listedGrant()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
-	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	if st != 200 {
 		e.t.Fatalf("set tools: %d %v", st, out)
@@ -44,13 +44,13 @@ func TestAConnectedGrantGainsTools(t *testing.T) {
 	e := newEnv(t)
 	id := e.connectedRefunds()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
-	list := map[string]any{"tool": "list_charges", "name": "list_charges", "read_only": true}
+	list := map[string]any{"tool": "list_charges", "title": "List charges", "name": "list_charges", "read_only": true}
 
 	// The asking agent alone adds, and only what the grant doesn't have.
 	if st, _ := e.do("POST", acct+"/tools", map[string]any{"tools": []any{list}}, nil, "k_taf"); st != 403 {
 		t.Fatalf("another agent adding: %d", st)
 	}
-	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "create_refund", "name": "create_refund"}}}, nil, "k_setup"); st != 409 ||
+	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund"}}}, nil, "k_setup"); st != 409 ||
 		!strings.Contains(out["error"].(string), "send only the tools to add") {
 		t.Fatalf("adding a tool it has: %d %v", st, out)
 	}
@@ -104,7 +104,7 @@ func TestAnAdditionNobodyApprovesGoesBack(t *testing.T) {
 	e := newEnv(t)
 	id := e.connectedRefunds()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
-	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 {
+	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}}, nil, "k_setup"); st != 200 {
 		t.Fatalf("add: %d %v", st, out)
 	}
 	e.s.Now = func() time.Time { return time.Now().Add(holdTTL + time.Minute) }
@@ -129,7 +129,7 @@ func TestAFailedAdditionKeepsTheTools(t *testing.T) {
 	e := newEnv(t)
 	id := e.connectedRefunds()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
-	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
+	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("add: %d %v", st, out)
 	}
@@ -200,12 +200,12 @@ func TestSetupFindsItsConnectionsWithoutTheTafsAgent(t *testing.T) {
 // tools are never called an addition to what it has (kiff/tafs#236, item 4).
 func TestTheTafsFirstToolsAfterSetupsReadsArentAnAddition(t *testing.T) {
 	added := []ToolRequest{{Tool: "create_refund", Name: "create_refund_x", Title: "Refund a payment"}}
-	reads := []ToolRequest{{Tool: "list_accounts", Name: "list_accounts_x", ReadOnly: true, SetupReads: true}}
+	reads := []ToolRequest{{Tool: "list_accounts", Title: "List accounts x", Name: "list_accounts_x", ReadOnly: true, SetupReads: true}}
 	if got := additionText(english, added, reads, nil); !strings.HasPrefix(got, "These are the taf's first tools on this connection: Refund a payment.") ||
 		strings.Contains(got, "already has") {
 		t.Fatalf("after Setup's reads:\n%s", got)
 	}
-	taf := append(reads, ToolRequest{Tool: "list_charges", Name: "list_charges_x", ReadOnly: true})
+	taf := append(reads, ToolRequest{Tool: "list_charges", Title: "List charges x", Name: "list_charges_x", ReadOnly: true})
 	if got := additionText(english, added, taf, nil); !strings.HasPrefix(got, "This adds to a connection the taf already has: Refund a payment.") {
 		t.Fatalf("after a tool of the taf's own:\n%s", got)
 	}
