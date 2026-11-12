@@ -140,7 +140,7 @@ func (e *env) giveKey(id, digest, key string) (int, map[string]any) {
 
 var apiTools = []map[string]any{
 	{"tool": "createRefund", "name": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2},
-	{"tool": "listCharges", "name": "list_charges", "read_only": true},
+	{"tool": "listCharges", "title": "List charges", "name": "list_charges", "read_only": true},
 }
 
 // connectAPI connects an API-key grant to v with its two tools: asked with
@@ -367,7 +367,7 @@ func TestAnAPIKeyGrantIsRefusedWithTheReason(t *testing.T) {
 		}
 	}
 	// A tool the description doesn't have.
-	st, out := e.askAPIGrant(v, []map[string]any{{"tool": "deleteEverything"}}, nil)
+	st, out := e.askAPIGrant(v, []map[string]any{{"tool": "deleteEverything", "title": "Delete everything"}}, nil)
 	if st != 400 || !strings.Contains(mustJSONString(out), "no operation named deleteEverything") {
 		t.Fatalf("%d %v", st, out)
 	}
@@ -387,7 +387,7 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		first := e.connectAPI(v)
 		e.kiff.Cards["k_taf"]["list_charges_b"] = 0
 		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"reuse": first.ID, "agent": "agt_taf",
-			"tools": []map[string]any{{"tool": "listCharges", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+			"tools": []map[string]any{{"tool": "listCharges", "title": "List charges b", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
 		if st != 201 || !strings.Contains(out["text"].(string), "no second key") {
 			t.Fatalf("reuse: %d %v", st, out)
 		}
@@ -441,7 +441,7 @@ func TestASecondGrantReusesTheSignIn(t *testing.T) {
 		first := e.connect()
 		e.kiff.Cards["k_taf"]["list_charges_b"] = 0
 		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID, "agent": "agt_taf",
-			"tools": []map[string]any{{"tool": "list_charges", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+			"tools": []map[string]any{{"tool": "list_charges", "title": "List charges b", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
 		if st != 201 || !strings.Contains(out["text"].(string), "already signed in") {
 			t.Fatalf("reuse: %d %v", st, out)
 		}

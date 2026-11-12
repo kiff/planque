@@ -334,7 +334,7 @@ func connectConnectorWith(t *testing.T, e *env, f *connectorFixture, p profile.P
 		t.Fatalf("tool catalog: %d %v", st, catalog)
 	}
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
-	st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
+	st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("set tools: %d %v", st, out)
 	}
@@ -628,7 +628,7 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket",
 		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
-	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
+	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
 		t.Fatalf("a tool outside the sign-in: %d %v", st, out)
 	}
 	// The same tools again, even asked in lower case: the scoped sign-in made before is pinned again.
@@ -782,7 +782,7 @@ func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
 	_, catalog := e.do("GET", path+"/catalog", nil, nil, "k_coach")
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
-	tools := map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "reply_ticket"}}, "profile": p}
+	tools := map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}
 	if st, _ := e.do("POST", path+"/tools", tools, nil, "k_third"); st != 403 {
 		t.Fatalf("a third agent proposed tools: %d", st)
 	}
@@ -1216,7 +1216,7 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
 		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
 			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
-	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
 	if st != 200 || out["status"] != StatusPending || !strings.Contains(out["text"].(string), "with the sign-in you already have there") ||
 		!strings.Contains(out["text"].(string), "Approve these actions: ") {
 		t.Fatalf("tools: %d %v", st, out)

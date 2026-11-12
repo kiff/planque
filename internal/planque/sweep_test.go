@@ -166,7 +166,7 @@ func TestAVendorThatDoesntConfirmRevokingIsAskedAgain(t *testing.T) {
 		t.Fatal("marked failed with its tokens not revoked")
 	}
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools",
-		map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 409 {
+		map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}}, nil, "k_setup"); st != 409 {
 		t.Fatalf("an overdue grant took its tools: %d", st)
 	}
 	if n, err := e.s.Sweep(t.Context()); err != nil || n != 1 {

@@ -38,7 +38,7 @@ func TestTheParametersObjectNeverDropsAFixedValue(t *testing.T) {
 		{map[string]json.RawMessage{"parameters.expand": json.RawMessage(`["data.evidence"]`)}, `{"parameters":{"expand":["data.evidence"]}}`},
 		{map[string]json.RawMessage{"parameters": json.RawMessage(`{"status":"open"}`)}, `{"parameters":{"status":"open"}}`},
 	} {
-		tool := ToolRequest{Tool: "stripe_api_read", Name: "list", ReadOnly: true, Fixed: c.fixed, Arguments: lifted}
+		tool := ToolRequest{Tool: "stripe_api_read", Title: "List", Name: "list", ReadOnly: true, Fixed: c.fixed, Arguments: lifted}
 		got, err := tool.vendorArgs(map[string]any{})
 		if err != nil || string(got) != c.want {
 			t.Fatalf("fixed %s: %s, %v; want %s", c.fixed, got, err, c.want)

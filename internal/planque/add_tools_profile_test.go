@@ -31,8 +31,8 @@ func TestAnAdditionsProfileIsMergedIntoTheApprovedOne(t *testing.T) {
 	}
 	list := op("list_inboxes", "List inboxes", "read")
 	approved := doc(list)
-	has := []ToolRequest{{Tool: "connector_a", Name: "list_inboxes"}}
-	added := []ToolRequest{{Tool: "connector_b", Name: "send_reminder"}, {Tool: "connector_c", Name: "list_sent_messages"}}
+	has := []ToolRequest{{Tool: "connector_a", Title: "List inboxes", Name: "list_inboxes"}}
+	added := []ToolRequest{{Tool: "connector_b", Title: "Send reminder", Name: "send_reminder"}, {Tool: "connector_c", Title: "List sent messages", Name: "list_sent_messages"}}
 	next := doc(op("send_reminder", "Send a reminder", "write"), op("list_sent_messages", "List sent messages", "read"))
 
 	merged := withApprovedOperations(approved, next, added)

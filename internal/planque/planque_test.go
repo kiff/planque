@@ -139,8 +139,8 @@ func (e *env) enrol() {
 func (e *env) request() (id, digest string) {
 	e.t.Helper()
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []map[string]any{{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2},
-			{"tool": "list_charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
+		"tools": []map[string]any{{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2},
+			{"tool": "list_charges", "title": "List charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
 	if st != 201 {
 		e.t.Fatalf("request: %d %v", st, out)
 	}
@@ -284,18 +284,18 @@ func TestEnrol(t *testing.T) {
 func TestRequestAndApprove(t *testing.T) {
 	e := newEnv(t)
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "a",
-		"tools": []map[string]any{{"tool": "list_charges"}}}, nil, "k_setup"); st != 409 {
+		"tools": []map[string]any{{"tool": "list_charges", "title": "List charges"}}}, nil, "k_setup"); st != 409 {
 		t.Fatalf("grant before enrolment: %d, want 409", st)
 	}
 	e.enrol()
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "a",
-		"tools": []map[string]any{{"tool": "list_charges"}}}, nil, "k_other"); st != 403 {
+		"tools": []map[string]any{{"tool": "list_charges", "title": "List charges"}}}, nil, "k_other"); st != 403 {
 		t.Fatalf("another account's agent: %d, want 403", st)
 	}
 	id, digest := e.request()
 	_, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
 	text := out["text"].(string)
-	for _, want := range []string{"create_refund: moves money (amount), only within the taf's Card", "list_charges: reads only", "sign in at 127.0.0.1"} {
+	for _, want := range []string{"Refund a charge: moves money (amount), only within the taf's Card", "List charges: reads only", "sign in at 127.0.0.1"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
 		}
@@ -824,14 +824,14 @@ func TestSetupReads(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
 	details := map[string]any{"tool": "stripe_api_details", "title": "Look up an operation's fields", "read_only": true, "setup_reads": true}
-	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "read_only": true, "setup_reads": true,
+	read := map[string]any{"tool": "stripe_api_read", "name": "get_charge", "title": "Get charge", "read_only": true, "setup_reads": true,
 		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"},
 		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.id", "type": "string", "required": true}}}
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount"}
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount"}
 	grants := "/v1/accounts/" + tenant + "/grants"
 	// Only a read-only tool.
 	if st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{map[string]any{"tool": "create_refund", "setup_reads": true}}}, nil, "k_setup"); st != 400 {
+		"tools": []any{map[string]any{"tool": "create_refund", "title": "Refund a charge", "setup_reads": true}}}, nil, "k_setup"); st != 400 {
 		t.Fatalf("setup_reads on a write: %d %v", st, out)
 	}
 	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details, read, refund}}, nil, "k_setup")
@@ -839,7 +839,7 @@ func TestSetupReads(t *testing.T) {
 		t.Fatalf("request: %d %v", st, out)
 	}
 	id := out["id"].(string)
-	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields and stripe_api_read. It only reads them, through KIFF with its own Card, at most 50 reads a day; each read has KIFF's permit") ||
+	if text := out["text"].(string); !strings.Contains(text, "Setup reads, to set this up: Look up an operation's fields and Get charge. It only reads them, through KIFF with its own Card, at most 50 reads a day; each read has KIFF's permit") ||
 		strings.Contains(text, "without KIFF's permit") {
 		t.Fatalf("text:\n%s", text)
 	}
@@ -883,7 +883,7 @@ func TestSetupReadsRefusedByKIFF(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
 	e.kiff.SetupReadsRefused = true
-	details := map[string]any{"tool": "stripe_api_details", "read_only": true, "setup_reads": true}
+	details := map[string]any{"tool": "stripe_api_details", "title": "Stripe api details", "read_only": true, "setup_reads": true}
 	grants := "/v1/accounts/" + tenant + "/grants"
 	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{details}}, nil, "k_setup")
 	if st != 201 {
@@ -958,7 +958,7 @@ func TestNarrowedTool(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
 	e.kiff.Cards["k_taf"] = map[string]int64{"stripe_refund": 500}
-	refund := map[string]any{"tool": "stripe_api_write", "name": "stripe_refund", "amount_argument": "amount",
+	refund := map[string]any{"tool": "stripe_api_write", "name": "stripe_refund", "title": "Refund a payment", "amount_argument": "amount",
 		"fixed_arguments": map[string]any{"stripe_api_operation_id": "PostRefunds"},
 		"arguments": map[string]any{
 			"payment_intent": map[string]any{"path": "parameters.payment_intent", "type": "string", "required": true},
@@ -967,7 +967,7 @@ func TestNarrowedTool(t *testing.T) {
 		}}
 	id, out := e.addToDetails(refund)
 	// The text names the tool in words; its exact terms are in Details.
-	if text := out["text"].(string); !strings.Contains(text, "• stripe_api_write: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
+	if text := out["text"].(string); !strings.Contains(text, "• Refund a payment: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
 		t.Fatalf("text:\n%s", text)
 	}
 	if terms, _ := out["terms"].([]any); !slices.Contains(terms, any(`stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent)`)) {
@@ -1053,7 +1053,7 @@ func TestGrantRefusesLocalServers(t *testing.T) {
 	defer internal.Close()
 	for _, server := range []string{e.vendor.MCPURL(), internal.URL, "http://localhost:" + strings.TrimPrefix(internal.URL, "http://127.0.0.1:")} {
 		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": server, "agent": "agt_taf",
-			"tools": []map[string]any{{"tool": "list_charges"}}}, nil, "k_setup")
+			"tools": []map[string]any{{"tool": "list_charges", "title": "List charges"}}}, nil, "k_setup")
 		msg, _ := out["error"].(string)
 		if st != 502 || !strings.Contains(msg, "public addresses") || strings.Contains(msg, "internal-secret") {
 			t.Errorf("%s: %d %s", server, st, msg)
@@ -1166,7 +1166,7 @@ func TestSignatureNamesThePlanque(t *testing.T) {
 
 func TestUnboundWriteToolTextSaysSo(t *testing.T) {
 	text := grantText(Request{Server: "https://mcp.example.com", SignInAt: "https://as.example.com", Agent: "a",
-		Tools: []ToolRequest{{Tool: "api_write", Name: "api_write"}}})
+		Tools: []ToolRequest{{Tool: "api_write", Title: "Api write", Name: "api_write"}}})
 	if strings.Contains(text, "only within") || !strings.Contains(text, "can make any change this tool allows") {
 		t.Fatalf("text:\n%s", text)
 	}
@@ -1259,7 +1259,7 @@ func TestConnectFirst(t *testing.T) {
 		t.Fatal("listing called a tool")
 	}
 
-	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	// Only the agent that asked sets the tools, only tools the vendor lists, and the
 	// owner can't approve a listed grant before it has tools.
 	if st, _ := e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_taf"); st != 403 {
@@ -1352,7 +1352,7 @@ func TestAHeldSignInEndsAfterADay(t *testing.T) {
 		id := e.listedGrant()
 		if withTools {
 			if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools",
-				map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 {
+				map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}}, nil, "k_setup"); st != 200 {
 				t.Fatalf("set tools: %d %v", st, out)
 			}
 		}
@@ -1375,7 +1375,7 @@ func TestDisconnectingAGrantWaitingForItsToolsRevokesItsSignIn(t *testing.T) {
 	e := newEnv(t)
 	id := e.listedGrant()
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools",
-		map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "read_only": true}}}, nil, "k_setup"); st != 200 || out["status"] != StatusPending {
+		map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}}, nil, "k_setup"); st != 200 || out["status"] != StatusPending {
 		t.Fatalf("set tools: %d %v", st, out)
 	}
 	if st, out := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, e.phone, ""); st != 200 || out["status"] != StatusDisconnected {
@@ -1404,7 +1404,7 @@ func TestAnAccountThatIsntOneStaysOutOfTheText(t *testing.T) {
 	if st, out := e.do("GET", acct+"/"+id+"/catalog", nil, nil, "k_setup"); st != 200 || out["account"] != "" {
 		t.Fatalf("catalog: %d %v", st, out)
 	}
-	refund := map[string]any{"tool": "create_refund", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
 	st, out = e.do("POST", acct+"/"+id+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup")
 	text, _ := out["text"].(string)
 	if st != 200 || !strings.Contains(text, "You're already signed in: no second sign-in.") ||
@@ -1425,7 +1425,7 @@ func TestToolsGetAPerGrantName(t *testing.T) {
 	var names []string
 	for range 2 {
 		st, out := e.do("POST", acct, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-			"tools": []map[string]any{{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}}}, nil, "k_setup")
+			"tools": []map[string]any{{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}}}, nil, "k_setup")
 		if st != 201 {
 			t.Fatalf("request: %d %v", st, out)
 		}
@@ -1451,10 +1451,10 @@ func TestTheOwnerReadsNoPlanque(t *testing.T) {
 	for _, q := range []Request{
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34"},
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
-			Tools: []ToolRequest{{Tool: "create_refund", Name: "create_refund_ab12", AmountArg: "amount"}}},
+			Tools: []ToolRequest{{Tool: "create_refund", Title: "Create refund ab12", Name: "create_refund_ab12", AmountArg: "amount"}}},
 		// Setup's own reads are said without naming planque either.
 		{Server: "https://mcp.stripe.com", SignInAt: "https://access.stripe.com", Agent: "reembolsos-ab12cd34",
-			Tools: []ToolRequest{{Tool: "stripe_api_details", Name: "fields_ab12", ReadOnly: true, SetupReads: true}}},
+			Tools: []ToolRequest{{Tool: "stripe_api_details", Title: "Fields ab12", Name: "fields_ab12", ReadOnly: true, SetupReads: true}}},
 	} {
 		for _, text := range []string{grantText(q), requestText(english, q, true, "acct_1")} {
 			if strings.Contains(strings.ToLower(text), "planque") || !strings.Contains(text, "sealed vault") {
@@ -1523,8 +1523,10 @@ func chargeRead(name string) map[string]any {
 	r := map[string]any{"tool": "stripe_api_read", "read_only": true,
 		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge"},
 		"arguments":       map[string]any{"charge": map[string]any{"path": "parameters.id", "type": "string", "required": true}}}
+	r["title"] = "Look up a charge"
 	if name != "" {
 		r["name"] = name
+		r["title"] = "Look up a charge (" + strings.ReplaceAll(name, "_", " ") + ")"
 	}
 	return r
 }
@@ -1535,7 +1537,7 @@ func chargeRead(name string) map[string]any {
 func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
 		"resource_argument": "charge", "unit_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "currency"}}
 	read := chargeRead("")
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
@@ -1561,16 +1563,16 @@ func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 	}
 
 	for name, tools := range map[string][]any{
-		"no unit": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+		"no unit": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "currency"}}, read},
-		"not a read": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+		"not a read": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "list_charges", "argument": "charge", "path": "currency"}}, map[string]any{"tool": "list_charges"}},
-		"not in the request": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+		"not in the request": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "currency"}}},
-		"a bad resource": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "amount"}},
+		"a bad resource": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "resource_argument": "amount"}},
 		// Two reads of one vendor tool: the lookup must name its read by
 		// name, as Stripe's narrowed reads share stripe_api_read.
-		"a vendor tool asked twice": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
+		"a vendor tool asked twice": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "currency"}},
 			chargeRead("get_charge"),
 			chargeRead("get_charge_again")},
@@ -1588,7 +1590,7 @@ func TestResourceAndUnitLookupReachKIFF(t *testing.T) {
 func TestAmountLookupReachesKIFF(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
-	answer := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+	answer := map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
 		"resource_argument": "charge", "amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}
 	read := chargeRead("")
 	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
@@ -1614,13 +1616,13 @@ func TestAmountLookupReachesKIFF(t *testing.T) {
 	}
 
 	for name, tools := range map[string][]any{
-		"no resource": {map[string]any{"tool": "create_refund", "amount_argument": "amount",
+		"no resource": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount",
 			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}, read},
-		"not a read": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+		"not a read": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "resource_argument": "charge",
 			"amount_lookup": map[string]any{"tool": "list_charges", "argument": "charge", "path": "amount"}}, map[string]any{"tool": "list_charges"}},
-		"not in the request": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+		"not in the request": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "resource_argument": "charge",
 			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": "amount"}}},
-		"a bad path": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
+		"a bad path": {map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "resource_argument": "charge",
 			"amount_lookup": map[string]any{"tool": "stripe_api_read", "argument": "charge", "path": ""}}, read},
 		// The agent never sets an amount KIFF reads.
 		"the amount an argument too": {map[string]any{"tool": "create_refund", "amount_argument": "amount", "resource_argument": "charge",
@@ -1638,7 +1640,7 @@ func TestAmountLookupReachesKIFF(t *testing.T) {
 func TestUnitLookupByTheReadsName(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
-	refund := map[string]any{"tool": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2,
 		"resource_argument": "charge", "unit_lookup": map[string]any{"tool": "get_charge", "argument": "charge", "path": "currency"}}
 	reads := []any{chargeRead("get_charge"),
 		chargeRead("get_charge_again")}

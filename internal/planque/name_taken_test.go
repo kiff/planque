@@ -35,7 +35,7 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 		}
 		return ns
 	}
-	read := map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "name": "read_payment", "read_only": true}}}
+	read := map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "Read payment", "name": "read_payment", "read_only": true}}}
 	if st, out := e.do("POST", at(first), read, nil, "k_setup"); st != 200 || names(out)[0] != "read_payment" {
 		t.Fatalf("the first connection's read: %d %v", st, out)
 	}
@@ -64,7 +64,7 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 	}
 	// A request that names its tools at once is renamed the same way.
 	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{map[string]any{"tool": "list_charges", "name": "read_payment", "read_only": true}}}, nil, "k_setup")
+		"tools": []any{map[string]any{"tool": "list_charges", "title": "Read payment", "name": "read_payment", "read_only": true}}}, nil, "k_setup")
 	if n := names(out); len(n) != 1 || !strings.HasPrefix(n[0], "read_payment_") {
 		t.Fatalf("a request naming a taken tool: %v", out)
 	}
@@ -72,8 +72,8 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 	// lookup that named the taken tool follows it to its new name.
 	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_stripe_accounts"}, Tenant: tenant})
 	withLookup := map[string]any{"tools": []any{
-		map[string]any{"tool": "list_charges", "name": "list_stripe_accounts", "read_only": true},
-		map[string]any{"tool": "create_refund", "name": "make_refund", "amount_argument": "amount", "amount_unit": "lookup", "resource_argument": "charge",
+		map[string]any{"tool": "list_charges", "title": "List stripe accounts", "name": "list_stripe_accounts", "read_only": true},
+		map[string]any{"tool": "create_refund", "title": "Make refund", "name": "make_refund", "amount_argument": "amount", "amount_unit": "lookup", "resource_argument": "charge",
 			"unit_lookup": map[string]any{"tool": "list_stripe_accounts", "argument": "id", "path": "currency"}},
 	}}
 	st, out = e.do("POST", at(second), withLookup, nil, "k_setup")
@@ -93,7 +93,7 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 	}
 	// So is a request naming it at once.
 	_, out = e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
-		"tools": []any{map[string]any{"tool": "list_charges", "name": "list_stripe_accounts", "read_only": true}}}, nil, "k_setup")
+		"tools": []any{map[string]any{"tool": "list_charges", "title": "List stripe accounts", "name": "list_stripe_accounts", "read_only": true}}}, nil, "k_setup")
 	if n := names(out); len(n) != 1 || !strings.HasPrefix(n[0], "list_stripe_accounts_") {
 		t.Fatalf("a request naming a tool KIFF holds: %v", out)
 	}
@@ -102,7 +102,7 @@ func TestATakenToolNameIsRenamedFirst(t *testing.T) {
 // Free names: the grant's suffix, then a number, never one taken or asked
 // for in the same request.
 func TestRenameTakenPicksAFreeName(t *testing.T) {
-	tools := []ToolRequest{{Tool: "a", Name: "read"}, {Tool: "b", Name: "read_ab12"}}
+	tools := []ToolRequest{{Tool: "a", Title: "Read", Name: "read"}, {Tool: "b", Title: "Read ab12", Name: "read_ab12"}}
 	renameTaken(tools, "grt_ab12cd", map[string]string{"read": "x", "read_ab12": "y"})
 	if tools[0].Name != "read_ab122" || tools[1].Name != "read_ab12_ab12" {
 		t.Fatalf("renamed: %+v", tools)
@@ -111,7 +111,7 @@ func TestRenameTakenPicksAFreeName(t *testing.T) {
 	// it takes (review on #39): two 60-character names that share their first
 	// 59, and enough taken names to need a two-digit number.
 	a, b := strings.Repeat("x", 59)+"a", strings.Repeat("x", 59)+"b"
-	long := []ToolRequest{{Tool: "a", Name: a}, {Tool: "b", Name: b}}
+	long := []ToolRequest{{Tool: "a", Title: "A", Name: a}, {Tool: "b", Title: "B", Name: b}}
 	taken := map[string]string{a: "", b: ""}
 	for n := 2; n <= 11; n++ {
 		taken[numberedKey(b, "grt_ab12cd", n)] = ""
@@ -121,7 +121,7 @@ func TestRenameTakenPicksAFreeName(t *testing.T) {
 		t.Fatalf("the same name twice: %s", long[0].Name)
 	}
 	for _, tool := range long {
-		if len(tool.Name) > 64 || checkTools("agt", []ToolRequest{{Tool: "t", Name: tool.Name}}) != "" {
+		if len(tool.Name) > 64 || checkTools("agt", []ToolRequest{{Tool: "t", Title: "T", Name: tool.Name}}) != "" {
 			t.Fatalf("an invalid name: %s (%d)", tool.Name, len(tool.Name))
 		}
 	}

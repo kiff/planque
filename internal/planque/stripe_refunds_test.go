@@ -17,7 +17,7 @@ const stripeTestAccount = "acct_test1"
 func refundAsk(live bool) []ToolRequest {
 	mode, _ := json.Marshal(live)
 	op, _ := json.Marshal(stripeRefund)
-	return []ToolRequest{{Tool: stripeWrite, Name: "stripe_refund", Fixed: map[string]json.RawMessage{stripeOperation: op, stripeLivemode: mode}}}
+	return []ToolRequest{{Tool: stripeWrite, Title: "Stripe refund", Name: "stripe_refund", Fixed: map[string]json.RawMessage{stripeOperation: op, stripeLivemode: mode}}}
 }
 
 // The reviewed request is the five tools, the refund last, each narrowed
@@ -142,7 +142,7 @@ func TestStripeRefundsAskTakesOneToolAndNoProfile(t *testing.T) {
 // A drafted profile never carries a case block: a refund's money rules
 // are reviewed code.
 func TestADraftedProfileWithACaseBlockIsRefused(t *testing.T) {
-	tools := []ToolRequest{{Tool: "get_account"}, {Tool: "get_charge"}, {Tool: "list_refunds"}, {Tool: "refund"}}
+	tools := []ToolRequest{{Tool: "get_account", Title: "Get account"}, {Tool: "get_charge", Title: "Get charge"}, {Tool: "list_refunds", Title: "List refunds"}, {Tool: "refund", Title: "Refund"}}
 	_, err := deriveProfileFields(json.RawMessage(refundCaseProfile), tools, false)
 	if err == nil || !strings.Contains(err.Error(), "case block") {
 		t.Fatalf("drafted case: %v", err)

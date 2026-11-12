@@ -181,8 +181,8 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 		{"a site with a scheme", map[string]any{"browser": map[string]any{"sites": []string{"https://shop.example"}}}, "isn't a site"},
 		{"a local site", map[string]any{"browser": map[string]any{"sites": []string{"db.internal"}}}, "public site"},
 		{"pay with no currency", map[string]any{"browser": map[string]any{}}, "currency is required"},
-		{"pay with no checkout", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_pay"}}}, "needs browse_checkout"},
-		{"a tool it hasn't", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_download"}}}, "no tool browse_download"},
+		{"pay with no checkout", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_pay", "title": "Browse pay"}}}, "needs browse_checkout"},
+		{"a tool it hasn't", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_download", "title": "Browse download"}}}, "no tool browse_download"},
 		{"a profile of the agent's", map[string]any{"browser": map[string]any{"currency": "EUR"}, "profile": map[string]any{"v": "x"}}, "profile is planque's"},
 		{"a server", map[string]any{"browser": map[string]any{"currency": "EUR"}, "server": "https://mcp.example"}, "profile is planque's"},
 		{"a bad currency", map[string]any{"browser": map[string]any{"currency": "euros"}}, "ISO 4217"},
@@ -193,7 +193,7 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 		}
 	}
 	// Reads alone need no currency.
-	if st, out := e.ask(map[string]any{"tools": []map[string]any{{"tool": "browse_open", "read_only": true}, {"tool": "browse_read", "read_only": true}}}); st != 201 {
+	if st, out := e.ask(map[string]any{"tools": []map[string]any{{"tool": "browse_open", "title": "Browse open", "read_only": true}, {"tool": "browse_read", "title": "Browse read", "read_only": true}}}); st != 201 {
 		t.Errorf("reads alone: %d %v", st, out)
 	}
 }
