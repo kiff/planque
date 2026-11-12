@@ -32,10 +32,11 @@ func appState(app connector.App) string {
 
 // searchTools finds tools across the catalog by words, for Coach to propose
 // apps before connecting: GET /v1/accounts/{tenant}/catalog/tools
-// ?q=…&apps=slug,slug&cursor=…. The reviewed entries come first, on the first
-// page, when a word of the search names their app or one of their tools:
-// Coach's only way to find an app is this search, so an entry it can't find
-// here can't be connected from a conversation. Then the provider's apps.
+// ?q=…&apps=slug,slug&cursor=…. Coach's only way to find an app is this
+// search, so the reviewed entries are in it, on the first page: first when a
+// word of the search names their app (as "qonto" does), after the provider's
+// apps when it names only one of their tools ("invoices"), since a reviewed
+// entry is one app among those the person may use, not a default.
 // Platform meta tools never come back.
 func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
@@ -63,14 +64,16 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			apps = append(apps, a)
 		}
 	}
-	tools := []foundTool{}
+	tools, byTool := []foundTool{}, []foundTool{}
 	if r.URL.Query().Get("cursor") == "" && len(apps) == 0 {
 		states, err := s.entryStates(r.Context(), tenant)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		tools = append(tools, s.reviewedTools(q, states)...)
+		var byApp []foundTool
+		byApp, byTool = s.reviewedTools(q, states)
+		tools = append(tools, byApp...)
 	}
 	found, err := provider.Search(r.Context(), q, apps, r.URL.Query().Get("cursor"))
 	if err != nil {
@@ -79,7 +82,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The reviewed entries found are said, with the provider's part missing.
-		if len(tools) > 0 {
+		if tools = append(tools, byTool...); len(tools) > 0 {
 			writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "partial": true})
 			return
 		}
@@ -96,13 +99,16 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
 			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.ReadOnly})
 	}
+	// A reviewed entry found by a tool's words alone comes after the provider's apps.
+	tools = append(tools, byTool...)
 	writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "next_cursor": found.Next, "skipped": found.Skipped})
 }
 
-// reviewedTools is each tool of the reviewed entries a word of q names: the
-// entry's vendor or title, or the tool's name or title. Words shorter than
-// three letters name nothing. Entries in id order, tools in the entry's.
-func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) []foundTool {
+// reviewedTools is each tool of the reviewed entries a word of q names:
+// byApp, every tool of an entry whose vendor or title a word names; byTool,
+// the tools of the others whose name or title a word names. Words shorter
+// than three letters name nothing. Entries in id order, tools in the entry's.
+func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) (byApp, byTool []foundTool) {
 	var words []string
 	for _, w := range strings.Fields(strings.ToLower(q)) {
 		if len([]rune(w)) >= 3 {
@@ -123,7 +129,6 @@ func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) []f
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	out := []foundTool{}
 	for _, id := range ids {
 		e := s.CatalogEntries[id]
 		app := names(e.Vendor + " " + e.Title)
@@ -135,11 +140,16 @@ func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) []f
 			if !app && !names(t.Tool+" "+t.Name+" "+t.Title) {
 				continue
 			}
-			out = append(out, foundTool{Entry: id, App: e.Vendor, AppTitle: e.Title, AppState: state,
-				Slug: t.Tool, Name: cmp.Or(t.Title, t.Tool), ReadOnly: t.ReadOnly})
+			found := foundTool{Entry: id, App: e.Vendor, AppTitle: e.Title, AppState: state,
+				Slug: t.Tool, Name: cmp.Or(t.Title, t.Tool), ReadOnly: t.ReadOnly}
+			if app {
+				byApp = append(byApp, found)
+			} else {
+				byTool = append(byTool, found)
+			}
 		}
 	}
-	return out
+	return byApp, byTool
 }
 
 // An app's event, for a listing (kiff/planque#87): what Coach reads to pick

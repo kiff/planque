@@ -17,8 +17,9 @@ func (searchDown) Search(context.Context, string, []string, string) (connector.S
 }
 
 // Coach finds apps only by the tool search, so a reviewed entry is found
-// there too: by its app's name or a tool's, first, on the first page. Qonto
-// by key (the shipped catalog) is found by "Qonto", and by its tools' words.
+// there too, on the first page: first when a word names its app, after the
+// provider's apps when a word names only one of its tools. Qonto by key (the
+// shipped catalog) comes first for "Qonto", after the rest for "invoices".
 func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	conf, err := os.ReadFile("../../deploy/catalog.json")
 	if err != nil {
@@ -65,9 +66,15 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 			t.Fatalf("the managed Qonto was offered: %v", x)
 		}
 	}
-	// By a tool's words: only the tools they name.
-	if st, tools, out := search("q=invoice"); st != 200 || reviewed(tools) != 2 {
+	// By a tool's words alone: only the tools they name, and after the
+	// provider's apps. A word as generic as "invoices" doesn't put a reviewed
+	// entry ahead of the app the person may use.
+	if st, tools, out := search("q=invoices"); st != 200 || reviewed(tools) != 1 || tools[0]["entry"] == "qonto-key@1" || tools[len(tools)-1]["entry"] != "qonto-key@1" {
 		t.Fatalf("by the tools' words: %d %v", st, out)
+	}
+	// The app's name and a tool's words: the app's name puts it first.
+	if st, tools, out := search("q=qonto%20invoices"); st != 200 || reviewed(tools) != 4 || tools[0]["entry"] != "qonto-key@1" {
+		t.Fatalf("by the app's name and the tools' words: %d %v", st, out)
 	}
 	// Words that name nothing reviewed, short words, a next page, or apps
 	// named: the provider's alone.
