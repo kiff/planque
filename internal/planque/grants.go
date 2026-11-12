@@ -258,6 +258,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	if msg := oneOfWithoutKey(req.Kind, *req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	// An agent's own ask names each tool by what it does: the owner's approval,
 	// KIFF's Card and the record read the title, never the tool's name. A
 	// catalog entry's tools are planque's own, reviewed when it is installed.
@@ -1226,6 +1230,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	originalNames := toolNames(req.Tools)
 
 	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := oneOfWithoutKey(g.Request.Kind, req.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}

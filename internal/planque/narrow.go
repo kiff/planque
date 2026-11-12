@@ -547,3 +547,20 @@ func sameValue(a, b string) bool {
 	norm := func(s string) string { return strings.ToUpper(strings.Join(strings.Fields(s), "")) }
 	return norm(a) != "" && norm(a) == norm(b)
 }
+
+// oneOfWithoutKey says why tools can't carry a one_of on a grant of this
+// kind, or "": the check runs only where planque calls the vendor's API with
+// the grant's key, so anywhere else it would be signed and never run.
+func oneOfWithoutKey(kind string, tools []ToolRequest) string {
+	if kind == KindAPIKey {
+		return ""
+	}
+	for _, t := range tools {
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			if t.Arguments[name].OneOf != nil {
+				return t.Tool + "'s argument " + name + ": one_of is checked only on an API-key grant, so it can't be set here"
+			}
+		}
+	}
+	return ""
+}

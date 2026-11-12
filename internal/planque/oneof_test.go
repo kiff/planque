@@ -142,3 +142,44 @@ func TestOneOfIsChecked(t *testing.T) {
 		}
 	}
 }
+
+// one_of is checked only where planque calls a vendor's API with the grant's
+// key, so a grant of any other kind can't carry it: asked for, or added to its
+// tools, it's refused up front, never signed and left unchecked.
+func TestOneOfIsRefusedOffAnAPIKeyGrant(t *testing.T) {
+	withOneOf := []ToolRequest{{Tool: "get_organization", Name: "organization", ReadOnly: true},
+		{Tool: "create_invoice", Name: "draft", Fixed: map[string]json.RawMessage{"status": json.RawMessage(`"draft"`)},
+			Arguments: map[string]Argument{"iban": {Path: "iban", Type: "string", OneOf: &OneOf{Tool: "get_organization", Path: "bank_accounts.iban"}}}}}
+	for _, kind := range []string{"", "mcp", "rest", KindBrowser} {
+		if msg := oneOfWithoutKey(kind, withOneOf); !strings.Contains(msg, "only on an API-key grant") {
+			t.Errorf("kind %q: %q", kind, msg)
+		}
+	}
+	if msg := oneOfWithoutKey(KindAPIKey, withOneOf); msg != "" {
+		t.Fatal(msg)
+	}
+	if msg := oneOfWithoutKey("", withOneOf[:1]); msg != "" {
+		t.Fatalf("no one_of: %q", msg)
+	}
+
+	// Asked for on an MCP server's grant: refused before anything is kept.
+	e := newEnv(t)
+	e.enrol()
+	tools := []map[string]any{
+		{"tool": "get_organization", "name": "organization", "title": "Read the business", "read_only": true},
+		{"tool": "create_invoice", "name": "draft_invoice", "title": "Draft an invoice", "fixed_arguments": map[string]any{"status": "draft"},
+			"arguments": map[string]any{"iban": map[string]any{"path": "iban", "type": "string", "one_of": map[string]any{"tool": "get_organization", "path": "bank_accounts.iban"}}}},
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"agent": "agt_taf", "server": "https://mcp.vendor.example/mcp", "tools": tools}, nil, "k_setup")
+	if st != 400 || !strings.Contains(mustJSONString(out), "only on an API-key grant") {
+		t.Fatalf("an MCP grant with one_of: %d %v", st, out)
+	}
+	// In the shipped catalog, only an API-key entry may carry it.
+	if _, err := DecodeCatalog([]byte(`{"mcp-x@1": {"vendor": "X", "title": "X", "server": "https://mcp.x.example/mcp",
+		"tools": [{"tool": "read", "name": "read", "title": "Read", "read_only": true},
+		{"tool": "write", "name": "write", "title": "Write", "fixed_arguments": {"s": "d"}, "arguments": {"iban": {"path": "iban", "type": "string", "one_of": {"tool": "read", "path": "a.b"}}}}],
+		"profile": {"v": "kiff.profile.v1", "vendor": "X", "transport": "mcp", "pin": {"kind": "none"}, "source": "catalog", "catalog_entry": "mcp-x@1",
+		"operations": [{"tool": "read", "title": "Read", "kind": "read"}, {"tool": "write", "title": "Write", "kind": "write", "effect": "writes"}]}}}`), nil); err == nil || !strings.Contains(err.Error(), "only on an API-key grant") {
+		t.Fatalf("an MCP catalog entry with one_of: %v", err)
+	}
+}
