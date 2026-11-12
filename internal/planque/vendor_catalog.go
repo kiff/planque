@@ -158,7 +158,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	for id, e := range s.catalogEntries() {
+	for id, e := range newestRevisions(s.catalogEntries()) {
 		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title), q) {
 			continue
 		}

@@ -124,7 +124,7 @@ func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) (by
 		}
 		return false
 	}
-	entries := s.catalogEntries()
+	entries := newestRevisions(s.catalogEntries())
 	ids := make([]string, 0, len(entries))
 	for id := range entries {
 		ids = append(ids, id)

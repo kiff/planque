@@ -546,9 +546,15 @@ credential and no device, so it has no path to `published`.
   and needs no credential: an entry holds no secret.
 
 planque serves a published revision only while its stored digest is the one
-its publish signature covers. A row changed after that isn't served. Each
-publish and retire is kept as a record that is never edited (the device's
-fingerprint, the digest and the time). The table is read at most once a
+its publish signature covers, and that signature verifies, with the key of an
+operator still enrolled, over that revision and digest. A row changed after
+that, or marked published by anything but an enrolled device, isn't served,
+and removing an operator stops serving what they published. A write's read or
+write status at publish is what the pinned description says, never the
+entry's own label, and a tool the description doesn't have is refused. The
+row's signed `published` and `retired` blocks are the record: each is set
+once and never edited. A log of them, by time, is kept beside it. A search
+or a list offers only the newest revision of each name. The table is read at most once a
 minute, alongside `PLANQUE_CATALOG_FILE`'s entries, which are served as
 before until they're published here. A revision retired here isn't served,
 whether or not it was shipped.

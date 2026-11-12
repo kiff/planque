@@ -209,9 +209,26 @@ func TestTheCatalogKeptAsData(t *testing.T) {
 	if _, served := e.s.catalogEntries()["qonto-read@1"]; served {
 		t.Fatal("an entry changed after its signature was served")
 	}
-	it.Doc = []byte(strings.Replace(tampered, "Qonto, read and write", "Qonto, read only, reviewed", 1))
+	// So isn't a row marked published with a matching digest and a signature
+	// no enrolled device made.
+	var forged catalogRow
+	_ = json.Unmarshal([]byte(strings.Replace(tampered, "Qonto, read and write", "Qonto, read only, reviewed", 1)), &forged)
+	good := *forged.Published
+	forged.Published.Signature = devices["op_ada"].sign(t, e.url, "publish", "qonto-read@1", digest, "nonce-forged-00001", ts)
+	forged.Published.Operator = "op_ben"
+	it.Doc, _ = json.Marshal(forged)
 	_ = e.kv.Put(t.Context(), it, storeAny())
 	e.s.forgetCatalog()
+	if _, served := e.s.catalogEntries()["qonto-read@1"]; served {
+		t.Fatal("an entry with a forged signature was served")
+	}
+	forged.Published = &good
+	it.Doc, _ = json.Marshal(forged)
+	_ = e.kv.Put(t.Context(), it, storeAny())
+	e.s.forgetCatalog()
+	if _, served := e.s.catalogEntries()["qonto-read@1"]; !served {
+		t.Fatal("the entry as signed, not served")
+	}
 	// Retired: not served, nor is the shipped revision of the same id.
 	if st, out := publish("op_ben", "retire", "qonto-read@1", digest, "nonce-ben-00000002", now); st != 200 || out["state"] != CatalogRetired {
 		t.Fatalf("retire: %d %v", st, out)
@@ -270,10 +287,15 @@ func TestAWriteThatCanBeFinalIsPinnedBeforePublishing(t *testing.T) {
 	if why, _ := e.s.unpinnedFinal(t.Context(), entry); why != "" {
 		t.Fatalf("pinned to draft: %q", why)
 	}
-	// A read-only tool, or a description that changed since it was pinned.
+	// The entry's own read-only label doesn't count: the description says
+	// it's a write. A tool the description doesn't have is refused.
 	entry.Tools[0] = ToolRequest{Tool: "create_invoice", ReadOnly: true}
-	if why, _ := e.s.unpinnedFinal(t.Context(), entry); why != "" {
-		t.Fatalf("a read: %q", why)
+	if why, _ := e.s.unpinnedFinal(t.Context(), entry); !strings.Contains(why, "can make it final") {
+		t.Fatalf("a write labelled read-only: %q", why)
+	}
+	entry.Tools[0] = ToolRequest{Tool: "send_invoice"}
+	if why, _ := e.s.unpinnedFinal(t.Context(), entry); !strings.Contains(why, "send_invoice isn't in its description") {
+		t.Fatalf("a tool not in the description: %q", why)
 	}
 	entry.DescriptionSHA256 = strings.Repeat("0", 64)
 	if why, _ := e.s.unpinnedFinal(t.Context(), entry); !strings.Contains(why, "changed since it was pinned") {
@@ -300,3 +322,14 @@ func TestCatalogOperatorsSetting(t *testing.T) {
 
 // storeAny is a write with no condition.
 func storeAny() store.Cond { return store.Cond{} }
+
+// What's offered is the newest revision of each name.
+func TestOnlyTheNewestRevisionIsOffered(t *testing.T) {
+	got := newestRevisions(map[string]CatalogEntry{"desk@1": {}, "desk@10": {}, "desk@2": {}, "mail@3": {}})
+	if len(got) != 2 {
+		t.Fatalf("%v", got)
+	}
+	if _, ok := got["desk@10"]; !ok {
+		t.Fatalf("not the newest: %v", got)
+	}
+}

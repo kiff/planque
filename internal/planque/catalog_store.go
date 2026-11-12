@@ -3,8 +3,11 @@ package planque
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -224,13 +227,34 @@ func (s *Server) readCatalogTable(c *catalogCache) {
 		}
 		e, err := decodeEntryDocument(row.Entry)
 		_, digest, derr := entryDocument(e)
-		if err != nil || derr != nil || e.ID != row.ID || digest != row.Digest || row.Published == nil || row.Published.Digest != digest {
+		if err != nil || derr != nil || e.ID != row.ID || digest != row.Digest || !s.catalogSignedBy(row.Published, "publish", row.ID, digest) {
 			s.log().Warn("catalog entry not served: not as signed", "entry", row.ID)
 			continue
 		}
 		published[row.ID] = e
 	}
 	c.published, c.retired, c.at, c.read = published, retired, s.now(), true
+}
+
+// catalogSignedBy says whether sig is an enrolled operator's device signature,
+// for action, over this revision with this digest. Its age isn't checked:
+// it was within its window when planque took it.
+func (s *Server) catalogSignedBy(sig *catalogSigned, action, id, digest string) bool {
+	if sig == nil || sig.Digest != digest {
+		return false
+	}
+	op, ok := s.CatalogOperators[sig.Operator]
+	if !ok || op.key == nil {
+		return false
+	}
+	pub, err := x509.ParsePKIXPublicKey(op.key)
+	k, isEC := pub.(*ecdsa.PublicKey)
+	der, derr := base64.StdEncoding.DecodeString(sig.Signature)
+	if err != nil || !isEC || derr != nil {
+		return false
+	}
+	sum := sha256.Sum256(CatalogSignMessage(s.BaseURL, action, id, digest, sig.Nonce, sig.SignedAt))
+	return ecdsa.VerifyASN1(k, sum[:], der)
 }
 
 // forgetCatalog makes the next read see the table.
@@ -513,6 +537,9 @@ func (s *Server) signCatalogEntry(action string) http.HandlerFunc {
 		}
 		at := s.now().UTC().Format(time.RFC3339Nano)
 		record, _ := json.Marshal(map[string]any{"action": action, "id": id, "at": at, "signed": signed})
+		// The row's signed block is the record that counts: published and
+		// retired are each set once and never edited. This log of them is
+		// kept beside it, for reading in order.
 		if err := s.KV.Put(r.Context(), store.Item{PK: catalogPK, SK: "RECORD#" + at + "#" + id, Doc: record}, store.Cond{NotExists: true}); err != nil {
 			s.log().ErrorContext(r.Context(), "catalog record not kept", "entry", id, "action", action, "err", err.Error())
 		}
@@ -677,9 +704,10 @@ func (s *Server) unpinnedFinal(ctx context.Context, e CatalogEntry) (string, err
 		return e.ID + ": " + err.Error(), nil
 	}
 	for _, t := range e.Tools {
+		// Read or write is what the description says, never the entry's own label.
 		i := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == t.Tool })
-		if i < 0 || t.ReadOnly {
-			continue
+		if i < 0 {
+			return e.ID + ": " + t.Tool + " isn't in its description", nil
 		}
 		for _, f := range FinalArguments(snap.Operations[i]) {
 			want, _ := json.Marshal(f.Undo)
@@ -695,4 +723,28 @@ func sameJSON(a, b []byte) bool {
 	ca, err1 := jcs.Canonical(a)
 	cb, err2 := jcs.Canonical(b)
 	return err1 == nil && err2 == nil && bytes.Equal(ca, cb)
+}
+
+// newestRevisions is entries with only the newest revision of each name,
+// for what's offered: a search or a list never offers an older one. A grant
+// still names the revision it was approved with.
+func newestRevisions(entries map[string]CatalogEntry) map[string]CatalogEntry {
+	newest := map[string]string{}
+	rev := func(id string) int {
+		_, r, _ := strings.Cut(id, "@")
+		n := 0
+		_, _ = fmt.Sscanf(r, "%d", &n)
+		return n
+	}
+	for id := range entries {
+		name, _, _ := strings.Cut(id, "@")
+		if have, ok := newest[name]; !ok || rev(id) > rev(have) {
+			newest[name] = id
+		}
+	}
+	out := make(map[string]CatalogEntry, len(newest))
+	for _, id := range newest {
+		out[id] = entries[id]
+	}
+	return out
 }
