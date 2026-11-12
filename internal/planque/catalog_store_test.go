@@ -9,9 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,5 +374,64 @@ func TestOnlyTheNewestRevisionIsOffered(t *testing.T) {
 	}
 	if _, ok := got["desk@10"]; !ok {
 		t.Fatalf("not the newest: %v", got)
+	}
+}
+
+// A revision's read takes no credential, so its description is downloaded
+// and parsed once, not on every read: two reads of the same revision reach
+// the description's host once. Only a description that matched its pin is
+// kept; one that couldn't be read is read again next time.
+func TestADescribedRevisionIsReadOnce(t *testing.T) {
+	e, qonto, _ := catalogEnv(t)
+	description, err := os.ReadFile("../../deploy/specs/qonto-invoicing-openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	fetched, down := 0, true
+	e.s.REST.HTTP = &http.Client{Transport: applicationTransport(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		fetched++
+		if down {
+			return profileResponse(503, "down"), nil
+		}
+		return profileResponse(200, string(description)), nil
+	})}
+	entry := qonto
+	entry.ID = "qonto-read@1"
+	var p map[string]any
+	_ = json.Unmarshal(entry.Profile, &p)
+	p["catalog_entry"] = entry.ID
+	entry.Profile, _ = json.Marshal(p)
+	base := "/v1/catalog/entries"
+	if st, out := e.do("POST", base, entryBody(t, entry), nil, "t_agent"); st != 201 {
+		t.Fatalf("draft: %d %v", st, out)
+	}
+	read := func() map[string]any {
+		t.Helper()
+		st, one := e.do("GET", base+"/qonto-read@1", nil, nil, "")
+		if st != 200 {
+			t.Fatalf("read: %d %v", st, one)
+		}
+		d, _ := one["described"].(map[string]any)
+		return d
+	}
+	// The host down: said, and not kept.
+	if d := read(); !strings.Contains(fmt.Sprint(d["why"]), "couldn't be read") {
+		t.Fatalf("a description that couldn't be read: %v", d)
+	}
+	mu.Lock()
+	down, fetched = false, 0
+	mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if d := read(); d["from"] != "description" || d["why"] != nil || len(d["tools"].([]any)) != len(entry.Tools) {
+			t.Fatalf("read %d: %v", i, d)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if fetched != 1 {
+		t.Fatalf("the description was downloaded %d times for three reads, want 1", fetched)
 	}
 }

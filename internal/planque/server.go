@@ -71,6 +71,9 @@ type Server struct {
 	// kept as data (catalog_store.go), by their credential and device.
 	CatalogOperators map[string]CatalogOperator
 	catalogCache     catalogCache
+	// described keeps each pinned description's parse (describeEntry), so a
+	// read of a revision never downloads and parses it twice.
+	described describedCache
 	// ServerApps is the reviewed list of which app a vendor's own server
 	// is: its server, and the catalog entry it belongs to (entry.go).
 	ServerApps map[string]string

@@ -614,16 +614,9 @@ func (s *Server) describeEntry(ctx context.Context, e CatalogEntry) map[string]a
 	if e.Kind != KindAPIKey || e.API == nil {
 		return map[string]any{"from": "server", "why": "an MCP server lists its tools once connected: nothing is read before"}
 	}
-	raw, err := s.REST.Fetch(ctx, e.API.URL)
-	if err != nil {
-		return map[string]any{"from": "description", "why": "its description couldn't be read: " + err.Error()}
-	}
-	if sum := sha256.Sum256(raw); hex.EncodeToString(sum[:]) != e.DescriptionSHA256 {
-		return map[string]any{"from": "description", "why": "its description changed since it was pinned"}
-	}
-	snap, err := openapi.Parse(raw, e.API.Auth)
-	if err != nil {
-		return map[string]any{"from": "description", "why": err.Error()}
+	snap, why := s.pinnedDescription(ctx, e)
+	if why != "" {
+		return map[string]any{"from": "description", "why": why}
 	}
 	tools := make([]describedTool, 0, len(e.Tools))
 	for _, t := range e.Tools {
@@ -644,6 +637,51 @@ func (s *Server) describeEntry(ctx context.Context, e CatalogEntry) map[string]a
 		tools = append(tools, d)
 	}
 	return map[string]any{"from": "description", "description_sha256": e.DescriptionSHA256, "tools": tools}
+}
+
+// describedCache is the parse of each pinned description, by its SHA-256 and
+// the auth it was parsed with. Only a description that matched its pin is
+// kept: it can't go stale, since a different file has a different hash. A
+// fetch that failed or a description that changed is read again next time.
+type describedCache struct {
+	mu    sync.Mutex
+	snaps map[string]*openapi.Snapshot
+}
+
+// maxDescribed bounds the parses kept; past it the cache starts again.
+const maxDescribed = 64
+
+// pinnedDescription is e's API description, parsed, once it matched its pin:
+// from the cache when it was read before, else fetched, checked and kept.
+// why says what stopped it.
+func (s *Server) pinnedDescription(ctx context.Context, e CatalogEntry) (snap *openapi.Snapshot, why string) {
+	auth, _ := json.Marshal(e.API.Auth)
+	key := e.DescriptionSHA256 + "\x00" + string(auth)
+	c := &s.described
+	c.mu.Lock()
+	snap = c.snaps[key]
+	c.mu.Unlock()
+	if snap != nil {
+		return snap, ""
+	}
+	raw, err := s.REST.Fetch(ctx, e.API.URL)
+	if err != nil {
+		return nil, "its description couldn't be read: " + err.Error()
+	}
+	if sum := sha256.Sum256(raw); hex.EncodeToString(sum[:]) != e.DescriptionSHA256 {
+		return nil, "its description changed since it was pinned"
+	}
+	parsed, err := openapi.Parse(raw, e.API.Auth)
+	if err != nil {
+		return nil, err.Error()
+	}
+	c.mu.Lock()
+	if c.snaps == nil || len(c.snaps) >= maxDescribed {
+		c.snaps = map[string]*openapi.Snapshot{}
+	}
+	c.snaps[key] = parsed
+	c.mu.Unlock()
+	return parsed, ""
 }
 
 // readCatalogEntry reads {entry} and checks it as the shipped catalog is.
