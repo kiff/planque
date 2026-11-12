@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -23,6 +24,9 @@ type Phone struct {
 	// Window, when set, is the approval window the phone signs in
 	// (kiff/tafs#494): Sign makes a v2 signature naming it.
 	Window string
+	// With, when set, is the lowercase hex SHA-256 of another request's
+	// message: the phone signs both under one signature (kiff.requests.v1).
+	With string
 }
 
 // NewPhone makes a phone with a fresh key.
@@ -52,6 +56,10 @@ func (p *Phone) Sign(req *http.Request, tenant string, body []byte) {
 	h := "t=" + at + ",v1=" + p.SignBytes(msg)
 	if p.Window != "" {
 		h = "t=" + at + ",v2=" + p.SignBytes(msg) + ",w=" + p.Window
+	}
+	if p.With != "" {
+		own := sha256.Sum256(msg)
+		h = "t=" + at + ",v3=" + p.SignBytes(device.RequestsMessage(tenant, at, hex.EncodeToString(own[:]), p.With)) + ",with=sha256:" + p.With
 	}
 	if p.DeviceID != "" {
 		h += ",d=" + p.DeviceID
