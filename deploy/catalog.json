@@ -1,0 +1,82 @@
+{
+  "qonto-key@1": {
+    "vendor": "Qonto",
+    "title": "Qonto invoicing, read only",
+    "kind": "api_key",
+    "api": {
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi.json",
+      "base": "https://thirdparty.qonto.com/v2",
+      "auth": {
+        "in": "header",
+        "name": "Authorization"
+      },
+      "operations": [
+        "get_organization",
+        "list_clients",
+        "list_client_invoices",
+        "get_client_invoice"
+      ]
+    },
+    "description_sha256": "a92d22d631b9ad4e337c185176d67213bd0c7cd96c147f0be46aa27b435e70fc",
+    "tools": [
+      {
+        "tool": "get_organization",
+        "name": "qonto_organization",
+        "title": "Read the business and its bank accounts",
+        "read_only": true
+      },
+      {
+        "tool": "list_clients",
+        "name": "qonto_list_clients",
+        "title": "List the clients",
+        "read_only": true
+      },
+      {
+        "tool": "list_client_invoices",
+        "name": "qonto_list_client_invoices",
+        "title": "List the client invoices",
+        "read_only": true
+      },
+      {
+        "tool": "get_client_invoice",
+        "name": "qonto_get_client_invoice",
+        "title": "Read one client invoice",
+        "read_only": true
+      }
+    ],
+    "profile": {
+      "v": "kiff.profile.v1",
+      "vendor": "Qonto",
+      "transport": "rest",
+      "pin": {
+        "kind": "base_path",
+        "value": "/v2"
+      },
+      "source": "catalog",
+      "catalog_entry": "qonto-key@1",
+      "test_proven": false,
+      "operations": [
+        {
+          "tool": "qonto_organization",
+          "title": "Read the business and its bank accounts",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_clients",
+          "title": "List the clients",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_list_client_invoices",
+          "title": "List the client invoices",
+          "kind": "read"
+        },
+        {
+          "tool": "qonto_get_client_invoice",
+          "title": "Read one client invoice",
+          "kind": "read"
+        }
+      ]
+    }
+  }
+}
