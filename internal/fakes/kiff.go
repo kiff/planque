@@ -303,7 +303,7 @@ func (k *KIFF) verifyDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg, err := base64.StdEncoding.DecodeString(req.Message)
-	if err != nil || len(msg) == 0 || strings.HasPrefix(string(msg), "kiff.") || !slices.Contains([]string{"tools.connect", "holds.answer", "account.export", "account.delete"}, req.Capability) {
+	if err != nil || len(msg) == 0 || (strings.HasPrefix(string(msg), "kiff.") && !strings.HasPrefix(string(msg), "kiff.requests.v1\n")) || !slices.Contains([]string{"tools.connect", "holds.answer", "account.export", "account.delete"}, req.Capability) {
 		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
 		return
 	}

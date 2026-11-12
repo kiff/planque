@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -557,6 +558,9 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if i < 0 {
 		return OpNotSent, toolResult("Not sent: the API description has no operation "+tool.Tool+".", true)
 	}
+	if why := s.checkOneOf(ctx, g, snap, tool, key, args); why != "" {
+		return OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true)
+	}
 	method, target, body, err := snap.Operations[i].Request(g.Request.API.Base, args)
 	if err != nil {
 		return OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true)
@@ -599,4 +603,41 @@ func answerText(a rest.Answer) string {
 		t += "\n(cut at 256 KB)"
 	}
 	return t
+}
+
+// checkOneOf says why a call's argument isn't one its one_of read allows,
+// or "": for each such argument, planque calls the read (with no arguments,
+// the grant's key, on the grant's host) and looks for the value at its path.
+// A read that fails, or answers anything but a 2xx JSON object, refuses the
+// call: planque never sends a value it couldn't check.
+func (s *Server) checkOneOf(ctx context.Context, g *Grant, snap *openapi.Snapshot, tool GrantedTool, key string, args map[string]any) string {
+	for _, name := range slices.Sorted(maps.Keys(tool.Arguments)) {
+		a := tool.Arguments[name]
+		if a.OneOf == nil {
+			continue
+		}
+		parts, _ := pathParts(a.Path)
+		v := valuesAt(args, parts)
+		if len(v) != 1 {
+			continue // not set: the vendor's own required check answers
+		}
+		i := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == a.OneOf.Tool })
+		if i < 0 || !snap.Operations[i].ReadOnly {
+			return "argument " + name + " can't be checked: the API description has no read " + a.OneOf.Tool
+		}
+		method, target, body, err := snap.Operations[i].Request(g.Request.API.Base, nil)
+		if err != nil || hostOf(target) != hostOf(g.Request.API.Base) {
+			return "argument " + name + " can't be checked against " + a.OneOf.Tool
+		}
+		ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+		var read any
+		if err != nil || ans.Status < 200 || ans.Status >= 300 || ans.Cut || json.Unmarshal(ans.Body, &read) != nil {
+			return "argument " + name + " can't be checked: " + a.OneOf.Tool + " couldn't be read"
+		}
+		want, _ := pathParts(a.OneOf.Path)
+		if !slices.ContainsFunc(valuesAt(read, want), func(x string) bool { return sameValue(v[0], x) }) {
+			return "argument " + name + " isn't one the account's " + a.OneOf.Tool + " lists"
+		}
+	}
+	return ""
 }

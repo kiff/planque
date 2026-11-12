@@ -13,7 +13,7 @@ import (
 
 const maxPathParts = 4
 
-var argTypes = []string{"string", "integer", "number", "boolean"}
+var argTypes = []string{"string", "integer", "number", "boolean", "array"}
 
 func pathParts(p string) ([]string, bool) {
 	parts := strings.Split(p, ".")
@@ -46,7 +46,13 @@ func checkNarrowing(t ToolRequest) string {
 		case !toolName.MatchString(name) || name == IdempotencyArg:
 			return "argument " + name + " is not a valid name"
 		case !slices.Contains(argTypes, a.Type):
-			return "argument " + name + " must be a string, integer, number or boolean"
+			return "argument " + name + " must be a string, integer, number, boolean or array"
+		case a.Type == "array" && checkShape(a.Schema, true) != "":
+			return "argument " + name + "'s schema: " + checkShape(a.Schema, true)
+		case a.Type != "array" && len(a.Schema) > 0:
+			return "argument " + name + " is a " + a.Type + ": only an array argument has a schema"
+		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
+			return "argument " + name + "'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values"
 		}
 		if _, ok := pathParts(a.Path); !ok {
 			return "argument " + name + " needs a dotted path in the vendor's arguments"
@@ -170,6 +176,10 @@ func (t ToolRequest) schema() json.RawMessage {
 	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 		a := t.Arguments[name]
 		p := map[string]any{"type": a.Type}
+		if a.Type == "array" {
+			p = map[string]any{}
+			_ = json.Unmarshal(a.Schema, &p)
+		}
 		if a.Description != "" {
 			p["description"] = a.Description
 		}
@@ -195,7 +205,11 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 			if !ok {
 				return nil, fmt.Errorf("argument %s is not part of this grant", name)
 			}
-			if !hasType(v, a.Type) {
+			if a.Type == "array" {
+				if why := fits(v, a.Schema, name); why != "" {
+					return nil, fmt.Errorf("argument %s", why)
+				}
+			} else if !hasType(v, a.Type) {
 				return nil, fmt.Errorf("argument %s must be a %s", name, a.Type)
 			}
 			parts, _ := pathParts(a.Path)
@@ -336,4 +350,217 @@ func argDescription(schema json.RawMessage, path string) string {
 		d = strings.TrimSpace(string(r[:199])) + "…"
 	}
 	return d
+}
+
+// shape is the part of JSON Schema an array argument's reviewed schema may
+// use: a type, an object's named fields and which are required, an array's
+// items, a string's allowed values and length.
+type shape struct {
+	Type        string                     `json:"type"`
+	Properties  map[string]json.RawMessage `json:"properties,omitempty"`
+	Required    []string                   `json:"required,omitempty"`
+	Items       json.RawMessage            `json:"items,omitempty"`
+	Enum        []string                   `json:"enum,omitempty"`
+	MaxLength   *int                       `json:"maxLength,omitempty"`
+	MaxItems    *int                       `json:"maxItems,omitempty"`
+	Description string                     `json:"description,omitempty"`
+	// AdditionalProperties is always false, written or not: a field the
+	// schema doesn't name is refused.
+	AdditionalProperties *bool `json:"additionalProperties,omitempty"`
+}
+
+const maxShapeDepth = 4
+
+// checkShape says what is wrong with a reviewed schema, or "": only the
+// keywords shape has, an array at the top (top) with object items, every
+// object naming its fields, and at most maxShapeDepth levels.
+func checkShape(raw json.RawMessage, top bool) string {
+	return checkShapeAt(raw, top, 0)
+}
+
+func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
+	var s shape
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if len(raw) == 0 || dec.Decode(&s) != nil {
+		return "it must be a JSON Schema of type, properties, required, items, enum, maxLength, maxItems and description only"
+	}
+	if depth > maxShapeDepth {
+		return "it nests too deep"
+	}
+	if s.AdditionalProperties != nil && *s.AdditionalProperties {
+		return "an object takes only the fields it names"
+	}
+	if top && s.Type != "array" {
+		return "an array argument's schema is an array"
+	}
+	switch s.Type {
+	case "array":
+		if top {
+			var it shape
+			if json.Unmarshal(s.Items, &it) != nil || it.Type != "object" {
+				return "its items are objects"
+			}
+		}
+		return checkShapeAt(s.Items, false, depth+1)
+	case "object":
+		if len(s.Properties) == 0 {
+			return "an object names its fields"
+		}
+		for _, r := range s.Required {
+			if _, ok := s.Properties[r]; !ok {
+				return "required field " + r + " isn't one of its fields"
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+			if why := checkShapeAt(s.Properties[name], false, depth+1); why != "" {
+				return name + ": " + why
+			}
+		}
+	case "string", "integer", "number", "boolean":
+	default:
+		return "type " + s.Type + " isn't one an argument can have"
+	}
+	return ""
+}
+
+// fits says how v doesn't fit a reviewed schema, naming where (at), or ""
+// when it does. A field the schema doesn't name doesn't fit.
+func fits(v any, raw json.RawMessage, at string) string {
+	var s shape
+	_ = json.Unmarshal(raw, &s)
+	switch s.Type {
+	case "array":
+		list, ok := v.([]any)
+		if !ok {
+			return at + " must be an array"
+		}
+		if s.MaxItems != nil && len(list) > *s.MaxItems {
+			return fmt.Sprintf("%s takes at most %d items", at, *s.MaxItems)
+		}
+		for i, e := range list {
+			if why := fits(e, s.Items, fmt.Sprintf("%s[%d]", at, i)); why != "" {
+				return why
+			}
+		}
+	case "object":
+		m, ok := v.(map[string]any)
+		if !ok {
+			return at + " must be an object"
+		}
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			p, named := s.Properties[k]
+			if !named {
+				return at + "." + k + " is not part of this grant"
+			}
+			if why := fits(m[k], p, at+"."+k); why != "" {
+				return why
+			}
+		}
+		for _, r := range s.Required {
+			if _, ok := m[r]; !ok {
+				return at + "." + r + " is required"
+			}
+		}
+	case "string":
+		str, ok := v.(string)
+		if !ok {
+			return at + " must be a string"
+		}
+		if len(s.Enum) > 0 && !slices.Contains(s.Enum, str) {
+			return at + " must be one of " + strings.Join(s.Enum, ", ")
+		}
+		if s.MaxLength != nil && len([]rune(str)) > *s.MaxLength {
+			return fmt.Sprintf("%s takes at most %d characters", at, *s.MaxLength)
+		}
+	default:
+		if !hasType(v, s.Type) {
+			return at + " must be a " + s.Type
+		}
+	}
+	return ""
+}
+
+// pathExpr says whether p is a dotted path of plain field names.
+func pathExpr(p string) bool {
+	parts, ok := pathParts(p)
+	if !ok {
+		return false
+	}
+	for _, k := range parts {
+		if !toolName.MatchString(k) {
+			return false
+		}
+	}
+	return true
+}
+
+// checkOneOf says what is wrong with the tools' one_of reads, or "": each
+// names a read-only tool of the same request, by its vendor tool.
+func checkOneOf(tools []ToolRequest) string {
+	for _, t := range tools {
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			o := t.Arguments[name].OneOf
+			if o == nil {
+				continue
+			}
+			i := slices.IndexFunc(tools, func(r ToolRequest) bool { return r.Tool == o.Tool })
+			if i < 0 || !tools[i].ReadOnly {
+				return t.Tool + "'s argument " + name + ": one_of must name a read-only tool of the same request"
+			}
+		}
+	}
+	return ""
+}
+
+// valuesAt is every string at a dotted path in v, going through lists.
+func valuesAt(v any, parts []string) []string {
+	if len(parts) == 0 {
+		switch x := v.(type) {
+		case string:
+			return []string{x}
+		case []any:
+			var out []string
+			for _, e := range x {
+				out = append(out, valuesAt(e, nil)...)
+			}
+			return out
+		}
+		return nil
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		return valuesAt(x[parts[0]], parts[1:])
+	case []any:
+		var out []string
+		for _, e := range x {
+			out = append(out, valuesAt(e, parts)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// sameValue compares an argument with an allowed value as people write
+// them: spaces dropped, letters in any case ("FR76 3000…" is "fr763000…").
+func sameValue(a, b string) bool {
+	norm := func(s string) string { return strings.ToUpper(strings.Join(strings.Fields(s), "")) }
+	return norm(a) != "" && norm(a) == norm(b)
+}
+
+// oneOfWithoutKey says why tools can't carry a one_of on a grant of this
+// kind, or "": the check runs only where planque calls the vendor's API with
+// the grant's key, so anywhere else it would be signed and never run.
+func oneOfWithoutKey(kind string, tools []ToolRequest) string {
+	if kind == KindAPIKey {
+		return ""
+	}
+	for _, t := range tools {
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			if t.Arguments[name].OneOf != nil {
+				return t.Tool + "'s argument " + name + ": one_of is checked only on an API-key grant, so it can't be set here"
+			}
+		}
+	}
+	return ""
 }

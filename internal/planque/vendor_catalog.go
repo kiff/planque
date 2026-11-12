@@ -93,6 +93,9 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	if msg := checkTools("catalog", tools); msg != "" {
 		return errors.New(msg)
 	}
+	if msg := oneOfWithoutKey(e.Kind, tools); msg != "" {
+		return errors.New(msg)
+	}
 	server, header := e.Server, e.VersionHeader
 	var api *APIRequest
 	switch {
