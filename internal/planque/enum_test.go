@@ -143,4 +143,31 @@ func TestOnlyAUsableVendorEnumIsCarried(t *testing.T) {
 	if err := outsideEnum(json.RawMessage(`{"properties":{"n":{"enum":[1,2]}}}`), map[string]any{"n": json.Number("2")}); err != nil {
 		t.Fatalf("a number it lists: %v", err)
 	}
+	// The same value written another way is the same value: numbers and
+	// strings are compared as canonical JSON, and the refusal's words are the
+	// values themselves.
+	for name, c := range map[string]struct {
+		enum string
+		v    any
+	}{
+		"1 for 1.0":        {`[1.0, 2.5]`, json.Number("1")},
+		"1e1 for 10":       {`[10, 20]`, json.Number("1e1")},
+		"an escaped é":     {`["café"]`, "café"},
+		"an escaped &":     {`["a&b"]`, "a&b"},
+		"2.50 for 2.5":     {`[1.0, 2.5]`, json.Number("2.50")},
+		"a plain string":   {`["open"]`, "open"},
+		"a number exactly": {`[3]`, json.Number("3")},
+	} {
+		schema := json.RawMessage(`{"properties":{"v":{"enum":` + c.enum + `}}}`)
+		if err := outsideEnum(schema, map[string]any{"v": c.v}); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if err := outsideEnum(json.RawMessage(`{"properties":{"v":{"enum":["a&b", 1.0]}}}`), map[string]any{"v": "c"}); err == nil ||
+		err.Error() != "argument v must be one of a&b, 1.0" {
+		t.Fatalf("the refusal's words: %v", err)
+	}
+	if err := outsideEnum(json.RawMessage(`{"properties":{"v":{"enum":[1.0]}}}`), map[string]any{"v": json.Number("1.5")}); err == nil {
+		t.Fatal("1.5 for 1.0 was taken")
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
 )
 
@@ -421,16 +422,33 @@ func outsideEnum(schema json.RawMessage, args map[string]any) error {
 		if len(allowed) == 0 {
 			continue
 		}
-		got, err := json.Marshal(args[name])
+		// Compared as canonical JSON, so the same number written two ways
+		// (1 and 1.0, 10 and 1e1) is the same value, and so is a string
+		// escaped two ways.
+		raw, err := json.Marshal(args[name])
 		if err != nil {
 			return fmt.Errorf("argument %s can't be read", name)
 		}
-		if slices.ContainsFunc(allowed, func(a json.RawMessage) bool { return bytes.Equal(a, got) }) {
+		got, err := jcs.Canonical(raw)
+		if err != nil {
+			return fmt.Errorf("argument %s can't be read", name)
+		}
+		if slices.ContainsFunc(allowed, func(a json.RawMessage) bool {
+			c, err := jcs.Canonical(a)
+			return err == nil && bytes.Equal(c, got)
+		}) {
 			continue
 		}
 		words := make([]string, len(allowed))
 		for i, a := range allowed {
-			words[i] = strings.Trim(string(a), `"`)
+			var v any
+			dec := json.NewDecoder(bytes.NewReader(a))
+			dec.UseNumber()
+			if dec.Decode(&v) == nil {
+				words[i] = fmt.Sprint(v)
+			} else {
+				words[i] = string(a)
+			}
 		}
 		return fmt.Errorf("argument %s must be one of %s", name, strings.Join(words, ", "))
 	}
