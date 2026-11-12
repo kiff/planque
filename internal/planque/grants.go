@@ -1164,7 +1164,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	// whole request, its case reads and its reviewed profile: a refund's
 	// money rules are never a model's draft (stripe_refunds.go).
 	reviewed := false
-	if s.StripeRefunds && stripeRefundsGrant(g) && asksStripeRefund(req.Tools) {
+	if s.stripeRefundsFor(g.Tenant) && stripeRefundsGrant(g) && asksStripeRefund(req.Tools) {
 		if adding || len(g.Request.Tools) > 0 {
 			writeErr(w, http.StatusConflict, "refunds go on a Stripe connection of their own, with their case reads: ask for them on a new Stripe connection")
 			return

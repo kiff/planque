@@ -34,7 +34,13 @@ import (
 // Such a connection holds those five tools and no other: the taf's other
 // Stripe tools go on another connection, with the profile Coach drafts.
 //
-// It is offered only when the installation turns it on (StripeRefunds).
+// It is offered only where the installation turns it on: for every account
+// (StripeRefunds), or for the accounts it lists (StripeRefundsTenants).
+
+// stripeRefundsFor says whether tenant is offered the refunds profile.
+func (s *Server) stripeRefundsFor(tenant string) bool {
+	return s.StripeRefunds || s.StripeRefundsTenants[tenant]
+}
 
 // stripeRefundUnit is the currency the Card counts a refund in. A connection
 // takes no unit read (deriveProfileFields), so step one is euros: KIFF's
