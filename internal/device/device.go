@@ -25,11 +25,7 @@
 package device
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -43,42 +39,10 @@ const Header = "Planque-Device-Signature"
 const MaxSkew = 5 * time.Minute
 
 var (
-	ErrKey       = errors.New("the device key must be a P-256 public key, base64 SPKI DER")
 	ErrSignature = errors.New("the device signature does not verify for this request")
 	ErrSignedAt  = errors.New("signed_at must be RFC 3339, within 5 minutes of now")
 	ErrHeader    = errors.New(Header + " must be t=<signed_at>,v1=<signature>, and d=<device id> for a device KIFF knows; inside an approval window, v2=<signature>,w=<window id>; signed together with another request, v3=<signature>,with=sha256:<hex>")
 )
-
-// ParseKey decodes a base64 SPKI DER key and accepts only P-256 ECDSA.
-func ParseKey(b64 string) ([]byte, error) {
-	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
-	if err != nil || len(der) == 0 || len(der) > 512 {
-		return nil, ErrKey
-	}
-	if _, err := publicKey(der); err != nil {
-		return nil, err
-	}
-	return der, nil
-}
-
-func publicKey(der []byte) (*ecdsa.PublicKey, error) {
-	pub, err := x509.ParsePKIXPublicKey(der)
-	if err != nil {
-		return nil, ErrKey
-	}
-	k, ok := pub.(*ecdsa.PublicKey)
-	if !ok || k.Curve != elliptic.P256() {
-		return nil, ErrKey
-	}
-	return k, nil
-}
-
-// Fingerprint is a short, readable name for a key, as KIFF shows it.
-func Fingerprint(der []byte) string {
-	sum := sha256.Sum256(der)
-	h := hex.EncodeToString(sum[:8])
-	return h[0:4] + " " + h[4:8] + " " + h[8:12] + " " + h[12:16]
-}
 
 // Message is the exact text a phone signs for a request to the planque at
 // base.
@@ -205,26 +169,6 @@ func CheckTime(signedAt string, now time.Time) error {
 	}
 	if d := now.Sub(at); d > MaxSkew || d < -MaxSkew {
 		return ErrSignedAt
-	}
-	return nil
-}
-
-// Verify checks sigB64 over msg with the key, and that signedAt is near now.
-func Verify(keyDER, msg []byte, signedAt, sigB64 string, now time.Time) error {
-	if err := CheckTime(signedAt, now); err != nil {
-		return err
-	}
-	k, err := publicKey(keyDER)
-	if err != nil {
-		return err
-	}
-	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sigB64))
-	if err != nil || len(sig) == 0 {
-		return ErrSignature
-	}
-	digest := sha256.Sum256(msg)
-	if !ecdsa.VerifyASN1(k, digest[:], sig) {
-		return ErrSignature
 	}
 	return nil
 }
