@@ -486,6 +486,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)), slog.Bool("reuse_refused", refusedReuse != ""))
+	s.declare(r.Context(), g)
 	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
@@ -917,10 +918,13 @@ type grantView struct {
 	Digest string `json:"digest"`
 	// DigestV is 2 when Digest covers Lang and Text with the request
 	// (digestV2), and absent when it covers the request alone.
-	DigestV  int           `json:"digest_v,omitempty"`
-	Request  Request       `json:"request"`
-	Account  string        `json:"account,omitempty"`
-	Tools    []string      `json:"tools,omitempty"`
+	DigestV int      `json:"digest_v,omitempty"`
+	Request Request  `json:"request"`
+	Account string   `json:"account,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
+	// Declared says Tools are in KIFF while the grant waits for its key:
+	// a Card can be drafted over them, and none of them is usable yet.
+	Declared bool          `json:"declared,omitempty"`
 	Audience string        `json:"audience"`
 	Reason   string        `json:"reason,omitempty"`
 	Approval *approvalView `json:"approval,omitempty"`
@@ -1000,6 +1004,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
 	}
+	v.Declared = g.Declared && g.Status == StatusPending
 	if a := g.Approval; a != nil {
 		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, DeviceID: a.DeviceID, Message: a.Message,
 			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt, Lang: a.Lang, Text: a.Text}
@@ -1413,7 +1418,11 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		reason = "the sign-in was not confirmed in time; its token was revoked"
 	case g.waitsForApproval() && s.overdue(g):
 		// Nobody signed it within pendingTTL: it holds no sign-in or key to
-		// revoke, so it only ends, its record kept.
+		// revoke, so it only ends, its record kept, and tools declared for
+		// it leave KIFF first.
+		if err := s.undeclare(ctx, g); err != nil {
+			return false, err
+		}
 		was := *g
 		g.HeldUntil = time.Time{}
 		g.Status, g.Reason = StatusFailed, "not approved in time: nobody signed the request within 7 days"
@@ -2166,6 +2175,9 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 // and registers them in KIFF's gateway with the connector key. If any
 // step fails, nothing stays connected and the token is revoked.
 func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
+	if g.Declared {
+		return s.connectDeclared(ctx, g)
+	}
 	listed, server, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		s.revoke(ctx, g)
@@ -2199,11 +2211,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	}
 	var done, titles []string
 	for _, t := range g.Tools {
-		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
-			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
-			AmountPath: t.AmountPath, AmountFormat: t.AmountFormat, ResourcePath: t.ResourcePath,
-			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
-			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, AmountLookup: t.AmountLookup, VendorTool: t.Tool})
+		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport))
 		if err != nil {
 			return s.undo(ctx, g, done, "KIFF did not register "+t.Name+": "+err.Error())
 		}
@@ -2324,11 +2332,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 	}
 	var done, titles []string
 	for _, t := range added {
-		err := s.KIFF.Connect(ctx, key, kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
-			Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
-			AmountPath: t.AmountPath, AmountFormat: t.AmountFormat, ResourcePath: t.ResourcePath,
-			IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
-			ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, AmountLookup: t.AmountLookup, VendorTool: t.Tool})
+		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport))
 		if err != nil {
 			return back(done, "KIFF did not register "+t.Name+": "+err.Error())
 		}
@@ -2574,7 +2578,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		}
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
-	g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
+	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	switch {
 	case g.keptFor > 0:
