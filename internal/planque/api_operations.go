@@ -66,15 +66,6 @@ func (s *Server) apiOperations(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	// Each read fetches a description of up to 16 MB: counted per account a day.
-	if err := s.countAPIRead(r.Context(), tenant); err != nil {
-		if errors.Is(err, errAPIReads) {
-			writeErr(w, http.StatusTooManyRequests, "This account has read "+strconv.Itoa(apiReadsADay)+" API descriptions today. Try again tomorrow.")
-			return
-		}
-		s.fail(w, r, err)
-		return
-	}
 	body, err := readBody(r)
 	if err != nil {
 		s.fail(w, r, err)
@@ -89,19 +80,28 @@ func (s *Server) apiOperations(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "the body is {\"api\": {\"url\", \"auth\"}}")
 		return
 	}
+	if len(req.Q) > 200 {
+		writeErr(w, http.StatusBadRequest, "q is a few words from the job, at most 200 characters")
+		return
+	}
 	a := req.API
 	a.URL = strings.TrimSpace(a.URL)
 	if a.URL == "" {
 		writeErr(w, http.StatusBadRequest, "api.url is required: the vendor's OpenAPI description, in JSON or YAML")
 		return
 	}
+	// Each read fetches a description of up to 16 MB: counted per account a day, once the ask is one.
+	if err := s.countAPIRead(r.Context(), tenant); err != nil {
+		if errors.Is(err, errAPIReads) {
+			writeErr(w, http.StatusTooManyRequests, "This account has read "+strconv.Itoa(apiReadsADay)+" API descriptions today. Try again tomorrow.")
+			return
+		}
+		s.fail(w, r, err)
+		return
+	}
 	raw, err := s.REST.Fetch(r.Context(), a.URL)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "Couldn't read the API description at "+rest.ShownURL(a.URL)+": "+err.Error())
-		return
-	}
-	if len(req.Q) > 200 {
-		writeErr(w, http.StatusBadRequest, "q is a few words from the job, at most 200 characters")
 		return
 	}
 	// Listing keeps nothing, so it reads past a snapshot's 500: a request still takes at most 500.
@@ -149,20 +149,22 @@ const (
 	maxFound  = 50
 )
 
-// matching are the operations the words find, best first: a word in its name
-// counts double a word in its title, so a summary stuffed with every word
-// never crowds out the operation a job names. Words under three letters are
-// ignored; an operation no word finds isn't listed.
+// matching are the operations the words find, best first: by how many words
+// its name holds, then how many its title does, so no summary, however many
+// of the job's words it's stuffed with, ranks above an operation whose name
+// holds more of them. Words under three letters, and a few with no meaning
+// in an operation (the, and, for…), are ignored; an operation no word finds
+// isn't listed.
 func matching(ops []openapi.Operation, q string) []openapi.Operation {
 	var words []string
 	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-		if len(w) >= 3 && !slices.Contains(words, w) {
+		if len(w) >= 3 && !stopWords[w] && !slices.Contains(words, w) {
 			words = append(words, w)
 		}
 	}
 	type scored struct {
-		op    openapi.Operation
-		score int
+		op          openapi.Operation
+		name, title int
 	}
 	var hits []scored
 	for _, o := range ops {
@@ -170,23 +172,32 @@ func matching(ops []openapi.Operation, q string) []openapi.Operation {
 		if len(title) > 200 {
 			title = title[:200]
 		}
-		n := 0
+		h := scored{op: o}
 		for _, w := range words {
 			if strings.Contains(name, w) {
-				n += 2
+				h.name++
 			}
 			if strings.Contains(title, w) {
-				n++
+				h.title++
 			}
 		}
-		if n > 0 {
-			hits = append(hits, scored{o, n})
+		if h.name+h.title > 0 {
+			hits = append(hits, h)
 		}
 	}
-	slices.SortStableFunc(hits, func(a, b scored) int { return b.score - a.score })
+	slices.SortStableFunc(hits, func(a, b scored) int {
+		if a.name != b.name {
+			return b.name - a.name
+		}
+		return b.title - a.title
+	})
 	out := make([]openapi.Operation, len(hits))
 	for i, h := range hits {
 		out[i] = h.op
 	}
 	return out
 }
+
+// stopWords are words of three letters or more that name no operation.
+var stopWords = map[string]bool{"the": true, "and": true, "for": true, "with": true, "from": true, "that": true, "this": true,
+	"into": true, "its": true, "our": true, "your": true, "all": true, "any": true, "are": true, "was": true, "has": true}

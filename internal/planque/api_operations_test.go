@@ -143,3 +143,26 @@ func TestABigAPIIsDescribedByWords(t *testing.T) {
 		t.Fatalf("a whole request of a big API: %d %v", st, out)
 	}
 }
+
+// Many summaries stuffed with the job's words never crowd out the operation its name says (qa-kiff on planque#164).
+func TestStuffedSummariesNeverCrowdOutTheOperationAJobNames(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	var paths []string
+	for i := range 520 {
+		paths = append(paths, fmt.Sprintf(`"/things/%d": {"get": {"operationId": "getThing%d", "summary": "Read thing %d"}}`, i, i, i))
+	}
+	paths = append(paths, `"/refunds": {"post": {"operationId": "createRefund", "summary": "Create a refund"}}`)
+	for i := range 60 {
+		paths = append(paths, fmt.Sprintf(`"/stuffed/%d": {"get": {"operationId": "s%d", "summary": "refund payment charge customer"}}`, i, i))
+	}
+	v.mu.Lock()
+	v.desc = `{"openapi": "3.0.3", "info": {"title": "Big"}, "security": [{"k": []}], "components": {"securitySchemes": {"k": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}}, "paths": {` + strings.Join(paths, ",") + `}}`
+	v.mu.Unlock()
+	api := map[string]any{"url": v.URL + "/openapi.json", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/api/operations", map[string]any{"api": api, "q": "refund a customer's payment for a charge"}, nil, "k_setup")
+	if st != 200 || !strings.Contains(mustJSONString(out["operations"]), `"createRefund"`) {
+		t.Fatalf("the operation the job names was crowded out: %d matched %v listed %d", st, out["matched"], len(out["operations"].([]any)))
+	}
+}

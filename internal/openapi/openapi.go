@@ -174,7 +174,12 @@ type Snapshot struct {
 
 // Refused is a description outside what planque reads, with the reason in
 // words.
-type Refused struct{ Why string }
+type Refused struct {
+	Why string
+	// TooMany: refused only for having more operations than a snapshot
+	// takes; a selection of them still reads.
+	TooMany bool
+}
 
 func (e *Refused) Error() string { return "the API description can't be used: " + e.Why }
 
@@ -353,7 +358,7 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool, most int) (*
 			names[op.Name] = true
 			s.Operations = append(s.Operations, op)
 			if len(s.Operations) > most {
-				return nil, refuse("it has more than %d operations", most)
+				return nil, &Refused{Why: fmt.Sprintf("it has more than %d operations", most), TooMany: true}
 			}
 		}
 	}

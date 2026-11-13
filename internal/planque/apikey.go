@@ -155,7 +155,7 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	} else {
 		snap, err = openapi.Parse(raw, a.Auth)
 		var rf *openapi.Refused
-		if errors.As(err, &rf) && strings.HasPrefix(rf.Why, "it has more than") && len(tools) > 0 && len(tools) <= openapi.MaxOperations {
+		if errors.As(err, &rf) && rf.TooMany && len(tools) > 0 && len(tools) <= openapi.MaxOperations {
 			// A big API (Stripe's, GitHub's), asked for with the job's operations as describe named them: its
 			// snapshot is those operations alone, as a selection would be.
 			names := make([]string, 0, len(tools))
