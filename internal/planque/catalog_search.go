@@ -124,13 +124,14 @@ func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) (by
 		}
 		return false
 	}
-	ids := make([]string, 0, len(s.CatalogEntries))
-	for id := range s.CatalogEntries {
+	entries := newestRevisions(s.catalogEntries())
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		e := s.CatalogEntries[id]
+		e := entries[id]
 		app := names(e.Vendor + " " + e.Title)
 		state := "available"
 		if st, ok := states[id]; ok {
