@@ -194,10 +194,11 @@ func TestAnAdditionApprovedTogetherWithItsCard(t *testing.T) {
 // in KIFF once they're set, so the taf's Card can be drafted over them and
 // approved with them: one approval for the tools and the Card. A call before
 // the approval is refused and reaches nobody; approved, the same
-// registration serves it. Revised, the earlier tools leave KIFF; not
+// registration serves it. Declined, they leave KIFF and the grant is listed
+// again, its sign-in held; revised, the earlier tools leave KIFF; not
 // approved within a day, they leave with the sign-in.
 func TestASignedInGrantsFirstToolsAreDeclared(t *testing.T) {
-	for _, how := range []string{"approved", "revised", "past its day"} {
+	for _, how := range []string{"approved", "declined", "revised", "past its day"} {
 		t.Run(how, func(t *testing.T) {
 			e := newEnv(t)
 			id := e.listedGrant()
@@ -234,6 +235,23 @@ func TestASignedInGrantsFirstToolsAreDeclared(t *testing.T) {
 				res, _ := e.kiff.Call(context.Background(), "k_taf", "list_charges", map[string]any{})
 				if text, isErr := resultText(t, res.Result); isErr {
 					t.Fatalf("a call after the approval: %s", text)
+				}
+			case "declined":
+				signIns, _ := e.vendor.Live()
+				st, out := e.do("DELETE", acct+"/tools", nil, nil, "k_setup")
+				if st != 200 || out["status"] != StatusListed || out["declared"] == true || out["signed_in"] != true {
+					t.Fatalf("decline: %d %v", st, out)
+				}
+				if c := e.kiff.Connections(tenant); len(c) != 0 {
+					t.Fatalf("still in KIFF after the decline: %v", c)
+				}
+				if a, _ := e.vendor.Live(); a != signIns {
+					t.Fatalf("the decline revoked the sign-in: %d live tokens, were %d", a, signIns)
+				}
+				// Other tools on the same sign-in, declared again.
+				read := map[string]any{"tool": "stripe_api_read", "title": "Read Stripe", "name": "stripe_api_read", "read_only": true}
+				if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{read}}, nil, "k_setup"); st != 200 || out["declared"] != true {
+					t.Fatalf("tools after the decline: %d %v", st, out)
 				}
 			case "revised":
 				read := map[string]any{"tool": "stripe_api_read", "title": "Read Stripe", "name": "stripe_api_read", "read_only": true}

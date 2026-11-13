@@ -49,9 +49,25 @@ func TestANewTafReusesTheHeldSignInOfAnAppByItsEntry(t *testing.T) {
 	if st != 200 || out["status"] != StatusPending || out["declared"] != true {
 		t.Fatalf("tools: %d %v", st, out)
 	}
+	if _, ok := e.kiff.Connection(tenant, "refund_reply"); !ok {
+		t.Fatal("refund_reply isn't declared while it waits")
+	}
+	// Declined: it leaves KIFF, and the connection is listed again on the held sign-in.
+	if st, out := e.do("DELETE", path+"/tools", nil, nil, "k_setup"); st != 200 || out["status"] != StatusListed || out["signed_in"] != true {
+		t.Fatalf("decline: %d %v", st, out)
+	}
+	if _, ok := e.kiff.Connection(tenant, "refund_reply"); ok {
+		t.Fatal("refund_reply is still in KIFF after the decline")
+	}
+	_, catalog = e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	alias = catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
+	if st != 200 || out["status"] != StatusPending || out["declared"] != true {
+		t.Fatalf("tools again: %d %v", st, out)
+	}
 	declared, ok := e.kiff.Connection(tenant, "refund_reply")
 	if !ok {
-		t.Fatal("refund_reply isn't declared while it waits")
+		t.Fatal("refund_reply isn't declared again")
 	}
 	g, _ = e.s.loadGrant(ctx, tenant, id)
 	ph, _ := profile.Digest(g.Request.Profile)

@@ -2573,9 +2573,10 @@ func (s *Server) dropAddition(ctx context.Context, g *Grant, why string) error {
 	return nil
 }
 
-// withdrawTools ends the addition waiting on a connected grant, when the
-// owner declined it: what was declared for it leaves KIFF at once, rather
-// than after its day, and what the grant had stays connected. Only the
+// withdrawTools ends the tools waiting for the owner's approval on a
+// signed-in grant, when the owner declined them: what was declared for them
+// leaves KIFF at once, rather than after its day. An addition leaves the
+// grant connected with what it had; first tools leave it listed. Only the
 // agent that may set the grant's tools withdraws them; it takes access
 // away, never adds any.
 func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
@@ -2602,15 +2603,54 @@ func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if g.Status != StatusPending || g.Connected == nil {
-		writeErr(w, http.StatusConflict, "no added tools wait on this grant; it's "+g.Status)
-		return
-	}
-	if err := s.dropAddition(r.Context(), g, "the added tools were declined; what it had stays connected"); err != nil {
-		s.fail(w, r, err)
+	switch {
+	case g.Status == StatusPending && g.Connected != nil:
+		if err := s.dropAddition(r.Context(), g, "the added tools were declined; what it had stays connected"); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	case g.Status == StatusPending && g.SignedIn && g.Declared:
+		// A grant's first tools, declined: they leave KIFF, and the grant
+		// is listed again with its sign-in held, for other tools or its end.
+		if err := s.dropFirstTools(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	default:
+		writeErr(w, http.StatusConflict, "no tools wait for the owner's approval on this grant; it's "+g.Status)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(r, g))
+}
+
+// dropFirstTools ends a signed-in grant's first tools, declined before the
+// owner approved them: they leave KIFF, and the grant is listed again, its
+// sign-in held until its deadline. An error leaves g as it was.
+func (s *Server) dropFirstTools(ctx context.Context, g *Grant) error {
+	was := *g
+	if err := s.undeclare(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	g.Request.Tools, g.Request.Profile = []ToolRequest{}, nil
+	if c := g.Request.Connector; c != nil {
+		conn := *c
+		conn.Tools, conn.Account = nil, ""
+		g.Request.Connector = &conn
+	}
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, false, "") })
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		*g = was
+		return err
+	}
+	g.Status = StatusListed
+	g.event(s.now(), "its tools were declined; it's listed again, its sign-in held")
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	return nil
 }
 
 // SetupReadsPerDay is what KIFF's Card for Setup's reads allows
