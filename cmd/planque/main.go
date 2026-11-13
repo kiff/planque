@@ -23,10 +23,13 @@
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
 //	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
+//	PLANQUE_SIGNIN_READER_SHA256 optional: the hex SHA-256 of the one key that
+//	                   reads an app's managed sign-in state; unset, no one can
 package main
 
 import (
 	"cmp"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -209,6 +212,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		Connectors:           connectors,
 		BaseURL:              base,
 		AppReturn:            appReturn,
+		SignInReader:         signInReader(os.Getenv("PLANQUE_SIGNIN_READER_SHA256")),
 		KV:                   kv,
 		Sealer:               sealer,
 		KIFF:                 &kiff.Client{API: api, Gateway: cmp.Or(os.Getenv("KIFF_GATEWAY"), "https://mcp.kiff.dev"), HTTP: hc},
@@ -240,4 +244,14 @@ func refundTenants(v string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// signInReader is the sign-in reader key's SHA-256 from its hex, or none when
+// it isn't 64 lowercase hex characters.
+func signInReader(h string) []byte {
+	b, err := hex.DecodeString(h)
+	if err != nil || len(b) != 32 || strings.ToLower(h) != h {
+		return nil
+	}
+	return b
 }

@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Whether the managed sign-in works for an app, for the connect matrix.** `GET /v1/catalog/{entry}/sign-in` answers `{entry, state}`, with `state` one of `ready`, `on_the_owners_pick`, `needs_setup` or `not_at_provider`. It reads the provider's app metadata only: it makes no sign-in, starts no set-up and takes no allowance, and the provider's own ids aren't in the answer. Only the key whose SHA-256 is `PLANQUE_SIGNIN_READER_SHA256` reads it, and that key reads nothing else. Without the setting, the route isn't there.
 - **API descriptions in YAML.** A grant by key reads a vendor's OpenAPI description in YAML as well as JSON, since many vendors publish YAML only. YAML is read as the JSON it stands for, then checked and limited as JSON is. Only plain data is read: one document, with no anchors, aliases, merge keys or tags beyond YAML's own, and an unquoted `200:` key reads as `"200"`. A YAML file within 16 MB that's over 16 MB as JSON is refused.
 - **A refused connection is logged with its reason.** Each refusal of `POST …/grants` or `POST …/catalog/{entry}/grants` is logged as `connection refused`, with the route, the entry, the status and planque's words. A sign-in that fails to set up at the provider is logged as `app set-up failed`, with the provider's own reason, its secrets redacted. The request's body is never logged.
 
