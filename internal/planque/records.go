@@ -315,6 +315,10 @@ type Grant struct {
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.
 	Reconnect bool `json:"reconnect,omitempty"`
+	// ReconnectName is the vendor account a managed app's signed-out
+	// connection was on, as the provider named it: its new sign-in reconnects
+	// the same grant only on that same account.
+	ReconnectName string `json:"reconnect_name,omitempty"`
 	// SignedOutAt is when the vendor last ended its sign-in: KIFF is told
 	// of each sign-out once, by it.
 	SignedOutAt time.Time `json:"signed_out_at,omitzero"`

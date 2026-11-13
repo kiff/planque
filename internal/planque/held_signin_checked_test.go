@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/profile"
 )
 
 // askEntry asks for the managed app by its entry for a new taf, as Coach
@@ -101,5 +103,99 @@ func TestOnlyARefusedSignInSignsOut(t *testing.T) {
 	f.accountDown = false
 	if v := askEntry(t, e, "agt_third"); v["signed_in"] != true || v["status"] != StatusListed {
 		t.Fatalf("a healthy held sign-in wasn't reused: %v", v)
+	}
+}
+
+// reapprove is the approve body the phone sends for g as it stands: its
+// digest and, for its profile, the digests the owner read.
+func reapprove(g *Grant) map[string]any {
+	ph, _ := profile.Digest(g.Request.Profile)
+	return map[string]any{"digest": g.Digest, "kiff_profile": ProfileDigests{ProfileSHA256: ph, WordsSHA256: strings.Repeat("a", 64)}}
+}
+
+// signOut401 has the vendor answer a call through g with 401, as Gmail did:
+// the connection is marked signed out.
+func signOut401(t *testing.T, e *env, f *connectorFixture, g *Grant) {
+	t.Helper()
+	f.executeBody = `{"data":{"status_code":401,"message":"Invalid Credentials"},"successful":false,"error":"Request had invalid authentication credentials. Expected OAuth 2 access token"}`
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_out"}`)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_out", Args: args})
+	got := mustJSONString(e.s.call(context.Background(), g, "reply_ticket", args, permit))
+	// Plain words for the taf, with where to sign in again: never the vendor's own body.
+	if strings.Contains(got, "Expected OAuth 2") || strings.Contains(got, "invalid authentication") || !strings.Contains(got, "Connect apps") {
+		t.Fatalf("what the taf reads: %s", got)
+	}
+	f.executeBody = ""
+}
+
+// Sign in again on a signed-out managed connection: one approval, the
+// provider's sign-in, the device's confirm, and the same grant is connected
+// again, with its tools and its registration in KIFF as they were (so the
+// taf's Card stays), with no new Card and no Coach round.
+func TestASignedOutManagedConnectionSignsInAgainOnItself(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	f.distinct = true
+	first := connectConnector(t, e, f)
+	declared, _ := e.kiff.Connection(tenant, "reply_ticket")
+	signOut401(t, e, f, first)
+	g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+	if g.Status != StatusNeedsReconnect {
+		t.Fatalf("after the 401: %s", g.Status)
+	}
+	path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+	e.at(time.Minute) // a new signature, later, on both clocks
+	e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+	st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, "")
+	if st != 200 || out["sign_in_url"] == nil {
+		t.Fatalf("sign in again: %d %v", st, out)
+	}
+	code := e.signIn(f.callback + "&status=ACTIVE")
+	st, out = e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, "")
+	if st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, first.ID)
+	if g.ID != first.ID || len(g.Tools) != len(first.Tools) || g.Request.Connector.Account != g.Connector.Account || g.Connector.Account == first.Connector.Account {
+		t.Fatalf("the grant after reconnecting: tools %d→%d, bound %q, provider account %q (was %q)", len(first.Tools), len(g.Tools), g.Request.Connector.Account, g.Connector.Account, first.Connector.Account)
+	}
+	if c, ok := e.kiff.Connection(tenant, "reply_ticket"); !ok || c.Credential != declared.Credential {
+		t.Fatal("its registration in KIFF changed: the taf's Card would no longer cover it")
+	}
+	// It works again: a call goes through on the new sign-in.
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_back"}`)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_back", Args: args})
+	if got := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit)); strings.Contains(got, `"isError":true`) {
+		t.Fatalf("a call after reconnecting: %s", got)
+	}
+}
+
+// A reconnect's sign-in to another vendor account connects nothing: the
+// tools and Card were approved for the first account, never swapped under it.
+// Category: authority
+// Attack: Sign in again with another account, so the taf acts on an account the owner never approved it for
+// Refused: 409 at the confirm, that sign-in revoked, the connection still signed out
+func TestAReconnectToAnotherAccountConnectsNothing(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	f.distinct = true
+	first := connectConnector(t, e, f)
+	signOut401(t, e, f, first)
+	g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+	path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+	e.at(time.Minute) // a new signature, later, on both clocks
+	e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+	if st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, ""); st != 200 {
+		t.Fatalf("sign in again: %d %v", st, out)
+	}
+	f.accountName = "Another Shop"
+	code := e.signIn(f.callback + "&status=ACTIVE")
+	revoked := len(f.revoked)
+	if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 409 || !strings.Contains(mustJSONString(out), "another account") {
+		t.Fatalf("confirm on another account: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, first.ID)
+	if g.Status != StatusNeedsReconnect || g.Request.Connector.Account != first.Connector.Account || len(f.revoked) != revoked+1 {
+		t.Fatalf("after another account: %s, bound %q, revoked %d→%d", g.Status, g.Request.Connector.Account, revoked, len(f.revoked))
 	}
 }

@@ -350,7 +350,8 @@ func (s *Server) checkConnector(ctx context.Context, g *Grant) error {
 		return connector.ErrAccount
 	}
 	id := s.connectorIdentity(g)
-	if id.User != g.Connector.User || g.Connector.Account == "" || g.Request.Connector.Account != "" && g.Request.Connector.Account != g.Connector.Account {
+	// A reconnect's new sign-in is on a new provider account until it's confirmed (reconnectConnector).
+	if id.User != g.Connector.User || g.Connector.Account == "" || !g.Reconnect && g.Request.Connector.Account != "" && g.Request.Connector.Account != g.Connector.Account {
 		return connector.ErrAccount
 	}
 	a, err := p.Account(ctx, g.Connector.Account)
@@ -601,6 +602,16 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	// device asks again, and planque asks the provider (kiff/planque#87).
 	if g.Connector != nil && !g.SignedIn && (g.Status == StatusApproved || g.Status == StatusSignedIn) {
 		s.resumeConnectorSignIn(w, r, sr, g, p)
+		return
+	}
+	// Signed out (the vendor no longer takes its sign-in): Sign in again on the
+	// connection itself. A new sign-in for this same grant, which keeps its
+	// tools, its registration in KIFF and the taf's Card; confirmed only on the
+	// same vendor account (reconnectConnector).
+	if g.Connector != nil && g.Status == StatusNeedsReconnect {
+		prev := *g.Connector
+		g.Reconnect, g.ReconnectName, g.Reason = true, prev.AccountName, ""
+		s.startConnectorSignIn(w, r, sr.approval, g, p, "a new sign-in was approved "+sr.approval.Who()+" to reconnect")
 		return
 	}
 	// A replacement account always needs a fresh grant and tool approval.
@@ -964,7 +975,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	if result.Refused && result.Status == http.StatusUnauthorized {
 		// The vendor refused the sign-in itself (401) behind a status the provider still calls active: an
 		// access its refresh can't renew. Every connection on that sign-in signs in again, and it's never reused.
+		// The person reads plain words; the vendor's own body stays in the log.
+		s.log().WarnContext(ctx, "vendor refused the sign-in", slog.String("grant", g.ID), slog.String("vendor_said", result.Reason))
 		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
+		return OpDone, toolResult(signInExpiredWords(vendorName(g)), true)
 	}
 	if result.Unknown {
 		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
@@ -1238,4 +1252,45 @@ func (s *Server) signInRefused(ctx context.Context, g *Grant, why string) {
 			s.log().WarnContext(ctx, "sign-in refused: a connection wasn't marked", slog.String("grant", other.ID), slog.String("err", err.Error()))
 		}
 	}
+}
+
+// errOtherAccount: a reconnect's sign-in was to another vendor account.
+var errOtherAccount = apiError{http.StatusConflict, "that sign-in is to another account than this connection's: sign in again to the same account, or remove access and connect the other one"}
+
+// reconnectConnector finishes a signed-out managed connection's new sign-in,
+// once the approving device confirmed it: on the same vendor account as the
+// provider names it (when it names one), the grant is bound to the new
+// provider account and connected again, with its tools, its registration in
+// KIFF and the taf's Card as they were. Another account connects nothing:
+// that sign-in is revoked, and the connection waits signed out.
+func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
+	if g.ReconnectName != "" && g.Connector.AccountName != "" && g.Connector.AccountName != g.ReconnectName {
+		if p, err := s.provider(g); err == nil {
+			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
+				s.log().WarnContext(ctx, "reconnect to another account not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			}
+		}
+		g.Status, g.Reconnect = StatusNeedsReconnect, false
+		g.event(s.now(), "the new sign-in was to another account; not reconnected")
+		if err := s.saveGrant(ctx, g); err != nil {
+			return err
+		}
+		return errOtherAccount
+	}
+	g.Request.Connector.Account = g.Connector.Account
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		return err
+	}
+	g.Status, g.Reconnect, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", time.Time{}
+	g.SignedOutAt = time.Time{}
+	g.event(s.now(), "signed in again: connected with the same tools and Card")
+	return s.saveGrant(ctx, g)
+}
+
+// signInExpiredWords is what a call refused for its sign-in says, in plain
+// words, for the taf to tell the owner: what happened, that nothing was done,
+// and where to sign in again. Never the vendor's own error body.
+func signInExpiredWords(vendor string) string {
+	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner signs in again in Connect apps → " + vendor + " → Sign in again."
 }

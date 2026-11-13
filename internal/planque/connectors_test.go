@@ -35,7 +35,9 @@ type connectorFixture struct {
 	t                             *testing.T
 	user, callback, accountStatus string
 	// accountDown makes the provider fail to answer a connected account's read (503).
-	accountDown                       bool
+	accountDown bool
+	// accountName, when set, is the vendor account's name the provider shows (else "Demo Shop").
+	accountName                       string
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
@@ -192,7 +194,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			user = "another_owner"
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
-		data := map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		data := map[string]any{"displayName": cmp.Or(f.accountName, "Demo Shop"), "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
 		if f.granted != "" {
 			data["scope"] = f.granted
 		}
@@ -279,7 +281,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		f.executions++
 		_ = json.NewDecoder(r.Body).Decode(&f.sent)
-		if len(f.sent) != 4 || string(f.sent["connected_account_id"]) != `"account_demo"` || string(f.sent["version"]) != `"20261101_00"` {
+		if len(f.sent) != 4 || !strings.HasPrefix(string(f.sent["connected_account_id"]), `"account_demo`) || string(f.sent["version"]) != `"20261101_00"` {
 			f.t.Error("execution did not bind the approved account and version")
 		}
 		if f.lost {
