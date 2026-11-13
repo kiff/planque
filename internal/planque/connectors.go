@@ -1092,11 +1092,14 @@ func connectorText(w words.Approval, q Request) string {
 	if q.Reuse != "" {
 		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
 		text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		// Nothing more is asked of the app: the held sign-in's own tools, or a
+		// wider ask, aren't this taf's, so they're never listed as if they were.
 		if len(q.Tools) == 0 {
-			return text + scopeWords(w, c) + w.ReusedNext
+			return text + w.ReusedNext
 		}
+	} else {
+		text += scopeWords(w, c)
 	}
-	text += scopeWords(w, c)
 	if q.Reuse == "" {
 		switch c.AuthScheme {
 		case "API_KEY":
@@ -1111,8 +1114,15 @@ func connectorText(w words.Approval, q Request) string {
 	// The account's id, and each action's exact version, are under Details
 	// (requestTerms): the words name them as people do (kiff/tafs#476).
 	text += fmt.Sprintf(w.OnlyYourAccountF, c.Title)
-	for _, t := range c.Tools {
-		text += " " + t.Name + "."
+	// Each action by the title the taf's request gives it, in the owner's
+	// words, the same the card's own lines use: one list, from one source.
+	// A definition with no matching titled tool keeps the provider's name.
+	for i, t := range c.Tools {
+		name := t.Name
+		if i < len(q.Tools) && q.Tools[i].Tool == t.Alias() && strings.TrimSpace(q.Tools[i].Title) != "" {
+			name = label(q.Tools[i].Title)
+		}
+		text += " " + name + "."
 	}
 	return text
 }

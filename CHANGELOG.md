@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A managed app's approval names its actions one way.** The approval names each action by the title the taf's request gave it (the owner's words, as the card's lines do), and a reused sign-in's text no longer lists the held sign-in's own tools as if they were the new taf's.
 - **A connection's name for people, and an unfinished one said so.** A grant's view and the account's connections carry `title` ("Gmail · Demo Shop") and `since` (the day it was asked for), so every app names a connection the same way. A connection signed in with no tools chosen reads "Unfinished · signed in, no tools chosen yet", in the 8 languages, and still ends after its day.
 - **Ending a taf names the connections that keep a shared sign-in.** `kept` in `…/agents/{agent}/end` now carries `grants` and `agents`: the live connections still holding the sign-in and their agents, so an app can offer to remove it too, by disconnecting those, when none is a taf the owner still has.
 - **A managed app's connection is named by its account, never the provider's id.** A grant's view, its catalog and Setup's listing give `account` as the account name the provider shows ("Demo Shop", an address), or leave it out, never the provider's id for the connection (`ca_…`), which the apps drew as the connection's name.
