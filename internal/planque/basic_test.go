@@ -81,3 +81,23 @@ func TestAnAccountsBaseStaysOnTheVendorsServer(t *testing.T) {
 		t.Fatalf("the account's own address was refused: %s", out)
 	}
 }
+
+// A key that's in the connection's fixed header is refused when the owner
+// gives it: the fixed header is shown and kept with the request, never in
+// the vault.
+func TestAKeyInTheFixedHeaderIsRefusedWhenGiven(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	body := map[string]any{"kind": "api_key", "agent": "agt_taf", "tools": []map[string]any{{"tool": "listCharges", "title": "List charges"}},
+		"api": map[string]any{"url": v.URL + "/openapi.json", "base": v.URL + "/v1",
+			"auth": map[string]any{"in": "header", "name": "X-API-Key", "fixed": map[string]any{"name": "Account-Id", "value": "acct-" + v.key}}}}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", body, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("ask: %d %v", st, out)
+	}
+	st, out = e.giveKey(out["id"].(string), out["digest"].(string), v.key)
+	if st != 400 || !strings.Contains(mustJSONString(out), "fixed header") || strings.Contains(mustJSONString(out), v.key) {
+		t.Fatalf("give: %d %v", st, out)
+	}
+}

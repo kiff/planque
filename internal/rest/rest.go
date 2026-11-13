@@ -123,6 +123,13 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 // CallAs is Call with the body written as contentType says (an operation's
 // ContentType: JSON or a form).
 func (c *Client) CallAs(ctx context.Context, method, target, contentType string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
+	// Checked when the grant was asked for, and here again: an Auth that reached the client unchecked (a grant
+	// stored before a rule, a later bug) never lets a fixed header replace the key or a Basic part break its header.
+	if auth != (openapi.Auth{}) {
+		if err := auth.Check(); err != nil {
+			return Answer{}, &CallError{Err: err}
+		}
+	}
 	if err := c.CheckURL(target); err != nil {
 		return Answer{}, &CallError{Err: err}
 	}

@@ -358,6 +358,10 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 	case g.Status != StatusPending && g.Status != StatusNeedsReconnect && g.Status != StatusConnected, g.SignedIn && g.Status == StatusPending:
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status+"; it takes no key now")
 		return
+	case g.Request.API != nil && g.Request.API.Auth.Fixed != nil && strings.Contains(g.Request.API.Auth.Fixed.Value, key):
+		// The fixed header is shown in the approval and kept with the request, not in the vault.
+		writeErr(w, http.StatusBadRequest, "this key is in the connection's fixed header, which isn't kept as a secret: nothing was kept")
+		return
 	}
 	a := sr.approval
 	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {

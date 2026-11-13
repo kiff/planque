@@ -68,7 +68,9 @@ var headerToken = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]{1,64}$`)
 // ones that would move or carry a credential.
 var notFixed = map[string]bool{"authorization": true, "proxy-authorization": true, "host": true, "cookie": true, "content-type": true,
 	"content-length": true, "transfer-encoding": true, "connection": true, "upgrade": true, "te": true, "trailer": true, "expect": true,
-	"accept": true, "accept-encoding": true, "forwarded": true, "via": true, "keep-alive": true}
+	"accept": true, "accept-encoding": true, "forwarded": true, "via": true, "keep-alive": true,
+	// A method override turns a call the Card reads as a GET into a DELETE or a POST, at a vendor that honours it.
+	"x-http-method-override": true, "x-http-method": true, "x-method-override": true}
 
 func (f *Fixed) check(a Auth) error {
 	name := strings.ToLower(f.Name)
