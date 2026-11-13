@@ -75,3 +75,11 @@ owner's. Without the key it writes the reviewed entries only.
 | Discord Bot | [discordbot.md](discordbot.md) | [discordbot](generated/discordbot.md) |
 | Dropbox | [dropbox.md](dropbox.md) | [dropbox](generated/dropbox.md) |
 | Dynamics 365 | [dynamics365.md](dynamics365.md) | [dynamics365](generated/dynamics365.md) |
+| Odoo | [odoo.md](odoo.md) | [odoo](generated/odoo.md) |
+| OneDrive | [one_drive.md](one_drive.md) | [one_drive](generated/one_drive.md) |
+| Pipedrive | [pipedrive.md](pipedrive.md) | [pipedrive](generated/pipedrive.md) |
+| QuickBooks | [quickbooks.md](quickbooks.md) | [quickbooks](generated/quickbooks.md) |
+| Reddit | [reddit.md](reddit.md) | [reddit](generated/reddit.md) |
+| Salesforce | [salesforce.md](salesforce.md) | [salesforce](generated/salesforce.md) |
+| Sentry | [sentry.md](sentry.md) | [sentry](generated/sentry.md) |
+| Sevdesk | [sevdesk.md](sevdesk.md) | [sevdesk](generated/sevdesk.md) |
