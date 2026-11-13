@@ -47,7 +47,7 @@ func TestStripeRefundsProfileIsReviewedAndComplete(t *testing.T) {
 		if string(tools[i].Fixed[stripeContext]) != `"`+stripeTestAccount+`"` || string(tools[i].Fixed[stripeLivemode]) != "false" {
 			t.Fatalf("tool %d's account and mode: %s", i, tools[i].Fixed)
 		}
-		if msg := checkNarrowing(tools[i]); msg != "" {
+		if msg := checkNarrowing(tools[i]); msg != nil {
 			t.Fatalf("tool %d: %s", i, msg)
 		}
 	}

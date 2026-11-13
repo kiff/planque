@@ -186,8 +186,9 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		// An account's address stays on the vendor's own server, or the key could go wherever a request names.
 		return nil, nil, "api.base is an account's own address, as " + snap.Accounts[0] + " with each part one word of letters, digits or dashes", nil
 	}
-	if msg := apiToolsCheck(snap, tools); msg != "" {
-		return nil, nil, msg, nil
+	if r := apiToolsCheck(snap, tools); r != nil {
+		// A refusal of the tools goes as an error, so it's answered with its code.
+		return nil, nil, "", r
 	}
 	if err := s.saveSnapshot(ctx, tenant, grant, snap); err != nil {
 		return nil, nil, "", err
@@ -196,22 +197,26 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		Operations: slices.Clone(a.Operations)}, snap, "", nil
 }
 
-// apiToolsCheck says why tools can't be asked for from snap, "" when they can.
-func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
+// apiToolsCheck says why tools can't be asked for from snap, nil when they can.
+func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) *toolRefusal {
 	for _, t := range tools {
+		tool := refTool(t)
 		i := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == t.Tool })
 		if i < 0 {
-			return "the API has no operation named " + t.Tool + "; its catalog lists them once the key is given"
+			return &toolRefusal{Code: refNoOperation, Tool: tool, Field: "tool", Want: "one of the API's operations",
+				Msg: "the API has no operation named " + t.Tool + "; its catalog lists them once the key is given"}
 		}
 		if t.ReadOnly && !snap.Operations[i].ReadOnly {
-			return t.Tool + " isn't a read: only GET and HEAD operations are read-only"
+			return &toolRefusal{Code: refNotARead, Tool: tool, Field: "read_only", Want: "a GET or HEAD operation",
+				Msg: t.Tool + " isn't a read: only GET and HEAD operations are read-only"}
 		}
 		// A tool not narrowed takes the operation's own arguments: what KIFF scopes the Card on, and counts,
 		// must be one of them, of its type, or KIFF refuses the tool when it's declared.
 		if !t.narrowed() {
 			op := snap.Operations[i]
 			if r := t.ResourceArg; r != "" && argType(op.InputSchema, r) != "string" {
-				return "resource_argument " + r + " must be one of " + t.Tool + "'s string arguments (" + opArgNames(op.InputSchema, "string") + ")"
+				return &toolRefusal{Code: refResourceArgument, Tool: tool, Field: "resource_argument", Want: opArgNames(op.InputSchema, "string"),
+					Msg: "resource_argument " + r + " must be one of " + t.Tool + "'s string arguments (" + opArgNames(op.InputSchema, "string") + ")"}
 			}
 			if a := t.AmountArg; a != "" && t.AmountLookup == nil {
 				want := "integer"
@@ -225,7 +230,7 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 					if got == "number" {
 						why += ": " + a + " is a number, and KIFF counts a whole number of minor units"
 					}
-					return why
+					return &toolRefusal{Code: refAmountArgument, Tool: tool, Field: "amount_argument", Want: opArgNames(op.InputSchema, want), Msg: why}
 				}
 			}
 		}
@@ -234,17 +239,20 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 		op := snap.Operations[i]
 		for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
 			if top, _, _ := strings.Cut(p, "."); !hasArg(op.InputSchema, top) {
-				return "fixed argument " + p + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+				return &toolRefusal{Code: refPinUnknown, Tool: tool, Field: p, Want: opArgNames(op.InputSchema, ""),
+					Msg: "fixed argument " + p + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"}
 			}
 		}
 		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 			a := t.Arguments[name]
 			top, _, nested := strings.Cut(a.Path, ".")
 			if !hasArg(op.InputSchema, top) {
-				return "argument " + name + "'s path " + a.Path + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+				return &toolRefusal{Code: refArgumentUnknown, Tool: tool, Field: name, Want: opArgNames(op.InputSchema, ""),
+					Msg: "argument " + name + "'s path " + a.Path + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"}
 			}
 			if got := argType(op.InputSchema, top); !nested && got != "" && got != a.Type && !(got == "number" && a.Type == "integer") {
-				return "argument " + name + "'s type is " + a.Type + ", but " + t.Tool + "'s " + top + " is " + got
+				return &toolRefusal{Code: refArgumentType, Tool: tool, Field: name, Want: got,
+					Msg: "argument " + name + "'s type is " + a.Type + ", but " + t.Tool + "'s " + top + " is " + got}
 			}
 		}
 		// A narrowed tool sends only its pins and what the taf sets: each argument the operation requires must be one.
@@ -260,12 +268,13 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 			}
 			for _, req := range requiredArgs(op.InputSchema) {
 				if !set[req] {
-					return t.Tool + " requires " + req + ": pin it in fixed_arguments, or name it in arguments for the taf to set"
+					return &toolRefusal{Code: refRequiredArgument, Tool: tool, Field: req, Want: "pin it in fixed_arguments, or name it in arguments",
+						Msg: t.Tool + " requires " + req + ": pin it in fixed_arguments, or name it in arguments for the taf to set"}
 				}
 			}
 		}
 	}
-	return ""
+	return nil
 }
 
 // requiredArgs are the top-level arguments an operation requires, sorted.

@@ -30,50 +30,60 @@ func pathParts(p string) ([]string, bool) {
 	return parts, true
 }
 
-// checkPin says what is wrong with one of a tool's fixed arguments, or "".
+// checkPin says what is wrong with one of a tool's fixed arguments, or nil.
 // The words are for Coach, which fixes the request: they name the tool and
 // the pin, say which part is wrong, and show the form planque wants.
-func checkPin(t ToolRequest, p string, v json.RawMessage) string {
-	tool := cmp.Or(t.Name, t.Tool)
+func checkPin(t ToolRequest, p string, v json.RawMessage) *toolRefusal {
+	tool := refTool(t)
 	if _, ok := pathParts(p); !ok {
-		return fmt.Sprintf("%s: fixed argument %q isn't a dotted path: name the vendor's argument (up to %d names joined by dots, no spaces), and give its value as JSON, like {\"author\": \"urn:li:person:…\"} or {\"content.visibility\": \"PUBLIC\"}", tool, p, maxPathParts)
+		return &toolRefusal{Code: refPinShape, Tool: tool, Field: p, Want: "dotted path → JSON value",
+			Msg: fmt.Sprintf("%s: fixed argument %q isn't a dotted path: name the vendor's argument (up to %d names joined by dots, no spaces), and give its value as JSON, like {\"author\": \"urn:li:person:…\"} or {\"content.visibility\": \"PUBLIC\"}", tool, p, maxPathParts)}
 	}
 	if !json.Valid(v) {
-		return fmt.Sprintf("%s: fixed argument %q's value isn't JSON: write the value itself as JSON, a string in quotes, like {%q: \"urn:li:person:…\"}", tool, p, p)
+		return &toolRefusal{Code: refPinShape, Tool: tool, Field: p, Want: "dotted path → JSON value",
+			Msg: fmt.Sprintf("%s: fixed argument %q's value isn't JSON: write the value itself as JSON, a string in quotes, like {%q: \"urn:li:person:…\"}", tool, p, p)}
 	}
-	return ""
+	return nil
 }
 
+// refTool is the tool a refusal names: the request's name for it, else its
+// vendor tool.
+func refTool(t ToolRequest) string { return cmp.Or(t.Name, t.Tool) }
+
 // checkNarrowing says what is wrong with a tool's fixed and lifted
-// arguments, or "".
-func checkNarrowing(t ToolRequest) string {
+// arguments, or nil.
+func checkNarrowing(t ToolRequest) *toolRefusal {
+	tool := refTool(t)
+	arg := func(code, name, want, msg string) *toolRefusal {
+		return &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
+	}
 	paths := map[string]bool{}
 	// In a set order, so a request names the same pin each time.
 	for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
-		if msg := checkPin(t, p, t.Fixed[p]); msg != "" {
-			return msg
+		if r := checkPin(t, p, t.Fixed[p]); r != nil {
+			return r
 		}
 		paths[p] = true
 	}
 	for name, a := range t.Arguments {
 		switch {
 		case !toolName.MatchString(name) || name == IdempotencyArg:
-			return "argument " + name + " is not a valid name"
+			return arg(refArgumentName, name, "letters, digits and underscores, starting with a letter", "argument "+name+" is not a valid name")
 		case !slices.Contains(argTypes, a.Type):
-			return "argument " + name + " must be a string, integer, number, boolean or array"
+			return arg(refArgumentType, name, "string, integer, number, boolean or array", "argument "+name+" must be a string, integer, number, boolean or array")
 		case a.Type == "array" && checkShape(a.Schema, true) != "":
-			return "argument " + name + "'s schema: " + checkShape(a.Schema, true)
+			return arg(refArgumentSchema, name, "an array of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
 		case a.Type != "array" && len(a.Schema) > 0:
-			return "argument " + name + " is a " + a.Type + ": only an array argument has a schema"
+			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array argument has a schema")
 		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
-			return "argument " + name + "'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values"
+			return arg(refArgumentOneOf, name, "a string argument's {tool, path}", "argument "+name+"'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values")
 		}
 		if _, ok := pathParts(a.Path); !ok {
-			return "argument " + name + " needs a dotted path in the vendor's arguments"
+			return arg(refArgumentPath, name, "dotted path", "argument "+name+" needs a dotted path in the vendor's arguments")
 		}
 		for p := range paths {
 			if p == a.Path || strings.HasPrefix(p, a.Path+".") || strings.HasPrefix(a.Path, p+".") {
-				return "argument " + name + " overlaps another argument at " + p
+				return arg(refArgumentOverlap, name, "", "argument "+name+" overlaps another argument at "+p)
 			}
 		}
 		paths[a.Path] = true
@@ -81,7 +91,7 @@ func checkNarrowing(t ToolRequest) string {
 	if t.AmountLookup != nil {
 		// KIFF reads the amount from the resource: the agent never sets it.
 		if _, set := t.Arguments[t.AmountArg]; set {
-			return "amount_argument " + t.AmountArg + " is read by amount_lookup, so it can't also be one of the tool's arguments"
+			return arg(refAmountArgument, "amount_argument", "not one of the tool's arguments", "amount_argument "+t.AmountArg+" is read by amount_lookup, so it can't also be one of the tool's arguments")
 		}
 	} else if t.AmountArg != "" && t.narrowed() {
 		want := "integer"
@@ -89,61 +99,66 @@ func checkNarrowing(t ToolRequest) string {
 			want = "string"
 		}
 		if t.Arguments[t.AmountArg].Type != want {
-			return "amount_argument " + t.AmountArg + " must be one of the tool's " + want + " arguments"
+			return arg(refAmountArgument, "amount_argument", "one of the tool's "+want+" arguments", "amount_argument "+t.AmountArg+" must be one of the tool's "+want+" arguments")
 		}
 	}
 	if r := t.ResourceArg; r != "" {
 		switch {
 		case !toolName.MatchString(r) || r == t.AmountArg || r == IdempotencyArg:
-			return "resource_argument " + r + " is not a valid name"
+			return arg(refResourceArgument, "resource_argument", "", "resource_argument "+r+" is not a valid name")
 		case t.narrowed() && t.Arguments[r].Type != "string":
-			return "resource_argument " + r + " must be one of the tool's string arguments"
+			return arg(refResourceArgument, "resource_argument", "one of the tool's string arguments", "resource_argument "+r+" must be one of the tool's string arguments")
 		}
 	}
-	return ""
+	return nil
 }
 
 // checkLookups says what is wrong with the tools' unit and amount lookups,
-// or "": each names a read of the same request, by its name or its vendor
+// or nil: each names a read of the same request, by its name or its vendor
 // tool, and the read's string argument that takes the resource.
-func checkLookups(tools []ToolRequest) string {
+func checkLookups(tools []ToolRequest) *toolRefusal {
 	for k, t := range tools {
 		if l := t.UnitLookup; l != nil {
 			if t.AmountArg == "" || t.AmountUnit == "" || t.ResourceArg == "" {
-				return t.Tool + "'s unit_lookup needs its amount_argument, amount_unit and resource_argument"
+				return &toolRefusal{Code: refLookup, Tool: refTool(t), Field: "unit_lookup", Want: "amount_argument, amount_unit and resource_argument",
+					Msg: t.Tool + "'s unit_lookup needs its amount_argument, amount_unit and resource_argument"}
 			}
-			if msg := checkLookup(tools, k, *l, "unit_lookup", "currency"); msg != "" {
-				return msg
+			if r := checkLookup(tools, k, *l, "unit_lookup", "currency"); r != nil {
+				return r
 			}
 		}
 		if l := t.AmountLookup; l != nil {
 			if t.AmountArg == "" || t.ResourceArg == "" {
-				return t.Tool + "'s amount_lookup needs its amount_argument (the name its Card counts) and resource_argument"
+				return &toolRefusal{Code: refLookup, Tool: refTool(t), Field: "amount_lookup", Want: "amount_argument and resource_argument",
+					Msg: t.Tool + "'s amount_lookup needs its amount_argument (the name its Card counts) and resource_argument"}
 			}
-			if msg := checkLookup(tools, k, *l, "amount_lookup", "amount"); msg != "" {
-				return msg
+			if r := checkLookup(tools, k, *l, "amount_lookup", "amount"); r != nil {
+				return r
 			}
 		}
 	}
-	return ""
+	return nil
 }
 
 // checkLookup checks one lookup of tools[k]: a read-only tool of the same
 // request, its string argument, and a dotted path in its answer.
-func checkLookup(tools []ToolRequest, k int, l kiff.UnitLookup, field, example string) string {
+func checkLookup(tools []ToolRequest, k int, l kiff.UnitLookup, field, example string) *toolRefusal {
 	t := tools[k]
+	ref := func(sub, want, msg string) *toolRefusal {
+		return &toolRefusal{Code: refLookup, Tool: refTool(t), Field: field + sub, Want: want, Msg: msg}
+	}
 	i := lookupIndex(tools, l.Tool)
 	if i < 0 || i == k || !tools[i].ReadOnly {
-		return t.Tool + "'s " + field + " must name a read-only tool of the same request"
+		return ref(".tool", "a read-only tool of the same request", t.Tool+"'s "+field+" must name a read-only tool of the same request")
 	}
 	read := tools[i]
 	if !toolName.MatchString(l.Argument) || (len(read.Arguments) > 0 && read.Arguments[l.Argument].Type != "string") {
-		return t.Tool + "'s " + field + ".argument must be one of " + read.Tool + "'s string arguments"
+		return ref(".argument", "one of "+read.Tool+"'s string arguments", t.Tool+"'s "+field+".argument must be one of "+read.Tool+"'s string arguments")
 	}
 	if _, ok := pathParts(l.Path); !ok {
-		return t.Tool + "'s " + field + ".path must be a dotted path in the read's answer, such as " + example
+		return ref(".path", "dotted path, such as "+example, t.Tool+"'s "+field+".path must be a dotted path in the read's answer, such as "+example)
 	}
-	return ""
+	return nil
 }
 
 // lookupIndex is the tool a unit lookup names: by its name, else its
@@ -616,9 +631,9 @@ func pathExpr(p string) bool {
 	return true
 }
 
-// checkOneOf says what is wrong with the tools' one_of reads, or "": each
+// checkOneOf says what is wrong with the tools' one_of reads, or nil: each
 // names a read-only tool of the same request, by its vendor tool.
-func checkOneOf(tools []ToolRequest) string {
+func checkOneOf(tools []ToolRequest) *toolRefusal {
 	for _, t := range tools {
 		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 			o := t.Arguments[name].OneOf
@@ -627,11 +642,12 @@ func checkOneOf(tools []ToolRequest) string {
 			}
 			i := slices.IndexFunc(tools, func(r ToolRequest) bool { return r.Tool == o.Tool })
 			if i < 0 || !tools[i].ReadOnly {
-				return t.Tool + "'s argument " + name + ": one_of must name a read-only tool of the same request"
+				return &toolRefusal{Code: refOneOf, Tool: refTool(t), Field: name, Want: "a read-only tool of the same request",
+					Msg: t.Tool + "'s argument " + name + ": one_of must name a read-only tool of the same request"}
 			}
 		}
 	}
-	return ""
+	return nil
 }
 
 // valuesAt is every string at a dotted path in v, going through lists.

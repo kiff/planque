@@ -405,8 +405,8 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := checkTools(ask.Agent, nil); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	if r := checkTools(ask.Agent, nil); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if ask.AgentName != "" && label(ask.AgentName) != ask.AgentName {
