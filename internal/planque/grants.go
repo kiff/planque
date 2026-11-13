@@ -716,8 +716,9 @@ func requestText(w words.Approval, q Request, held bool, account string, catalog
 	return connectionText(w, q, held, account, catalog...) + appWords(w, q)
 }
 
-// accountLabel is the account g acts in, as the owner's text names it: a
-// managed app's account by the name the provider shows, never its id.
+// accountLabel is the account g acts in, as the owner's text and every view
+// name it: a managed app's account by the name the provider shows, never the
+// provider's id for the connection (ca_…), which means nothing to a person.
 func accountLabel(g *Grant) string {
 	if g.Request.Connector != nil {
 		if g.Connector != nil {
@@ -1111,7 +1112,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	}
 	lang, text := g.shown(asked)
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
-		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
+		Account: accountLabel(g), Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
 	if c := g.Request.Connector; c != nil {
@@ -1247,7 +1248,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": accountLabel(g), "tools": g.Catalog})
 }
 
 // setTools is the asking agent choosing, from the catalog, the tools a
@@ -3121,7 +3122,7 @@ type setupGrant struct {
 }
 
 func setupGrantOf(g *Grant) setupGrant {
-	v := setupGrant{ID: g.ID, connection: connectionOf(g), Server: g.Request.Server, Account: g.Account, Created: g.Request.CreatedAt, Tools: []setupGrantTool{}}
+	v := setupGrant{ID: g.ID, connection: connectionOf(g), Server: g.Request.Server, Account: accountLabel(g), Created: g.Request.CreatedAt, Tools: []setupGrantTool{}}
 	for _, t := range g.Request.Tools {
 		v.Tools = append(v.Tools, setupGrantTool{Name: t.Name, Tool: t.Tool, Title: t.Title, ReadOnly: t.ReadOnly, SetupReads: t.SetupReads})
 	}
