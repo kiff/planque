@@ -31,9 +31,11 @@ import (
 // The real adapter and real planque/KIFF handlers run in process. Only the
 // upstream service is synthetic; assertions inspect the outgoing wire request.
 type connectorFixture struct {
-	mu                                sync.Mutex
-	t                                 *testing.T
-	user, callback, accountStatus     string
+	mu                            sync.Mutex
+	t                             *testing.T
+	user, callback, accountStatus string
+	// accountDown makes the provider fail to answer a connected account's read (503).
+	accountDown                       bool
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
@@ -182,6 +184,8 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		f.revocations++
 		f.revoked = append(f.revoked, strings.TrimPrefix(path, "/connected_accounts/"))
 		body = `{"success":true,"revoke_job_id":"job_demo"}`
+	case strings.HasPrefix(path, "/connected_accounts/account_demo") && f.accountDown:
+		return profileResponse(http.StatusServiceUnavailable, `{"error":{"message":"unavailable"}}`), nil
 	case strings.HasPrefix(path, "/connected_accounts/account_demo"):
 		user := f.user
 		if f.foreign {

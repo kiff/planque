@@ -453,6 +453,18 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 			s.fail(w, r, err)
 			return
 		}
+		// Checked with the provider first: one that doesn't answer ACTIVE now, or can't be checked, isn't
+		// reused (fail closed), and the owner is asked to sign in, never told "no second sign-in" over a
+		// sign-in the vendor no longer takes. One the provider says is gone is marked so (sign in again).
+		if held != nil {
+			if err := s.checkConnector(r.Context(), held); err != nil {
+				s.log().WarnContext(r.Context(), "held sign-in not reused", slog.String("grant", held.ID), slog.String("err", err.Error()))
+				if errors.Is(err, connector.ErrAccount) {
+					s.signInRefused(r.Context(), held, vendorName(held)+" no longer accepts this sign-in")
+				}
+				held = nil
+			}
+		}
 		if held != nil {
 			s.reuseConnector(w, r, tenant, me.AgentID, ask.Agent, ask.AgentName, false, held, true)
 			return
@@ -932,6 +944,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
 		return OpNotSent, refusal(CodeOperationChanged, "Not sent: "+why+".")
 	}
+	if errors.Is(err, connector.ErrAccount) {
+		// The provider says the sign-in isn't active now (expired, revoked): every connection on it signs in again.
+		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
+	}
 	if err != nil {
 		// Every error here is before the provider ran the action: a refusal
 		// with its code, so KIFF never reads it as the vendor's.
@@ -945,6 +961,11 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		return OpNotSent, refusal(code, "Not sent: "+err.Error())
 	}
 	s.noteAccount(ctx, g, result)
+	if result.Refused && result.Status == http.StatusUnauthorized {
+		// The vendor refused the sign-in itself (401) behind a status the provider still calls active: an
+		// access its refresh can't renew. Every connection on that sign-in signs in again, and it's never reused.
+		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
+	}
 	if result.Unknown {
 		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
@@ -1192,4 +1213,29 @@ func (s *Server) toolDefinitions(ctx context.Context, providerID, toolkit string
 		cursor = page.Next
 	}
 	return out, nil
+}
+
+// signInRefused marks every connected grant on g's managed sign-in (the same
+// provider account, on g's account) signed out: the owner signs in again,
+// Connect apps says so instead of "Connected", the held sign-in is never
+// reused, and KIFF is told, as for a vendor that refused a refresh. Best
+// effort: a grant that can't be saved stays as it was, for the next call.
+func (s *Server) signInRefused(ctx context.Context, g *Grant, why string) {
+	if g.Connector == nil || g.Connector.Account == "" {
+		return
+	}
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	if err != nil {
+		s.log().WarnContext(ctx, "sign-in refused: the account's connections couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return
+	}
+	for _, it := range items {
+		var other Grant
+		if json.Unmarshal(it.Doc, &other) != nil || other.Connector == nil || other.Connector.Account != g.Connector.Account || other.Status != StatusConnected {
+			continue
+		}
+		if err := s.signOut(ctx, &other, why, "refresh_refused"); err != nil {
+			s.log().WarnContext(ctx, "sign-in refused: a connection wasn't marked", slog.String("grant", other.ID), slog.String("err", err.Error()))
+		}
+	}
 }
