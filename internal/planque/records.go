@@ -359,6 +359,9 @@ type Grant struct {
 	// replaces it. Not finished by its By, it's dropped.
 	Renewal *Renewal `json:"renewal,omitempty"`
 	ver     int64
+	// dueAt is the deadline g's index entry was written for, when g was
+	// loaded or last saved; zero when unknown or none.
+	dueAt time.Time
 	// keptFor is how many other live grants kept this one's sign-in when it
 	// was disconnected; not stored.
 	keptFor int
@@ -465,10 +468,15 @@ func (s *Server) loadGrant(ctx context.Context, tenant, id string) (*Grant, erro
 		return nil, err
 	}
 	g.ver = it.Ver
+	g.dueAt = g.deadline()
 	return &g, nil
 }
 
-// saveGrant writes g if nobody changed it since it was loaded.
+// saveGrant writes g if nobody changed it since it was loaded. A deadline g
+// had when loaded and no longer has loses its index entry once g is saved
+// (a request's 7 days, once it's signed): an entry left behind would be
+// harmless, since the sweep checks the grant itself, but it would wait there
+// for days.
 func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 	c := store.Cond{Ver: &g.ver}
 	if g.ver == 0 {
@@ -478,10 +486,16 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 		return err
 	}
 	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, c)
-	if err == nil {
-		g.ver++
+	if err != nil {
+		return err
 	}
-	return err
+	g.ver++
+	now := g.deadline()
+	if was := g.dueAt; !was.IsZero() && (now.IsZero() || dueSK(was, g.Tenant, g.ID) != dueSK(now, g.Tenant, g.ID)) {
+		_, _, _ = s.KV.Delete(ctx, pkDue, dueSK(was, g.Tenant, g.ID))
+	}
+	g.dueAt = now
+	return nil
 }
 
 func (g *Grant) event(now time.Time, what string) {

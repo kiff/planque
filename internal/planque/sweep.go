@@ -42,8 +42,9 @@ func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
 }
 
 // deadline is when g must be confirmed (a sign-in) or its tools approved (a
-// held sign-in), as expire reads them, or when a connected grant's new
-// sign-in must be done (a renewal); zero when it has none.
+// held sign-in), as expire reads them, when a connected grant's new
+// sign-in must be done (a renewal), or when a request nobody signed ends
+// (pendingTTL); zero when it has none.
 func (g *Grant) deadline() time.Time {
 	if g.Request.Connector != nil && g.Status == StatusApproved {
 		return g.HeldUntil
@@ -57,7 +58,25 @@ func (g *Grant) deadline() time.Time {
 	if g.renewing() {
 		return g.Renewal.By
 	}
+	if g.waitsForApproval() {
+		if asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
+			return asked.Add(pendingTTL)
+		}
+	}
 	return time.Time{}
+}
+
+// pendingTTL is how long a request waits for the owner's signature: past
+// it, the request ends as not approved in time. Before, a request nobody
+// signed waited for ever, outliving its taf, ready to be approved by
+// mistake.
+const pendingTTL = 7 * 24 * time.Hour
+
+// waitsForApproval says g is a request nobody signed yet: pending, with no
+// sign-in held and no tools connected (tools added to a connected grant
+// have their own day, holdTTL).
+func (g *Grant) waitsForApproval() bool {
+	return g.Status == StatusPending && !g.SignedIn && g.Connected == nil
 }
 
 // renewing says g is connected with a new sign-in under way (Renewal).

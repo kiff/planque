@@ -1411,6 +1411,19 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		return false, nil
 	case g.Status == StatusSignedIn && s.now().After(g.ConfirmBy):
 		reason = "the sign-in was not confirmed in time; its token was revoked"
+	case g.waitsForApproval() && s.overdue(g):
+		// Nobody signed it within pendingTTL: it holds no sign-in or key to
+		// revoke, so it only ends, its record kept.
+		was := *g
+		g.HeldUntil = time.Time{}
+		g.Status, g.Reason = StatusFailed, "not approved in time: nobody signed the request within 7 days"
+		g.event(s.now(), "failed: "+g.Reason)
+		if err := s.saveGrant(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		s.log().InfoContext(ctx, "request not approved in time", slog.String("grant", g.ID))
+		return true, nil
 	default:
 		return false, nil
 	}

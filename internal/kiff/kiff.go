@@ -28,6 +28,9 @@ type Client struct {
 
 // Me is who a key speaks for, as KIFF's API answers it.
 type Me struct {
+	// Subject is who the key or session is, as KIFF names them: for a
+	// person's session, their user; for a key, its owner.
+	Subject       string   `json:"subject,omitempty"`
 	APIKey        bool     `json:"api_key"`
 	TenantID      string   `json:"tenant_id"`
 	AgentID       string   `json:"agent_id"`
