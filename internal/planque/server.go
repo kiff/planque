@@ -355,8 +355,9 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 	// Signed together with another request (kiff.requests.v1): the phone
 	// signed this request's message's hash beside the other's, once, with
 	// its approval key. The use is this request's alone.
-	var own string
+	var own, request string
 	if sg.With != "" {
+		request = string(msg)
 		sum := sha256.Sum256(msg)
 		own = hex.EncodeToString(sum[:])
 		if own == sg.With {
@@ -364,7 +365,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 		}
 		msg = device.RequestsMessage(tenant, sg.At, own, sg.With)
 	}
-	a := Approval{Message: string(msg), Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
+	a := Approval{Message: string(msg), Request: request, Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
 	// What the replay record names as the signer, with the message.
 	if sg.Device == "" {
 		return Approval{}, apiError{http.StatusUnauthorized, "this device isn't known to KIFF: sign in to KIFF on it again"}

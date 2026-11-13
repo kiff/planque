@@ -177,6 +177,10 @@ type SetupReads struct {
 		Message   string `json:"message"`   // the exact text the device signed
 		Body      string `json:"body"`      // the approve request's body, whose SHA-256 the message names
 		Signature string `json:"signature"` // base64 DER ECDSA over its SHA-256
+		// Request is the approve request's own message when Message is a
+		// kiff.requests.v1 one over it and another request: Message names its
+		// SHA-256, and Body's is in Request.
+		Request string `json:"request,omitempty"`
 	} `json:"approval"`
 }
 
