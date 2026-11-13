@@ -443,6 +443,13 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 			case errors.Is(err, errSettingUp):
 				writeErr(w, http.StatusServiceUnavailable, "This app is being set up. Try again in a moment.")
 			default:
+				// The provider's cause, kept here: the person reads only that it can't be set up.
+				attrs := []any{slog.String("toolkit", toolkit), slog.String("err", err.Error())}
+				if ce := (*connector.CallError)(nil); errors.As(err, &ce) && ce.Message != "" {
+					// Its own words, made safe by Reason: one line, secrets redacted.
+					attrs = append(attrs, slog.String("reason", ce.Message))
+				}
+				s.log().WarnContext(r.Context(), "app set-up failed", attrs...)
 				writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
 			}
 			return

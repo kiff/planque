@@ -132,7 +132,7 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	a.URL, a.Base = strings.TrimSpace(a.URL), strings.TrimSpace(a.Base)
 	a.Auth.In, a.Auth.Name = strings.TrimSpace(a.Auth.In), strings.TrimSpace(a.Auth.Name)
 	if a.URL == "" {
-		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON", nil
+		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON or YAML", nil
 	}
 	var raw []byte
 	var err error

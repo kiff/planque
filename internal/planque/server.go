@@ -141,8 +141,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/tools", s.searchTools)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/{entry}/events", s.catalogEvents)
-	mux.HandleFunc("POST /v1/accounts/{tenant}/catalog/{entry}/grants", s.requestCatalogGrant)
-	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.requestGrant)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/catalog/{entry}/grants", s.refusalsLogged(s.requestCatalogGrant))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.refusalsLogged(s.requestGrant))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}", s.getGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/catalog", s.catalog)
 	// Reading what a sign-in covers, before its tools were approved, could
