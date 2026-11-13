@@ -66,7 +66,7 @@ func yamlValue(n *yaml.Node, nodes *int) (any, error) {
 				return nil, refuse("a YAML key isn't a plain string")
 			}
 			switch k.Tag {
-			case "!!str", "!!int", "!!float", "!!bool", "!!null":
+			case "!!str", "!!int", "!!float", "!!bool", "!!null", "!!timestamp":
 			case "!!merge":
 				return nil, refuse("it uses YAML merge keys, which planque doesn't read")
 			default:
@@ -100,7 +100,8 @@ func yamlValue(n *yaml.Node, nodes *int) (any, error) {
 
 func yamlScalar(n *yaml.Node) (any, error) {
 	switch n.Tag {
-	case "!!str":
+	case "!!str", "!!timestamp":
+		// An unquoted date (version: 2018-02-08) is the text written, as JSON carries it.
 		return n.Value, nil
 	case "!!null":
 		return nil, nil

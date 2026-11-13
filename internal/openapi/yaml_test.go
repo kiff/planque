@@ -73,6 +73,23 @@ func TestYAMLKeepsWordsAndNumbersExact(t *testing.T) {
 	}
 }
 
+// An unquoted date, as many vendors write their API's version, is the text
+// written, with the digest of its quoted twin.
+func TestAnUnquotedDateIsItsText(t *testing.T) {
+	quoted := strings.Replace(string(asYAML(t, desc)), "title: Shop API", "title: Shop API\n    version: '2018-02-08'", 1)
+	bare := strings.Replace(quoted, "'2018-02-08'", "2018-02-08", 1)
+	if bare == quoted || !strings.Contains(bare, "version: 2018-02-08\n") {
+		t.Fatalf("the date isn't in:\n%s", bare)
+	}
+	j, err := yamlAsJSON([]byte(bare))
+	if err != nil || !strings.Contains(string(j), `"version":"2018-02-08"`) {
+		t.Fatalf("%s %v", j, err)
+	}
+	if parse(t, bare, key).Digest != parse(t, quoted, key).Digest {
+		t.Fatal("the unquoted date has another digest")
+	}
+}
+
 // What isn't plain data is refused with the reason, as JSON's faults are.
 func TestYAMLThatIsntPlainDataIsRefused(t *testing.T) {
 	head := "openapi: 3.0.0\npaths: {}\n"
