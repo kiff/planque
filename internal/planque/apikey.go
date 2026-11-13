@@ -223,8 +223,36 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 				}
 			}
 		}
+		// What a tool pins and narrows goes into the operation's own arguments: one it doesn't take would
+		// reach the vendor, after the owner approved it, as a call it refuses.
+		op := snap.Operations[i]
+		for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
+			if top, _, _ := strings.Cut(p, "."); !hasArg(op.InputSchema, top) {
+				return "fixed argument " + p + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			a := t.Arguments[name]
+			top, _, nested := strings.Cut(a.Path, ".")
+			if !hasArg(op.InputSchema, top) {
+				return "argument " + name + "'s path " + a.Path + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+			}
+			if got := argType(op.InputSchema, top); !nested && got != "" && got != a.Type && !(got == "number" && a.Type == "integer") {
+				return "argument " + name + "'s type is " + a.Type + ", but " + t.Tool + "'s " + top + " is " + got
+			}
+		}
 	}
 	return ""
+}
+
+// hasArg says the operation takes name as a top-level argument.
+func hasArg(schema json.RawMessage, name string) bool {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	_, ok := s.Properties[name]
+	return ok
 }
 
 // argType is the JSON type of an operation's top-level argument, or "" when
@@ -256,7 +284,7 @@ func argType(schema json.RawMessage, name string) string {
 }
 
 // opArgNames are an operation's top-level arguments of type want (an
-// integer one takes a number too), for a refusal to name.
+// integer one takes a number too; "" any), for a refusal to name.
 func opArgNames(schema json.RawMessage, want string) string {
 	var s struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -264,7 +292,7 @@ func opArgNames(schema json.RawMessage, want string) string {
 	_ = json.Unmarshal(schema, &s)
 	var names []string
 	for _, n := range slices.Sorted(maps.Keys(s.Properties)) {
-		if got := argType(schema, n); got == want || want == "integer" && got == "number" {
+		if got := argType(schema, n); want == "" || got == want || want == "integer" && got == "number" {
 			names = append(names, n)
 		}
 	}
