@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -110,11 +111,13 @@ func (s *Server) apiOperations(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// Names, titles and read or write: what Coach picks the job's tools by.
+	// Names, titles and read or write: what Coach picks the job's tools by;
+	// the arguments, what it pins and points a tool's resource and amount at.
 	type operation struct {
-		Name     string `json:"name"`
-		Title    string `json:"title,omitempty"`
-		ReadOnly bool   `json:"read_only"`
+		Name      string     `json:"name"`
+		Title     string     `json:"title,omitempty"`
+		ReadOnly  bool       `json:"read_only"`
+		Arguments []argument `json:"arguments"`
 	}
 	answer := map[string]any{"title": label(snap.Title), "servers": snap.Servers, "accounts": snap.Accounts, "total": len(snap.Operations)}
 	found := snap.Operations
@@ -133,13 +136,46 @@ func (s *Server) apiOperations(w http.ResponseWriter, r *http.Request) {
 	}
 	ops := make([]operation, 0, len(found))
 	for _, o := range found {
-		ops = append(ops, operation{Name: o.Name, Title: label(o.Summary), ReadOnly: o.ReadOnly})
+		ops = append(ops, operation{Name: o.Name, Title: label(o.Summary), ReadOnly: o.ReadOnly, Arguments: arguments(o)})
 	}
 	answer["operations"] = ops
 	if len(snap.Skipped) <= maxListed {
 		answer["skipped"] = snap.Skipped
 	}
 	writeJSON(w, http.StatusOK, answer)
+}
+
+// argument is one of an operation's top-level arguments as its tool takes
+// it: its JSON type, whether the call needs it, and where it goes in the
+// vendor's request (path, query or body).
+type argument struct {
+	Name     string `json:"name"`
+	Type     string `json:"type,omitempty"`
+	Required bool   `json:"required,omitempty"`
+	In       string `json:"in"`
+}
+
+// arguments are o's tool's arguments, from the input schema the tool is
+// built with: path and query ones first, in the description's order, then
+// the body's by name.
+func arguments(o openapi.Operation) []argument {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	_ = json.Unmarshal(o.InputSchema, &s)
+	out := []argument{}
+	for _, p := range o.Params {
+		if _, ok := s.Properties[p.Name]; ok {
+			out = append(out, argument{Name: p.Name, Type: argType(o.InputSchema, p.Name), Required: slices.Contains(s.Required, p.Name), In: p.In})
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		if !slices.ContainsFunc(o.Params, func(p openapi.Param) bool { return p.Name == name }) {
+			out = append(out, argument{Name: name, Type: argType(o.InputSchema, name), Required: slices.Contains(s.Required, name), In: "body"})
+		}
+	}
+	return out
 }
 
 // maxListed is the most operations listed with no words; maxFound the most

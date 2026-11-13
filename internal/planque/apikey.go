@@ -206,8 +206,72 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 		if t.ReadOnly && !snap.Operations[i].ReadOnly {
 			return t.Tool + " isn't a read: only GET and HEAD operations are read-only"
 		}
+		// A tool not narrowed takes the operation's own arguments: what KIFF scopes the Card on, and counts,
+		// must be one of them, of its type, or KIFF refuses the tool when it's declared.
+		if len(t.Arguments) == 0 {
+			op := snap.Operations[i]
+			if r := t.ResourceArg; r != "" && argType(op.InputSchema, r) != "string" {
+				return "resource_argument " + r + " must be one of " + t.Tool + "'s string arguments (" + opArgNames(op.InputSchema, "string") + ")"
+			}
+			if a := t.AmountArg; a != "" && t.AmountLookup == nil {
+				want := "integer"
+				if t.AmountFormat == "decimal_string" {
+					want = "string"
+				}
+				if got := argType(op.InputSchema, a); got != want && !(want == "integer" && got == "number") {
+					return "amount_argument " + a + " must be one of " + t.Tool + "'s " + want + " arguments (" + opArgNames(op.InputSchema, want) + ")"
+				}
+			}
+		}
 	}
 	return ""
+}
+
+// argType is the JSON type of an operation's top-level argument, or "" when
+// it has none of that name.
+func argType(schema json.RawMessage, name string) string {
+	var s struct {
+		Properties map[string]struct {
+			Type any `json:"type"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(schema, &s) != nil {
+		return ""
+	}
+	p, ok := s.Properties[name]
+	if !ok {
+		return ""
+	}
+	switch t := p.Type.(type) {
+	case string:
+		return t
+	case []any: // OpenAPI 3.1: ["string", "null"]
+		for _, x := range t {
+			if v, _ := x.(string); v != "" && v != "null" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// opArgNames are an operation's top-level arguments of type want (an
+// integer one takes a number too), for a refusal to name.
+func opArgNames(schema json.RawMessage, want string) string {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	var names []string
+	for _, n := range slices.Sorted(maps.Keys(s.Properties)) {
+		if got := argType(schema, n); got == want || want == "integer" && got == "number" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return "it has none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // reusable is the connected grant a new one may reuse the sign-in of
