@@ -56,3 +56,13 @@ owner's. Without the key it writes the reviewed entries only.
 | GitHub | [github.md](github.md) | [github](generated/github.md) |
 | LinkedIn | [linkedin.md](linkedin.md) | [linkedin](generated/linkedin.md) |
 | Qonto (key) | [qonto.md](qonto.md) | [qonto-key-1](generated/qonto-key-1.md), [qonto-key-2](generated/qonto-key-2.md) |
+| bexio | [bexio.md](bexio.md) | [bexio](generated/bexio.md) |
+| Bitbucket | [bitbucket.md](bitbucket.md) | [bitbucket](generated/bitbucket.md) |
+| Cal | [cal.md](cal.md) | [cal](generated/cal.md) |
+| Clay | [clay.md](clay.md) | [clay](generated/clay.md) |
+| ClickUp | [clickup.md](clickup.md) | [clickup](generated/clickup.md) |
+| Confluence | [confluence.md](confluence.md) | [confluence](generated/confluence.md) |
+| Discord | [discord.md](discord.md) | [discord](generated/discord.md) |
+| Discord Bot | [discordbot.md](discordbot.md) | [discordbot](generated/discordbot.md) |
+| Dropbox | [dropbox.md](dropbox.md) | [dropbox](generated/dropbox.md) |
+| Dynamics 365 | [dynamics365.md](dynamics365.md) | [dynamics365](generated/dynamics365.md) |
