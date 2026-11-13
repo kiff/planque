@@ -53,7 +53,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `NOTION_LIST_VIEWS` | List Notion views | read | *data_source_id, database_id, page_size, start_cursor* |  |  |
 | `NOTION_MOVE_PAGE` | Move Page | write | `page_id`, `parent` |  | `update_content` |
 | `NOTION_QUERY_DATABASE` | Query database | read | `database_id`; *page_size, sorts, start_cursor* |  | `databases.read` |
-| `NOTION_QUERY_DATABASE_WITH_FILTER` | Query database with filter | read | `database_id`; *composio_execution_message, filter, page_size, sorts, start_cursor* |  | `read_content` |
+| `NOTION_QUERY_DATABASE_WITH_FILTER` | Query database with filter | read | `database_id`; *filter, page_size, sorts, start_cursor* |  | `read_content` |
 | `NOTION_QUERY_DATA_SOURCE` | Query data source | read | `data_source_id`; *filter, filter_properties, page_size, sorts, start_cursor* |  | `read_content` |
 | `NOTION_RETRIEVE_COMMENT` | Retrieve Comment | read | `comment_id` |  |  |
 | `NOTION_RETRIEVE_DATABASE_PROPERTY` | Retrieve Database Property | read | `database_id`, `property_id` |  |  |

@@ -57,7 +57,7 @@ func ManagedGuideApp(app connector.App, tools []connector.Tool) GuideApp {
 	for _, t := range tools {
 		required, optional := schemaInputs(t.InputSchema)
 		g.Tools = append(g.Tools, GuideTool{Name: t.Slug, Title: label(cmp.Or(t.Name, t.Slug)), ReadOnly: t.ReadOnly,
-			Access: t.Scopes, Inputs: required, Optional: optional, Returns: returnsOf(t.Output)})
+			Access: t.Scopes, Inputs: required, Optional: optional, Returns: slices.DeleteFunc(returnsOf(t.Output), serviceNamed)})
 	}
 	slices.SortFunc(g.Tools, func(a, b GuideTool) int { return strings.Compare(a.Name, b.Name) })
 	return g
@@ -86,6 +86,12 @@ func EntryGuideApp(id string, e CatalogEntry) GuideApp {
 	return g
 }
 
+// serviceNamed says whether a field is named after the connection service
+// rather than the vendor: its own plumbing, never part of a public guide.
+func serviceNamed(name string) bool {
+	return strings.Contains(strings.ToLower(name), "composio")
+}
+
 // schemaInputs reads a tool's arguments from its input schema: the
 // required ones, then the rest, each sorted.
 func schemaInputs(schema json.RawMessage) (required, optional []string) {
@@ -97,6 +103,9 @@ func schemaInputs(schema json.RawMessage) (required, optional []string) {
 		return nil, nil
 	}
 	for name := range s.Properties {
+		if serviceNamed(name) {
+			continue
+		}
 		if slices.Contains(s.Required, name) {
 			required = append(required, name)
 		} else {

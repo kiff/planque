@@ -27,7 +27,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `SALESFORCE_COMPLETE_TASK` | Complete task | write | `task_id`; *completion_notes, custom_fields* |  | `full`, `api` |
 | `SALESFORCE_CREATE_ACCOUNT` | Create account | write | `name`; *account_source, annual_revenue, billing_city, billing_country, billing_postal_code, billing_state, billing_street, custom_fields and 14 more* |  | `full`, `api` |
 | `SALESFORCE_CREATE_ANALYTICS_NOTIFICATION` | Create analytics notification | write | *active, configuration, deactivateOnTrigger, name, recordId, runAs, schedule, source and 1 more* |  | `full`, `api` |
-| `SALESFORCE_CREATE_A_RECORD` | Create a record | write | `api_name`, `fields`; *allow_save_on_duplicate, composio_execution_message* |  | `full`, `api` |
+| `SALESFORCE_CREATE_A_RECORD` | Create a record | write | `api_name`, `fields`; *allow_save_on_duplicate* |  | `full`, `api` |
 | `SALESFORCE_CREATE_BULK_INGEST_JOB` | Create bulk ingest job | write | `object_type`, `operation`; *assignment_rule_id, column_delimiter, content_type, external_id_field_name, line_ending* |  | `full`, `api` |
 | `SALESFORCE_CREATE_BULK_QUERY_JOB` | Create bulk query job | read | `query`; *column_delimiter, content_type, line_ending, operation* |  | `full`, `api` |
 | `SALESFORCE_CREATE_CAMPAIGN` | Create campaign | write | `name`; *actual_cost, budgeted_cost, custom_fields, description, end_date, expected_response, expected_revenue, is_active and 5 more* |  | `full`, `api` |
@@ -43,7 +43,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `SALESFORCE_CREATE_OPPORTUNITY` | Create opportunity | write | `close_date`, `name`, `stage_name`; *account_id, amount, contact_id, custom_fields, description, lead_source, next_step, pricebook2_id and 2 more* |  | `full`, `api` |
 | `SALESFORCE_CREATE_SOBJECT_TREE` | Create sObject tree | write | `records`, `sobject_api_name` |  | `full`, `api` |
 | `SALESFORCE_CREATE_S_OBJECT_RECORD` | Create SObject record | write | `fields`, `sobject_type` |  | `full`, `api` |
-| `SALESFORCE_CREATE_TASK` | Create task | write | `subject`; *activity_date, composio_execution_message, custom_fields, description, is_reminder_set, owner_id, priority, reminder_date_time and 3 more* |  | `full`, `api` |
+| `SALESFORCE_CREATE_TASK` | Create task | write | `subject`; *activity_date, custom_fields, description, is_reminder_set, owner_id, priority, reminder_date_time and 3 more* |  | `full`, `api` |
 | `SALESFORCE_CREATE_TOOLING_FLOW` | Create Tooling Flow | write | `full_name`, `metadata`; *is_template* |  | `full`, `api` |
 | `SALESFORCE_CREATE_TOOLING_RECORD` | Create Tooling API record | write | `fields`, `object_name` |  | `full`, `api` |
 | `SALESFORCE_CREATE_VALIDATION_RULE` | Create validation rule | write | `active`, `error_condition_formula`, `error_message`, `full_name`; *description, error_display_field* |  | `full`, `api` |

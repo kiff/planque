@@ -76,7 +76,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `YOUTUBE_UPDATE_PLAYLIST` | Update Playlist | write | `id`, `snippet`; *onBehalfOfContentOwner, part, status* |  | `youtubepartner`, `youtube`, `youtube.force-ssl` |
 | `YOUTUBE_UPDATE_PLAYLIST_ITEM` | Update Playlist Item | write | `id`, `snippet`; *contentDetails, onBehalfOfContentOwner, part, status* |  | `youtubepartner`, `youtube`, `youtube.force-ssl` |
 | `YOUTUBE_UPDATE_THUMBNAIL` | Update thumbnail | write | `thumbnailUrl`, `videoId` |  | `youtube`, `youtube.upload` |
-| `YOUTUBE_UPDATE_VIDEO` | Update video | write | `video_id`; *category_id, composio_execution_message, description, privacy_status, tags, title* |  | `youtube.force-ssl`, `youtube.upload` |
+| `YOUTUBE_UPDATE_VIDEO` | Update video | write | `video_id`; *category_id, description, privacy_status, tags, title* |  | `youtube.force-ssl`, `youtube.upload` |
 | `YOUTUBE_UPLOAD_CAPTION_MEDIA` | Upload caption media | write | `captionFile`, `id`; *onBehalfOfContentOwner* |  | `youtube.force-ssl`, `youtubepartner` |
 | `YOUTUBE_UPLOAD_CAPTION_TRACK` | Upload caption track | write | `file`, `language`, `name`, `videoId`; *isDraft, onBehalfOfContentOwner* |  | `youtube.force-ssl`, `youtubepartner` |
 | `YOUTUBE_UPLOAD_CHANNEL_BANNER` | Upload channel banner | write | `bannerFile`; *onBehalfOfContentOwner* |  | `youtube.upload`, `youtube`, `youtube.force-ssl` |

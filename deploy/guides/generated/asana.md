@@ -230,7 +230,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `ASANA_ROLLUP_TASK` | Roll up subtask dates for a task | write | `task_gid`; *opt_fields, opt_pretty* |  | `tasks:write`, `default` |
 | `ASANA_SAVE_PROJECT_AS_TEMPLATE` | Create a project template from a project | write | `data`, `project_gid`; *opt_fields, opt_pretty* |  | `default` |
 | `ASANA_SEARCH_PROJECTS_FOR_WORKSPACE` | Search projects in a workspace | read | `workspace_gid`; *completed, completed_at.after, completed_at.before, completed_on, completed_on.after, completed_on.before, created_at.after, created_at.before and 22 more* |  | `projects:read`, `default` |
-| `ASANA_SEARCH_TASKS_IN_WORKSPACE` | Search Tasks in Workspace | read | `workspace_gid`; *assignee_any, composio_execution_message, limit, opt_fields, opt_pretty, projects_any, resource_subtype, text* |  |  |
+| `ASANA_SEARCH_TASKS_IN_WORKSPACE` | Search Tasks in Workspace | read | `workspace_gid`; *assignee_any, limit, opt_fields, opt_pretty, projects_any, resource_subtype, text* |  |  |
 | `ASANA_SET_PARENT_FOR_TASK` | Set parent for task | write | `parent`, `task_gid`; *insert_after, insert_before, opt_fields, opt_pretty* |  | `tasks:write`, `default` |
 | `ASANA_SUBMIT_PARALLEL_REQUESTS` | Submit Parallel Requests (Batch API) | write | `data` |  |  |
 | `ASANA_TRIGGER_RULE` | Trigger a rule | write | `data`, `rule_trigger_gid` |  | `default` |

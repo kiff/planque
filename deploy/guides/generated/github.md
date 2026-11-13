@@ -790,7 +790,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `GITHUB_SEARCH_CODE` | Search code | read | `q`; *order, page, per_page, sort* |  | `public_repo` |
 | `GITHUB_SEARCH_CODE_ALL_PAGES` | Search code (all pages) | read | `q`; *accept, limit, order, page, per_page, sort* |  |  |
 | `GITHUB_SEARCH_COMMITS` | Search commits | read | `q`; *order, page, per_page, sort* |  | `repo` |
-| `GITHUB_SEARCH_COMMITS_BY_AUTHOR` | Search commits by author across repos | read | `q`; *composio_execution_message, order, page, per_page, sort* |  |  |
+| `GITHUB_SEARCH_COMMITS_BY_AUTHOR` | Search commits by author across repos | read | `q`; *order, page, per_page, sort* |  |  |
 | `GITHUB_SEARCH_GITHUB_GRAPHQL` | GitHub GraphQL Search | write | `query`, `type`; *after, first* |  | `repo`, `public_repo` |
 | `GITHUB_SEARCH_ISSUES` | Search issues and pull requests | read | `q`; *order, page, per_page, sort* |  |  |
 | `GITHUB_SEARCH_ISSUES_AND_PULL_REQUESTS` | Search issues and pull requests | read | `q`; *order, page, per_page, response_detail, sort* |  | `repo`, `public_repo` |
