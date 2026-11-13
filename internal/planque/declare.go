@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -39,9 +40,13 @@ func declares(g *Grant) bool {
 // then serves it, its credential unchanged. A declaration that fails leaves
 // the request as it was, with nothing in KIFF: it connects as before, once
 // the key is given.
-func (s *Server) declare(ctx context.Context, g *Grant) {
+//
+// refused is set when KIFF turned a tool down for what it is (a 4xx): the
+// key would meet the same refusal after the owner gave it, so the request
+// ends here instead, failed with KIFF's words, and nothing is left in KIFF.
+func (s *Server) declare(ctx context.Context, g *Grant) (refused string) {
 	if !declares(g) {
-		return
+		return ""
 	}
 	note := func(why string) {
 		g.event(s.now(), "its tools weren't declared to KIFF before the key: "+why+"; they're registered once the key is given")
@@ -52,21 +57,21 @@ func (s *Server) declare(ctx context.Context, g *Grant) {
 	listed, _, err := s.vendorTools(ctx, g, "")
 	if err != nil {
 		note("its API description couldn't be read: " + err.Error())
-		return
+		return ""
 	}
 	var tools []GrantedTool
 	for _, t := range g.Request.Tools {
 		gt, why := granted(g, t, listed)
 		if why != "" {
 			note(why)
-			return
+			return ""
 		}
 		tools = append(tools, gt)
 	}
 	key, err := s.connectorKey(ctx, g.Tenant)
 	if err != nil {
 		note("the KIFF connector key could not be opened")
-		return
+		return ""
 	}
 	transport := oauth.Random(32)
 	sum := sha256.Sum256([]byte(transport))
@@ -76,7 +81,7 @@ func (s *Server) declare(ctx context.Context, g *Grant) {
 	if err := s.saveGrant(ctx, g); err != nil {
 		g.Tools, g.Transport, g.Declared = nil, "", false
 		s.log().WarnContext(ctx, "declare: the grant wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
-		return
+		return ""
 	}
 	var done, titles []string
 	for _, t := range tools {
@@ -85,8 +90,15 @@ func (s *Server) declare(ctx context.Context, g *Grant) {
 				_ = s.KIFF.Disconnect(ctx, key, name)
 			}
 			g.Tools, g.Transport, g.Declared = nil, "", false
+			if a := (*kiff.Answered)(nil); errors.As(err, &a) && a.Refused() {
+				why := "KIFF won't take " + t.Name + ": " + a.Msg
+				if err := s.failGrant(ctx, g, why); err != nil && err.Error() != why {
+					s.log().WarnContext(ctx, "declare: the refused grant wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				}
+				return why
+			}
 			note("KIFF did not register " + t.Name + ": " + err.Error())
-			return
+			return ""
 		}
 		done = append(done, t.Name)
 		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
@@ -95,6 +107,7 @@ func (s *Server) declare(ctx context.Context, g *Grant) {
 	if err := s.saveGrant(ctx, g); err != nil {
 		s.log().WarnContext(ctx, "declare: the grant's record wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
 	}
+	return ""
 }
 
 // undeclare takes a request's declared tools out of KIFF, when it ends

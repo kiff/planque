@@ -154,6 +154,18 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		snap, err = openapi.ParseOperations(raw, a.Auth, a.Operations)
 	} else {
 		snap, err = openapi.Parse(raw, a.Auth)
+		var rf *openapi.Refused
+		if errors.As(err, &rf) && rf.TooMany && len(tools) > 0 && len(tools) <= openapi.MaxOperations {
+			// A big API (Stripe's, GitHub's), asked for with the job's operations as describe named them: its
+			// snapshot is those operations alone, as a selection would be.
+			names := make([]string, 0, len(tools))
+			for _, t := range tools {
+				if !slices.Contains(names, t.Tool) {
+					names = append(names, t.Tool)
+				}
+			}
+			snap, err = openapi.ParseOperations(raw, a.Auth, names)
+		}
 	}
 	if err != nil {
 		return nil, nil, err.Error(), nil
@@ -194,8 +206,106 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 		if t.ReadOnly && !snap.Operations[i].ReadOnly {
 			return t.Tool + " isn't a read: only GET and HEAD operations are read-only"
 		}
+		// A tool not narrowed takes the operation's own arguments: what KIFF scopes the Card on, and counts,
+		// must be one of them, of its type, or KIFF refuses the tool when it's declared.
+		if len(t.Arguments) == 0 {
+			op := snap.Operations[i]
+			if r := t.ResourceArg; r != "" && argType(op.InputSchema, r) != "string" {
+				return "resource_argument " + r + " must be one of " + t.Tool + "'s string arguments (" + opArgNames(op.InputSchema, "string") + ")"
+			}
+			if a := t.AmountArg; a != "" && t.AmountLookup == nil {
+				want := "integer"
+				if t.AmountFormat == "decimal_string" {
+					want = "string"
+				}
+				// KIFF counts a whole number of minor units: a number (a decimal) isn't one. A decimal amount
+				// goes as amount_format decimal_string, on a string argument.
+				if got := argType(op.InputSchema, a); got != want {
+					why := "amount_argument " + a + " must be one of " + t.Tool + "'s " + want + " arguments (" + opArgNames(op.InputSchema, want) + ")"
+					if got == "number" {
+						why += ": " + a + " is a number, and KIFF counts a whole number of minor units"
+					}
+					return why
+				}
+			}
+		}
+		// What a tool pins and narrows goes into the operation's own arguments: one it doesn't take would
+		// reach the vendor, after the owner approved it, as a call it refuses.
+		op := snap.Operations[i]
+		for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
+			if top, _, _ := strings.Cut(p, "."); !hasArg(op.InputSchema, top) {
+				return "fixed argument " + p + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+			a := t.Arguments[name]
+			top, _, nested := strings.Cut(a.Path, ".")
+			if !hasArg(op.InputSchema, top) {
+				return "argument " + name + "'s path " + a.Path + " isn't one of " + t.Tool + "'s arguments (" + opArgNames(op.InputSchema, "") + ")"
+			}
+			if got := argType(op.InputSchema, top); !nested && got != "" && got != a.Type && !(got == "number" && a.Type == "integer") {
+				return "argument " + name + "'s type is " + a.Type + ", but " + t.Tool + "'s " + top + " is " + got
+			}
+		}
 	}
 	return ""
+}
+
+// hasArg says the operation takes name as a top-level argument.
+func hasArg(schema json.RawMessage, name string) bool {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	_, ok := s.Properties[name]
+	return ok
+}
+
+// argType is the JSON type of an operation's top-level argument, or "" when
+// it has none of that name.
+func argType(schema json.RawMessage, name string) string {
+	var s struct {
+		Properties map[string]struct {
+			Type any `json:"type"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(schema, &s) != nil {
+		return ""
+	}
+	p, ok := s.Properties[name]
+	if !ok {
+		return ""
+	}
+	switch t := p.Type.(type) {
+	case string:
+		return t
+	case []any: // OpenAPI 3.1: ["string", "null"]
+		for _, x := range t {
+			if v, _ := x.(string); v != "" && v != "null" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// opArgNames are an operation's top-level arguments of type want ("" any),
+// for a refusal to name.
+func opArgNames(schema json.RawMessage, want string) string {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	var names []string
+	for _, n := range slices.Sorted(maps.Keys(s.Properties)) {
+		if got := argType(schema, n); want == "" || got == want {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return "it has none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // reusable is the connected grant a new one may reuse the sign-in of
