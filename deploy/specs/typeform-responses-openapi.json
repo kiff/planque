@@ -1,0 +1,54 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Typeform: forms and responses (reviewed subset)",
+    "version": "1",
+    "description": "The part of Typeform's API a taf reads: the account's forms, one form, and a form's responses. Written by hand from Typeform's documented Create and Responses APIs, since Typeform publishes no machine-readable description. Read-only."
+  },
+  "servers": [{"url": "https://api.typeform.com"}],
+  "components": {
+    "securitySchemes": {
+      "personal_token": {"type": "http", "scheme": "bearer", "description": "A Typeform personal access token with forms:read and responses:read"}
+    }
+  },
+  "security": [{"personal_token": []}],
+  "paths": {
+    "/forms": {
+      "get": {
+        "operationId": "list_forms",
+        "summary": "List the forms",
+        "parameters": [
+          {"name": "search", "in": "query", "schema": {"type": "string"}, "description": "Only forms whose title contains this"},
+          {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}},
+          {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200}}
+        ],
+        "responses": {"200": {"description": "The forms", "content": {"application/json": {"schema": {"type": "object"}}}}}
+      }
+    },
+    "/forms/{form_id}": {
+      "get": {
+        "operationId": "get_form",
+        "summary": "Read one form and its questions",
+        "parameters": [
+          {"name": "form_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "The form", "content": {"application/json": {"schema": {"type": "object"}}}}}
+      }
+    },
+    "/forms/{form_id}/responses": {
+      "get": {
+        "operationId": "list_responses",
+        "summary": "List a form's responses",
+        "parameters": [
+          {"name": "form_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "since", "in": "query", "schema": {"type": "string"}, "description": "Responses submitted after this time (ISO 8601, UTC)"},
+          {"name": "until", "in": "query", "schema": {"type": "string"}, "description": "Responses submitted before this time (ISO 8601, UTC)"},
+          {"name": "completed", "in": "query", "schema": {"type": "boolean"}, "description": "true for submitted responses only"},
+          {"name": "page_size", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+          {"name": "after", "in": "query", "schema": {"type": "string"}, "description": "The token of the last response already read, for the next page"}
+        ],
+        "responses": {"200": {"description": "The responses", "content": {"application/json": {"schema": {"type": "object"}}}}}
+      }
+    }
+  }
+}

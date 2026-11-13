@@ -396,5 +396,73 @@
         }
       ]
     }
+  },
+  "typeform-key@1": {
+    "vendor": "Typeform",
+    "title": "Typeform: read forms and their responses",
+    "kind": "api_key",
+    "api": {
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/typeform-responses-openapi.json",
+      "base": "https://api.typeform.com",
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "operations": [
+        "list_forms",
+        "get_form",
+        "list_responses"
+      ]
+    },
+    "description_sha256": "97a4f2bcc6433f008e35e099a742d4414086ec11b59177621728507b97fc47ff",
+    "tools": [
+      {
+        "tool": "list_forms",
+        "name": "typeform_list_forms",
+        "title": "List the forms",
+        "read_only": true
+      },
+      {
+        "tool": "get_form",
+        "name": "typeform_get_form",
+        "title": "Read one form and its questions",
+        "read_only": true
+      },
+      {
+        "tool": "list_responses",
+        "name": "typeform_list_responses",
+        "title": "List a form's responses",
+        "read_only": true
+      }
+    ],
+    "profile": {
+      "v": "kiff.profile.v1",
+      "vendor": "Typeform",
+      "transport": "rest",
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "catalog_entry": "typeform-key@1",
+      "test_proven": false,
+      "operations": [
+        {
+          "tool": "typeform_list_forms",
+          "title": "List the forms",
+          "kind": "read"
+        },
+        {
+          "tool": "typeform_get_form",
+          "title": "Read one form and its questions",
+          "kind": "read"
+        },
+        {
+          "tool": "typeform_list_responses",
+          "title": "List a form's responses",
+          "kind": "read"
+        }
+      ]
+    }
   }
 }
