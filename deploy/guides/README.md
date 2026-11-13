@@ -5,6 +5,10 @@ Coach reads an app's guide before it offers a job that uses the app. tafs
 cloud preselects the guides of the apps a job connects or offers, so the
 choice is deterministic, never the model's.
 
+planque serves each adapted guide as it's built
+(`GET /v1/accounts/{tenant}/catalog/{entry}/guide`, `guides.go` beside this
+file): a new or changed guide reaches Coach with the next deploy.
+
 ## Two parts per app
 
 - **Generated:** `generated/<slug>.md`, written by `planque guides` from the
