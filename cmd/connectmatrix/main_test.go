@@ -27,8 +27,17 @@ func TestTheMatrixReadsEachDescriptionAsPlanqueDoes(t *testing.T) {
 		t.Errorf("OAuth only: %q %q", route, why)
 	}
 	basic := strings.Replace(keyed, `{"type": "apiKey", "in": "header", "name": "X-API-Key"}`, `{"type": "http", "scheme": "basic"}`, 1)
-	if route, _, why := keyRoute([]byte(basic)); route != "❌" || !strings.Contains(why, "HTTP basic") {
+	// planque takes HTTP Basic now: the key as its username.
+	if route, _, why := keyRoute([]byte(basic)); !strings.HasPrefix(route, "✅ HTTP Basic") {
 		t.Errorf("HTTP Basic: %q %q", route, why)
+	}
+	// A description that names no scheme takes the key as asked: tried as a Bearer token.
+	noScheme := strings.Replace(strings.Replace(keyed, `"securitySchemes": {"key": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}`, `"securitySchemes": {}`, 1), `"security": [{"key": []}],`, ``, 1)
+	if noScheme == keyed {
+		t.Fatal("setup: the scheme wasn't taken out")
+	}
+	if route, _, why := keyRoute([]byte(noScheme)); !strings.HasPrefix(route, "✅ header Authorization") {
+		t.Errorf("no named scheme: %q %q", route, why)
 	}
 	for body, want := range map[string]string{
 		`{"kind": "discovery#restDescription"}`: "Google Discovery",
