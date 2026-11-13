@@ -44,6 +44,8 @@ type connectorFixture struct {
 	revoked  []string
 	// managed marks desk_demo's sign-in as the provider's own; ceiling, when
 	// set, is its managed scope ceiling, always is what it always asks, and
+	// setUpFails fails an app's set-up at the provider, its answer naming the project key.
+	setUpFails bool
 	// noRecommend fails the scope recommendation (gap 5 of kiff/tafs#476).
 	managed     bool
 	ceiling     []string
@@ -113,6 +115,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		if in.Config["type"] != "use_composio_managed_auth" || len(in.Config) != 1 {
 			f.t.Fatalf("a set-up with something of ours in it: %v", in.Config)
+		}
+		if f.setUpFails {
+			return profileResponse(400, `{"error":{"message":"Toolkit has no managed auth for key synthetic-project-key"}}`), nil
 		}
 		f.setUps = append(f.setUps, in.Toolkit.Slug)
 		body = `{"toolkit":{"slug":"` + in.Toolkit.Slug + `"},"auth_config":{"id":"ac_` + in.Toolkit.Slug + `_new","auth_scheme":"OAUTH2","is_composio_managed":true}}`

@@ -79,7 +79,9 @@ type Skipped struct {
 // every call uses.
 type Snapshot struct {
 	Version string `json:"version"`
-	// Digest is the SHA-256 of the description's bytes as fetched.
+	// Digest is the SHA-256 of the description in planque's normal form: its
+	// JSON with keys in order and numbers as written, so a description and
+	// its YAML twin, or the same JSON indented otherwise, share it.
 	Digest     string      `json:"digest"`
 	Title      string      `json:"title,omitempty"`
 	Servers    []string    `json:"servers,omitempty"`
@@ -127,14 +129,27 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		return nil, refuse("it is over 16 MB")
 	}
 	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return nil, refuse("planque reads JSON descriptions only; use the vendor's OpenAPI description in JSON")
+	if len(trimmed) == 0 {
+		return nil, refuse("it is empty")
+	}
+	// Many vendors publish their description in YAML only: it's read as the
+	// same JSON, then checked, digested and limited as any.
+	if trimmed[0] != '{' {
+		asJSON, err := yamlAsJSON(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		trimmed = asJSON
 	}
 	var doc map[string]any
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.UseNumber()
 	if err := dec.Decode(&doc); err != nil {
 		return nil, refuse("it isn't valid JSON")
+	}
+	normal, err := json.Marshal(doc)
+	if err != nil {
+		return nil, refuse("it can't be read as JSON")
 	}
 	version, _ := doc["openapi"].(string)
 	if !strings.HasPrefix(version, "3.0.") && !strings.HasPrefix(version, "3.1.") {
@@ -148,7 +163,7 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(raw)
+	sum := sha256.Sum256(normal)
 	s := &Snapshot{Version: version, Digest: hex.EncodeToString(sum[:])}
 	if info, ok := doc["info"].(map[string]any); ok {
 		s.Title, _ = info["title"].(string)

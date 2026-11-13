@@ -131,7 +131,6 @@ func TestTheKeyMustBeOneOfItsSchemes(t *testing.T) {
 
 func TestWhatIsntReadIsRefusedWithTheReason(t *testing.T) {
 	for name, c := range map[string]struct{ from, to, why string }{
-		"yaml":        {`{`, "openapi: 3.0.0\n", "JSON descriptions only"},
 		"swagger 2":   {`"openapi": "3.1.0"`, `"openapi": "2.0"`, "isn't OpenAPI 3.0 or 3.1"},
 		"external":    {`"#/components/schemas/Refund"`, `"other.json#/Refund"`, "references another document"},
 		"op servers":  {`"operationId": "putNotes",`, `"operationId": "putNotes", "servers": [],`, "sets its own servers"},
@@ -141,9 +140,6 @@ func TestWhatIsntReadIsRefusedWithTheReason(t *testing.T) {
 		"bad pointer": {`"#/components/schemas/Refund"`, `"#/components/schemas/Nope"`, "names nothing"},
 	} {
 		raw := strings.Replace(desc, c.from, c.to, 1)
-		if name == "yaml" {
-			raw = "openapi: 3.0.0\npaths: {}\n"
-		}
 		_, err := Parse([]byte(raw), key)
 		var r *Refused
 		if !errors.As(err, &r) || !strings.Contains(err.Error(), c.why) {

@@ -132,7 +132,7 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	a.URL, a.Base = strings.TrimSpace(a.URL), strings.TrimSpace(a.Base)
 	a.Auth.In, a.Auth.Name = strings.TrimSpace(a.Auth.In), strings.TrimSpace(a.Auth.Name)
 	if a.URL == "" {
-		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON", nil
+		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON or YAML", nil
 	}
 	var raw []byte
 	var err error
@@ -141,7 +141,7 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		// the Bot API, its server and where the token goes.
 		raw, a.Base, a.Auth, a.Operations = []byte(telegramAPI), s.telegramAPIBase(), telegramAuth, nil
 	} else if raw, err = s.REST.Fetch(ctx, a.URL); err != nil {
-		return nil, nil, "Couldn't read the API description at " + a.URL + ": " + err.Error(), nil
+		return nil, nil, "Couldn't read the API description at " + rest.ShownURL(a.URL) + ": " + err.Error(), nil
 	}
 	if len(expectedDigest) > 0 && expectedDigest[0] != "" {
 		sum := sha256.Sum256(raw)
