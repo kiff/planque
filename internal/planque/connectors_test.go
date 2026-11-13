@@ -298,9 +298,12 @@ func newConnectorFixture(t *testing.T) (*env, *connectorFixture) {
 	e.s.Connectors = map[string]connector.Provider{"composio": &composio.Client{HTTP: &http.Client{Transport: f}, Secret: func(context.Context) (string, error) { return "synthetic-project-key", nil }}}
 	return e, f
 }
+
+// requestConnector asks for a sign-in of its own, even when the account holds
+// one to the app (new_sign_in): a test of a held sign-in reused asks without it.
 func requestConnector(t *testing.T, e *env) map[string]any {
 	t.Helper()
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "new_sign_in": true}, nil, "k_setup")
 	if st != 201 || out["needs_key"] != false {
 		t.Fatalf("request: %d %v", st, out)
 	}

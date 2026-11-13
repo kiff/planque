@@ -64,12 +64,23 @@ func TestAConnectedGrantGainsTools(t *testing.T) {
 		!strings.Contains(text, "already signed in") || strings.Contains(text, "You will sign in") || !strings.Contains(text, "Refund a charge") {
 		t.Fatalf("the owner's text:\n%s", text)
 	}
-	// Meanwhile the taf's refund still works, and the new tool isn't in KIFF.
+	// Meanwhile the taf's refund still works, and the new tool is declared in KIFF, so the Card can be drafted over it
+	// and signed with this approval (tools_and_cards), but nothing reaches the vendor through it before the approval.
 	if d := e.refund(); d != "allowed" {
 		t.Fatalf("a refund while the addition waits: %s", d)
 	}
-	if _, ok := e.kiff.Connection(tenant, "list_charges"); ok {
-		t.Fatal("list_charges is in KIFF before the owner approved it")
+	if out["declared"] != true {
+		t.Fatalf("the addition isn't declared: %v", out)
+	}
+	declared, ok := e.kiff.Connection(tenant, "list_charges")
+	if !ok {
+		t.Fatal("list_charges isn't declared in KIFF while the addition waits")
+	}
+	e.kiff.Cards["k_taf"]["list_charges"] = 0
+	if res, err := e.kiff.Call(context.Background(), "k_taf", "list_charges", map[string]any{}); err != nil || res.Decision != "allowed" {
+		t.Fatalf("a call before the approval: %+v %v", res, err)
+	} else if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "waits for the owner's approval") || !strings.Contains(text, "Nothing was sent") {
+		t.Fatalf("a call before the approval went through: %s", text)
 	}
 
 	// One approval connects it: no sign-in link, both tools in KIFF, and the
@@ -83,8 +94,8 @@ func TestAConnectedGrantGainsTools(t *testing.T) {
 	if a, _ := signIns(); a != a0 {
 		t.Fatalf("approving the addition signed in again: %d live tokens, were %d", a, a0)
 	}
-	if _, ok := e.kiff.Connection(tenant, "list_charges"); !ok {
-		t.Fatal("list_charges isn't in KIFF")
+	if c, ok := e.kiff.Connection(tenant, "list_charges"); !ok || c.Credential != declared.Credential {
+		t.Fatal("list_charges isn't in KIFF with the registration it was declared with")
 	}
 	if tools, _ := out["tools"].([]any); len(tools) != 2 {
 		t.Fatalf("tools: %v", out["tools"])
@@ -129,10 +140,13 @@ func TestAFailedAdditionKeepsTheTools(t *testing.T) {
 	e := newEnv(t)
 	id := e.connectedRefunds()
 	acct := "/v1/accounts/" + tenant + "/grants/" + id
+	// KIFF down: the addition isn't declared while it waits, so it's registered at the approval, as before.
+	e.kiff.ConnectDown = true
 	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "name": "list_charges", "read_only": true}}}, nil, "k_setup")
-	if st != 200 {
+	if st != 200 || out["declared"] == true {
 		t.Fatalf("add: %d %v", st, out)
 	}
+	e.kiff.ConnectDown = false
 	// Taken in KIFF after it was named, so its registration is refused.
 	e.kiff.Add(fakes.Connection{Connection: kiff.Connection{Name: "list_charges", Mode: "sealed"}, Tenant: tenant})
 	if st, out := e.do("POST", acct+"/approve", map[string]string{"digest": out["digest"].(string)}, e.phone, ""); st != 502 {

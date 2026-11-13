@@ -62,6 +62,7 @@ const (
 	CodeOperationChanged  = "operation_changed"      // a tool the owner approved changed at the vendor; the grant is paused
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
 	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
+	CodeWaitsForApproval  = "waits_for_approval"     // an addition's tool, declared, and the owner hasn't approved it yet
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
@@ -147,8 +148,8 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 // relayTools lists the granted tools with planque's operation argument,
 // which KIFF fills and binds into the permit.
 func relayTools(g *Grant) []mcp.Tool {
-	out := make([]mcp.Tool, 0, len(g.Tools))
-	for _, t := range g.Tools {
+	out := make([]mcp.Tool, 0, len(g.Tools)+len(g.Pending))
+	for _, t := range g.inKIFF() {
 		var schema map[string]any
 		if json.Unmarshal(t.InputSchema, &schema) != nil || schema == nil {
 			schema = map[string]any{"type": "object"}
@@ -176,11 +177,18 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return refusal(code, "Refused by planque: "+why+". Nothing was sent to "+sentTo(g)+".")
 	}
 	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name })
+	// An addition's tool, declared while it waits: nothing is usable until the owner approves it.
+	if i < 0 && slices.ContainsFunc(g.Pending, func(t GrantedTool) bool { return t.Name == name }) {
+		return refused(CodeWaitsForApproval, name+" waits for the owner's approval: it isn't usable yet")
+	}
 	if i < 0 {
 		return refused(CodeNotGranted, "this grant does not include "+name)
 	}
 	// Declared before its key: nothing is usable until the owner gives the
 	// key and the grant connects.
+	if g.Declared && g.Status != StatusConnected && g.SignedIn {
+		return refused(CodeWaitsForApproval, name+" waits for the owner's approval: it isn't usable yet")
+	}
 	if g.Declared && g.Status != StatusConnected {
 		return refused(CodeWaitsForKey, name+" waits for its key: the owner hasn't given it yet")
 	}
@@ -410,9 +418,19 @@ func (g *Grant) serves() bool {
 	return g.Status == StatusConnected || (g.Status == StatusPending && (g.Connected != nil || g.Declared)) || g.signedOut()
 }
 
+// inKIFF are the tools g has registered in KIFF's gateway: its tools, and an
+// addition's declared while it waits for the owner (Pending).
+func (g *Grant) inKIFF() []GrantedTool {
+	return append(slices.Clone(g.Tools), g.Pending...)
+}
+
 // transportIs says sum is the SHA-256 of one of g's transport credentials.
 func (g *Grant) transportIs(sum []byte) bool {
-	for _, h := range append([]string{g.Transport}, g.Transports...) {
+	hashes := append([]string{g.Transport}, g.Transports...)
+	if g.PendingTransport != "" {
+		hashes = append(hashes, g.PendingTransport)
+	}
+	for _, h := range hashes {
 		want, _ := hex.DecodeString(h)
 		if len(want) == len(sum) && subtle.ConstantTimeCompare(sum, want) == 1 {
 			return true

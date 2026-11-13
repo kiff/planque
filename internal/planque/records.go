@@ -120,6 +120,12 @@ type Request struct {
 	// Reuse names a connected grant whose sign-in (or key) this one uses:
 	// approving it needs no second sign-in (kiff/planque#36).
 	Reuse string `json:"reuse,omitempty"`
+	// SetupReads names, by the vendor's tool name, the read-only tools a
+	// catalog entry's first request (tools: [], connect first) lets Setup
+	// read: the owner approves them with the sign-in, and they're connected
+	// once the catalog read at sign-in shows each, read-only. Left out when
+	// empty, so a request without them signs as before.
+	SetupReads []string `json:"setup_reads,omitempty"`
 	// Application is the exact registered app configuration approved for
 	// this grant. It contains public facts and a client id, never a secret.
 	Application *ApplicationApproval `json:"application,omitempty"`
@@ -358,6 +364,14 @@ type Grant struct {
 	// is usable: the relay refuses every call until the grant is connected.
 	// Its Tools and Transport are what was registered.
 	Declared bool `json:"declared,omitempty"`
+	// Pending are a connected grant's added tools, declared in KIFF while the
+	// addition waits for the owner's approval, so the taf's Card can be
+	// drafted over them and signed with that approval (tools_and_cards). The
+	// relay lists them and refuses every call of them until approved; with
+	// the approval they join Tools, their registration and PendingTransport
+	// unchanged. The addition ending unapproved takes them out of KIFF.
+	Pending          []GrantedTool `json:"pending,omitempty"`
+	PendingTransport string        `json:"pending_transport,omitempty"`
 	// Renewal is a new sign-in the owner approved for a connected grant
 	// (gap 13 of kiff/tafs#476): its tools keep working with the sign-in in
 	// use until the approving device confirms the new one, which then
