@@ -320,7 +320,7 @@ func (c *Client) do(ctx context.Context, method, u, key string, in, out any) (in
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
 		}
-		return resp.StatusCode, fmt.Errorf("KIFF answered %d: %s", resp.StatusCode, msg)
+		return resp.StatusCode, &Answered{Status: resp.StatusCode, Msg: msg}
 	}
 	if out != nil {
 		if err := json.Unmarshal(b, out); err != nil {
@@ -356,4 +356,18 @@ func (c *Client) HaltOf(ctx context.Context, key, agent string) (Halt, error) {
 		return Halt{}, fmt.Errorf("KIFF answered %d about the halt", status)
 	}
 	return h, nil
+}
+
+// Answered is KIFF's answer to a call it didn't take: its status and its words.
+type Answered struct {
+	Status int
+	Msg    string
+}
+
+func (e *Answered) Error() string { return fmt.Sprintf("KIFF answered %d: %s", e.Status, e.Msg) }
+
+// Refused says KIFF turned the call down for what it asked, a 4xx that asking
+// again the same way won't change: not a timeout or a rate limit.
+func (e *Answered) Refused() bool {
+	return e.Status >= 400 && e.Status < 500 && e.Status != 408 && e.Status != 429
 }

@@ -57,6 +57,12 @@ type KIFF struct {
 	SignedOut     []kiff.SignedOut
 	SignedOutDown bool
 
+	// RefuseConnect: tool name → the words KIFF refuses its connection with
+	// (a 400), for a refusal planque's own checks don't foresee.
+	RefuseConnect map[string]string
+	// ConnectDown makes KIFF answer each connect 503, as KIFF in trouble.
+	ConnectDown bool
+
 	mu      sync.Mutex
 	halts   map[string]halt       // tenant/agent ("" the account) → its halt
 	down    bool                  // the halt routes don't answer
@@ -368,6 +374,18 @@ func (k *KIFF) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	if c.Mode != "relay" || c.Audience == "" || c.IdempotencyArg == "" || c.Credential == "" {
 		writeJSON(w, 400, map[string]string{"error": "a relay connection needs an audience, an idempotency argument and a credential"})
+		return
+	}
+	k.mu.Lock()
+	refused, isRefused := k.RefuseConnect[c.Name]
+	down := k.ConnectDown
+	k.mu.Unlock()
+	if down {
+		writeJSON(w, 503, map[string]string{"error": "KIFF is unavailable"})
+		return
+	}
+	if isRefused {
+		writeJSON(w, 400, map[string]string{"error": refused})
 		return
 	}
 	tools, err := k.listTools(r.Context(), c.URL, c.Credential)

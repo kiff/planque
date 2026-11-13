@@ -218,8 +218,14 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 				if t.AmountFormat == "decimal_string" {
 					want = "string"
 				}
-				if got := argType(op.InputSchema, a); got != want && !(want == "integer" && got == "number") {
-					return "amount_argument " + a + " must be one of " + t.Tool + "'s " + want + " arguments (" + opArgNames(op.InputSchema, want) + ")"
+				// KIFF counts a whole number of minor units: a number (a decimal) isn't one. A decimal amount
+				// goes as amount_format decimal_string, on a string argument.
+				if got := argType(op.InputSchema, a); got != want {
+					why := "amount_argument " + a + " must be one of " + t.Tool + "'s " + want + " arguments (" + opArgNames(op.InputSchema, want) + ")"
+					if got == "number" {
+						why += ": " + a + " is a number, and KIFF counts a whole number of minor units"
+					}
+					return why
 				}
 			}
 		}
@@ -283,8 +289,8 @@ func argType(schema json.RawMessage, name string) string {
 	return ""
 }
 
-// opArgNames are an operation's top-level arguments of type want (an
-// integer one takes a number too; "" any), for a refusal to name.
+// opArgNames are an operation's top-level arguments of type want ("" any),
+// for a refusal to name.
 func opArgNames(schema json.RawMessage, want string) string {
 	var s struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -292,7 +298,7 @@ func opArgNames(schema json.RawMessage, want string) string {
 	_ = json.Unmarshal(schema, &s)
 	var names []string
 	for _, n := range slices.Sorted(maps.Keys(s.Properties)) {
-		if got := argType(schema, n); want == "" || got == want || want == "integer" && got == "number" {
+		if got := argType(schema, n); want == "" || got == want {
 			names = append(names, n)
 		}
 	}

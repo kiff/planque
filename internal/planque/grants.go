@@ -494,7 +494,12 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)), slog.Bool("reuse_refused", refusedReuse != ""))
-	s.declare(r.Context(), g)
+	if refused := s.declare(r.Context(), g); refused != "" {
+		// What the key would meet after the owner gave it: said now, before any approval.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"grant": g.ID,
+			"error": "planque can't ask for this: " + refused + ". Nothing was asked of the owner and nothing is left in KIFF: change the tool and ask again"})
+		return
+	}
 	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
