@@ -39,9 +39,6 @@ func checkNarrowing(t ToolRequest) string {
 		}
 		paths[p] = true
 	}
-	if len(t.Fixed) > 0 && len(t.Arguments) == 0 {
-		return t.Tool + " has fixed arguments, so it must also name the arguments the agent may set"
-	}
 	for name, a := range t.Arguments {
 		switch {
 		case !toolName.MatchString(name) || name == IdempotencyArg:
@@ -70,7 +67,7 @@ func checkNarrowing(t ToolRequest) string {
 		if _, set := t.Arguments[t.AmountArg]; set {
 			return "amount_argument " + t.AmountArg + " is read by amount_lookup, so it can't also be one of the tool's arguments"
 		}
-	} else if t.AmountArg != "" && len(t.Arguments) > 0 {
+	} else if t.AmountArg != "" && t.narrowed() {
 		want := "integer"
 		if t.AmountFormat == "decimal_string" {
 			want = "string"
@@ -83,7 +80,7 @@ func checkNarrowing(t ToolRequest) string {
 		switch {
 		case !toolName.MatchString(r) || r == t.AmountArg || r == IdempotencyArg:
 			return "resource_argument " + r + " is not a valid name"
-		case len(t.Arguments) > 0 && t.Arguments[r].Type != "string":
+		case t.narrowed() && t.Arguments[r].Type != "string":
 			return "resource_argument " + r + " must be one of the tool's string arguments"
 		}
 	}
@@ -166,8 +163,10 @@ func resolveLookups(tools []ToolRequest) {
 	}
 }
 
-// narrowed reports whether the agent sees planque's own argument list.
-func (t ToolRequest) narrowed() bool { return len(t.Arguments) > 0 }
+// narrowed reports whether the agent sees planque's own argument list: the
+// arguments it names, or none when every argument the tool takes is pinned
+// (a read of fulfilled orders, its status fixed), so the taf sets nothing.
+func (t ToolRequest) narrowed() bool { return len(t.Arguments) > 0 || len(t.Fixed) > 0 }
 
 // schema is the input schema of a narrowed tool: its arguments, nothing
 // else.
@@ -326,6 +325,9 @@ func narrowingText(t ToolRequest, catalog ...CatalogTool) string {
 	s := " (" + t.Tool
 	if len(fixed) > 0 {
 		s += " with " + strings.Join(fixed, ", ")
+	}
+	if len(t.Arguments) == 0 {
+		return s + "; the taf sets nothing)"
 	}
 	return s + "; the taf sets only " + strings.Join(slices.Sorted(maps.Keys(t.Arguments)), ", ") + ")"
 }
