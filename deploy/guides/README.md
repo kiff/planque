@@ -52,4 +52,7 @@ owner's. Without the key it writes the reviewed entries only.
 |---|---|---|
 | Gmail | [gmail.md](gmail.md) | after the first keyed run |
 | Google Sheets | [googlesheets.md](googlesheets.md) | after the first keyed run |
-| Qonto (key) | to do | [qonto-key-1](generated/qonto-key-1.md), [qonto-key-2](generated/qonto-key-2.md) |
+| Stripe (Stripe's own server) | [stripe.md](stripe.md) | listed at sign-in |
+| GitHub | [github.md](github.md) | after the first keyed run |
+| LinkedIn | [linkedin.md](linkedin.md) | after the first keyed run |
+| Qonto (key) | [qonto.md](qonto.md) | [qonto-key-1](generated/qonto-key-1.md), [qonto-key-2](generated/qonto-key-2.md) |
