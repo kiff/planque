@@ -165,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /browser/view/{token}/done", s.browserViewDone)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants", s.signedSafe(s.listGrants))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/agents/{agent}/grants", s.agentGrants)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/agents/{agent}/end", s.endAgent)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/connections", s.accountConnections)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedAs(kindSafe, capExport, s.export))
@@ -277,6 +278,11 @@ func decodeStrict(b []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
+		// The field planque doesn't take is named, so a caller fixes it on
+		// its first retry instead of guessing.
+		if f, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+			return apiError{http.StatusBadRequest, "the body must be a JSON object with the documented fields: unknown field " + f}
+		}
 		return apiError{http.StatusBadRequest, "the body must be a JSON object with the documented fields"}
 	}
 	return nil
