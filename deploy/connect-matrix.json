@@ -99,6 +99,11 @@
       "app": "shopify",
       "none": "GraphQL only, no OpenAPI description",
       "managed": "shopify"
+    },
+    {
+      "app": "linkedin",
+      "none": "no published OpenAPI description",
+      "managed": "linkedin"
     }
   ]
 }
