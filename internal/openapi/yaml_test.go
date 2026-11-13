@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,5 +135,22 @@ func TestYAMLCantGrowPastTheLimits(t *testing.T) {
 	big := "openapi: 3.0.0\npaths: {}\nx: '" + strings.Repeat("<", 4<<20) + "'\n"
 	if _, err := Parse([]byte(big), key); err == nil || !strings.Contains(err.Error(), "over 16 MB as JSON") {
 		t.Fatalf("over the limit as JSON: %v", err)
+	}
+}
+
+// A file of short keys within 16 MB is refused before the parser builds its
+// millions of nodes, in well under a second (13 Nov: 15 s on CI before).
+func TestManyShortYAMLKeysAreRefusedBeforeReading(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("openapi: 3.0.0\npaths: {}\nx:\n")
+	for i := 0; i < 900_000; i++ {
+		b.WriteString(" k")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString(": v\n")
+	}
+	start := time.Now()
+	_, err := Parse([]byte(b.String()), key)
+	if err == nil || !strings.Contains(err.Error(), "too large once read") || time.Since(start) > time.Second {
+		t.Fatalf("%v in %s", err, time.Since(start))
 	}
 }

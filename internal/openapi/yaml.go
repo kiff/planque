@@ -23,6 +23,14 @@ var jsonNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9
 // tags beyond YAML's own, which JSON has no form for. A key is a string, as
 // in JSON: an unquoted 200 is "200".
 func yamlAsJSON(raw []byte) ([]byte, error) {
+	// The parser builds every node before any is counted, and a file of
+	// short keys within 16 MB is millions of them: seconds of work. A cheap
+	// count first: each "key: value" is at most two nodes, each list item
+	// one, and a colon or comma inside a string only counts more. A real
+	// description is far below (Zendesk's 2.5 MB: about 140,000).
+	if 2*bytes.Count(raw, []byte(":"))+bytes.Count(raw, []byte("- "))+bytes.Count(raw, []byte(",")) > 2*maxNodes {
+		return nil, refuse("it is too large once read")
+	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	var doc yaml.Node
 	if err := dec.Decode(&doc); err != nil {
