@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/kiff"
+	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
 )
 
@@ -177,18 +178,9 @@ func (s *Server) declareAddition(ctx context.Context, g *Grant) {
 			s.log().WarnContext(ctx, "declare addition: the grant's record wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		}
 	}
-	access := ""
-	if g.Request.Connector == nil && g.Request.API == nil && g.Request.Kind != KindBrowser {
-		tok, _, err := s.openToken(ctx, g)
-		if err != nil {
-			note("the sign-in couldn't be opened to list the tools")
-			return
-		}
-		access = tok.Access
-	}
-	listed, _, err := s.vendorTools(ctx, g, access)
-	if err != nil {
-		note("the tools couldn't be listed: " + err.Error())
+	listed, _, why := s.signedInTools(ctx, g)
+	if why != "" {
+		note(why)
 		return
 	}
 	var added []GrantedTool
@@ -279,4 +271,98 @@ func toolNamesOf(tools []GrantedTool) []string {
 		out = append(out, t.Name)
 	}
 	return out
+}
+
+// signedInTools lists the vendor's tools with g's sign-in (or key, or the
+// provider's connection), to declare what g asks for; why says why they
+// couldn't be listed.
+func (s *Server) signedInTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.Server, string) {
+	access := ""
+	if g.Request.Connector == nil && g.Request.API == nil && g.Request.Kind != KindBrowser {
+		tok, _, err := s.openToken(ctx, g)
+		if err != nil {
+			return nil, mcp.Server{}, "the sign-in couldn't be opened to list the tools"
+		}
+		access = tok.Access
+	}
+	listed, server, err := s.vendorTools(ctx, g, access)
+	if err != nil {
+		return nil, mcp.Server{}, "the tools couldn't be listed: " + err.Error()
+	}
+	return listed, server, ""
+}
+
+// declaresFirst says g's first tools are declared to KIFF while they wait:
+// a grant signed in (or given its key) with nothing connected yet, whose
+// tools are set and wait for the owner's approval. Its catalog is read, so
+// its tools are known, and the taf's Card can be drafted over them and
+// signed with that approval (tools_and_cards), as for a key grant. A grant
+// on another's sign-in holds it, so it's declared the same way.
+func declaresFirst(g *Grant) bool {
+	return g.Status == StatusPending && g.SignedIn && g.Connected == nil && !g.Declared && len(g.Request.Tools) > 0 &&
+		g.Request.Kind != KindBrowser
+}
+
+// declareFirst registers g's first tools in KIFF while they wait for the
+// owner's approval. Declared isn't usable: the relay refuses every call
+// until approved, and the same registration then serves the grant. A
+// declaration that fails leaves g as it was, with nothing in KIFF: it's
+// registered once approved, as before.
+func (s *Server) declareFirst(ctx context.Context, g *Grant) {
+	if !declaresFirst(g) {
+		return
+	}
+	note := func(why string) {
+		g.event(s.now(), "its tools weren't declared to KIFF before the approval: "+why+"; they're registered once approved")
+		if err := s.saveGrant(ctx, g); err != nil {
+			s.log().WarnContext(ctx, "declare: the grant's record wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		}
+	}
+	listed, server, why := s.signedInTools(ctx, g)
+	if why != "" {
+		note(why)
+		return
+	}
+	var tools []GrantedTool
+	for _, t := range g.Request.Tools {
+		gt, why := granted(g, t, listed)
+		if why != "" {
+			note(why)
+			return
+		}
+		tools = append(tools, gt)
+	}
+	key, err := s.connectorKey(ctx, g.Tenant)
+	if err != nil {
+		note("the KIFF connector key could not be opened")
+		return
+	}
+	if n := label(server.Label()); n != "" {
+		g.VendorName = n
+	}
+	transport := oauth.Random(32)
+	sum := sha256.Sum256([]byte(transport))
+	g.Tools, g.Transport, g.Declared = tools, hex.EncodeToString(sum[:]), true
+	if err := s.saveGrant(ctx, g); err != nil {
+		g.Tools, g.Transport, g.Declared = nil, "", false
+		s.log().WarnContext(ctx, "declare: the grant wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return
+	}
+	var done, titles []string
+	for _, t := range tools {
+		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport)); err != nil {
+			for _, name := range done {
+				_ = s.KIFF.Disconnect(ctx, key, name)
+			}
+			g.Tools, g.Transport, g.Declared = nil, "", false
+			note("KIFF did not register " + t.Name + ": " + err.Error())
+			return
+		}
+		done = append(done, t.Name)
+		titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
+	}
+	g.event(s.now(), "Declared in KIFF, waiting for the owner's approval: "+strings.Join(titles, ", ")+"; nothing is usable until approved")
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().WarnContext(ctx, "declare: the grant's record wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
+	}
 }

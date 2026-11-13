@@ -186,6 +186,9 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	// Declared before its key: nothing is usable until the owner gives the
 	// key and the grant connects.
+	if g.Declared && g.Status != StatusConnected && g.SignedIn {
+		return refused(CodeWaitsForApproval, name+" waits for the owner's approval: it isn't usable yet")
+	}
 	if g.Declared && g.Status != StatusConnected {
 		return refused(CodeWaitsForKey, name+" waits for its key: the owner hasn't given it yet")
 	}

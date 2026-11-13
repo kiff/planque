@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,5 +187,74 @@ func TestAnAdditionApprovedTogetherWithItsCard(t *testing.T) {
 	// Negative 3: the same signed approval again.
 	if st, _ := send(signed); st == http.StatusOK {
 		t.Fatalf("the pairing used twice: %d", st)
+	}
+}
+
+// A grant signed in with nothing connected yet has its first tools declared
+// in KIFF once they're set, so the taf's Card can be drafted over them and
+// approved with them: one approval for the tools and the Card. A call before
+// the approval is refused and reaches nobody; approved, the same
+// registration serves it. Revised, the earlier tools leave KIFF; not
+// approved within a day, they leave with the sign-in.
+func TestASignedInGrantsFirstToolsAreDeclared(t *testing.T) {
+	for _, how := range []string{"approved", "revised", "past its day"} {
+		t.Run(how, func(t *testing.T) {
+			e := newEnv(t)
+			id := e.listedGrant()
+			acct := "/v1/accounts/" + tenant + "/grants/" + id
+			list := map[string]any{"tool": "list_charges", "title": "List charges", "name": "list_charges", "read_only": true}
+			st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{list}}, nil, "k_setup")
+			if st != 200 || out["status"] != StatusPending || out["declared"] != true {
+				t.Fatalf("set tools: %d %v", st, out)
+			}
+			declared, ok := e.kiff.Connection(tenant, "list_charges")
+			if !ok {
+				t.Fatal("list_charges isn't declared while it waits")
+			}
+			res, err := e.kiff.Call(context.Background(), "k_taf", "list_charges", map[string]any{})
+			if err != nil || res.Decision != "allowed" {
+				t.Fatalf("a call before the approval: %+v %v", res, err)
+			}
+			if text, isErr := resultText(t, res.Result); !isErr || !strings.Contains(text, "waits for the owner's approval") || !strings.Contains(text, "Nothing was sent") {
+				t.Fatalf("a call before the approval went through: %s", text)
+			}
+			switch how {
+			case "approved":
+				signIns, _ := e.vendor.Live()
+				st, out := e.do("POST", acct+"/approve", map[string]string{"digest": out["digest"].(string)}, e.phone, "")
+				if st != 200 || out["status"] != StatusConnected || out["declared"] == true || out["sign_in_url"] != nil {
+					t.Fatalf("approve: %d %v", st, out)
+				}
+				if a, _ := e.vendor.Live(); a != signIns {
+					t.Fatalf("approving signed in again: %d live tokens, were %d", a, signIns)
+				}
+				if c, ok := e.kiff.Connection(tenant, "list_charges"); !ok || c.Credential != declared.Credential {
+					t.Fatal("list_charges was registered again, or went, at the approval")
+				}
+				res, _ := e.kiff.Call(context.Background(), "k_taf", "list_charges", map[string]any{})
+				if text, isErr := resultText(t, res.Result); isErr {
+					t.Fatalf("a call after the approval: %s", text)
+				}
+			case "revised":
+				read := map[string]any{"tool": "stripe_api_read", "title": "Read Stripe", "name": "stripe_api_read", "read_only": true}
+				if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{read}}, nil, "k_setup"); st != 200 || out["declared"] != true {
+					t.Fatalf("revise: %d %v", st, out)
+				}
+				if _, ok := e.kiff.Connection(tenant, "list_charges"); ok {
+					t.Fatal("the revised-away tool is still in KIFF")
+				}
+				if _, ok := e.kiff.Connection(tenant, "stripe_api_read"); !ok {
+					t.Fatal("the revised tool isn't declared")
+				}
+			case "past its day":
+				e.at(holdTTL + time.Minute)
+				if st, out := e.do("GET", acct, nil, nil, "k_setup"); st != 200 || out["status"] != StatusFailed || out["declared"] == true {
+					t.Fatalf("after a day: %d %v", st, out)
+				}
+				if c := e.kiff.Connections(tenant); len(c) != 0 {
+					t.Fatalf("still in KIFF after a day: %v", c)
+				}
+			}
+		})
 	}
 }

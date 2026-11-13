@@ -392,6 +392,9 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// Tools, optional, are the provider's tools the taf will use, as the
 		// tools search names them: the sign-in asks only for what they need.
 		Tools []string `json:"tools"`
+		// NewSignIn asks for a sign-in of its own even when the account
+		// holds one to this app: another account at the app, say.
+		NewSignIn bool `json:"new_sign_in"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
@@ -412,6 +415,21 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	if ask.AgentName != "" && label(ask.AgentName) != ask.AgentName {
 		writeErr(w, http.StatusBadRequest, "agent_name is the taf's name, on one line, at most "+strconv.Itoa(MaxLabel)+" characters")
 		return
+	}
+	// An app the account already holds a sign-in to, covering what the taf
+	// asks for: that sign-in is reused, with no browser and no new sign-in.
+	// The new connection is listed with no tools, and gets only those the
+	// owner approves for the new taf, never the other connection's.
+	if !ask.NewSignIn {
+		held, err := s.heldSignIn(r.Context(), tenant, providerID, toolkit, ask.Tools)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if held != nil {
+			s.reuseConnector(w, r, tenant, me.AgentID, ask.Agent, ask.AgentName, false, held, true)
+			return
+		}
 	}
 	app, err := p.App(r.Context(), toolkit)
 	if errors.Is(err, connector.ErrNotSetUp) {
@@ -1049,4 +1067,36 @@ func connectorText(w words.Approval, q Request) string {
 		text += " " + t.Name + "."
 	}
 	return text
+}
+
+// heldSignIn is the account's connected grant to the provider's app whose
+// sign-in covers the tools asked, the latest asked if several, or nil. A
+// sign-in narrowed to some tools covers only those: asked with none, a
+// narrowed one isn't reused, since what the taf needs isn't known.
+func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string) (*Grant, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	var best *Grant
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil {
+			continue
+		}
+		c := g.Request.Connector
+		if c == nil || c.Provider != providerID || c.Toolkit != toolkit || g.Status != StatusConnected || !g.SignedIn ||
+			g.Connector == nil || g.Connector.Account == "" {
+			continue
+		}
+		if !(c.UsualAccess || len(c.AskedTools) == 0) {
+			if len(asked) == 0 || slices.ContainsFunc(asked, func(t string) bool { return !slices.Contains(c.AskedTools, t) }) {
+				continue
+			}
+		}
+		if best == nil || g.Request.CreatedAt > best.Request.CreatedAt {
+			best = &g
+		}
+	}
+	return best, nil
 }

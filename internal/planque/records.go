@@ -120,6 +120,12 @@ type Request struct {
 	// Reuse names a connected grant whose sign-in (or key) this one uses:
 	// approving it needs no second sign-in (kiff/planque#36).
 	Reuse string `json:"reuse,omitempty"`
+	// SetupReads names, by the vendor's tool name, the read-only tools a
+	// catalog entry's first request (tools: [], connect first) lets Setup
+	// read: the owner approves them with the sign-in, and they're connected
+	// once the catalog read at sign-in shows each, read-only. Left out when
+	// empty, so a request without them signs as before.
+	SetupReads []string `json:"setup_reads,omitempty"`
 	// Application is the exact registered app configuration approved for
 	// this grant. It contains public facts and a client id, never a secret.
 	Application *ApplicationApproval `json:"application,omitempty"`
