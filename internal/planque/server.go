@@ -103,6 +103,11 @@ type Server struct {
 	// can, so a sign-in link someone else opens never hands its code back
 	// to whoever approved the grant.
 	AppReturn string
+	// SignInReader is the SHA-256 of the one key that reads whether the
+	// managed sign-in can sign people in to an app (GET /v1/catalog/{entry}/
+	// sign-in): for the nightly connect matrix, and nothing else. Unset,
+	// the route isn't there.
+	SignInReader []byte
 	// RefreshWait bounds how long a call waits for another one's refresh.
 	RefreshWait time.Duration
 
@@ -138,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
+	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/tools", s.searchTools)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/{entry}/events", s.catalogEvents)
