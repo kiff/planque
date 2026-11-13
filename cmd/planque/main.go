@@ -1,5 +1,6 @@
 // Command planque is the one binary: on AWS Lambda behind a function
-// URL, or as an HTTP server anywhere else.
+// URL, or as an HTTP server anywhere else. `planque guides` writes every
+// app's generated guide part instead (deploy/guides/README.md).
 //
 // Configuration (environment):
 //
@@ -61,6 +62,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "guides" {
+		if err := guides(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	s, err := build(logger)
 	if err != nil {
