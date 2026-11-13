@@ -462,6 +462,40 @@ func serverURL(v any) (u string, account bool, err error) {
 	return u, false, nil
 }
 
+// accountPart is what a server variable with no default may be: one label,
+// so an address can't leave the vendor's own domain or path.
+const accountPart = `[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`
+
+// OnAccountServer reports whether base is one of the account servers, each
+// variable filled with one label, https only.
+func OnAccountServer(accounts []string, base string) bool {
+	base = strings.TrimRight(base, "/")
+	if !strings.HasPrefix(base, "https://") {
+		return false
+	}
+	for _, a := range accounts {
+		var re strings.Builder
+		re.WriteString("^")
+		rest := strings.TrimRight(a, "/")
+		for {
+			i := strings.Index(rest, "{")
+			j := strings.Index(rest, "}")
+			if i < 0 || j < i {
+				re.WriteString(regexp.QuoteMeta(rest))
+				break
+			}
+			re.WriteString(regexp.QuoteMeta(rest[:i]))
+			re.WriteString(accountPart)
+			rest = rest[j+1:]
+		}
+		re.WriteString("$")
+		if m, err := regexp.MatchString(re.String(), base); err == nil && m {
+			return true
+		}
+	}
+	return false
+}
+
 // resolver resolves internal references against doc.
 type resolver struct {
 	doc   map[string]any

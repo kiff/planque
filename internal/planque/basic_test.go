@@ -58,3 +58,26 @@ func TestAnAccountsAddressIsAskedFor(t *testing.T) {
 		t.Fatalf("%d %v", st, out)
 	}
 }
+
+// A base off the vendor's account server is refused; one on it goes on.
+func TestAnAccountsBaseStaysOnTheVendorsServer(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	v.mu.Lock()
+	v.desc = strings.Replace(restDesc, `"info": {"title": "Pay API"},`, `"info": {"title": "Pay API"}, "servers": [{"url": "https://{subdomain}.pay.example/v1", "variables": {"subdomain": {"description": "yours"}}}],`, 1)
+	v.mu.Unlock()
+	ask := func(base string) (int, string) {
+		api := map[string]any{"url": v.URL + "/openapi.json", "base": base, "auth": map[string]any{"in": "header", "name": "X-API-Key"}}
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": "api_key", "agent": "agt_taf", "tools": []any{}, "api": api}, nil, "k_setup")
+		return st, mustJSONString(out)
+	}
+	for _, bad := range []string{"https://evil.example/v1", "https://acme.pay.example.evil.example/v1", "https://a.b.pay.example/v1"} {
+		if st, out := ask(bad); st != 400 || !strings.Contains(out, "an account's own address") {
+			t.Errorf("%s: %d %s", bad, st, out)
+		}
+	}
+	if _, out := ask("https://acme.pay.example/v1"); strings.Contains(out, "an account's own address") {
+		t.Fatalf("the account's own address was refused: %s", out)
+	}
+}

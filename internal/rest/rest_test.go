@@ -138,3 +138,15 @@ func TestAFixedHeaderGoesOnEveryCall(t *testing.T) {
 		t.Fatal("a version pin replaced the fixed header")
 	}
 }
+
+// The fixed header never carries the key: its approval says where the key goes.
+func TestAFixedHeaderNeverCarriesTheKey(t *testing.T) {
+	sent := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent = true }))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	auth := openapi.Auth{In: "header", Name: "X-API-Key", Fixed: &openapi.Fixed{Name: "Account-Id", Value: "acct-sk_live_1"}}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "sk_live_1"); err == nil || sent || strings.Contains(err.Error(), "sk_live_1") {
+		t.Fatalf("%v, sent %v", err, sent)
+	}
+}

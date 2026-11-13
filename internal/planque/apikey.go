@@ -170,6 +170,10 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if err := s.REST.CheckURL(a.Base); err != nil {
 		return nil, nil, "api.base: " + err.Error(), nil
 	}
+	if len(snap.Accounts) > 0 && !slices.Contains(snap.Servers, strings.TrimRight(a.Base, "/")) && !openapi.OnAccountServer(snap.Accounts, a.Base) {
+		// An account's address stays on the vendor's own server, or the key could go wherever a request names.
+		return nil, nil, "api.base is an account's own address, as " + snap.Accounts[0] + " with each part one word of letters, digits or dashes", nil
+	}
 	if msg := apiToolsCheck(snap, tools); msg != "" {
 		return nil, nil, msg, nil
 	}

@@ -345,3 +345,29 @@ func TestAFixedHeaderIsSentForTheOperationsThatNeedIt(t *testing.T) {
 		}
 	}
 }
+
+// An account's address stays on the vendor's own server: each variable one
+// label, https only (the PM on planque#160).
+func TestAnAccountsAddressStaysOnTheVendorsServer(t *testing.T) {
+	accounts := []string{"https://{subdomain}.zendesk.com/api/v2"}
+	for _, ok := range []string{"https://acme.zendesk.com/api/v2", "https://acme-eu.zendesk.com/api/v2/", "https://a1.zendesk.com/api/v2"} {
+		if !OnAccountServer(accounts, ok) {
+			t.Errorf("refused: %s", ok)
+		}
+	}
+	for _, bad := range []string{
+		"https://evil.example/api/v2",
+		"https://acme.zendesk.com.evil.example/api/v2",
+		"https://evil.example/x.zendesk.com/api/v2",
+		"https://a.b.zendesk.com/api/v2",
+		"http://acme.zendesk.com/api/v2",
+		"https://acme.zendesk.com/api/v2/../../elsewhere",
+		"https://acme.zendesk.com/api/v3",
+		"https://-acme.zendesk.com/api/v2",
+		"https://acme.zendesk.com@evil.example/api/v2",
+	} {
+		if OnAccountServer(accounts, bad) {
+			t.Errorf("taken: %s", bad)
+		}
+	}
+}

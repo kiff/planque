@@ -159,7 +159,11 @@ func (c *Client) CallAs(ctx context.Context, method, target, contentType string,
 		}
 	}
 	if auth.Fixed != nil {
-		// Checked when the grant was asked for (Auth.Check): never a credential's or the request's own header.
+		// Checked when the grant was asked for (Auth.Check): never a credential's or the request's own header,
+		// and never the key again, which would put it where its approval doesn't say.
+		if key != "" && strings.Contains(auth.Fixed.Value, key) {
+			return Answer{}, &CallError{Err: errors.New("the fixed header can't carry the key")}
+		}
 		req.Header.Set(auth.Fixed.Name, auth.Fixed.Value)
 	}
 	for _, pin := range pins {
