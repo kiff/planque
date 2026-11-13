@@ -1,0 +1,28 @@
+name: connect-matrix
+# Each night, every app the recipes name, read as planque reads its published API description: can it be connected
+# by its key, and does the managed sign-in work for it. It reads public descriptions and, with the provider's key,
+# the provider's app metadata only: no session, no account, no call to any app. It reports; it never fails the run.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: matrix
+        env:
+          # Optional: without them the managed column says it wasn't checked.
+          LIVE_COMPOSIO_SECRET: ${{ secrets.LIVE_COMPOSIO_SECRET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MATRIX_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MATRIX_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+        run: go run ./cmd/connectmatrix deploy/connect-matrix.json | tee -a "$GITHUB_STEP_SUMMARY"
