@@ -3,6 +3,7 @@ package openapi
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -130,21 +131,49 @@ func TestTheKeyMustBeOneOfItsSchemes(t *testing.T) {
 }
 
 func TestWhatIsntReadIsRefusedWithTheReason(t *testing.T) {
+	// What spoils the whole description refuses it.
 	for name, c := range map[string]struct{ from, to, why string }{
-		"swagger 2":   {`"openapi": "3.1.0"`, `"openapi": "2.0"`, "isn't OpenAPI 3.0 or 3.1"},
-		"external":    {`"#/components/schemas/Refund"`, `"other.json#/Refund"`, "references another document"},
-		"op servers":  {`"operationId": "putNotes",`, `"operationId": "putNotes", "servers": [],`, "sets its own servers"},
-		"callbacks":   {`"operationId": "putNotes",`, `"operationId": "putNotes", "callbacks": {},`, "has callbacks"},
-		"links":       {`"200": {"content"`, `"200": {"links": {}, "content"`, "has links"},
-		"other auth":  {`"operationId": "putNotes",`, `"operationId": "putNotes", "security": [{"oauth": []}],`, "secured otherwise"},
-		"bad pointer": {`"#/components/schemas/Refund"`, `"#/components/schemas/Nope"`, "names nothing"},
+		"swagger 2": {`"openapi": "3.1.0"`, `"openapi": "2.0"`, "isn't OpenAPI 3.0 or 3.1"},
+		"external":  {`"#/components/schemas/Refund"`, `"other.json#/Refund"`, "references another document"},
 	} {
-		raw := strings.Replace(desc, c.from, c.to, 1)
-		_, err := Parse([]byte(raw), key)
+		_, err := Parse([]byte(strings.Replace(desc, c.from, c.to, 1)), key)
 		var r *Refused
 		if !errors.As(err, &r) || !strings.Contains(err.Error(), c.why) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+	// One operation planque can't call is left out with its reason; the others still read (the connect matrix:
+	// Intercom's one dangling reference, Pipedrive's one operation with its own servers).
+	for name, c := range map[string]struct{ from, to, op, why string }{
+		"op servers":   {`"operationId": "putNotes",`, `"operationId": "putNotes", "servers": [],`, "putNotes", "sets its own servers"},
+		"callbacks":    {`"operationId": "putNotes",`, `"operationId": "putNotes", "callbacks": {},`, "putNotes", "has callbacks"},
+		"links":        {`"200": {"content"`, `"200": {"links": {}, "content"`, "getOrder", "has links"},
+		"other auth":   {`"operationId": "putNotes",`, `"operationId": "putNotes", "security": [{"oauth": []}],`, "putNotes", "secured otherwise"},
+		"bad pointer":  {`"#/components/schemas/Refund"`, `"#/components/schemas/Nope"`, "create_refund", "names nothing"},
+		"path servers": {`"/notes": {`, `"/notes": {"servers": [],`, "putNotes", "sets its own servers"},
+	} {
+		s, err := Parse([]byte(strings.Replace(desc, c.from, c.to, 1)), key)
+		if err != nil {
+			t.Errorf("%s: refused whole: %v", name, err)
+			continue
+		}
+		left := false
+		for _, sk := range s.Skipped {
+			left = left || sk.Name == c.op && strings.Contains(sk.Why, c.why)
+		}
+		for _, o := range s.Operations {
+			if o.Name == c.op {
+				t.Errorf("%s: %s is offered", name, c.op)
+			}
+		}
+		if !left || len(s.Operations) == 0 {
+			t.Errorf("%s: %s not left out with its reason: %+v", name, c.op, s.Skipped)
+		}
+	}
+	// Two operations with one name: the second is left out, never the description.
+	twice := strings.Replace(desc, `"operationId": "putNotes"`, `"operationId": "getOrder"`, 1)
+	if s, err := Parse([]byte(twice), key); err != nil || !slices.ContainsFunc(s.Skipped, func(sk Skipped) bool { return strings.Contains(sk.Why, "already has its name") }) {
+		t.Errorf("a name twice: %+v %v", s, err)
 	}
 	if _, err := Parse(make([]byte, MaxBytes+1), key); err == nil || !strings.Contains(err.Error(), "16 MB") {
 		t.Fatal(err)
@@ -235,8 +264,9 @@ func TestADescriptionNamingNoSchemeTakesTheKeyAsAsked(t *testing.T) {
 		t.Fatalf("%+v %v", s, err)
 	}
 	named := strings.Replace(none, `"operationId": "putNotes",`, `"operationId": "putNotes", "security": [{"oauth": []}],`, 1)
-	if _, err := Parse([]byte(named), Auth{In: "header", Name: "Authorization"}); err == nil || !strings.Contains(err.Error(), "secured otherwise") {
-		t.Fatalf("an operation naming a scheme that isn't there: %v", err)
+	if s, err := Parse([]byte(named), Auth{In: "header", Name: "Authorization"}); err != nil ||
+		!slices.ContainsFunc(s.Skipped, func(sk Skipped) bool { return sk.Name == "putNotes" && strings.Contains(sk.Why, "secured otherwise") }) {
+		t.Fatalf("an operation naming a scheme that isn't there: %+v %v", s, err)
 	}
 	// The key's place must still be one.
 	if _, err := Parse([]byte(none), Auth{In: "header"}); err == nil {

@@ -273,17 +273,33 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 	sort.Strings(keys)
 	global := list(doc["security"])
 	names := map[string]bool{}
+	// One operation planque can't call is left out with its reason, never the
+	// whole description: the others still read. Only what spoils the whole
+	// (its size once resolved) refuses it.
+	leftOut := func(err error) (string, error) {
+		var rf *Refused
+		if !errors.As(err, &rf) || r.nodes > maxNodes {
+			return "", err
+		}
+		return rf.Why, nil
+	}
 	for _, p := range keys {
 		item, err := r.object(paths[p])
+		pathWhy := ""
 		if err != nil {
-			return nil, err
+			if pathWhy, err = leftOut(err); err != nil {
+				return nil, err
+			}
+		} else if _, ok := item["servers"]; ok {
+			pathWhy = "its path sets its own servers"
 		}
-		if _, ok := item["servers"]; ok {
-			return nil, refuse("path %s sets its own servers", p)
-		}
-		shared, err := r.params(item["parameters"])
-		if err != nil {
-			return nil, err
+		var shared []rawParam
+		if pathWhy == "" {
+			if shared, err = r.params(item["parameters"]); err != nil {
+				if pathWhy, err = leftOut(err); err != nil {
+					return nil, err
+				}
+			}
 		}
 		for _, m := range methods {
 			raw, ok := item[m]
@@ -292,21 +308,36 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 			}
 			o, err := r.object(raw)
 			if err != nil {
-				return nil, err
+				why, err := leftOut(err)
+				if err != nil {
+					return nil, err
+				}
+				s.Skipped = append(s.Skipped, Skipped{Name: opName(m, p, nil), Why: why})
+				continue
 			}
 			if selected != nil && !selected[opName(m, p, o)] {
 				continue
 			}
+			if pathWhy != "" {
+				s.Skipped = append(s.Skipped, Skipped{Name: opName(m, p, o), Why: pathWhy})
+				continue
+			}
 			op, why, err := r.operation(p, m, o, shared, global, scheme)
 			if err != nil {
-				return nil, err
+				if why, err = leftOut(err); err != nil {
+					return nil, err
+				}
+				if op.Name == "" {
+					op.Name = opName(m, p, o)
+				}
 			}
 			if why != "" {
 				s.Skipped = append(s.Skipped, Skipped{Name: op.Name, Why: why})
 				continue
 			}
 			if names[op.Name] {
-				return nil, refuse("two operations are named %s", op.Name)
+				s.Skipped = append(s.Skipped, Skipped{Name: op.Name, Why: "another operation already has its name"})
+				continue
 			}
 			names[op.Name] = true
 			s.Operations = append(s.Operations, op)
@@ -319,6 +350,9 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		return nil, refuse("it is too large once its references are resolved")
 	}
 	if len(s.Operations) == 0 {
+		if len(s.Skipped) > 0 {
+			return nil, refuse("it has no operation planque can call (%s: %s)", s.Skipped[0].Name, s.Skipped[0].Why)
+		}
 		return nil, refuse("it has no operation planque can call")
 	}
 	if selected != nil && len(names) != len(selected) {
