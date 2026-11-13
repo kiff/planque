@@ -371,3 +371,20 @@ func TestAnAccountsAddressStaysOnTheVendorsServer(t *testing.T) {
 		}
 	}
 }
+
+// An account server whose host is all variables would take any domain: no
+// base is ever on it (qa-kiff on planque#160).
+func TestAHostOfVariablesTakesNoBase(t *testing.T) {
+	for _, a := range []string{"https://{domain}.{tld}/api", "https://{host}/api", "https://{sub}.{domain}.com/api", "https://acme.{domain}/api"} {
+		for _, base := range []string{"https://evil.example/api", "https://acme.evil.com/api", "https://acme.evil/api"} {
+			if OnAccountServer([]string{a}, base) {
+				t.Errorf("%s took %s", a, base)
+			}
+		}
+	}
+	// The vendor's domain written out, the variable in its host or its path.
+	if !OnAccountServer([]string{"https://{sub}.vendor.example.com/api"}, "https://acme.vendor.example.com/api") ||
+		!OnAccountServer([]string{"https://api.vendor.com/{account}/v1"}, "https://api.vendor.com/acme/v1") {
+		t.Fatal("a vendor's own domain refused")
+	}
+}

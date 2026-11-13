@@ -476,6 +476,9 @@ func OnAccountServer(accounts []string, base string) bool {
 		return false
 	}
 	for _, a := range accounts {
+		if !vendorDomain(a) {
+			continue
+		}
 		var re strings.Builder
 		re.WriteString("^")
 		rest := strings.TrimRight(a, "/")
@@ -497,6 +500,27 @@ func OnAccountServer(accounts []string, base string) bool {
 	}
 	return false
 }
+
+// vendorDomain reports whether an account server's host ends in the vendor's
+// own domain, written out: after its last variable, two labels or more
+// ("{subdomain}.zendesk.com"). A host that is all variables
+// ("{domain}.{tld}") would take any domain, so no base is ever on it.
+func vendorDomain(account string) bool {
+	rest, ok := strings.CutPrefix(account, "https://")
+	if !ok {
+		return false
+	}
+	host, _, _ := strings.Cut(rest, "/")
+	i := strings.LastIndex(host, "}")
+	if i < 0 {
+		// The host is written out: a variable is in the path only.
+		return host != ""
+	}
+	return fixedDomain.MatchString(host[i+1:])
+}
+
+// fixedDomain is a host's end after its last variable: two labels or more.
+var fixedDomain = regexp.MustCompile(`^(\.[A-Za-z0-9-]+){2,}$`)
 
 // resolver resolves internal references against doc.
 type resolver struct {
