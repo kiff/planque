@@ -196,6 +196,9 @@ func keyRoute(body []byte) (route, ops, why string) {
 }
 
 func authWords(a openapi.Auth) string {
+	if a.In == "basic" {
+		return "HTTP Basic, the key as its username"
+	}
 	if a.Prefix != "" {
 		return fmt.Sprintf("%s %s %q", a.In, a.Name, a.Prefix)
 	}
@@ -295,9 +298,13 @@ func keyAuths(doc map[string]any) (auths []openapi.Auth, others []string) {
 			}
 		case "http":
 			sch, _ := s["scheme"].(string)
-			if strings.EqualFold(sch, "bearer") {
+			switch {
+			case strings.EqualFold(sch, "bearer"):
 				auths = append(auths, openapi.Auth{In: "header", Name: "Authorization", Prefix: "Bearer "})
-			} else {
+			case strings.EqualFold(sch, "basic"):
+				// HTTP Basic with the key as its username, as planque takes it ("in": "basic").
+				auths = append(auths, openapi.Auth{In: "basic"})
+			default:
 				others = append(others, "HTTP "+strings.ToLower(sch))
 			}
 		case "oauth2", "openIdConnect":
@@ -305,6 +312,10 @@ func keyAuths(doc map[string]any) (auths []openapi.Auth, others []string) {
 		default:
 			others = append(others, typ)
 		}
+	}
+	if len(schemes) == 0 {
+		// A description that names no scheme takes the key as the vendor's docs say: tried as a Bearer token.
+		auths = append(auths, openapi.Auth{In: "header", Name: "Authorization", Prefix: "Bearer "})
 	}
 	return auths, others
 }
