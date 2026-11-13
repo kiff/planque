@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
@@ -499,4 +500,88 @@ func sameToolSettings(a, b ToolRequest) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return bytes.Equal(x, y)
+}
+
+// entryTools narrows a reviewed entry's tools to those the taf will use,
+// named as the tools search names them (each tool's vendor operation, its
+// Tool): least privilege, so the owner approves and KIFF holds only those.
+// The profile keeps the same tools' operations. A tool whose profile reads
+// another of the entry's tools needs that one named too, said by name.
+// Nil uses keeps every tool, as before.
+func entryTools(e *CatalogEntry, uses []string) ([]ToolRequest, json.RawMessage, error) {
+	if uses == nil {
+		return e.Tools, e.Profile, nil
+	}
+	if len(uses) == 0 || len(uses) > 20 {
+		return nil, nil, apiError{http.StatusBadRequest, "tools names 1 to 20 of the entry's tools, as search names them; leave it out for all of them"}
+	}
+	var tools []ToolRequest
+	kept := map[string]bool{}
+	for i, u := range uses {
+		j := slices.IndexFunc(e.Tools, func(t ToolRequest) bool { return t.Tool == u })
+		if j < 0 || slices.Contains(uses[:i], u) {
+			names := make([]string, len(e.Tools))
+			for k, t := range e.Tools {
+				names[k] = t.Tool
+			}
+			return nil, nil, apiError{http.StatusBadRequest, "tools names the entry's own tools, each once: " + u + " isn't one; it has " + strings.Join(names, ", ")}
+		}
+	}
+	// In the entry's order, so the same choice is the same request.
+	for _, t := range e.Tools {
+		if slices.Contains(uses, t.Tool) {
+			tools = append(tools, t)
+			kept[cmp.Or(t.Name, t.Tool)] = true
+		}
+	}
+	if len(e.Profile) == 0 {
+		return tools, nil, nil
+	}
+	p, err := profile.Parse(e.Profile)
+	if err != nil {
+		return nil, nil, err
+	}
+	toolOf := map[string]string{}
+	for _, t := range e.Tools {
+		toolOf[cmp.Or(t.Name, t.Tool)] = t.Tool
+	}
+	ops := p.Operations[:0:0]
+	for _, o := range p.Operations {
+		if !kept[o.Tool] {
+			continue
+		}
+		for _, read := range profileReads(o) {
+			if read != "" && !kept[read] {
+				return nil, nil, apiError{http.StatusBadRequest, fmt.Sprintf("%s reads %s to check its calls: name both in tools", toolOf[o.Tool], cmp.Or(toolOf[read], read))}
+			}
+		}
+		ops = append(ops, o)
+	}
+	p.Operations = ops
+	raw, err := json.Marshal(p)
+	return tools, raw, err
+}
+
+// profileReads are the tools an operation's profile reads before or after
+// a call: its amount's and unit's reads, its verify and status reads, and a
+// case's reads.
+func profileReads(o profile.Operation) []string {
+	var out []string
+	if a := o.Amount; a != nil {
+		for _, r := range []*profile.Read{a.Read, a.UnitRead} {
+			if r != nil {
+				out = append(out, r.Tool)
+			}
+		}
+	}
+	if o.VerifyRead != nil {
+		out = append(out, o.VerifyRead.Tool)
+	}
+	if o.StatusRead != nil {
+		out = append(out, o.StatusRead.Tool)
+	}
+	if c := o.Case; c != nil {
+		out = append(out, c.AccountRead.Tool, c.ChargeRead.Tool, c.RefundsRead.Tool)
+	}
+	return out
 }

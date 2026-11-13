@@ -216,13 +216,21 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		var ask struct {
 			Agent     string `json:"agent"`
 			AgentName string `json:"agent_name"`
+			// Tools, optional, are the entry's tools the taf will use, as
+			// the tools search names them: only those are asked for.
+			Tools []string `json:"tools"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
+		tools, prof, err := entryTools(entry, ask.Tools)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
 		req.Agent, req.AgentName, req.Server, req.Application = ask.Agent, ask.AgentName, entry.Server, entry.Application
-		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, entry.API, &entry.Tools, entry.Profile
+		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, entry.API, &tools, prof
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
