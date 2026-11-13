@@ -37,3 +37,77 @@ jobs:
         run: go vet ./... && go vet -tags live ./live
       - name: test
         run: go test -race ./...
+  deploy:
+    needs: test
+    # One deploy at a time, in order: two overlapping would each keep the other's half-deployed code as
+    # "previous", and a rollback could undo the other's good deploy.
+    concurrency:
+      group: planque-deploy
+      cancel-in-progress: false
+    # Code only, as the runbook's deploy: the function's configuration, table and keys stay as deploy/aws.sh set
+    # them. On once the deploy role exists: set the repository variable PLANQUE_DEPLOY=on and the secret
+    # AWS_DEPLOY_ROLE (a role this repository's main branch may assume, allowed lambda:GetFunction,
+    # lambda:UpdateFunctionCode and lambda:GetFunctionConfiguration on the function alone).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PLANQUE_DEPLOY == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      FN: ${{ vars.PLANQUE_FUNCTION || 'planque' }}
+      REGION: ${{ vars.PLANQUE_AWS_REGION || 'eu-west-1' }}
+      PUBLIC_URL: ${{ vars.PLANQUE_PUBLIC_URL || 'https://planque.kiff.dev' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build the function, as deploy/aws.sh does
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=-s -o out/bootstrap ./cmd/planque
+          cp deploy/server-apps.json deploy/catalog.json out/
+          (cd out && zip -q function.zip bootstrap server-apps.json catalog.json)
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          # The account id stays out of this public repository.
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.REGION }}
+      - name: Deploy, check it live, and put the old code back if it doesn't answer
+        run: |
+          set -euo pipefail
+          # The code the function runs now, kept to put back.
+          curl -sfL "$(aws lambda get-function --function-name "$FN" --query Code.Location --output text)" -o previous.zip
+          deploy() { # deploy <zip>
+            aws lambda update-function-code --function-name "$FN" --zip-file "fileb://$1" --query FunctionName --output text >/dev/null || return 1
+            aws lambda wait function-updated-v2 --function-name "$FN" || return 1
+          }
+          # A route's status, tried 3 times over 20 s for a cold start: it passes when it's the one wanted.
+          answers() { # answers <url> <status wanted>
+            for _ in 1 2 3; do
+              status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$1" || true)
+              if [ "$status" = "$2" ]; then echo "$1 answered $status"; return 0; fi
+              sleep 5
+            done
+            echo "::error::$1 answered $status after the deploy, not $2"; return 1
+          }
+          if ! deploy out/function.zip; then
+            echo "::error::the deploy failed: putting the previous code back"
+            deploy previous.zip
+            exit 1
+          fi
+          # /healthz answers 200, and an unsigned read of the catalog is refused (401): it loaded, and checks
+          # who asks. A 5xx, or nothing, means it didn't.
+          if answers "$PUBLIC_URL/healthz" 200 && answers "$PUBLIC_URL/v1/accounts/none/catalog" 401; then
+            echo "planque is live at $GITHUB_SHA"
+            exit 0
+          fi
+          echo "::error::the new code didn't answer as it should: putting the previous code back"
+          deploy previous.zip
+          answers "$PUBLIC_URL/healthz" 200 || true
+          exit 1
+

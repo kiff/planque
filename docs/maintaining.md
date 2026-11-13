@@ -48,6 +48,13 @@ Use [SECURITY.md](../SECURITY.md) for private reports and coordinated disclosure
 deploy/aws.sh up                 # the hosted deployment
 ```
 
+**Each merge to `main` deploys planque's code** (CI's `deploy` job, once the repository
+variable `PLANQUE_DEPLOY` is `on` and the secret `AWS_DEPLOY_ROLE` names the deploy role):
+the function is built as `deploy/aws.sh` builds it, its code replaced, and planque checked
+live (`/healthz` answers 200, an unsigned read of a catalog 401). If it doesn't answer so,
+the code it ran before is put back. Code only: the function's configuration, table, keys
+and schedule stay as `deploy/aws.sh up` set them, so a change to those still needs it.
+
 Configuration is in `cmd/planque/main.go`. The hosted deployment's table
 keeps point-in-time recovery on: each `deploy/aws.sh up` asks for it, so a
 table rebuilt or changed by hand gets it back.
