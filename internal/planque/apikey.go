@@ -161,11 +161,18 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if a.Base == "" && len(snap.Servers) > 0 {
 		a.Base = snap.Servers[0]
 	}
+	if a.Base == "" && len(snap.Accounts) > 0 {
+		return nil, nil, "api.base is required: the API is at each account's own address (" + snap.Accounts[0] + "); ask the owner for theirs", nil
+	}
 	if a.Base == "" {
 		return nil, nil, "api.base is required: the description names no server", nil
 	}
 	if err := s.REST.CheckURL(a.Base); err != nil {
 		return nil, nil, "api.base: " + err.Error(), nil
+	}
+	if len(snap.Accounts) > 0 && !slices.Contains(snap.Servers, strings.TrimRight(a.Base, "/")) && !openapi.OnAccountServer(snap.Accounts, a.Base) {
+		// An account's address stays on the vendor's own server, or the key could go wherever a request names.
+		return nil, nil, "api.base is an account's own address, as " + snap.Accounts[0] + " with each part one word of letters, digits or dashes", nil
 	}
 	if msg := apiToolsCheck(snap, tools); msg != "" {
 		return nil, nil, msg, nil
@@ -351,6 +358,10 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 	case g.Status != StatusPending && g.Status != StatusNeedsReconnect && g.Status != StatusConnected, g.SignedIn && g.Status == StatusPending:
 		writeErr(w, http.StatusConflict, "this grant is "+g.Status+"; it takes no key now")
 		return
+	case g.Request.API != nil && g.Request.API.Auth.Fixed != nil && strings.Contains(g.Request.API.Auth.Fixed.Value, key):
+		// The fixed header is shown in the approval and kept with the request, not in the vault.
+		writeErr(w, http.StatusBadRequest, "this key is in the connection's fixed header, which isn't kept as a secret: nothing was kept")
+		return
 	}
 	a := sr.approval
 	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
@@ -504,7 +515,7 @@ func (s *Server) checkKey(ctx context.Context, g *Grant, key string) (read strin
 	}
 	host := hostOf(g.Request.API.Base)
 	read = method + " " + op.Path
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+	ans, err := s.REST.CallAs(ctx, method, target, op.ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	switch {
 	case err != nil:
 		return read, http.StatusBadGateway, "planque couldn't check the new key: " + host + " didn't answer " + read + ". Nothing changed: try again", nil
@@ -569,7 +580,7 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if hostOf(target) != host {
 		return OpNotSent, toolResult("Refused by planque: the call would leave "+host+". Nothing was sent.", true)
 	}
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+	ans, err := s.REST.CallAs(ctx, method, target, snap.Operations[i].ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	var ce *rest.CallError
 	switch {
 	case errors.As(err, &ce) && !ce.Sent:
@@ -629,7 +640,7 @@ func (s *Server) checkOneOf(ctx context.Context, g *Grant, snap *openapi.Snapsho
 		if err != nil || hostOf(target) != hostOf(g.Request.API.Base) {
 			return "argument " + name + " can't be checked against " + a.OneOf.Tool
 		}
-		ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+		ans, err := s.REST.CallAs(ctx, method, target, snap.Operations[i].ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 		var read any
 		if err != nil || ans.Status < 200 || ans.Status >= 300 || ans.Cut || json.Unmarshal(ans.Body, &read) != nil {
 			return "argument " + name + " can't be checked: " + a.OneOf.Tool + " couldn't be read"

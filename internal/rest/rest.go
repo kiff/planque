@@ -115,8 +115,21 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Err.Error() }
 func (e *CallError) Unwrap() error { return e.Err }
 
-// Call makes one request, with the key where auth says.
+// Call makes one request with a JSON body, with the key where auth says.
 func (c *Client) Call(ctx context.Context, method, target string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
+	return c.CallAs(ctx, method, target, "application/json", body, auth, key, pins...)
+}
+
+// CallAs is Call with the body written as contentType says (an operation's
+// ContentType: JSON or a form).
+func (c *Client) CallAs(ctx context.Context, method, target, contentType string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
+	// Checked when the grant was asked for, and here again: an Auth that reached the client unchecked (a grant
+	// stored before a rule, a later bug) never lets a fixed header replace the key or a Basic part break its header.
+	if auth != (openapi.Auth{}) {
+		if err := auth.Check(); err != nil {
+			return Answer{}, &CallError{Err: err}
+		}
+	}
 	if err := c.CheckURL(target); err != nil {
 		return Answer{}, &CallError{Err: err}
 	}
@@ -137,19 +150,40 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
-	if auth.In == "header" {
+	switch auth.In {
+	case "header":
 		req.Header.Set(auth.Name, auth.Prefix+key)
+	case "basic":
+		if auth.User != "" {
+			req.SetBasicAuth(auth.User, key)
+		} else if strings.Contains(key, ":") {
+			// As Basic's username, a colon would end it early.
+			return Answer{}, &CallError{Err: errors.New("this key can't be a Basic username: it holds a colon")}
+		} else {
+			req.SetBasicAuth(key, auth.Password)
+		}
+	}
+	if auth.Fixed != nil {
+		// Checked when the grant was asked for (Auth.Check): never a credential's or the request's own header,
+		// and never the key again, which would put it where its approval doesn't say.
+		if key != "" && strings.Contains(auth.Fixed.Value, key) {
+			return Answer{}, &CallError{Err: errors.New("the fixed header can't carry the key")}
+		}
+		req.Header.Set(auth.Fixed.Name, auth.Fixed.Value)
 	}
 	for _, pin := range pins {
 		if pin == nil {
 			continue
 		}
+		if auth.Fixed != nil && strings.EqualFold(pin.Name, auth.Fixed.Name) {
+			return Answer{}, &CallError{Err: errors.New("the version header cannot replace the fixed header")}
+		}
 		if err := pin.Validate(); err != nil {
 			return Answer{}, &CallError{Err: err}
 		}
-		if auth.In == "header" && strings.EqualFold(pin.Name, auth.Name) {
+		if auth.In == "header" && strings.EqualFold(pin.Name, auth.Name) || auth.In == "basic" && strings.EqualFold(pin.Name, "Authorization") {
 			return Answer{}, &CallError{Err: errors.New("the version header cannot replace authentication")}
 		}
 		req.Header.Set(pin.Name, pin.Value)

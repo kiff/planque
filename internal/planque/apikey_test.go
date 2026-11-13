@@ -356,8 +356,8 @@ func TestAnAPIKeyGrantIsRefusedWithTheReason(t *testing.T) {
 		api  map[string]any
 		want string
 	}{
-		// YAML is read, then checked as JSON is: this one names no scheme.
-		{map[string]any{"url": v.URL + "/openapi.yaml", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}, "names no security scheme"},
+		// YAML is read, then checked as JSON is: this one has no operation.
+		{map[string]any{"url": v.URL + "/openapi.yaml", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}, "no operation planque can call"},
 		{map[string]any{"url": v.URL + "/openapi.json", "auth": map[string]any{"in": "query", "name": "key"}}, "none of its security schemes"},
 		{map[string]any{"url": v.URL + "/openapi.json", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}, "api.base is required"},
 		{map[string]any{"url": v.URL + "/openapi.json", "base": "ftp://x.example", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}, "api.base"},

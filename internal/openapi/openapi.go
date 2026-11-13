@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/kiff/planque/internal/jcs"
 )
@@ -38,11 +39,87 @@ const (
 )
 
 // Auth is where a grant's key goes on each call: a header (Authorization
-// with a "Bearer " prefix, X-API-Key…) or a query parameter.
+// with a "Bearer " prefix, X-API-Key…), a query parameter, or HTTP Basic.
 type Auth struct {
-	In     string `json:"in"` // "header" or "query"
+	In     string `json:"in"` // "header", "query" or "basic"
 	Name   string `json:"name"`
 	Prefix string `json:"prefix,omitempty"`
+	// HTTP Basic: the key is the password, with User as the username
+	// (an email, "me@example.com/token"), or, with no User, the username,
+	// with Password as the password ("X", or none). Neither is a secret:
+	// the owner reads them in the approval.
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+	// Fixed is one more header every call carries, as the vendor asks
+	// beside the key (Harvest-Account-Id): not a secret, the owner reads it.
+	Fixed *Fixed `json:"fixed,omitempty"`
+}
+
+// Fixed is a header and its value, the same on every call.
+type Fixed struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// headerToken is an HTTP header name.
+var headerToken = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]{1,64}$`)
+
+// notFixed are the headers a fixed one can never be: the request's own, and
+// ones that would move or carry a credential.
+var notFixed = map[string]bool{"authorization": true, "proxy-authorization": true, "host": true, "cookie": true, "content-type": true,
+	"content-length": true, "transfer-encoding": true, "connection": true, "upgrade": true, "te": true, "trailer": true, "expect": true,
+	"accept": true, "accept-encoding": true, "forwarded": true, "via": true, "keep-alive": true,
+	// A method override turns a call the Card reads as a GET into a DELETE or a POST, at a vendor that honours it.
+	"x-http-method-override": true, "x-http-method": true, "x-method-override": true}
+
+func (f *Fixed) check(a Auth) error {
+	name := strings.ToLower(f.Name)
+	if !headerToken.MatchString(f.Name) || notFixed[name] || strings.HasPrefix(name, "x-forwarded-") || strings.HasPrefix(name, "proxy-") ||
+		a.In == "header" && strings.EqualFold(f.Name, a.Name) {
+		return refuse("%q can't be a fixed header", f.Name)
+	}
+	if f.Value == "" || len(f.Value) > MaxBasicPart || strings.ContainsFunc(f.Value, unicode.IsControl) {
+		return refuse("a fixed header's value is one line of at most %d characters", MaxBasicPart)
+	}
+	return nil
+}
+
+// MaxBasicPart is the most a Basic username or password given beside the
+// key may be.
+const MaxBasicPart = 200
+
+// Check is why a is no place for a key, or nil.
+func (a Auth) Check() error {
+	switch a.In {
+	case "header", "query":
+		if strings.TrimSpace(a.Name) == "" {
+			return refuse("the key's header or query parameter needs a name")
+		}
+		if a.User != "" || a.Password != "" {
+			return refuse("a username or password goes with HTTP Basic only")
+		}
+	case "basic":
+		if a.Name != "" || a.Prefix != "" {
+			return refuse("an HTTP Basic key has no header name or prefix")
+		}
+		for _, part := range []string{a.User, a.Password} {
+			if len(part) > MaxBasicPart || strings.ContainsFunc(part, unicode.IsControl) {
+				return refuse("a Basic username or password is one line of at most %d characters", MaxBasicPart)
+			}
+		}
+		if strings.Contains(a.User, ":") {
+			return refuse("a Basic username can't hold a colon")
+		}
+		if a.User != "" && a.Password != "" {
+			return refuse("with a Basic username given, the key is the password: give no password")
+		}
+	default:
+		return refuse(`the key goes in a header, the query or HTTP Basic ("in": "header", "query" or "basic")`)
+	}
+	if a.Fixed != nil {
+		return a.Fixed.check(a)
+	}
+	return nil
 }
 
 // Param is a path or query parameter of an operation.
@@ -62,9 +139,11 @@ type Operation struct {
 	Description string  `json:"description,omitempty"`
 	ReadOnly    bool    `json:"read_only,omitempty"`
 	Params      []Param `json:"params,omitempty"`
-	// Body is how the JSON body is filled: "" for none, "fields" when the
+	// Body is how the body is filled: "" for none, "fields" when the JSON
 	// body is an object whose properties are the tool's other arguments,
-	// "body" when the whole body is the tool's "body" argument.
+	// "body" when the whole JSON body is the tool's "body" argument, "form"
+	// when the body is a form of the tool's other arguments, each a string,
+	// a number or a list of them.
 	Body        string          `json:"body,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
 }
@@ -82,9 +161,13 @@ type Snapshot struct {
 	// Digest is the SHA-256 of the description in planque's normal form: its
 	// JSON with keys in order and numbers as written, so a description and
 	// its YAML twin, or the same JSON indented otherwise, share it.
-	Digest     string      `json:"digest"`
-	Title      string      `json:"title,omitempty"`
-	Servers    []string    `json:"servers,omitempty"`
+	Digest  string   `json:"digest"`
+	Title   string   `json:"title,omitempty"`
+	Servers []string `json:"servers,omitempty"`
+	// Accounts are servers at an account's own address, a variable with no
+	// default ("https://{subdomain}.freshdesk.com/api/v2"): the request
+	// names the account's, as its base, and the owner reads it.
+	Accounts   []string    `json:"accounts,omitempty"`
 	Operations []Operation `json:"operations"`
 	Skipped    []Skipped   `json:"skipped,omitempty"`
 }
@@ -156,6 +239,9 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		return nil, refuse("it isn't OpenAPI 3.0 or 3.1")
 	}
 	r := &resolver{doc: doc}
+	if auth.Fixed != nil {
+		r.fixed = auth.Fixed.Name
+	}
 	if err := r.checkRefs(doc); err != nil {
 		return nil, err
 	}
@@ -169,9 +255,13 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		s.Title, _ = info["title"].(string)
 	}
 	for _, sv := range list(doc["servers"]) {
-		u, err := serverURL(sv)
+		u, account, err := serverURL(sv)
 		if err != nil {
 			return nil, err
+		}
+		if account {
+			s.Accounts = append(s.Accounts, u)
+			continue
 		}
 		s.Servers = append(s.Servers, u)
 	}
@@ -306,11 +396,8 @@ func semanticSchema(v any) any {
 // matchAuth is the name of the description's security scheme the grant's
 // key is, or why there's none.
 func matchAuth(doc map[string]any, a Auth) (string, error) {
-	if a.In != "header" && a.In != "query" {
-		return "", refuse(`the key goes in a header or the query ("in": "header" or "query")`)
-	}
-	if strings.TrimSpace(a.Name) == "" {
-		return "", refuse("the key's header or query parameter needs a name")
+	if err := a.Check(); err != nil {
+		return "", err
 	}
 	comps, _ := doc["components"].(map[string]any)
 	schemes, _ := comps["securitySchemes"].(map[string]any)
@@ -338,36 +425,110 @@ func matchAuth(doc map[string]any, a Auth) (string, error) {
 				strings.EqualFold(strings.TrimSpace(a.Prefix), "Bearer") {
 				return n, nil
 			}
+			if strings.EqualFold(scheme, "basic") && a.In == "basic" {
+				return n, nil
+			}
 		default:
 			offered = append(offered, fmt.Sprintf("%s (%s, not read)", n, typ))
 		}
 	}
 	if len(offered) == 0 {
-		return "", refuse("it names no security scheme for an API key")
+		// A description that names no scheme at all (GitHub's): the key goes
+		// as the request says, from the vendor's docs, and the owner reads
+		// where in the approval. An operation that names a scheme is still
+		// refused, since there's none it could be.
+		return "", nil
 	}
 	return "", refuse("none of its security schemes is a key sent as asked; it offers %s", strings.Join(offered, ", "))
 }
 
 // serverURL is a server's URL with its variables' defaults filled in.
-func serverURL(v any) (string, error) {
+// serverURL is a server's URL with its variables at their defaults, or, when
+// one has none, the URL as written, at an account's own address.
+func serverURL(v any) (u string, account bool, err error) {
 	sv, _ := v.(map[string]any)
-	u, _ := sv["url"].(string)
+	u, _ = sv["url"].(string)
 	vars, _ := sv["variables"].(map[string]any)
 	for name, def := range vars {
 		d, _ := def.(map[string]any)
-		val, _ := d["default"].(string)
-		u = strings.ReplaceAll(u, "{"+name+"}", val)
+		if val, _ := d["default"].(string); val != "" {
+			u = strings.ReplaceAll(u, "{"+name+"}", val)
+		}
 	}
 	if strings.ContainsAny(u, "{}") {
-		return "", refuse("a server URL has a variable with no default: %s", u)
+		if len(u) > 300 || strings.ContainsFunc(u, unicode.IsControl) {
+			return "", false, refuse("a server URL can't be read")
+		}
+		return u, true, nil
 	}
-	return u, nil
+	return u, false, nil
 }
+
+// accountPart is what a server variable with no default may be: one label,
+// so an address can't leave the vendor's own domain or path.
+const accountPart = `[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`
+
+// OnAccountServer reports whether base is one of the account servers, each
+// variable filled with one label, https only.
+func OnAccountServer(accounts []string, base string) bool {
+	base = strings.TrimRight(base, "/")
+	if !strings.HasPrefix(base, "https://") {
+		return false
+	}
+	for _, a := range accounts {
+		if !vendorDomain(a) {
+			continue
+		}
+		var re strings.Builder
+		re.WriteString("^")
+		rest := strings.TrimRight(a, "/")
+		for {
+			i := strings.Index(rest, "{")
+			j := strings.Index(rest, "}")
+			if i < 0 || j < i {
+				re.WriteString(regexp.QuoteMeta(rest))
+				break
+			}
+			re.WriteString(regexp.QuoteMeta(rest[:i]))
+			re.WriteString(accountPart)
+			rest = rest[j+1:]
+		}
+		re.WriteString("$")
+		if m, err := regexp.MatchString(re.String(), base); err == nil && m {
+			return true
+		}
+	}
+	return false
+}
+
+// vendorDomain reports whether an account server's host ends in the vendor's
+// own domain, written out: after its last variable, two labels or more
+// ("{subdomain}.zendesk.com"). A host that is all variables
+// ("{domain}.{tld}") would take any domain, so no base is ever on it.
+func vendorDomain(account string) bool {
+	rest, ok := strings.CutPrefix(account, "https://")
+	if !ok {
+		return false
+	}
+	host, _, _ := strings.Cut(rest, "/")
+	i := strings.LastIndex(host, "}")
+	if i < 0 {
+		// The host is written out: a variable is in the path only.
+		return host != ""
+	}
+	return fixedDomain.MatchString(host[i+1:])
+}
+
+// fixedDomain is a host's end after its last variable: two labels or more.
+var fixedDomain = regexp.MustCompile(`^(\.[A-Za-z0-9-]+){2,}$`)
 
 // resolver resolves internal references against doc.
 type resolver struct {
 	doc   map[string]any
 	nodes int
+	// fixed is the header every call carries (Auth.Fixed): an operation
+	// that needs it as a parameter has it.
+	fixed string
 }
 
 // checkRefs refuses any reference outside the description.
@@ -578,6 +739,15 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 		p := byKey[k]
 		switch p.In {
 		case "path", "query":
+		case "header":
+			if r.fixed != "" && strings.EqualFold(p.Name, r.fixed) {
+				// Sent on every call, from the grant, never an argument.
+				continue
+			}
+			if p.Required {
+				return op, "it needs a " + p.In + " parameter (" + p.Name + "), which planque doesn't send", nil
+			}
+			continue
 		default:
 			if p.Required {
 				return op, "it needs a " + p.In + " parameter (" + p.Name + "), which planque doesn't send", nil
@@ -609,7 +779,7 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 		}
 		content, _ := body["content"].(map[string]any)
 		var schema any
-		found := false
+		found, form := false, false
 		for ct, media := range content {
 			if base := strings.TrimSpace(strings.Split(ct, ";")[0]); base == "application/json" || strings.HasSuffix(base, "+json") {
 				m, _ := media.(map[string]any)
@@ -618,7 +788,13 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 			}
 		}
 		if !found {
-			return op, "its body isn't JSON", nil
+			// A form-encoded body (Stripe's kind), when that's all it takes.
+			if media, ok := content["application/x-www-form-urlencoded"].(map[string]any); ok {
+				schema, found, form = media["schema"], true, true
+			}
+		}
+		if !found {
+			return op, "its body isn't JSON or a form", nil
 		}
 		resolved, err := r.inline(schema, nil)
 		if err != nil {
@@ -633,8 +809,14 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 				clash = true
 			}
 		}
+		if typ, _ := bs["type"].(string); form && ((typ != "object" && !(typ == "" && bprops != nil)) || bprops == nil || clash) {
+			return op, "its form body isn't fields of their own", nil
+		}
 		if typ, _ := bs["type"].(string); (typ == "object" || typ == "" && bprops != nil) && bprops != nil && !clash {
 			op.Body = "fields"
+			if form {
+				op.Body = "form"
+			}
 			for k, v := range bprops {
 				props[k] = v
 			}
@@ -742,6 +924,31 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 		if len(rest) > 0 {
 			body, err = json.Marshal(rest)
 		}
+	case "form":
+		form := url.Values{}
+		for _, k := range sortedKeys(rest) {
+			if l, isList := rest[k].([]any); isList {
+				for _, e := range l {
+					s, ok := scalar(e)
+					if !ok {
+						return "", "", nil, fmt.Errorf("%w: %s must hold strings or numbers", ErrArguments, k)
+					}
+					form.Add(k, s)
+				}
+				continue
+			}
+			if rest[k] == nil {
+				continue
+			}
+			s, ok := scalar(rest[k])
+			if !ok {
+				return "", "", nil, fmt.Errorf("%w: %s must be a string, a number or a list of them: a form has no nested fields", ErrArguments, k)
+			}
+			form.Set(k, s)
+		}
+		if len(form) > 0 {
+			body = []byte(form.Encode())
+		}
 	case "body":
 		if b, ok := rest["body"]; ok {
 			body, err = json.Marshal(b)
@@ -767,6 +974,23 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 	u.Path, u.RawPath = unescaped, escaped
 	u.RawQuery = q.Encode()
 	return op.Method, u.String(), body, nil
+}
+
+// ContentType is how op's body is written: a form, or JSON.
+func (op Operation) ContentType() string {
+	if op.Body == "form" {
+		return "application/x-www-form-urlencoded"
+	}
+	return "application/json"
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func firstKey(m map[string]any) string {

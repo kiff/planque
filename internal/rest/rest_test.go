@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,5 +73,80 @@ func TestAFailedCallsErrorHoldsNoKey(t *testing.T) {
 	}
 	if got := HideKey(`{"error":"invalid key sk_live/secret+1"}`, key); got != `{"error":"invalid key [key]"}` {
 		t.Fatal(got)
+	}
+}
+
+// HTTP Basic: the key as the password with the username given, or as the
+// username with the password given; a key with a colon can't be a username,
+// and a version pin can't replace the Authorization it fills.
+func TestABasicKeyIsSentAsHTTPBasic(t *testing.T) {
+	var user, pass string
+	var ok bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok = r.BasicAuth()
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	ctx := context.Background()
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", User: "me@example.com/token"}, "k3y"); err != nil || !ok || user != "me@example.com/token" || pass != "k3y" {
+		t.Fatalf("the key as the password: %v %v %q %q", err, ok, user, pass)
+	}
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", Password: "X"}, "k3y"); err != nil || user != "k3y" || pass != "X" {
+		t.Fatalf("the key as the username: %v %q %q", err, user, pass)
+	}
+	user = ""
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic"}, "k:3y"); err == nil || user != "" || strings.Contains(err.Error(), "k:3y") {
+		t.Fatalf("a key with a colon as the username: %v (sent as %q)", err, user)
+	}
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", User: "me"}, "k3y", &VersionPin{Name: "Authorization", Value: "2024-01-01"}); err == nil {
+		t.Fatal("a version pin replaced Basic's Authorization")
+	}
+}
+
+// A form body goes as a form.
+func TestAFormBodyGoesAsAForm(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Content-Type")
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	if _, err := c.CallAs(context.Background(), "POST", srv.URL, "application/x-www-form-urlencoded", []byte("a=1"), openapi.Auth{In: "header", Name: "X"}, "k"); err != nil || got != "application/x-www-form-urlencoded" {
+		t.Fatalf("%v %q", err, got)
+	}
+	if _, err := c.Call(context.Background(), "POST", srv.URL, []byte("{}"), openapi.Auth{In: "header", Name: "X"}, "k"); err != nil || got != "application/json" {
+		t.Fatalf("%v %q", err, got)
+	}
+}
+
+// The fixed header goes on every call, and a version pin can't replace it.
+func TestAFixedHeaderGoesOnEveryCall(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Account-Id")
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	auth := openapi.Auth{In: "header", Name: "Authorization", Prefix: "Bearer ", Fixed: &openapi.Fixed{Name: "Account-Id", Value: "123456"}}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "k"); err != nil || got != "123456" {
+		t.Fatalf("%v %q", err, got)
+	}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "k", &VersionPin{Name: "account-id", Value: "2024-01-01"}); err == nil {
+		t.Fatal("a version pin replaced the fixed header")
+	}
+}
+
+// The fixed header never carries the key: its approval says where the key goes.
+func TestAFixedHeaderNeverCarriesTheKey(t *testing.T) {
+	sent := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { sent = true }))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	auth := openapi.Auth{In: "header", Name: "X-API-Key", Fixed: &openapi.Fixed{Name: "Account-Id", Value: "acct-sk_live_1"}}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "sk_live_1"); err == nil || sent || strings.Contains(err.Error(), "sk_live_1") {
+		t.Fatalf("%v, sent %v", err, sent)
 	}
 }

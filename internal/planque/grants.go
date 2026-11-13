@@ -748,8 +748,16 @@ func apiKeyText(w words.Approval, q Request, held bool, account string, catalog 
 		return telegramText(w, q, held, account, catalog...)
 	}
 	where := fmt.Sprintf(w.KeyInHeaderF, q.API.Auth.Name)
-	if q.API.Auth.In == "query" {
+	switch {
+	case q.API.Auth.In == "query":
 		where = fmt.Sprintf(w.KeyInQueryF, q.API.Auth.Name)
+	case q.API.Auth.In == "basic" && q.API.Auth.User != "":
+		where = fmt.Sprintf(w.KeyAsBasicPasswordF, q.API.Auth.User)
+	case q.API.Auth.In == "basic":
+		where = w.KeyAsBasicUser
+	}
+	if f := q.API.Auth.Fixed; f != nil {
+		where += fmt.Sprintf(w.FixedHeaderF, f.Name, f.Value)
 	}
 	api := fmt.Sprintf(w.APIAsReadF, q.API.URL, q.API.Digest[:12], q.API.Base)
 	vault := fmt.Sprintf(w.KeyVaultF, hostOf(q.API.Base), where)
