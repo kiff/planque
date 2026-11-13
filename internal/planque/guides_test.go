@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,35 @@ func TestAGuideNamesNoServiceField(t *testing.T) {
 		raw, _ := os.ReadFile(f)
 		if serviceNamed(string(raw)) {
 			t.Errorf("%s names the connection service", f)
+		}
+	}
+}
+
+// Every app in apps.md has its adapted guide and a row in the README's
+// table, so Coach finds a guide for every app the catalog offers.
+func TestEveryAppHasAnAdaptedGuideAndRow(t *testing.T) {
+	apps, err := os.ReadFile("../../deploy/guides/apps.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme, err := os.ReadFile("../../deploy/guides/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slugs := regexp.MustCompile("(?m)^\\| [^|]+ \\| `([^`]+)` \\|").FindAllSubmatch(apps, -1)
+	if len(slugs) == 0 {
+		t.Fatal("apps.md lists no apps")
+	}
+	for _, m := range slugs {
+		name := strings.ReplaceAll(string(m[1]), "@", "-")
+		if strings.HasPrefix(name, "qonto-key-") {
+			name = "qonto"
+		}
+		if _, err := os.Stat("../../deploy/guides/" + name + ".md"); err != nil {
+			t.Errorf("%s has no adapted guide", m[1])
+		}
+		if !strings.Contains(string(readme), "]("+name+".md)") {
+			t.Errorf("%s has no row in the README", m[1])
 		}
 	}
 }
