@@ -208,7 +208,7 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 		}
 		// A tool not narrowed takes the operation's own arguments: what KIFF scopes the Card on, and counts,
 		// must be one of them, of its type, or KIFF refuses the tool when it's declared.
-		if len(t.Arguments) == 0 {
+		if !t.narrowed() {
 			op := snap.Operations[i]
 			if r := t.ResourceArg; r != "" && argType(op.InputSchema, r) != "string" {
 				return "resource_argument " + r + " must be one of " + t.Tool + "'s string arguments (" + opArgNames(op.InputSchema, "string") + ")"
@@ -247,8 +247,34 @@ func apiToolsCheck(snap *openapi.Snapshot, tools []ToolRequest) string {
 				return "argument " + name + "'s type is " + a.Type + ", but " + t.Tool + "'s " + top + " is " + got
 			}
 		}
+		// A narrowed tool sends only its pins and what the taf sets: each argument the operation requires must be one.
+		if t.narrowed() {
+			set := map[string]bool{}
+			for p := range t.Fixed {
+				top, _, _ := strings.Cut(p, ".")
+				set[top] = true
+			}
+			for _, a := range t.Arguments {
+				top, _, _ := strings.Cut(a.Path, ".")
+				set[top] = true
+			}
+			for _, req := range requiredArgs(op.InputSchema) {
+				if !set[req] {
+					return t.Tool + " requires " + req + ": pin it in fixed_arguments, or name it in arguments for the taf to set"
+				}
+			}
+		}
 	}
 	return ""
+}
+
+// requiredArgs are the top-level arguments an operation requires, sorted.
+func requiredArgs(schema json.RawMessage) []string {
+	var s struct {
+		Required []string `json:"required"`
+	}
+	_ = json.Unmarshal(schema, &s)
+	return slices.Sorted(slices.Values(s.Required))
 }
 
 // hasArg says the operation takes name as a top-level argument.
