@@ -104,3 +104,52 @@ func TestARefusedBodyNamesTheFieldItDoesntTake(t *testing.T) {
 		t.Fatalf("a grant request: %d %v", st, out)
 	}
 }
+
+// A sign-in another taf's connection uses stays, and the answer names the
+// app and that taf, as the confirmation before the fingerprint draws it.
+func TestEndingAnAgentNamesWhoKeepsASharedSignIn(t *testing.T) {
+	e := newEnv(t)
+	e.manager()
+	first := e.connect()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": first.ID,
+		"agent": "agt_chargebacks", "agent_name": "Chargebacks",
+		"tools": []map[string]any{{"tool": "list_charges", "title": "List charges b", "name": "list_charges_b", "read_only": true}}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	for _, q := range []string{"?preview=1", ""} {
+		st, out := e.end("agt_taf", "s_manager", q)
+		if st != 200 {
+			t.Fatalf("%q: %d %v", q, st, out)
+		}
+		kept, _ := out["kept"].([]any)
+		if len(kept) != 1 {
+			t.Fatalf("%q kept %v", q, out["kept"])
+		}
+		k, _ := kept[0].(map[string]any)
+		used, _ := k["used_by"].([]any)
+		if k["vendor"] != e.s.appName(first) || k["vendor"] == "" || len(used) != 1 || used[0] != "Chargebacks" {
+			t.Fatalf("%q kept %v", q, k)
+		}
+	}
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("the sign-in Chargebacks uses was revoked")
+	}
+}
+
+// The app is named as people name it: a reviewed entry's vendor, not the
+// entry's title; else the vendor's own name; else a host.
+func TestAnAppIsNamedAsPeopleNameIt(t *testing.T) {
+	e := newEnv(t)
+	e.s.CatalogEntries = map[string]CatalogEntry{"qonto-key@2": {Vendor: "Qonto", Title: "Qonto Business API, invoicing subset (reviewed for planque)"}}
+	for want, g := range map[string]*Grant{
+		"Qonto":           {Request: Request{CatalogEntry: "qonto-key@2", API: &APIRequest{Base: "https://thirdparty.qonto.com/v2"}}, VendorName: "Qonto Business API, invoicing subset (reviewed for planque)"},
+		"Stripe":          {VendorName: "Stripe", Request: Request{Server: "https://mcp.stripe.com"}},
+		"mcp.example.com": {Request: Request{Server: "https://mcp.example.com/mcp"}},
+		"api.example.com": {Request: Request{Kind: KindAPIKey, API: &APIRequest{Base: "https://api.example.com/v1"}}},
+	} {
+		if got := e.s.appName(g); got != want {
+			t.Errorf("%s: %q", want, got)
+		}
+	}
+}

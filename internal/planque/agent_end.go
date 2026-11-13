@@ -30,6 +30,29 @@ type keptSignIn struct {
 	UsedBy []string `json:"used_by"`
 }
 
+// appName is g's app as people name it, for words drawn as they are: the
+// reviewed catalog entry's vendor ("Qonto", not the entry's title), else the
+// name the vendor or the managed app gave, else its server's host, else its
+// API's.
+func (s *Server) appName(g *Grant) string {
+	if e, ok := s.CatalogEntries[s.appEntry(g)]; ok && e.Vendor != "" {
+		return e.Vendor
+	}
+	if g.VendorName != "" {
+		return g.VendorName
+	}
+	if h := hostOf(g.Request.Server); h != "" {
+		return h
+	}
+	if g.Request.API != nil {
+		if h := hostOf(g.Request.API.Base); h != "" {
+			return h
+		}
+		return hostOf(g.Request.API.URL)
+	}
+	return ""
+}
+
 // endAgent ends every connection of a taf's agent when the taf is removed,
 // whatever its status: connected, waiting for the owner, or failed. A
 // connected one's tools leave KIFF and its sign-in or key is revoked,
@@ -98,7 +121,7 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 	ended := []endedGrant{}
 	kept := []keptSignIn{}
 	for _, g := range mine {
-		ended = append(ended, endedGrant{Grant: g.ID, Vendor: vendorName(g), Was: g.Status})
+		ended = append(ended, endedGrant{Grant: g.ID, Vendor: s.appName(g), Was: g.Status})
 		if g.Status == StatusFailed {
 			continue // it holds no sign-in in use
 		}
@@ -115,7 +138,7 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(usedBy) > 0 {
-			kept = append(kept, keptSignIn{Vendor: vendorName(g), Why: "another taf's connection uses the same sign-in", UsedBy: usedBy})
+			kept = append(kept, keptSignIn{Vendor: s.appName(g), Why: "another taf's connection uses the same sign-in", UsedBy: usedBy})
 		}
 	}
 	out := map[string]any{"agent": agent, "ended": ended, "kept": kept, "preview": preview}
