@@ -19,15 +19,22 @@ func TestARefusedPinNamesWhatToFix(t *testing.T) {
 		"a value that isn't JSON": {"author", `urn:li:person:1`, []string{`linkedin_post: fixed argument "author"'s value isn't JSON`, `{"author": "urn:li:person:…"}`}},
 	} {
 		tool := ToolRequest{Tool: "CREATE_POST", Name: "linkedin_post", Title: "Post", Fixed: map[string]json.RawMessage{c.pin: json.RawMessage(c.value)}}
-		msg := checkNarrowing(tool)
+		r := checkNarrowing(tool)
+		if r == nil {
+			t.Errorf("%s: accepted", name)
+			continue
+		}
+		if r.Code != refPinShape || r.Tool != "linkedin_post" || r.Field != c.pin {
+			t.Errorf("%s: code %q, tool %q, field %q", name, r.Code, r.Tool, r.Field)
+		}
 		for _, w := range c.want {
-			if !strings.Contains(msg, w) {
-				t.Errorf("%s: %q lacks %q", name, msg, w)
+			if !strings.Contains(r.Msg, w) {
+				t.Errorf("%s: %q lacks %q", name, r.Msg, w)
 			}
 		}
 	}
 	ok := ToolRequest{Tool: "CREATE_POST", Name: "linkedin_post", Fixed: map[string]json.RawMessage{"author": json.RawMessage(`"urn:li:person:1"`)}}
-	if msg := checkNarrowing(ok); msg != "" {
+	if msg := checkNarrowing(ok); msg != nil {
 		t.Errorf("a good pin was refused: %s", msg)
 	}
 }

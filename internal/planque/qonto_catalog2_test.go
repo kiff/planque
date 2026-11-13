@@ -80,7 +80,7 @@ func TestShippedQontoKey2ReadsAndDraftsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if msg := apiToolsCheck(snap, entry.Tools); msg != "" {
+	if msg := apiToolsCheck(snap, entry.Tools); msg != nil {
 		t.Fatal(msg)
 	}
 	for _, op := range snap.Operations {

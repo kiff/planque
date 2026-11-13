@@ -262,8 +262,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if msg := checkTools(req.Agent, *req.Tools); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	if r := checkTools(req.Agent, *req.Tools); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if msg := oneOfWithoutKey(req.Kind, *req.Tools); msg != "" {
@@ -355,8 +355,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 				s.fail(w, r, err)
 				return
 			}
-			if msg := apiToolsCheck(snap, *req.Tools); msg != "" {
-				writeErr(w, http.StatusBadRequest, msg)
+			if r := apiToolsCheck(snap, *req.Tools); r != nil {
+				writeRefusal(w, r)
 				return
 			}
 		}
@@ -569,12 +569,15 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	writeJSON(w, http.StatusCreated, s.view(r, g))
 }
 
-func checkTools(agent string, tools []ToolRequest) string {
+// checkTools says what is wrong with a request's agent and tools, or nil.
+func checkTools(agent string, tools []ToolRequest) *toolRefusal {
 	if strings.TrimSpace(agent) == "" {
-		return "agent is required: the KIFF agent of the taf that will use the account"
+		return &toolRefusal{Code: refAgentRequired, Field: "agent", Want: "the KIFF agent's id",
+			Msg: "agent is required: the KIFF agent of the taf that will use the account"}
 	}
 	if len(tools) > 20 {
-		return "tools may name at most 20 of the server's tools"
+		return &toolRefusal{Code: refTooManyTools, Field: "tools", Want: "at most 20 tools",
+			Msg: "tools may name at most 20 of the server's tools"}
 	}
 	seen := map[string]bool{}
 	// A title names its tool on the owner's approval and Card: two alike
@@ -585,32 +588,42 @@ func checkTools(agent string, tools []ToolRequest) string {
 		if name == "" {
 			name = t.Tool
 		}
+		ref := func(code, field, want, msg string) *toolRefusal {
+			return &toolRefusal{Code: code, Tool: name, Field: field, Want: want, Msg: msg}
+		}
 		switch {
 		case !toolName.MatchString(t.Tool) || !toolName.MatchString(name):
-			return "tool names must start with a letter and use letters, digits and underscores"
+			field := "name"
+			if !toolName.MatchString(t.Tool) {
+				field = "tool"
+			}
+			return ref(refToolName, field, "letters, digits and underscores, starting with a letter",
+				"tool names must start with a letter and use letters, digits and underscores")
 		case seen[name]:
-			return "tool " + name + " is asked for twice"
+			return ref(refToolTwice, "name", "each tool once", "tool "+name+" is asked for twice")
 		case (t.AmountArg != "" || t.AmountPath != "") && t.ReadOnly:
-			return "a tool that moves an amount is not read-only: " + t.Tool
+			return ref(refReadOnlyMovesAmount, "read_only", "read_only false", "a tool that moves an amount is not read-only: "+t.Tool)
 		case t.AmountArg == IdempotencyArg:
-			return IdempotencyArg + " is planque's own argument"
+			return ref(refIdempotencyReserved, "amount_argument", "", IdempotencyArg+" is planque's own argument")
 		case t.Title != "" && label(t.Title) != t.Title:
-			return "a tool's title is what it does in the owner's words, on one line, at most 100 characters: " + name
+			return ref(refToolTitle, "title", "one line, at most 100 characters",
+				"a tool's title is what it does in the owner's words, on one line, at most 100 characters: "+name)
 		case t.Title != "" && titled[strings.ToLower(t.Title)] != "":
-			return "tool " + name + " has the same title as " + titled[strings.ToLower(t.Title)] + ": give each tool its own"
+			return ref(refTitleTwice, "title", "a title of its own",
+				"tool "+name+" has the same title as "+titled[strings.ToLower(t.Title)]+": give each tool its own")
 		case t.SetupReads && !t.ReadOnly:
-			return "setup_reads is only for a read-only tool: " + name
+			return ref(refSetupReadsNotRead, "setup_reads", "a read-only tool", "setup_reads is only for a read-only tool: "+name)
 		}
 		if t.Title != "" {
 			titled[strings.ToLower(t.Title)] = name
 		}
-		if msg := checkNarrowing(t); msg != "" {
-			return msg
+		if r := checkNarrowing(t); r != nil {
+			return r
 		}
 		seen[name] = true
 	}
-	if msg := checkOneOf(tools); msg != "" {
-		return msg
+	if r := checkOneOf(tools); r != nil {
+		return r
 	}
 	return checkLookups(tools)
 }
@@ -1255,8 +1268,8 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	req.Tools = all[len(has):]
 	originalNames := toolNames(req.Tools)
 
-	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	if r := checkTools(g.Request.Agent, req.Tools); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if msg := oneOfWithoutKey(g.Request.Kind, req.Tools); msg != "" {

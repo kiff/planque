@@ -121,7 +121,7 @@ func TestRenameTakenPicksAFreeName(t *testing.T) {
 		t.Fatalf("the same name twice: %s", long[0].Name)
 	}
 	for _, tool := range long {
-		if len(tool.Name) > 64 || checkTools("agt", []ToolRequest{{Tool: "t", Title: "T", Name: tool.Name}}) != "" {
+		if len(tool.Name) > 64 || checkTools("agt", []ToolRequest{{Tool: "t", Title: "T", Name: tool.Name}}) != nil {
 			t.Fatalf("an invalid name: %s (%d)", tool.Name, len(tool.Name))
 		}
 	}

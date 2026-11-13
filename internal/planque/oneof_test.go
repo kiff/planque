@@ -128,7 +128,7 @@ func TestOneOfIsChecked(t *testing.T) {
 			Arguments: map[string]Argument{"iban": a}}
 	}
 	ok := Argument{Path: "payment_methods.iban", Type: "string", OneOf: &OneOf{Tool: "get_organization", Path: "organization.bank_accounts.iban"}}
-	if msg := checkTools("agt", []ToolRequest{read, write(ok)}); msg != "" {
+	if msg := checkTools("agt", []ToolRequest{read, write(ok)}); msg != nil {
 		t.Fatal(msg)
 	}
 	for name, c := range map[string][]ToolRequest{
@@ -137,7 +137,7 @@ func TestOneOfIsChecked(t *testing.T) {
 		"not a string":      {read, write(Argument{Path: "n", Type: "integer", OneOf: ok.OneOf})},
 		"a path with a gap": {read, write(Argument{Path: "iban", Type: "string", OneOf: &OneOf{Tool: "get_organization", Path: "a..b"}})},
 	} {
-		if msg := checkTools("agt", c); msg == "" {
+		if msg := checkTools("agt", c); msg == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}

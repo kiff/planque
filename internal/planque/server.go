@@ -237,6 +237,11 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
+	var rf *toolRefusal
+	if errors.As(err, &rf) {
+		writeRefusal(w, rf)
+		return
+	}
 	var ce apiCoded
 	if errors.As(err, &ce) {
 		writeJSON(w, ce.status, map[string]string{"error": ce.msg, "code": ce.code})

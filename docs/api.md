@@ -42,6 +42,28 @@ Every route planque serves, who may call it, and what it takes. The
 | `POST /v1/account-deletions/finish` | `{intent, signature}`, only the one accepted, which KIFF still vouches for | erases the account as `DELETE /v1/accounts/{tenant}` does, with no deadline; the same when asked again. **403** `not_accepted` for any other |
 | `POST /v1/account-deletions/status` | `{intent, signature}` | whether that intent was accepted (`accepted`), or the account is `erased`, deleting nothing. **403** `not_accepted` otherwise |
 
+**A refused request's tools say what to fix.** When `POST …/grants`,
+`POST …/catalog/{entry}/grants` or adding tools to a grant refuses the
+agent or tools it was asked with, the 400 answers, beside planque's words
+in `error` (unchanged, for older callers), a stable `code`, the `tool` at
+fault (its `name`, else its vendor tool), the `field` at fault (the
+argument, pin or lookup), and `want`, the form planque wants there, each
+when there is one. Coach turns them into plain words; the person never
+reads planque's text. For example:
+`{"error": "linkedin_post: fixed argument \"author\"'s value isn't JSON: …", "code": "pin_shape", "tool": "linkedin_post", "field": "author", "want": "dotted path → JSON value"}`.
+The codes: `agent_required`, `too_many_tools`, `tool_name`, `tool_twice`,
+`tool_title`, `title_twice`, `read_only_moves_amount`,
+`idempotency_reserved`, `setup_reads_not_read` (the request and its
+tools); `pin_shape`, `argument_name`, `argument_type`, `argument_schema`,
+`argument_one_of`, `argument_path`, `argument_overlap`, `amount_argument`,
+`resource_argument` (a tool's pins and arguments); `lookup` (a
+`unit_lookup` or `amount_lookup`), `one_of` (an argument's `one_of` read);
+and, against an API's operations, `no_operation`, `not_a_read`,
+`pin_unknown` (`want` lists the operation's arguments),
+`argument_unknown`, and `required_argument` (`field` is the argument the
+operation requires: pin it in `fixed_arguments`, or name it in
+`arguments`). A code is never renamed or reused.
+
 A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>,d=<device id>`:
 the device's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
 over SHA-256, the lines `planque.request.v1`, planque's base URL, tenant,

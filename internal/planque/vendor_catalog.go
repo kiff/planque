@@ -90,8 +90,8 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	if _, err := deriveProfileFields(e.Profile, tools, true); err != nil {
 		return err
 	}
-	if msg := checkTools("catalog", tools); msg != "" {
-		return errors.New(msg)
+	if r := checkTools("catalog", tools); r != nil {
+		return errors.New(r.Msg)
 	}
 	if msg := oneOfWithoutKey(e.Kind, tools); msg != "" {
 		return errors.New(msg)
@@ -110,8 +110,8 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 		server, header = app.Server, app.VersionHeader
 		if app.Kind == appconfig.REST {
 			api = &APIRequest{}
-			if msg := apiToolsCheck(app.Snapshot, tools); msg != "" {
-				return errors.New(msg)
+			if r := apiToolsCheck(app.Snapshot, tools); r != nil {
+				return errors.New(r.Msg)
 			}
 		}
 	case e.Kind == KindAPIKey:
