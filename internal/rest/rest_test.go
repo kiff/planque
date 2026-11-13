@@ -103,3 +103,20 @@ func TestABasicKeyIsSentAsHTTPBasic(t *testing.T) {
 		t.Fatal("a version pin replaced Basic's Authorization")
 	}
 }
+
+// A form body goes as a form.
+func TestAFormBodyGoesAsAForm(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Content-Type")
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	if _, err := c.CallAs(context.Background(), "POST", srv.URL, "application/x-www-form-urlencoded", []byte("a=1"), openapi.Auth{In: "header", Name: "X"}, "k"); err != nil || got != "application/x-www-form-urlencoded" {
+		t.Fatalf("%v %q", err, got)
+	}
+	if _, err := c.Call(context.Background(), "POST", srv.URL, []byte("{}"), openapi.Auth{In: "header", Name: "X"}, "k"); err != nil || got != "application/json" {
+		t.Fatalf("%v %q", err, got)
+	}
+}

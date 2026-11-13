@@ -504,7 +504,7 @@ func (s *Server) checkKey(ctx context.Context, g *Grant, key string) (read strin
 	}
 	host := hostOf(g.Request.API.Base)
 	read = method + " " + op.Path
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+	ans, err := s.REST.CallAs(ctx, method, target, op.ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	switch {
 	case err != nil:
 		return read, http.StatusBadGateway, "planque couldn't check the new key: " + host + " didn't answer " + read + ". Nothing changed: try again", nil
@@ -569,7 +569,7 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if hostOf(target) != host {
 		return OpNotSent, toolResult("Refused by planque: the call would leave "+host+". Nothing was sent.", true)
 	}
-	ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+	ans, err := s.REST.CallAs(ctx, method, target, snap.Operations[i].ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	var ce *rest.CallError
 	switch {
 	case errors.As(err, &ce) && !ce.Sent:
@@ -629,7 +629,7 @@ func (s *Server) checkOneOf(ctx context.Context, g *Grant, snap *openapi.Snapsho
 		if err != nil || hostOf(target) != hostOf(g.Request.API.Base) {
 			return "argument " + name + " can't be checked against " + a.OneOf.Tool
 		}
-		ans, err := s.REST.Call(ctx, method, target, body, g.Request.API.Auth, key, g.Request.API.VersionPin)
+		ans, err := s.REST.CallAs(ctx, method, target, snap.Operations[i].ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 		var read any
 		if err != nil || ans.Status < 200 || ans.Status >= 300 || ans.Cut || json.Unmarshal(ans.Body, &read) != nil {
 			return "argument " + name + " can't be checked: " + a.OneOf.Tool + " couldn't be read"

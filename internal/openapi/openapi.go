@@ -104,9 +104,11 @@ type Operation struct {
 	Description string  `json:"description,omitempty"`
 	ReadOnly    bool    `json:"read_only,omitempty"`
 	Params      []Param `json:"params,omitempty"`
-	// Body is how the JSON body is filled: "" for none, "fields" when the
+	// Body is how the body is filled: "" for none, "fields" when the JSON
 	// body is an object whose properties are the tool's other arguments,
-	// "body" when the whole body is the tool's "body" argument.
+	// "body" when the whole JSON body is the tool's "body" argument, "form"
+	// when the body is a form of the tool's other arguments, each a string,
+	// a number or a list of them.
 	Body        string          `json:"body,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
 }
@@ -655,7 +657,7 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 		}
 		content, _ := body["content"].(map[string]any)
 		var schema any
-		found := false
+		found, form := false, false
 		for ct, media := range content {
 			if base := strings.TrimSpace(strings.Split(ct, ";")[0]); base == "application/json" || strings.HasSuffix(base, "+json") {
 				m, _ := media.(map[string]any)
@@ -664,7 +666,13 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 			}
 		}
 		if !found {
-			return op, "its body isn't JSON", nil
+			// A form-encoded body (Stripe's kind), when that's all it takes.
+			if media, ok := content["application/x-www-form-urlencoded"].(map[string]any); ok {
+				schema, found, form = media["schema"], true, true
+			}
+		}
+		if !found {
+			return op, "its body isn't JSON or a form", nil
 		}
 		resolved, err := r.inline(schema, nil)
 		if err != nil {
@@ -679,8 +687,14 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 				clash = true
 			}
 		}
+		if typ, _ := bs["type"].(string); form && ((typ != "object" && !(typ == "" && bprops != nil)) || bprops == nil || clash) {
+			return op, "its form body isn't fields of their own", nil
+		}
 		if typ, _ := bs["type"].(string); (typ == "object" || typ == "" && bprops != nil) && bprops != nil && !clash {
 			op.Body = "fields"
+			if form {
+				op.Body = "form"
+			}
 			for k, v := range bprops {
 				props[k] = v
 			}
@@ -788,6 +802,31 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 		if len(rest) > 0 {
 			body, err = json.Marshal(rest)
 		}
+	case "form":
+		form := url.Values{}
+		for _, k := range sortedKeys(rest) {
+			if l, isList := rest[k].([]any); isList {
+				for _, e := range l {
+					s, ok := scalar(e)
+					if !ok {
+						return "", "", nil, fmt.Errorf("%w: %s must hold strings or numbers", ErrArguments, k)
+					}
+					form.Add(k, s)
+				}
+				continue
+			}
+			if rest[k] == nil {
+				continue
+			}
+			s, ok := scalar(rest[k])
+			if !ok {
+				return "", "", nil, fmt.Errorf("%w: %s must be a string, a number or a list of them: a form has no nested fields", ErrArguments, k)
+			}
+			form.Set(k, s)
+		}
+		if len(form) > 0 {
+			body = []byte(form.Encode())
+		}
 	case "body":
 		if b, ok := rest["body"]; ok {
 			body, err = json.Marshal(b)
@@ -813,6 +852,23 @@ func (op Operation) Request(base string, args map[string]any) (method, target st
 	u.Path, u.RawPath = unescaped, escaped
 	u.RawQuery = q.Encode()
 	return op.Method, u.String(), body, nil
+}
+
+// ContentType is how op's body is written: a form, or JSON.
+func (op Operation) ContentType() string {
+	if op.Body == "form" {
+		return "application/x-www-form-urlencoded"
+	}
+	return "application/json"
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func firstKey(m map[string]any) string {

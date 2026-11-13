@@ -243,3 +243,43 @@ func TestADescriptionNamingNoSchemeTakesTheKeyAsAsked(t *testing.T) {
 		t.Fatal("no header name")
 	}
 }
+
+// A body that's a form (Stripe's kind) is the tool's fields, written as a
+// form: strings, numbers and lists of them, never nested; JSON is taken
+// when the operation takes both.
+func TestAFormBodyIsWrittenAsAForm(t *testing.T) {
+	form := strings.Replace(desc, `"post": {"operationId": "create-refund", "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refund"}}}}}`,
+		`"post": {"operationId": "create-refund", "requestBody": {"required": true, "content": {"application/x-www-form-urlencoded": {"schema": {"type": "object", "required": ["amount"], "properties": {"amount": {"type": "integer"}, "reason": {"type": "string"}, "expand": {"type": "array", "items": {"type": "string"}}, "metadata": {"type": "object"}}}}}}}`, 1)
+	if form == desc {
+		t.Fatal("setup: the form body isn't in")
+	}
+	refund := op(t, parse(t, form, key), "create_refund")
+	if refund.Body != "form" || refund.ContentType() != "application/x-www-form-urlencoded" {
+		t.Fatalf("%+v", refund)
+	}
+	method, target, body, err := refund.Request("https://eu.shop.example/v1", map[string]any{"order": "o 1", "amount": json.Number("500"), "reason": "a & b", "expand": []any{"charge", "customer"}})
+	if err != nil || method != "POST" || !strings.HasSuffix(target, "/orders/o%201/refunds") || string(body) != "amount=500&expand=charge&expand=customer&reason=a+%26+b" {
+		t.Fatalf("%s %s %q %v", method, target, body, err)
+	}
+	if _, _, _, err := refund.Request("https://eu.shop.example/v1", map[string]any{"order": "o1", "amount": 5, "metadata": map[string]any{"k": "v"}}); !errors.Is(err, ErrArguments) || !strings.Contains(err.Error(), "no nested fields") {
+		t.Fatalf("a nested field: %v", err)
+	}
+	// A JSON operation is still written as JSON.
+	if j := op(t, parse(t, desc, key), "create_refund"); j.Body != "fields" || j.ContentType() != "application/json" {
+		t.Fatalf("%+v", j)
+	}
+	// Both offered: JSON is taken.
+	both := strings.Replace(form, `"application/x-www-form-urlencoded": {"schema"`, `"application/json": {"schema": {"$ref": "#/components/schemas/Refund"}}, "application/x-www-form-urlencoded": {"schema"`, 1)
+	if b := op(t, parse(t, both, key), "create_refund"); b.Body != "fields" {
+		t.Fatalf("both: %+v", b)
+	}
+	// A form that isn't fields of its own is left out, with why.
+	whole := strings.Replace(form, `{"type": "object", "required": ["amount"], "properties": {"amount": {"type": "integer"}, "reason": {"type": "string"}, "expand": {"type": "array", "items": {"type": "string"}}, "metadata": {"type": "object"}}}`, `{"type": "string"}`, 1)
+	s := parse(t, whole, key)
+	for _, sk := range s.Skipped {
+		if sk.Name == "create_refund" && strings.Contains(sk.Why, "form body isn't fields") {
+			return
+		}
+	}
+	t.Fatalf("a form that's one string: %+v", s.Skipped)
+}

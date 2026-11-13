@@ -115,8 +115,14 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Err.Error() }
 func (e *CallError) Unwrap() error { return e.Err }
 
-// Call makes one request, with the key where auth says.
+// Call makes one request with a JSON body, with the key where auth says.
 func (c *Client) Call(ctx context.Context, method, target string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
+	return c.CallAs(ctx, method, target, "application/json", body, auth, key, pins...)
+}
+
+// CallAs is Call with the body written as contentType says (an operation's
+// ContentType: JSON or a form).
+func (c *Client) CallAs(ctx context.Context, method, target, contentType string, body []byte, auth openapi.Auth, key string, pins ...*VersionPin) (Answer, error) {
 	if err := c.CheckURL(target); err != nil {
 		return Answer{}, &CallError{Err: err}
 	}
@@ -137,7 +143,7 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	switch auth.In {
 	case "header":
