@@ -5,6 +5,10 @@ Coach reads an app's guide before it offers a job that uses the app. tafs
 cloud preselects the guides of the apps a job connects or offers, so the
 choice is deterministic, never the model's.
 
+planque serves each adapted guide as it's built
+(`GET /v1/accounts/{tenant}/catalog/{entry}/guide`, `guides.go` beside this
+file): a new or changed guide reaches Coach with the next deploy.
+
 ## Two parts per app
 
 - **Generated:** `generated/<slug>.md`, written by `planque guides` from the
@@ -55,6 +59,11 @@ owner's. Without the key it writes the reviewed entries only.
 | Stripe (Stripe's own server) | [stripe.md](stripe.md) | [stripe](generated/stripe.md) (the managed app); its own server lists its tools at sign-in |
 | GitHub | [github.md](github.md) | [github](generated/github.md) |
 | LinkedIn | [linkedin.md](linkedin.md) | [linkedin](generated/linkedin.md) |
+| Google Calendar | [googlecalendar.md](googlecalendar.md) | [googlecalendar](generated/googlecalendar.md) |
+| Google Drive | [googledrive.md](googledrive.md) | [googledrive](generated/googledrive.md) |
+| Google Docs | [googledocs.md](googledocs.md) | [googledocs](generated/googledocs.md) |
+| Outlook | [outlook.md](outlook.md) | [outlook](generated/outlook.md) |
+| Slack | [slack.md](slack.md) | [slack](generated/slack.md) |
 | Qonto (key) | [qonto.md](qonto.md) | [qonto-key-1](generated/qonto-key-1.md), [qonto-key-2](generated/qonto-key-2.md) |
 | bexio | [bexio.md](bexio.md) | [bexio](generated/bexio.md) |
 | Bitbucket | [bitbucket.md](bitbucket.md) | [bitbucket](generated/bitbucket.md) |
