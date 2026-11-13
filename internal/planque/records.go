@@ -358,6 +358,14 @@ type Grant struct {
 	// is usable: the relay refuses every call until the grant is connected.
 	// Its Tools and Transport are what was registered.
 	Declared bool `json:"declared,omitempty"`
+	// Pending are a connected grant's added tools, declared in KIFF while the
+	// addition waits for the owner's approval, so the taf's Card can be
+	// drafted over them and signed with that approval (tools_and_cards). The
+	// relay lists them and refuses every call of them until approved; with
+	// the approval they join Tools, their registration and PendingTransport
+	// unchanged. The addition ending unapproved takes them out of KIFF.
+	Pending          []GrantedTool `json:"pending,omitempty"`
+	PendingTransport string        `json:"pending_transport,omitempty"`
 	// Renewal is a new sign-in the owner approved for a connected grant
 	// (gap 13 of kiff/tafs#476): its tools keep working with the sign-in in
 	// use until the approving device confirms the new one, which then

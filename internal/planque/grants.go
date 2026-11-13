@@ -1038,7 +1038,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
 	}
-	v.Declared = g.Declared && g.Status == StatusPending
+	v.Declared = (g.Declared || len(g.Pending) > 0) && g.Status == StatusPending
 	if a := g.Approval; a != nil {
 		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, DeviceID: a.DeviceID, Message: a.Message,
 			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt, Lang: a.Lang, Text: a.Text}
@@ -1340,6 +1340,13 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	if adding && g.Status == StatusConnected {
 		g.ConnectedProfile = slices.Clone(g.Request.Profile)
 	}
+	// An addition revised before its approval: what was declared for it goes, and the new one is declared below.
+	if adding && g.Status == StatusPending {
+		if err := s.undeclareAddition(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	if g.Request.Connector != nil {
 		if err := bindConnectorTools(g, all); err != nil {
 			s.fail(w, r, err)
@@ -1374,6 +1381,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if adding {
+		// The added tools in KIFF while they wait, so the Card can be drafted over them and signed with this approval.
+		s.declareAddition(r.Context(), g)
+	}
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
@@ -1405,6 +1416,10 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		// Tools added to a connected grant and never approved: they go, and
 		// the grant stays connected with what it had. Its sign-in is in use.
 		was := *g
+		if err := s.undeclareAddition(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
 		g.Request.Tools, g.Connected = g.Connected, nil
 		g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
 		if g.Request.Connector != nil {
@@ -2337,6 +2352,36 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 		}
 		return errors.New(reason)
 	}
+	// Declared while it waited (tools_and_cards): the same registration serves them now, as for a key grant.
+	if pending, transport := g.Pending, g.PendingTransport; len(pending) > 0 && sameNames(pending, g.Request.Tools[len(had):]) {
+		g.Tools = append(slices.Clone(hadTools), pending...)
+		g.Transports = append(slices.Clone(hadTransports), transport)
+		g.Pending, g.PendingTransport = nil, ""
+		g.Connected, g.Status, g.HeldUntil = nil, StatusConnected, time.Time{}
+		if err := s.saveGrant(ctx, g); err != nil {
+			g.Connected, g.Tools, g.Transports, g.Approval, g.Pending, g.PendingTransport = had, hadTools, hadTransports, hadApproval, pending, transport
+			return err
+		}
+		key, err := s.connectorKey(ctx, g.Tenant)
+		if err != nil {
+			return back(nil, "the KIFF connector key could not be opened")
+		}
+		if err := s.applyProfile(ctx, key, g); err != nil {
+			return back(toolNamesOf(pending), "KIFF did not apply the approved profile: "+err.Error())
+		}
+		var titles []string
+		for _, t := range pending {
+			titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
+		}
+		g.ConnectedProfile = nil
+		g.event(s.now(), "Added in KIFF: "+strings.Join(titles, ", ")+" (declared while it waited)")
+		s.setupReads(ctx, key, g)
+		return s.saveGrant(ctx, g)
+	}
+	// Declared for another set of tools than the one approved: that declaration goes first.
+	if err := s.undeclareAddition(ctx, g); err != nil {
+		return back(nil, err.Error())
+	}
 	listed, _, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		return back(nil, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
@@ -2605,7 +2650,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	if key, err := s.connectorKey(r.Context(), g.Tenant); err != nil {
 		problems = append(problems, "the KIFF connector key could not be opened")
 	} else {
-		for _, t := range g.Tools {
+		for _, t := range g.inKIFF() {
 			if err := s.KIFF.Disconnect(r.Context(), key, t.Name); err != nil {
 				problems = append(problems, "KIFF kept "+t.Name+": "+err.Error())
 			}
@@ -2613,6 +2658,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
+	g.Pending, g.PendingTransport = nil, ""
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	switch {
 	case g.keptFor > 0:

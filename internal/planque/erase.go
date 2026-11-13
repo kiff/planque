@@ -107,11 +107,11 @@ func (s *Server) eraseAll(ctx context.Context, tenant string, e Enrolment, by st
 // disconnected or failed, and revokes its vendor tokens.
 func (s *Server) eraseGrant(ctx context.Context, g *Grant, key string, keyErr error) []string {
 	var problems []string
-	if g.Status != StatusDisconnected && g.Status != StatusFailed && len(g.Tools) > 0 {
+	if g.Status != StatusDisconnected && g.Status != StatusFailed && len(g.inKIFF()) > 0 {
 		if keyErr != nil {
 			problems = append(problems, "the KIFF connector key could not be opened")
 		} else {
-			for _, t := range g.Tools {
+			for _, t := range g.inKIFF() {
 				if err := s.KIFF.Disconnect(ctx, key, t.Name); err != nil {
 					problems = append(problems, "KIFF kept "+t.Name+": "+err.Error())
 				}

@@ -160,13 +160,13 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 	var unfinished []string
 	for _, g := range mine {
 		var problems []string
-		if len(g.Tools) > 0 {
+		if len(g.inKIFF()) > 0 {
 			if keyErr != nil {
 				unfinished = append(unfinished, g.ID)
 				continue
 			}
 			left := false
-			for _, t := range g.Tools {
+			for _, t := range g.inKIFF() {
 				if err := s.KIFF.Disconnect(ctx, key, t.Name); err != nil {
 					problems = append(problems, "KIFF kept "+t.Name+": "+err.Error())
 					left = true
@@ -185,6 +185,7 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 			problems = append(problems, s.revoke(ctx, g)...)
 		}
 		g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
+		g.Pending, g.PendingTransport = nil, ""
 		g.HeldUntil, g.ConfirmHash, g.ConfirmBy, g.Renewal = time.Time{}, "", time.Time{}, nil
 		what := "ended with its taf: removed by a person who manages the account's tafs"
 		switch {
