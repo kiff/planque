@@ -25,6 +25,11 @@ func TestAManagedConnectionIsNamedByItsAccountNeverItsID(t *testing.T) {
 			t.Fatalf("%s: %d account %v", at, st, out["account"])
 		}
 	}
+	// Its name for people, the same in every app: the app and its account, and the day it was asked for.
+	_, view := e.do("GET", path, nil, nil, "k_setup")
+	if view["title"] != "Support desk · Demo Shop" || len(view["since"].(string)) != 10 {
+		t.Fatalf("title %v, since %v", view["title"], view["since"])
+	}
 	st, out := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, "k_setup")
 	if st != 200 || strings.Contains(stringOf(out), "account_demo") {
 		t.Fatalf("Setup's listing names the provider's id: %d %v", st, out)
@@ -40,6 +45,9 @@ func TestAnUnfinishedManagedConnectionEndsAfterADay(t *testing.T) {
 	e.at(holdTTL + time.Minute)
 	if n, err := e.s.Sweep(context.Background()); err != nil || n != 1 {
 		t.Fatalf("sweep: %d %v", n, err)
+	}
+	if _, view := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup"); view == nil {
+		t.Fatal("no view")
 	}
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
 	if g.Status != StatusFailed || !strings.Contains(g.Reason, "deadline") && !strings.Contains(g.Reason, "within a day") {

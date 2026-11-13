@@ -7,6 +7,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A connection's name for people, and an unfinished one said so.** A grant's view and the account's connections carry `title` ("Gmail · Demo Shop") and `since` (the day it was asked for), so every app names a connection the same way. A connection signed in with no tools chosen reads "Unfinished · signed in, no tools chosen yet", in the 8 languages, and still ends after its day.
+- **Ending a taf names the connections that keep a shared sign-in.** `kept` in `…/agents/{agent}/end` now carries `grants` and `agents`: the live connections still holding the sign-in and their agents, so an app can offer to remove it too, by disconnecting those, when none is a taf the owner still has.
 - **A managed app's connection is named by its account, never the provider's id.** A grant's view, its catalog and Setup's listing give `account` as the account name the provider shows ("Demo Shop", an address), or leave it out, never the provider's id for the connection (`ca_…`), which the apps drew as the connection's name.
 - **An app's guide, served.** `GET …/catalog/{entry}/guide` answers the app's adapted guide (`deploy/guides/<app>.md`, built into planque) for an agent of the account, before any connection, so Coach reads it before it offers or connects the app. An app with no adapted guide yet answers 404, with words.
 - **A key grant declined before its key withdraws its declared tools at once.** `DELETE …/grants/{id}/tools` on a key grant whose tools are declared, before the owner gave the key, takes them out of KIFF and ends the request (`failed`, declined), instead of leaving them declared until its deadline.
