@@ -417,7 +417,8 @@ func (s *Server) applyProfile(ctx context.Context, key string, g *Grant) error {
 	}
 	a := g.Approval
 	revision, err := s.KIFF.ApplyProfile(ctx, key, g.Request.Profile, kiff.ProfileApproval{
-		Message: base64.StdEncoding.EncodeToString([]byte(a.Message)), Body: base64.StdEncoding.EncodeToString([]byte(a.Body)), Signature: a.Signature, DeviceID: a.DeviceID})
+		Message: base64.StdEncoding.EncodeToString([]byte(a.Message)), Body: base64.StdEncoding.EncodeToString([]byte(a.Body)), Signature: a.Signature, DeviceID: a.DeviceID,
+		Request: base64Of(a.Request)})
 	if err != nil {
 		return err
 	}
@@ -587,4 +588,12 @@ func profileReads(o profile.Operation) []string {
 		out = append(out, c.AccountRead.Tool, c.ChargeRead.Tool, c.RefundsRead.Tool)
 	}
 	return out
+}
+
+// base64Of is s in base64, or "" for "": a request signed alone sends none.
+func base64Of(s string) string {
+	if s == "" {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(s))
 }
