@@ -161,6 +161,9 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 	if a.Base == "" && len(snap.Servers) > 0 {
 		a.Base = snap.Servers[0]
 	}
+	if a.Base == "" && len(snap.Accounts) > 0 {
+		return nil, nil, "api.base is required: the API is at each account's own address (" + snap.Accounts[0] + "); ask the owner for theirs", nil
+	}
 	if a.Base == "" {
 		return nil, nil, "api.base is required: the description names no server", nil
 	}

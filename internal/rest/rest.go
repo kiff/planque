@@ -158,9 +158,16 @@ func (c *Client) CallAs(ctx context.Context, method, target, contentType string,
 			req.SetBasicAuth(key, auth.Password)
 		}
 	}
+	if auth.Fixed != nil {
+		// Checked when the grant was asked for (Auth.Check): never a credential's or the request's own header.
+		req.Header.Set(auth.Fixed.Name, auth.Fixed.Value)
+	}
 	for _, pin := range pins {
 		if pin == nil {
 			continue
+		}
+		if auth.Fixed != nil && strings.EqualFold(pin.Name, auth.Fixed.Name) {
+			return Answer{}, &CallError{Err: errors.New("the version header cannot replace the fixed header")}
 		}
 		if err := pin.Validate(); err != nil {
 			return Answer{}, &CallError{Err: err}

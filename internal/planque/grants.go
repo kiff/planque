@@ -756,6 +756,9 @@ func apiKeyText(w words.Approval, q Request, held bool, account string, catalog 
 	case q.API.Auth.In == "basic":
 		where = w.KeyAsBasicUser
 	}
+	if f := q.API.Auth.Fixed; f != nil {
+		where += fmt.Sprintf(w.FixedHeaderF, f.Name, f.Value)
+	}
 	api := fmt.Sprintf(w.APIAsReadF, q.API.URL, q.API.Digest[:12], q.API.Base)
 	vault := fmt.Sprintf(w.KeyVaultF, hostOf(q.API.Base), where)
 	if len(q.Tools) == 0 {

@@ -33,6 +33,9 @@ type Approval struct {
 	KeyAsBasicPasswordF string
 	// KeyAsBasicUser: the key is HTTP Basic's username.
 	KeyAsBasicUser string
+	// FixedHeaderF follows where the key goes: the header every call also
+	// carries (%s), and its value (%s).
+	FixedHeaderF string
 
 	// An API key.
 	APIAsReadF   string // the description's URL, its digest, the API's base

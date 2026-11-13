@@ -50,6 +50,36 @@ type Auth struct {
 	// the owner reads them in the approval.
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
+	// Fixed is one more header every call carries, as the vendor asks
+	// beside the key (Harvest-Account-Id): not a secret, the owner reads it.
+	Fixed *Fixed `json:"fixed,omitempty"`
+}
+
+// Fixed is a header and its value, the same on every call.
+type Fixed struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// headerToken is an HTTP header name.
+var headerToken = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]{1,64}$`)
+
+// notFixed are the headers a fixed one can never be: the request's own, and
+// ones that would move or carry a credential.
+var notFixed = map[string]bool{"authorization": true, "proxy-authorization": true, "host": true, "cookie": true, "content-type": true,
+	"content-length": true, "transfer-encoding": true, "connection": true, "upgrade": true, "te": true, "trailer": true, "expect": true,
+	"accept": true, "accept-encoding": true, "forwarded": true, "via": true, "keep-alive": true}
+
+func (f *Fixed) check(a Auth) error {
+	name := strings.ToLower(f.Name)
+	if !headerToken.MatchString(f.Name) || notFixed[name] || strings.HasPrefix(name, "x-forwarded-") || strings.HasPrefix(name, "proxy-") ||
+		a.In == "header" && strings.EqualFold(f.Name, a.Name) {
+		return refuse("%q can't be a fixed header", f.Name)
+	}
+	if f.Value == "" || len(f.Value) > MaxBasicPart || strings.ContainsFunc(f.Value, unicode.IsControl) {
+		return refuse("a fixed header's value is one line of at most %d characters", MaxBasicPart)
+	}
+	return nil
 }
 
 // MaxBasicPart is the most a Basic username or password given beside the
@@ -83,6 +113,9 @@ func (a Auth) Check() error {
 		}
 	default:
 		return refuse(`the key goes in a header, the query or HTTP Basic ("in": "header", "query" or "basic")`)
+	}
+	if a.Fixed != nil {
+		return a.Fixed.check(a)
 	}
 	return nil
 }
@@ -126,9 +159,13 @@ type Snapshot struct {
 	// Digest is the SHA-256 of the description in planque's normal form: its
 	// JSON with keys in order and numbers as written, so a description and
 	// its YAML twin, or the same JSON indented otherwise, share it.
-	Digest     string      `json:"digest"`
-	Title      string      `json:"title,omitempty"`
-	Servers    []string    `json:"servers,omitempty"`
+	Digest  string   `json:"digest"`
+	Title   string   `json:"title,omitempty"`
+	Servers []string `json:"servers,omitempty"`
+	// Accounts are servers at an account's own address, a variable with no
+	// default ("https://{subdomain}.freshdesk.com/api/v2"): the request
+	// names the account's, as its base, and the owner reads it.
+	Accounts   []string    `json:"accounts,omitempty"`
 	Operations []Operation `json:"operations"`
 	Skipped    []Skipped   `json:"skipped,omitempty"`
 }
@@ -200,6 +237,9 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		return nil, refuse("it isn't OpenAPI 3.0 or 3.1")
 	}
 	r := &resolver{doc: doc}
+	if auth.Fixed != nil {
+		r.fixed = auth.Fixed.Name
+	}
 	if err := r.checkRefs(doc); err != nil {
 		return nil, err
 	}
@@ -213,9 +253,13 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 		s.Title, _ = info["title"].(string)
 	}
 	for _, sv := range list(doc["servers"]) {
-		u, err := serverURL(sv)
+		u, account, err := serverURL(sv)
 		if err != nil {
 			return nil, err
+		}
+		if account {
+			s.Accounts = append(s.Accounts, u)
+			continue
 		}
 		s.Servers = append(s.Servers, u)
 	}
@@ -397,25 +441,34 @@ func matchAuth(doc map[string]any, a Auth) (string, error) {
 }
 
 // serverURL is a server's URL with its variables' defaults filled in.
-func serverURL(v any) (string, error) {
+// serverURL is a server's URL with its variables at their defaults, or, when
+// one has none, the URL as written, at an account's own address.
+func serverURL(v any) (u string, account bool, err error) {
 	sv, _ := v.(map[string]any)
-	u, _ := sv["url"].(string)
+	u, _ = sv["url"].(string)
 	vars, _ := sv["variables"].(map[string]any)
 	for name, def := range vars {
 		d, _ := def.(map[string]any)
-		val, _ := d["default"].(string)
-		u = strings.ReplaceAll(u, "{"+name+"}", val)
+		if val, _ := d["default"].(string); val != "" {
+			u = strings.ReplaceAll(u, "{"+name+"}", val)
+		}
 	}
 	if strings.ContainsAny(u, "{}") {
-		return "", refuse("a server URL has a variable with no default: %s", u)
+		if len(u) > 300 || strings.ContainsFunc(u, unicode.IsControl) {
+			return "", false, refuse("a server URL can't be read")
+		}
+		return u, true, nil
 	}
-	return u, nil
+	return u, false, nil
 }
 
 // resolver resolves internal references against doc.
 type resolver struct {
 	doc   map[string]any
 	nodes int
+	// fixed is the header every call carries (Auth.Fixed): an operation
+	// that needs it as a parameter has it.
+	fixed string
 }
 
 // checkRefs refuses any reference outside the description.
@@ -626,6 +679,15 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 		p := byKey[k]
 		switch p.In {
 		case "path", "query":
+		case "header":
+			if r.fixed != "" && strings.EqualFold(p.Name, r.fixed) {
+				// Sent on every call, from the grant, never an argument.
+				continue
+			}
+			if p.Required {
+				return op, "it needs a " + p.In + " parameter (" + p.Name + "), which planque doesn't send", nil
+			}
+			continue
 		default:
 			if p.Required {
 				return op, "it needs a " + p.In + " parameter (" + p.Name + "), which planque doesn't send", nil

@@ -28,6 +28,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "as the %s query parameter",
 		KeyAsBasicPasswordF: "as the password of an HTTP Basic sign-in, with the username %s",
 		KeyAsBasicUser:      "as the username of an HTTP Basic sign-in",
+		FixedHeaderF:        ", with the %s header set to %s on each call",
 
 		APIAsReadF: "Its API is as described at %s when it was read (SHA-256 %s…), at %s.",
 		KeyVaultF:  "Your key is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to %s, %s.",
@@ -108,6 +109,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "als Abfrageparameter %s",
 		KeyAsBasicPasswordF: "als Passwort einer HTTP-Basic-Anmeldung, mit dem Benutzernamen %s",
 		KeyAsBasicUser:      "als Benutzername einer HTTP-Basic-Anmeldung",
+		FixedHeaderF:        ", mit dem Header %s auf %s bei jedem Aufruf",
 
 		APIAsReadF: "Seine API ist so, wie sie unter %s beim Lesen beschrieben war (SHA-256 %s…), unter %s.",
 		KeyVaultF:  "Dein Schlüssel liegt in einem versiegelten Tresor und wird nie wieder angezeigt; der taf sieht ihn nie. Er wird nur an %s gesendet, %s.",
@@ -188,6 +190,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "comme paramètre de requête %s",
 		KeyAsBasicPasswordF: "comme mot de passe d'une connexion HTTP Basic, avec l'identifiant %s",
 		KeyAsBasicUser:      "comme identifiant d'une connexion HTTP Basic",
+		FixedHeaderF:        ", avec l'en-tête %s à %s à chaque appel",
 
 		APIAsReadF: "Son API est telle que décrite sur %s au moment de sa lecture (SHA-256 %s…), sur %s.",
 		KeyVaultF:  "Votre clé est gardée dans un coffre scellé et n'est plus jamais affichée ; le taf ne la voit jamais. Elle n'est envoyée qu'à %s, %s.",
@@ -268,6 +271,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "como parámetro de consulta %s",
 		KeyAsBasicPasswordF: "como contraseña de un acceso HTTP Basic, con el usuario %s",
 		KeyAsBasicUser:      "como usuario de un acceso HTTP Basic",
+		FixedHeaderF:        ", con la cabecera %s a %s en cada llamada",
 
 		APIAsReadF: "Su API es la descrita en %s cuando se leyó (SHA-256 %s…), en %s.",
 		KeyVaultF:  "Tu clave se guarda en una caja fuerte sellada y no se vuelve a mostrar; el taf nunca la ve. Solo se envía a %s, %s.",
@@ -348,6 +352,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "come parametro di query %s",
 		KeyAsBasicPasswordF: "come password di un accesso HTTP Basic, con il nome utente %s",
 		KeyAsBasicUser:      "come nome utente di un accesso HTTP Basic",
+		FixedHeaderF:        ", con l'intestazione %s impostata a %s a ogni chiamata",
 
 		APIAsReadF: "La sua API è quella descritta su %s quando è stata letta (SHA-256 %s…), su %s.",
 		KeyVaultF:  "La tua chiave è custodita in una cassaforte sigillata e non viene più mostrata; il taf non la vede mai. Viene inviata solo a %s, %s.",
@@ -428,6 +433,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "como parâmetro de consulta %s",
 		KeyAsBasicPasswordF: "como palavra-passe de um acesso HTTP Basic, com o utilizador %s",
 		KeyAsBasicUser:      "como utilizador de um acesso HTTP Basic",
+		FixedHeaderF:        ", com o cabeçalho %s a %s em cada chamada",
 
 		APIAsReadF: "A sua API é a descrita em %s quando foi lida (SHA-256 %s…), em %s.",
 		KeyVaultF:  "A sua chave fica num cofre selado e nunca mais é mostrada; o taf nunca a vê. Só é enviada para %s, %s.",
@@ -508,6 +514,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "als queryparameter %s",
 		KeyAsBasicPasswordF: "als wachtwoord van een HTTP Basic-aanmelding, met de gebruikersnaam %s",
 		KeyAsBasicUser:      "als gebruikersnaam van een HTTP Basic-aanmelding",
+		FixedHeaderF:        ", met de header %s op %s bij elke aanroep",
 
 		APIAsReadF: "De API is zoals beschreven op %s toen die werd gelezen (SHA-256 %s…), op %s.",
 		KeyVaultF:  "Je sleutel wordt in een verzegelde kluis bewaard en nooit meer getoond; het taf ziet hem nooit. Hij wordt alleen naar %s gestuurd, %s.",
@@ -588,6 +595,7 @@ var approvals = map[string]Approval{
 		KeyInQueryF:         "jako parametr zapytania %s",
 		KeyAsBasicPasswordF: "jako hasło logowania HTTP Basic, z nazwą użytkownika %s",
 		KeyAsBasicUser:      "jako nazwa użytkownika logowania HTTP Basic",
+		FixedHeaderF:        ", z nagłówkiem %s ustawionym na %s przy każdym wywołaniu",
 
 		APIAsReadF: "Jego API jest takie, jak opisano pod %s w chwili odczytu (SHA-256 %s…), pod %s.",
 		KeyVaultF:  "Twój klucz jest przechowywany w zapieczętowanym sejfie i nigdy więcej nie jest pokazywany; taf nigdy go nie widzi. Jest wysyłany tylko do %s, %s.",

@@ -27,3 +27,34 @@ func TestTheApprovalSaysWhereABasicKeyGoes(t *testing.T) {
 		}
 	}
 }
+
+// The owner reads the fixed header and its value beside where the key goes.
+func TestTheApprovalSaysTheFixedHeader(t *testing.T) {
+	q := Request{API: &APIRequest{URL: "https://vendor.example/openapi.yaml", Digest: strings.Repeat("a", 64), Base: "https://acme.vendor.example/api"}}
+	q.API.Auth = openapi.Auth{In: "header", Name: "Authorization", Prefix: "Bearer ", Fixed: &openapi.Fixed{Name: "Harvest-Account-Id", Value: "123456"}}
+	if got := apiKeyText(words.Approve("en"), q, false, ""); !strings.Contains(got, "in the Authorization header, with the Harvest-Account-Id header set to 123456 on each call") {
+		t.Fatalf("%s", got)
+	}
+	for _, lang := range []string{"de", "fr", "es", "it", "pt", "nl", "pl"} {
+		if w := words.Approve(lang); strings.Count(w.FixedHeaderF, "%s") != 2 || w.FixedHeaderF == words.Approve("en").FixedHeaderF {
+			t.Errorf("%s: %q", lang, w.FixedHeaderF)
+		}
+	}
+}
+
+// A description at each account's own address, asked for with no base: the
+// answer says the API is at the account's address, for Coach to ask the
+// owner, rather than refusing the description.
+func TestAnAccountsAddressIsAskedFor(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	v.mu.Lock()
+	v.desc = strings.Replace(restDesc, `"info": {"title": "Pay API"},`, `"info": {"title": "Pay API"}, "servers": [{"url": "https://{subdomain}.pay.example/v1", "variables": {"subdomain": {"description": "yours"}}}],`, 1)
+	v.mu.Unlock()
+	api := map[string]any{"url": v.URL + "/openapi.json", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": "api_key", "agent": "agt_taf", "tools": []any{}, "api": api}, nil, "k_setup")
+	if st != 400 || !strings.Contains(mustJSONString(out), "at each account's own address (https://{subdomain}.pay.example/v1)") {
+		t.Fatalf("%d %v", st, out)
+	}
+}

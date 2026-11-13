@@ -120,3 +120,21 @@ func TestAFormBodyGoesAsAForm(t *testing.T) {
 		t.Fatalf("%v %q", err, got)
 	}
 }
+
+// The fixed header goes on every call, and a version pin can't replace it.
+func TestAFixedHeaderGoesOnEveryCall(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Account-Id")
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	auth := openapi.Auth{In: "header", Name: "Authorization", Prefix: "Bearer ", Fixed: &openapi.Fixed{Name: "Account-Id", Value: "123456"}}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "k"); err != nil || got != "123456" {
+		t.Fatalf("%v %q", err, got)
+	}
+	if _, err := c.Call(context.Background(), "GET", srv.URL, nil, auth, "k", &VersionPin{Name: "account-id", Value: "2024-01-01"}); err == nil {
+		t.Fatal("a version pin replaced the fixed header")
+	}
+}

@@ -283,3 +283,65 @@ func TestAFormBodyIsWrittenAsAForm(t *testing.T) {
 	}
 	t.Fatalf("a form that's one string: %+v", s.Skipped)
 }
+
+// A server at an account's own address (a variable with no default) no
+// longer refuses the description: it's kept as an account server, for the
+// request to name the account's as its base.
+func TestAServerAtAnAccountsAddressIsKeptForTheBase(t *testing.T) {
+	acct := strings.Replace(desc, `"servers": [{"url": "https://{region}.shop.example/v1", "variables": {"region": {"default": "eu"}}}]`,
+		`"servers": [{"url": "https://{subdomain}.shop.example/v1", "variables": {"subdomain": {"description": "your account"}}}]`, 1)
+	if acct == desc {
+		t.Fatal("setup")
+	}
+	s := parse(t, acct, key)
+	if len(s.Servers) != 0 || len(s.Accounts) != 1 || s.Accounts[0] != "https://{subdomain}.shop.example/v1" || len(s.Operations) == 0 {
+		t.Fatalf("%+v", s)
+	}
+	// A variable with a default is still filled in.
+	if s := parse(t, desc, key); len(s.Servers) != 1 || len(s.Accounts) != 0 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// One fixed header beside the key (Harvest-Account-Id): an operation that
+// needs it as a parameter has it, never as an argument; it can't be a
+// credential's or the request's own header.
+func TestAFixedHeaderIsSentForTheOperationsThatNeedIt(t *testing.T) {
+	needs := strings.Replace(desc, `"/signed": {
+   "get": {"operationId": "signed", "parameters": [{"name": "X-Signature", "in": "header", "required": true}]}`, `"/signed": {
+   "get": {"operationId": "signed", "parameters": [{"name": "Account-Id", "in": "header", "required": true}]}`, 1)
+	if needs == desc {
+		t.Fatal("setup")
+	}
+	without := parse(t, needs, key)
+	for _, o := range without.Operations {
+		if o.Name == "signed" {
+			t.Fatalf("an operation that needs a header no one sends: %+v", o)
+		}
+	}
+	fixed := key
+	fixed.Fixed = &Fixed{Name: "account-id", Value: "123456"}
+	signed := op(t, parse(t, needs, fixed), "signed")
+	if strings.Contains(string(signed.InputSchema), "Account-Id") || len(signed.Params) != 0 {
+		t.Fatalf("the fixed header became an argument: %+v %s", signed, signed.InputSchema)
+	}
+	for name, f := range map[string]Fixed{
+		"Authorization": {Name: "Authorization", Value: "x"},
+		"the key's own": {Name: "X-API-Key", Value: "x"},
+		"Host":          {Name: "Host", Value: "elsewhere.example"},
+		"Cookie":        {Name: "Cookie", Value: "x"},
+		"a forwarded":   {Name: "X-Forwarded-For", Value: "10.0.0.1"},
+		"a proxy's":     {Name: "Proxy-Authorization", Value: "x"},
+		"a newline":     {Name: "Account-Id", Value: "1\r\nHost: elsewhere"},
+		"no value":      {Name: "Account-Id"},
+		"not a name":    {Name: "Account Id", Value: "1"},
+		"too long":      {Name: "Account-Id", Value: strings.Repeat("1", MaxBasicPart+1)},
+	} {
+		a := key
+		a.Fixed = &f
+		var r *Refused
+		if _, err := Parse([]byte(needs), a); !errors.As(err, &r) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

@@ -160,6 +160,9 @@ func bindProfileTransport(raw json.RawMessage, api *APIRequest, server, header s
 		if api.Auth.In == "header" && strings.EqualFold(api.Auth.Name, header) || api.Auth.In == "basic" && strings.EqualFold(header, "Authorization") {
 			return errors.New("a version pin cannot replace the vendor credential")
 		}
+		if api.Auth.Fixed != nil && strings.EqualFold(api.Auth.Fixed.Name, header) {
+			return errors.New("a version pin cannot replace the fixed header the owner approved")
+		}
 		api.VersionPin = pin
 	} else if api != nil && api.VersionPin != nil {
 		return errors.New("the profile must preserve this connection's approved version header")
