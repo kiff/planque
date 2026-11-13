@@ -1292,5 +1292,5 @@ func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
 // words, for the taf to tell the owner: what happened, that nothing was done,
 // and where to sign in again. Never the vendor's own error body.
 func signInExpiredWords(vendor string) string {
-	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner signs in again in Connect apps → " + vendor + " → Sign in again."
+	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner taps Connect again on this taf to sign in to " + vendor + " again."
 }

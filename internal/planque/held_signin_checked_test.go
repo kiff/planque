@@ -122,7 +122,7 @@ func signOut401(t *testing.T, e *env, f *connectorFixture, g *Grant) {
 	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_out", Args: args})
 	got := mustJSONString(e.s.call(context.Background(), g, "reply_ticket", args, permit))
 	// Plain words for the taf, with where to sign in again: never the vendor's own body.
-	if strings.Contains(got, "Expected OAuth 2") || strings.Contains(got, "invalid authentication") || !strings.Contains(got, "Connect apps") {
+	if strings.Contains(got, "Expected OAuth 2") || strings.Contains(got, "invalid authentication") || !strings.Contains(got, "Connect again") {
 		t.Fatalf("what the taf reads: %s", got)
 	}
 	f.executeBody = ""
