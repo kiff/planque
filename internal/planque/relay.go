@@ -61,6 +61,7 @@ const (
 	CodeSignedOut         = "signed_out"             // the vendor ended the sign-in; the owner signs in again
 	CodeOperationChanged  = "operation_changed"      // a tool the owner approved changed at the vendor; the grant is paused
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
+	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
@@ -177,6 +178,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name })
 	if i < 0 {
 		return refused(CodeNotGranted, "this grant does not include "+name)
+	}
+	// Declared before its key: nothing is usable until the owner gives the
+	// key and the grant connects.
+	if g.Declared && g.Status != StatusConnected {
+		return refused(CodeWaitsForKey, name+" waits for its key: the owner hasn't given it yet")
 	}
 	tool := g.Tools[i]
 	if len(raw) == 0 {
@@ -401,7 +407,7 @@ func (s *Server) recorded(ctx context.Context, g *Grant, it store.Item, op opera
 // signed out is served too, so each call is answered, saying why it wasn't
 // sent, rather than the connection looking gone.
 func (g *Grant) serves() bool {
-	return g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil) || g.signedOut()
+	return g.Status == StatusConnected || (g.Status == StatusPending && (g.Connected != nil || g.Declared)) || g.signedOut()
 }
 
 // transportIs says sum is the SHA-256 of one of g's transport credentials.

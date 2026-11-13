@@ -184,7 +184,7 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 		if was != StatusFailed {
 			problems = append(problems, s.revoke(ctx, g)...)
 		}
-		g.Status, g.Transport, g.Transports, g.Connected = StatusDisconnected, "", nil, nil
+		g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 		g.HeldUntil, g.ConfirmHash, g.ConfirmBy, g.Renewal = time.Time{}, "", time.Time{}, nil
 		what := "ended with its taf: removed by a person who manages the account's tafs"
 		switch {

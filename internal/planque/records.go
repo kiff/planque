@@ -353,6 +353,11 @@ type Grant struct {
 	TokenOf string `json:"token_of,omitempty"`
 	// Telegram is the bot a Telegram grant's token is, and its webhook.
 	Telegram *TelegramBot `json:"telegram,omitempty"`
+	// Declared: a key grant's tools are in KIFF before the key is given, so
+	// a Card can be drafted over them and signed with the key, but nothing
+	// is usable: the relay refuses every call until the grant is connected.
+	// Its Tools and Transport are what was registered.
+	Declared bool `json:"declared,omitempty"`
 	// Renewal is a new sign-in the owner approved for a connected grant
 	// (gap 13 of kiff/tafs#476): its tools keep working with the sign-in in
 	// use until the approving device confirms the new one, which then
