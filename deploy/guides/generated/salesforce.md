@@ -43,7 +43,7 @@ Checked: 2026-11-13 · Generated from planque's catalog: don't edit by hand, run
 | `SALESFORCE_CREATE_OPPORTUNITY` | Create opportunity | write | `close_date`, `name`, `stage_name`; *account_id, amount, contact_id, custom_fields, description, lead_source, next_step, pricebook2_id and 2 more* |  | `full`, `api` |
 | `SALESFORCE_CREATE_SOBJECT_TREE` | Create sObject tree | write | `records`, `sobject_api_name` |  | `full`, `api` |
 | `SALESFORCE_CREATE_S_OBJECT_RECORD` | Create SObject record | write | `fields`, `sobject_type` |  | `full`, `api` |
-| `SALESFORCE_CREATE_TASK` | Create task | write | `subject`; *activity_date, custom_fields, description, is_reminder_set, owner_id, priority, reminder_date_time and 3 more* |  | `full`, `api` |
+| `SALESFORCE_CREATE_TASK` | Create task | write | `subject`; *activity_date, custom_fields, description, is_reminder_set, owner_id, priority, reminder_date_time, status and 2 more* |  | `full`, `api` |
 | `SALESFORCE_CREATE_TOOLING_FLOW` | Create Tooling Flow | write | `full_name`, `metadata`; *is_template* |  | `full`, `api` |
 | `SALESFORCE_CREATE_TOOLING_RECORD` | Create Tooling API record | write | `fields`, `object_name` |  | `full`, `api` |
 | `SALESFORCE_CREATE_VALIDATION_RULE` | Create validation rule | write | `active`, `error_condition_formula`, `error_message`, `full_name`; *description, error_display_field* |  | `full`, `api` |
