@@ -110,3 +110,25 @@ func TestTheManagedColumnReadsPlanquesSignInState(t *testing.T) {
 		t.Error("the reader key would go over http")
 	}
 }
+
+// The sample reads are ones a key can call: a read secured by OAuth alone is passed over, so a description that
+// mixes the two still shows its key route (as Zendesk's does).
+func TestTheSampleReadsAreOnesAKeyCanCall(t *testing.T) {
+	mixed := `{"openapi": "3.0.3", "info": {"title": "Desk"}, "servers": [{"url": "https://acme.desk.example/api"}],
+ "security": [{"basic": []}],
+ "components": {"securitySchemes": {"basic": {"type": "http", "scheme": "basic"}, "oauth": {"type": "oauth2", "flows": {}}}},
+ "paths": {
+  "/a": {"get": {"operationId": "aOAuth", "security": [{"oauth": ["read"]}], "responses": {"200": {"description": "ok"}}}},
+  "/b": {"get": {"operationId": "bKey", "responses": {"200": {"description": "ok"}}}},
+  "/c": {"get": {"operationId": "cEither", "security": [{"oauth": ["read"]}, {"basic": []}], "responses": {"200": {"description": "ok"}}}}}}`
+	doc, err := asDoc([]byte(mixed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(reads(doc, 3), ","); got != "bKey,cEither" {
+		t.Errorf("samples: %s", got)
+	}
+	if route, _, why := keyRoute([]byte(mixed)); !strings.HasPrefix(route, "✅ HTTP Basic") {
+		t.Errorf("a description mixing OAuth and Basic: %q %q", route, why)
+	}
+}

@@ -340,6 +340,30 @@ func opName(method, path string, o map[string]any) string {
 }
 
 // reads are up to n GET operations by planque's names, in path order: what a taf asks for to read.
+// keyable reports whether an operation can be called with a key: it names no security of its own (the description's
+// applies), or one of its requirements is by a scheme that isn't OAuth. A read secured by OAuth alone is never a sample.
+func keyable(doc map[string]any, o map[string]any) bool {
+	reqs, named := o["security"].([]any)
+	if !named {
+		return true
+	}
+	comps, _ := doc["components"].(map[string]any)
+	schemes, _ := comps["securitySchemes"].(map[string]any)
+	for _, r := range reqs {
+		req, _ := r.(map[string]any)
+		if len(req) == 0 {
+			return true
+		}
+		for name := range req {
+			s, _ := schemes[name].(map[string]any)
+			if t, _ := s["type"].(string); t == "apiKey" || t == "http" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func reads(doc map[string]any, n int) []string {
 	paths, _ := doc["paths"].(map[string]any)
 	keys := make([]string, 0, len(paths))
@@ -350,7 +374,7 @@ func reads(doc map[string]any, n int) []string {
 	var out []string
 	for _, p := range keys {
 		item, _ := paths[p].(map[string]any)
-		if o, ok := item["get"].(map[string]any); ok {
+		if o, ok := item["get"].(map[string]any); ok && keyable(doc, o) {
 			out = append(out, opName("get", p, o))
 			if len(out) == n {
 				break
