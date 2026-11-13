@@ -64,6 +64,10 @@ type Vendor struct {
 	DeskCalls []VendorCall // this instance's desk writes
 	// BillingCalls are this instance's billing writes (billing.go).
 	BillingCalls []VendorCall
+	// MailCalls and SheetCalls are this instance's writes to the mailbox
+	// (mail.go) and the spreadsheet (sheet.go).
+	MailCalls  []VendorCall
+	SheetCalls []VendorCall
 	// LedgerCalls are this instance's calls to the ledger (hostile.go).
 	LedgerCalls []VendorCall
 	Refreshes   int
@@ -124,6 +128,8 @@ func NewVendorAt(base string) (*Vendor, http.Handler) {
 	v.deskRoutes(mux)
 	v.billingRoutes(mux)
 	v.billingDocsRoutes(mux)
+	v.mailRoutes(mux)
+	v.sheetsRoutes(mux)
 	v.ledgerRoutes(mux)
 	return v, mux
 }
