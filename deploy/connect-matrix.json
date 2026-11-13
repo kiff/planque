@@ -1,5 +1,5 @@
 {
-  "about": "The apps the connect matrix reads each night: the catalog's entries and the apps the recipes and job ideas name. url is the vendor's published OpenAPI description, when there is one; none says why not. managed is the app's slug at the managed sign-in provider, read only (its metadata), when the run has the provider's key.",
+  "about": "The apps the connect matrix reads: the catalog's entries and the apps the recipes and job ideas name. url is the vendor's published OpenAPI description, when there is one; none says why not. managed is the app's slug at the managed sign-in provider, read only (its metadata), when the run has the provider's key.",
   "apps": [
     {
       "app": "qonto",
