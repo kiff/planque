@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -83,5 +84,62 @@ func TestAnAccountsAPIReadsAreCountedADay(t *testing.T) {
 	st, out := e.do("POST", path, map[string]any{"api": api}, nil, "k_setup")
 	if st != 429 || !strings.Contains(mustJSONString(out), "today") {
 		t.Fatalf("past the day's reads: %d %v", st, out)
+	}
+}
+
+// A big API (Stripe's 608 operations, GitHub's 1,277) is described by words
+// from the job: at most 50 operations, best first, with the total. With no
+// words it answers its count and how to ask, never every name; a small one
+// still lists whole. Listing never widens what a request takes: still 500.
+func TestABigAPIIsDescribedByWords(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	var paths []string
+	for i := range 600 {
+		paths = append(paths, fmt.Sprintf(`"/things/%d": {"get": {"operationId": "getThing%d", "summary": "Read thing %d"}}`, i, i, i))
+	}
+	paths = append(paths,
+		`"/charges/{c}/refunds": {"post": {"operationId": "createChargeRefund", "summary": "Refund a charge", "parameters": [{"name": "c", "in": "path", "required": true}]}}`,
+		// Stuffed with every word: it may match, but never above the one a job names.
+		`"/stuffed": {"get": {"operationId": "stuffed", "summary": "refund charge refund charge create refund for a charge"}}`)
+	big := `{"openapi": "3.0.3", "info": {"title": "Big"}, "security": [{"k": []}], "components": {"securitySchemes": {"k": {"type": "apiKey", "in": "header", "name": "X-API-Key"}}}, "paths": {` + strings.Join(paths, ",") + `}}`
+	v.mu.Lock()
+	v.desc = big
+	v.mu.Unlock()
+	path := "/v1/accounts/" + tenant + "/api/operations"
+	api := map[string]any{"url": v.URL + "/openapi.json", "auth": map[string]any{"in": "header", "name": "X-API-Key"}}
+	// No words: the count and how to ask.
+	st, out := e.do("POST", path, map[string]any{"api": api}, nil, "k_setup")
+	if st != 200 || out["total"] != float64(602) || len(out["operations"].([]any)) != 0 || !strings.Contains(fmt.Sprint(out["more"]), "describe again with q") {
+		t.Fatalf("no words: %d total %v ops %d more %v", st, out["total"], len(out["operations"].([]any)), out["more"])
+	}
+	// Words: the job's operation first, at most 50, with the total and how many matched.
+	st, out = e.do("POST", path, map[string]any{"api": api, "q": "refund a charge"}, nil, "k_setup")
+	ops := out["operations"].([]any)
+	if st != 200 || len(ops) == 0 || ops[0].(map[string]any)["name"] != "createChargeRefund" || out["total"] != float64(602) {
+		t.Fatalf("refund a charge: %d %v", st, out)
+	}
+	st, out = e.do("POST", path, map[string]any{"api": api, "q": "thing"}, nil, "k_setup")
+	if st != 200 || len(out["operations"].([]any)) != 50 || out["matched"] != float64(600) {
+		t.Fatalf("thing: %d matched %v listed %d", st, out["matched"], len(out["operations"].([]any)))
+	}
+	// Words that match nothing: none, said as zero, never a refusal.
+	st, out = e.do("POST", path, map[string]any{"api": api, "q": "zebra quokka"}, nil, "k_setup")
+	if st != 200 || len(out["operations"].([]any)) != 0 || out["matched"] != float64(0) {
+		t.Fatalf("no match: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", path, map[string]any{"api": api, "q": strings.Repeat("w", 201)}, nil, "k_setup"); st != 400 {
+		t.Fatalf("a q too long: %d", st)
+	}
+	// A request with the job's operation, as describe named it: its snapshot is that operation alone, declared.
+	st, out = e.askAPIGrant(v, []map[string]any{{"tool": "createChargeRefund", "title": "Refund a charge"}}, nil)
+	if st != 201 || out["declared"] != true {
+		t.Fatalf("a big API's request with its operation: %d %v", st, out)
+	}
+	// One with no tools still reads the whole, and a whole is still at most 500: listing never widened it.
+	st, out = e.askAPIGrant(v, []map[string]any{}, nil)
+	if st != 400 || !strings.Contains(mustJSONString(out), "more than 500 operations") {
+		t.Fatalf("a whole request of a big API: %d %v", st, out)
 	}
 }

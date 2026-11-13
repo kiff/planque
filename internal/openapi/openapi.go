@@ -187,7 +187,18 @@ var ToolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
 // Parse reads raw, a description, for a grant whose key goes as auth says.
 func Parse(raw []byte, auth Auth) (*Snapshot, error) {
-	return parseSelected(raw, auth, nil)
+	return parseSelected(raw, auth, nil, MaxOperations)
+}
+
+// MaxListed is the most operations a description is read for when it's only
+// listed (ParseToList): GitHub's has about 1,300. A snapshot is still bound
+// to MaxOperations.
+const MaxListed = 5000
+
+// ParseToList reads raw as Parse does, past MaxOperations: for listing a big
+// API's operations to pick from, never for a grant's snapshot.
+func ParseToList(raw []byte, auth Auth) (*Snapshot, error) {
+	return parseSelected(raw, auth, nil, MaxListed)
 }
 
 // ParseOperations retains only the named operations while keeping the
@@ -204,10 +215,10 @@ func ParseOperations(raw []byte, auth Auth, operations []string) (*Snapshot, err
 		}
 		selected[name] = true
 	}
-	return parseSelected(raw, auth, selected)
+	return parseSelected(raw, auth, selected, MaxOperations)
 }
 
-func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, error) {
+func parseSelected(raw []byte, auth Auth, selected map[string]bool, most int) (*Snapshot, error) {
 	if len(raw) > MaxBytes {
 		return nil, refuse("it is over 16 MB")
 	}
@@ -341,8 +352,8 @@ func parseSelected(raw []byte, auth Auth, selected map[string]bool) (*Snapshot, 
 			}
 			names[op.Name] = true
 			s.Operations = append(s.Operations, op)
-			if len(s.Operations) > MaxOperations {
-				return nil, refuse("it has more than %d operations", MaxOperations)
+			if len(s.Operations) > most {
+				return nil, refuse("it has more than %d operations", most)
 			}
 		}
 	}
