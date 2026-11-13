@@ -1415,28 +1415,7 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	if g.Status == StatusPending && g.Connected != nil && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
 		// Tools added to a connected grant and never approved: they go, and
 		// the grant stays connected with what it had. Its sign-in is in use.
-		was := *g
-		if err := s.undeclareAddition(ctx, g); err != nil {
-			*g = was
-			return false, err
-		}
-		g.Request.Tools, g.Connected = g.Connected, nil
-		g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
-		if g.Request.Connector != nil {
-			if err := bindConnectorTools(g, g.Request.Tools); err != nil {
-				*g = was
-				return false, err
-			}
-		}
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
-		if g.Digest, err = digest(g.Request); err != nil {
-			*g = was
-			return false, err
-		}
-		g.Status, g.HeldUntil = StatusConnected, time.Time{}
-		g.event(s.now(), "the added tools were not approved within a day; what it had stays connected")
-		if err := s.saveGrant(ctx, g); err != nil {
-			*g = was
+		if err := s.dropAddition(ctx, g, "the added tools were not approved within a day; what it had stays connected"); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -2458,6 +2437,78 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 		return
 	}
 	g.event(s.now(), fmt.Sprintf("Setup reads through KIFF, on its own Card: at most %d reads a day", SetupReadsPerDay))
+}
+
+// dropAddition ends an addition nobody approved: its declared tools leave
+// KIFF, and the grant is connected with what it had, its sign-in in use. An
+// error leaves g as it was.
+func (s *Server) dropAddition(ctx context.Context, g *Grant, why string) error {
+	was := *g
+	if err := s.undeclareAddition(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	g.Request.Tools, g.Connected = g.Connected, nil
+	g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
+	if g.Request.Connector != nil {
+		if err := bindConnectorTools(g, g.Request.Tools); err != nil {
+			*g = was
+			return err
+		}
+	}
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		*g = was
+		return err
+	}
+	g.Status, g.HeldUntil = StatusConnected, time.Time{}
+	g.event(s.now(), why)
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	return nil
+}
+
+// withdrawTools ends the addition waiting on a connected grant, when the
+// owner declined it: what was declared for it leaves KIFF at once, rather
+// than after its day, and what the grant had stays connected. Only the
+// agent that may set the grant's tools withdraws them; it takes access
+// away, never adds any.
+func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !mayAct(me, g) {
+		writeErr(w, http.StatusForbidden, "only the agent that may set this grant's tools may withdraw them")
+		return
+	}
+	if _, err := s.expire(r.Context(), g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if g.Status != StatusPending || g.Connected == nil {
+		writeErr(w, http.StatusConflict, "no added tools wait on this grant; it's "+g.Status)
+		return
+	}
+	if err := s.dropAddition(r.Context(), g, "the added tools were declined; what it had stays connected"); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // SetupReadsPerDay is what KIFF's Card for Setup's reads allows

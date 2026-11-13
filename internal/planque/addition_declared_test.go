@@ -15,11 +15,11 @@ import (
 )
 
 // An addition declared in KIFF while it waits leaves nothing there once it
-// ends unapproved: past its day, or replaced by another before the owner
-// approved it. The grant keeps what it had, on its first credential, and no
+// ends unapproved: declined, past its day, or replaced by another before the
+// owner approved it. The grant keeps what it had, on its first credential, and no
 // Card can be signed over tools nobody approved.
 func TestADeclaredAdditionThatEndsLeavesNothingInKIFF(t *testing.T) {
-	for _, how := range []string{"past its day", "revised"} {
+	for _, how := range []string{"declined", "past its day", "revised"} {
 		t.Run(how, func(t *testing.T) {
 			e := newEnv(t)
 			id := e.connectedRefunds()
@@ -34,6 +34,16 @@ func TestADeclaredAdditionThatEndsLeavesNothingInKIFF(t *testing.T) {
 				t.Fatal("the addition isn't declared")
 			}
 			switch how {
+			case "declined":
+				if st, _ := e.do("DELETE", acct+"/tools", nil, nil, "k_other"); st == 200 {
+					t.Fatal("another account's agent withdrew the addition")
+				}
+				if st, out := e.do("DELETE", acct+"/tools", nil, nil, "k_setup"); st != 200 || out["status"] != StatusConnected || out["declared"] == true {
+					t.Fatalf("decline: %d %v", st, out)
+				}
+				if st, out := e.do("DELETE", acct+"/tools", nil, nil, "k_setup"); st != 409 {
+					t.Fatalf("declining again, with nothing waiting: %d %v", st, out)
+				}
 			case "past its day":
 				e.at(holdTTL + time.Minute)
 				if st, out := e.do("GET", acct, nil, nil, "k_setup"); st != 200 || out["status"] != StatusConnected || out["declared"] == true {
@@ -60,9 +70,9 @@ func TestADeclaredAdditionThatEndsLeavesNothingInKIFF(t *testing.T) {
 			}
 			g, _ := e.s.loadGrant(context.Background(), tenant, id)
 			switch how {
-			case "past its day":
+			case "declined", "past its day":
 				if len(g.Pending) != 0 || g.PendingTransport != "" || len(g.Tools) != 1 {
-					t.Fatalf("the grant after a day: pending %v, transport %q, tools %d", g.Pending, g.PendingTransport, len(g.Tools))
+					t.Fatalf("the grant after it ended: pending %v, transport %q, tools %d", g.Pending, g.PendingTransport, len(g.Tools))
 				}
 			case "revised":
 				if len(g.Pending) != 1 || g.Pending[0].Name != "stripe_api_read" {
