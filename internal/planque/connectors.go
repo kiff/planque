@@ -557,7 +557,9 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 
 // startConnectorSignIn opens a sign-in at the provider for g and answers
 // with its link, for the approving device: g waits approved until the
-// sign-in's deadline. It says whether it did; when not, it answered why.
+// sign-in's deadline. app_name is the app the owner signs in to, as people
+// name it ("Google Sheets"), so the app's card says that and never the
+// provider's host the link goes through. It says whether it did; when not, it answered why.
 func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a Approval, g *Grant, p connector.Provider, what string) bool {
 	if s.AppReturn == "" {
 		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
@@ -589,7 +591,7 @@ func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a 
 		s.fail(w, r, err)
 		return false
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "expires_at": exp.UTC()})
+	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "app_name": s.appName(g), "expires_at": exp.UTC()})
 	return true
 }
 

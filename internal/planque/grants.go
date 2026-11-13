@@ -1722,7 +1722,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status,
-		"sign_in_url": oauth.AuthURL(g.Vendor, clientID, s.redirect(), state, pkce.Challenge), "expires_at": exp.UTC()})
+		"sign_in_url": oauth.AuthURL(g.Vendor, clientID, s.redirect(), state, pkce.Challenge), "app_name": s.appName(g), "expires_at": exp.UTC()})
 }
 
 // ClientName is the name a vendor shows the owner when it asks them to

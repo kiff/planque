@@ -1297,3 +1297,25 @@ func TestConnectorCallbackAnswersThePersonWithAPage(t *testing.T) {
 	st, ct, body = page(u.RequestURI(), "")
 	isPage("used", st, ct, body, "This sign-in link is unknown, expired or already used.")
 }
+
+// The sign-in link comes with the app's name as people name it, so the app's
+// card says "Sign in to <app>" and never the provider's host the link goes
+// through.
+func TestASignInLinkNamesTheApp(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	v := requestConnector(t, e)
+	path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string)
+	st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+	if st != 200 || out["sign_in_url"] == nil {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, _ := url.Parse(out["sign_in_url"].(string))
+	name, _ := out["app_name"].(string)
+	if name == "" || name != e.s.appName(g) || name != g.VendorName || strings.Contains(name, link.Host) {
+		t.Fatalf("app_name %q: want the app's own name (%q), not the link's host %q", name, g.VendorName, link.Host)
+	}
+}

@@ -136,6 +136,10 @@ The account-authenticated catalog endpoints include upstream discovery:
    config through `auth_configs`, and `/tool_router/session/{id}/link` creates
    the hosted link for OAuth, keys and bearer tokens alike. A session that
    reports a different or missing pinned config is refused before `/link`.
+   The answer is `{status: "approved", sign_in_url, app_name, expires_at}`.
+   `app_name` is the app the owner signs in to, as people name it ("Google
+   Sheets"): the app's card says "Sign in to <app_name>", never the
+   provider's host that `sign_in_url` goes through.
    The callback independently checks the
    server-allocated user, app and exact connection; callback account/status
    parameters establish no authority. The approving device confirms the
@@ -150,7 +154,7 @@ The account-authenticated catalog endpoints include upstream discovery:
      confirms with that code through `/confirm`, as with the browser's. A
      code the callback minted before no longer confirms;
    - not signed in there: a fresh sign-in link for the same grant,
-     `{status: "approved", sign_in_url, expires_at}`, and the unfinished
+     `{status: "approved", sign_in_url, app_name, expires_at}`, and the unfinished
      provider account is revoked.
 
    Another device gets 403. `DELETE …/grants/{id}` cancels a connection
