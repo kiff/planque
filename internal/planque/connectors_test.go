@@ -63,6 +63,12 @@ type connectorFixture struct {
 	setUps  []string
 	sent    map[string]json.RawMessage
 	aliases map[string]bool // names already used, refused again as upstream does
+	// granted, when set, is the scope the vendor granted, as the provider
+	// keeps it on the connected account; search adds a search tool to the
+	// catalog, needing searchScopes, and replyScopes are the reply's.
+	granted                   string
+	search                    bool
+	searchScopes, replyScopes []string
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -182,8 +188,12 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			user = "another_owner"
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
+		data := map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		if f.granted != "" {
+			data["scope"] = f.granted
+		}
 		b, _ := json.Marshal(map[string]any{"id": strings.TrimPrefix(path, "/connected_accounts/"), "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
-			"data": map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}})
+			"data": data})
 		body = string(b)
 	case path == "/tools" && r.URL.Query().Get("query") != "":
 		// A search by words: a tool of a set-up app, one of an app that needs setup,
@@ -239,9 +249,17 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.changed {
 			schema = `{"type":"object","properties":{"other":{"type":"number"}}}`
 		}
-		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","input_parameters":` + schema + `}`
+		replyScopes, _ := json.Marshal(f.replyScopes)
+		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","scopes":` + string(replyScopes) + `,"input_parameters":` + schema +
+			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}}}}}`
 		if path == "/tools" {
-			body = `{"items":[` + tool + `]}`
+			items := tool
+			if f.search {
+				searchScopes, _ := json.Marshal(f.searchScopes)
+				items += `,{"slug":"DESK_DEMO_SEARCH","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Search tickets","tags":["readOnlyHint"],"scopes":` + string(searchScopes) +
+					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"}},"additionalProperties":false}}`
+			}
+			body = `{"items":[` + items + `]}`
 		} else {
 			if r.URL.Query().Get("version") != "20261101_00" {
 				f.t.Error("version was not pinned")

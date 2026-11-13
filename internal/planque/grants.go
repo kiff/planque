@@ -716,8 +716,25 @@ func requestText(w words.Approval, q Request, held bool, account string, catalog
 	return connectionText(w, q, held, account, catalog...) + appWords(w, q)
 }
 
+// accountLabel is the account g acts in, as the owner's text names it: a
+// managed app's account by the name the provider shows, never its id.
+func accountLabel(g *Grant) string {
+	if g.Request.Connector != nil {
+		if g.Connector != nil {
+			return g.Connector.AccountName
+		}
+		return ""
+	}
+	return g.Account
+}
+
 func connectionText(w words.Approval, q Request, held bool, account string, catalog ...CatalogTool) string {
 	if q.Connector != nil {
+		// A managed app's sign-in reused: the account it's in, by its name,
+		// so an owner who holds two can say it's the other one.
+		if q.Reuse != "" && account != "" {
+			return fmt.Sprintf(w.SignedInToF, account) + connectorText(w, q)
+		}
 		return connectorText(w, q)
 	}
 	if q.Kind == KindBrowser {
@@ -1445,7 +1462,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	g.Request.Profile = req.Profile
 	if !adding {
 		g.Request.Tools = req.Tools
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
 		g.Status, g.Approval = StatusPending, nil
 		g.event(s.now(), "tools set by "+me.AgentID+"; waiting for the owner's approval")
 	} else {
@@ -1457,7 +1474,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		// it will be: the approval signs all of it. The earlier approval
 		// stays on the grant until this one replaces it.
 		g.Text, g.Texts = texts(func(w words.Approval) string {
-			return additionText(w, req.Tools, g.Connected, g.Catalog) + requestText(w, g.Request, true, g.Account, g.Catalog...)
+			return additionText(w, req.Tools, g.Connected, g.Catalog) + requestText(w, g.Request, true, accountLabel(g), g.Catalog...)
 		})
 		g.Status, g.HeldUntil = StatusPending, s.now().Add(holdTTL).UTC()
 		g.event(s.now(), fmt.Sprintf("%d tools added by %s; waiting for the owner's approval; its %d tools keep working meanwhile", len(req.Tools), me.AgentID, len(g.Connected)))
@@ -2294,7 +2311,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 	g.Catalog = nil
 	for _, t := range listed {
 		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t)})
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
 	}
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
@@ -2422,7 +2439,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 		}
 		g.Request.Tools, g.Connected, g.Tools, g.Transports, g.Approval = had, nil, hadTools, hadTransports, hadApproval
 		g.Request.Profile, g.ConnectedProfile, g.ProfileRevision = hadProfile, nil, hadRevision
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
 		if d, err := digest(g.Request); err == nil {
 			g.Digest = d
 		}
@@ -2558,7 +2575,7 @@ func (s *Server) dropAddition(ctx context.Context, g *Grant, why string) error {
 			return err
 		}
 	}
-	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
 	var err error
 	if g.Digest, err = digest(g.Request); err != nil {
 		*g = was

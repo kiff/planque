@@ -7,6 +7,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A managed app offers only the tools its sign-in lets run.** A tool whose scopes the sign-in wasn't granted (a search needing Drive access on a Sheets-only sign-in, say) is left out of the catalog's `tools` and listed under `unusable` with why, and choosing it is refused with the same words: no Card grants a tool the vendor would refuse with "insufficient scopes". A reused managed sign-in's text names its account, so an owner who holds two can tell them apart.
+- **A catalog tool says what it gives back.** `returns` lists the ids and links in its answer (`data.spreadsheetId`, `data.url`), read from the vendor's description of it, for a managed app's tools and an MCP server's that describe their output: what a taf keeps to use next time.
 - **A signed-in grant's first tools are declared in KIFF too,** as an addition's are, so its tools and the taf's Card take one approval.
 - **A managed app the account already holds is reused.** Asked for by its entry, an app with a connected sign-in that covers the tools asked answers a connection on that sign-in, `listed`, with no browser and no new sign-in; it gets only the tools approved for the new taf. `new_sign_in: true` asks for one of its own.
 - **Setup reads named with the sign-in.** A catalog entry connected first (Stripe's, Qonto's) takes `setup_reads` at its first request: approved with the sign-in, they're connected once signed in, each listed and read-only, with no second approval. A server's request can't name them: it connects first, then asks for its reads with its tools, as before.

@@ -641,7 +641,32 @@ func (c *Client) Account(ctx context.Context, id string) (connector.Account, err
 			}
 		}
 	}
-	return connector.Account{ID: a.ID, User: a.User, Toolkit: a.Toolkit.Slug, Status: a.Status, Name: name}, nil
+	return connector.Account{ID: a.ID, User: a.User, Toolkit: a.Toolkit.Slug, Status: a.Status, Name: name, Scopes: grantedScopes(a.Data, a.State.Val)}, nil
+}
+
+// grantedScopes are the scopes the vendor's token answer granted, where the
+// provider keeps them readable on the connected account ("scope", as OAuth
+// gives it, space-separated; or a list under "scopes"); nil when it doesn't.
+func grantedScopes(fields ...map[string]json.RawMessage) []string {
+	for _, m := range fields {
+		for _, k := range []string{"scope", "scopes"} {
+			v, ok := m[k]
+			if !ok {
+				continue
+			}
+			var one string
+			var list []string
+			switch {
+			case json.Unmarshal(v, &one) == nil && one != "REDACTED":
+				list = strings.FieldsFunc(one, func(r rune) bool { return r == ' ' || r == ',' })
+			case json.Unmarshal(v, &list) == nil:
+			}
+			if scopes := cleanScopes(list); len(scopes) > 0 && len(scopes) <= 100 {
+				return scopes
+			}
+		}
+	}
+	return nil
 }
 
 func (c *Client) Revoke(ctx context.Context, id connector.Identity, account string) (connector.Revocation, error) {

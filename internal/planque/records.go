@@ -230,6 +230,10 @@ type CatalogTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	ReadOnly    bool            `json:"read_only,omitempty"` // the server's readOnlyHint
+	// Returns are the ids and links a call gives back, by their path in
+	// its answer (data.id, data.spreadsheetUrl), when the vendor describes
+	// its answer: what a taf keeps to use next time, rather than search.
+	Returns []string `json:"returns,omitempty"`
 	// Method and Path are an API-key grant's operation: what a call sends.
 	Method string `json:"method,omitempty"`
 	Path   string `json:"path,omitempty"`
