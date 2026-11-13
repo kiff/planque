@@ -1,7 +1,7 @@
 # Gmail
 
 Checked: 2026-11-13 · Sources: the connection service's Gmail tool
-definitions as planque reads them (63 tools), Google's Gmail API reference,
+definitions as planque reads them (61 tools), Google's Gmail API reference,
 and test runs on a phone on 13 Nov 2026.
 
 ## How it connects
@@ -52,8 +52,6 @@ the owner asked for sending, and say every send waits for their yes.
 - Settings tools (filters, forwarding, vacation replies, send-as aliases,
   IMAP or POP): they change how the whole mailbox behaves. Forwarding in
   particular can send every future email elsewhere.
-- Deprecated tools (`GMAIL_LIST_MESSAGES`, `GMAIL_REMOVE_LABEL`): use their
-  replacements above.
 
 ## Access and plans
 

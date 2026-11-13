@@ -11,6 +11,9 @@ and Stripe's published server tools.
 - **One account per connection.** If the sign-in reaches exactly one account,
   planque sets it. With several, or none, planque refuses the tools and the
   owner signs in again choosing one account.
+- **Stripe also appears as a managed app** in the catalog ([generated](generated/stripe.md),
+  428 tools). The refunds job doesn't use it: it uses Stripe's own server,
+  above, narrowed to the operations below.
 - **Refunds are a reviewed entry** (`stripe-refunds@1`), switched on per
   deployment, and **test mode only** for now: a live object is refused.
 

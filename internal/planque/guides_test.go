@@ -79,3 +79,19 @@ func TestEveryAdaptedGuideIsDatedAndShort(t *testing.T) {
 		}
 	}
 }
+
+// A field named after the connection service is its plumbing, not the
+// vendor's: a guide never lists it.
+func TestAGuideNamesNoServiceField(t *testing.T) {
+	required, optional := schemaInputs([]byte(`{"properties":{"q":{},"composio_execution_message":{},"limit":{}},"required":["q"]}`))
+	if strings.Join(required, ",") != "q" || strings.Join(optional, ",") != "limit" {
+		t.Fatalf("inputs: %v %v", required, optional)
+	}
+	files, _ := filepath.Glob("../../deploy/guides/generated/*.md")
+	for _, f := range files {
+		raw, _ := os.ReadFile(f)
+		if serviceNamed(string(raw)) {
+			t.Errorf("%s names the connection service", f)
+		}
+	}
+}

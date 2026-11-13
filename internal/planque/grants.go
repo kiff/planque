@@ -2633,6 +2633,23 @@ func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+	case g.Status == StatusPending && !g.SignedIn && g.Declared:
+		// A key grant declined before its key: its declared tools leave KIFF,
+		// and the request ends, as one nobody signed does. No key was given,
+		// so there's nothing to revoke.
+		was := *g
+		if err := s.undeclare(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		g.HeldUntil = time.Time{}
+		g.Status, g.Reason = StatusFailed, "declined: the owner didn't give the key"
+		g.event(s.now(), "failed: "+g.Reason+"; its declared tools left KIFF")
+		if err := s.saveGrant(r.Context(), g); err != nil {
+			*g = was
+			s.fail(w, r, err)
+			return
+		}
 	default:
 		writeErr(w, http.StatusConflict, "no tools wait for the owner's approval on this grant; it's "+g.Status)
 		return

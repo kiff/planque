@@ -50,9 +50,9 @@ owner's. Without the key it writes the reviewed entries only.
 
 | App | Adapted | Generated |
 |---|---|---|
-| Gmail | [gmail.md](gmail.md) | after the first keyed run |
-| Google Sheets | [googlesheets.md](googlesheets.md) | after the first keyed run |
-| Stripe (Stripe's own server) | [stripe.md](stripe.md) | listed at sign-in |
-| GitHub | [github.md](github.md) | after the first keyed run |
-| LinkedIn | [linkedin.md](linkedin.md) | after the first keyed run |
+| Gmail | [gmail.md](gmail.md) | [gmail](generated/gmail.md) |
+| Google Sheets | [googlesheets.md](googlesheets.md) | [googlesheets](generated/googlesheets.md) |
+| Stripe (Stripe's own server) | [stripe.md](stripe.md) | [stripe](generated/stripe.md) (the managed app); its own server lists its tools at sign-in |
+| GitHub | [github.md](github.md) | [github](generated/github.md) |
+| LinkedIn | [linkedin.md](linkedin.md) | [linkedin](generated/linkedin.md) |
 | Qonto (key) | [qonto.md](qonto.md) | [qonto-key-1](generated/qonto-key-1.md), [qonto-key-2](generated/qonto-key-2.md) |
