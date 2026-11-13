@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -29,13 +30,28 @@ func pathParts(p string) ([]string, bool) {
 	return parts, true
 }
 
+// checkPin says what is wrong with one of a tool's fixed arguments, or "".
+// The words are for Coach, which fixes the request: they name the tool and
+// the pin, say which part is wrong, and show the form planque wants.
+func checkPin(t ToolRequest, p string, v json.RawMessage) string {
+	tool := cmp.Or(t.Name, t.Tool)
+	if _, ok := pathParts(p); !ok {
+		return fmt.Sprintf("%s: fixed argument %q isn't a dotted path: name the vendor's argument (up to %d names joined by dots, no spaces), and give its value as JSON, like {\"author\": \"urn:li:person:…\"} or {\"content.visibility\": \"PUBLIC\"}", tool, p, maxPathParts)
+	}
+	if !json.Valid(v) {
+		return fmt.Sprintf("%s: fixed argument %q's value isn't JSON: write the value itself as JSON, a string in quotes, like {%q: \"urn:li:person:…\"}", tool, p, p)
+	}
+	return ""
+}
+
 // checkNarrowing says what is wrong with a tool's fixed and lifted
 // arguments, or "".
 func checkNarrowing(t ToolRequest) string {
 	paths := map[string]bool{}
-	for p, v := range t.Fixed {
-		if _, ok := pathParts(p); !ok || !json.Valid(v) {
-			return "fixed argument " + p + " must be a dotted path with a JSON value"
+	// In a set order, so a request names the same pin each time.
+	for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {
+		if msg := checkPin(t, p, t.Fixed[p]); msg != "" {
+			return msg
 		}
 		paths[p] = true
 	}
