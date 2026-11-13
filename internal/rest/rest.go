@@ -46,10 +46,10 @@ func (c *Client) http() *http.Client {
 func (c *Client) CheckURL(raw string) error {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
-		return fmt.Errorf("%s isn't a URL planque can reach", raw)
+		return fmt.Errorf("%s isn't a URL planque can reach", ShownURL(raw))
 	}
 	if u.Scheme != "https" && !(c.AllowHTTP && u.Scheme == "http") {
-		return fmt.Errorf("%s isn't an https URL", raw)
+		return fmt.Errorf("%s isn't an https URL", ShownURL(raw))
 	}
 	return nil
 }
@@ -63,9 +63,14 @@ func (c *Client) Fetch(ctx context.Context, raw string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, application/yaml;q=0.9, text/yaml;q=0.9, */*;q=0.5")
 	res, err := c.http().Do(req)
 	if err != nil {
+		// Go's error repeats the address, its query too: said without it.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			ue.URL = ShownURL(ue.URL)
+		}
 		return nil, fmt.Errorf("it couldn't be read: %w", err)
 	}
 	defer res.Body.Close()
@@ -80,6 +85,17 @@ func (c *Client) Fetch(ctx context.Context, raw string) ([]byte, error) {
 		return nil, &openapi.Refused{Why: "it is over 16 MB"}
 	}
 	return b, nil
+}
+
+// ShownURL is raw as planque says it in an answer or a log: no sign-in, no
+// query and no fragment, which a pasted address can carry a token in.
+func ShownURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "the address given"
+	}
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	return u.String()
 }
 
 // Answer is a vendor's answer to a call.

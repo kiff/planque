@@ -55,3 +55,26 @@ func TestARefusedConnectionIsLoggedWithItsReason(t *testing.T) {
 		t.Fatalf("a request that went through was logged as refused: %s", logs.String())
 	}
 }
+
+// A description address the owner pasted can carry a token in its query: the
+// answer, and so the log, say the address without it, whether the vendor
+// answered or the call never got through.
+func TestARefusedDescriptionAddressKeepsItsQueryOut(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	for _, u := range []string{v.URL + "/missing?token=s3cret-in-query#also-s3cret", "http://127.0.0.1:1/openapi.json?token=s3cret-in-query"} {
+		logs.Reset()
+		api := map[string]any{"url": u, "auth": map[string]any{"in": "header", "name": "X-API-Key"}}
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": "api_key", "agent": "agt_taf", "tools": []any{}, "api": api}, nil, "k_setup")
+		answer := mustJSONString(out)
+		if st != 400 || !strings.Contains(answer, "Couldn't read the API description at") || strings.Contains(answer, "s3cret") {
+			t.Fatalf("%s: %d %s", u, st, answer)
+		}
+		if strings.Contains(logs.String(), "s3cret") || !strings.Contains(logs.String(), "connection refused") {
+			t.Fatalf("%s: the log: %s", u, logs.String())
+		}
+	}
+}
