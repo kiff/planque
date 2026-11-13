@@ -157,7 +157,7 @@ func bindProfileTransport(raw json.RawMessage, api *APIRequest, server, header s
 		if err := pin.Validate(); err != nil {
 			return err
 		}
-		if api.Auth.In == "header" && strings.EqualFold(api.Auth.Name, header) {
+		if api.Auth.In == "header" && strings.EqualFold(api.Auth.Name, header) || api.Auth.In == "basic" && strings.EqualFold(header, "Authorization") {
 			return errors.New("a version pin cannot replace the vendor credential")
 		}
 		api.VersionPin = pin

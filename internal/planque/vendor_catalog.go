@@ -122,7 +122,7 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 		if err != nil || len(sum) != 32 || e.DescriptionSHA256 != strings.ToLower(e.DescriptionSHA256) {
 			return errors.New("a key catalog entry needs the reviewed description's SHA-256")
 		}
-		if e.API.Auth.In != "header" && e.API.Auth.In != "query" || strings.TrimSpace(e.API.Auth.Name) == "" {
+		if e.API.Auth.Check() != nil {
 			return errors.New("a key catalog entry must say where the key goes")
 		}
 		server, api = e.API.Base, &APIRequest{}

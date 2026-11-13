@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,5 +73,33 @@ func TestAFailedCallsErrorHoldsNoKey(t *testing.T) {
 	}
 	if got := HideKey(`{"error":"invalid key sk_live/secret+1"}`, key); got != `{"error":"invalid key [key]"}` {
 		t.Fatal(got)
+	}
+}
+
+// HTTP Basic: the key as the password with the username given, or as the
+// username with the password given; a key with a colon can't be a username,
+// and a version pin can't replace the Authorization it fills.
+func TestABasicKeyIsSentAsHTTPBasic(t *testing.T) {
+	var user, pass string
+	var ok bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok = r.BasicAuth()
+		_, _ = io.WriteString(w, "{}")
+	}))
+	defer srv.Close()
+	c := &Client{AllowHTTP: true}
+	ctx := context.Background()
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", User: "me@example.com/token"}, "k3y"); err != nil || !ok || user != "me@example.com/token" || pass != "k3y" {
+		t.Fatalf("the key as the password: %v %v %q %q", err, ok, user, pass)
+	}
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", Password: "X"}, "k3y"); err != nil || user != "k3y" || pass != "X" {
+		t.Fatalf("the key as the username: %v %q %q", err, user, pass)
+	}
+	user = ""
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic"}, "k:3y"); err == nil || user != "" || strings.Contains(err.Error(), "k:3y") {
+		t.Fatalf("a key with a colon as the username: %v (sent as %q)", err, user)
+	}
+	if _, err := c.Call(ctx, "GET", srv.URL, nil, openapi.Auth{In: "basic", User: "me"}, "k3y", &VersionPin{Name: "Authorization", Value: "2024-01-01"}); err == nil {
+		t.Fatal("a version pin replaced Basic's Authorization")
 	}
 }

@@ -29,6 +29,10 @@ type Approval struct {
 	And          string // joins the last two of a list
 	KeyInHeaderF string // the header
 	KeyInQueryF  string // the query parameter
+	// KeyAsBasicPasswordF: the key is HTTP Basic's password, with the username given (%s).
+	KeyAsBasicPasswordF string
+	// KeyAsBasicUser: the key is HTTP Basic's username.
+	KeyAsBasicUser string
 
 	// An API key.
 	APIAsReadF   string // the description's URL, its digest, the API's base

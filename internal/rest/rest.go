@@ -139,8 +139,18 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if auth.In == "header" {
+	switch auth.In {
+	case "header":
 		req.Header.Set(auth.Name, auth.Prefix+key)
+	case "basic":
+		if auth.User != "" {
+			req.SetBasicAuth(auth.User, key)
+		} else if strings.Contains(key, ":") {
+			// As Basic's username, a colon would end it early.
+			return Answer{}, &CallError{Err: errors.New("this key can't be a Basic username: it holds a colon")}
+		} else {
+			req.SetBasicAuth(key, auth.Password)
+		}
 	}
 	for _, pin := range pins {
 		if pin == nil {
@@ -149,7 +159,7 @@ func (c *Client) Call(ctx context.Context, method, target string, body []byte, a
 		if err := pin.Validate(); err != nil {
 			return Answer{}, &CallError{Err: err}
 		}
-		if auth.In == "header" && strings.EqualFold(pin.Name, auth.Name) {
+		if auth.In == "header" && strings.EqualFold(pin.Name, auth.Name) || auth.In == "basic" && strings.EqualFold(pin.Name, "Authorization") {
 			return Answer{}, &CallError{Err: errors.New("the version header cannot replace authentication")}
 		}
 		req.Header.Set(pin.Name, pin.Value)

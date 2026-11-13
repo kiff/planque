@@ -187,3 +187,59 @@ func TestACallFillsItsRequest(t *testing.T) {
 		t.Fatalf("%s %v", body, err)
 	}
 }
+
+// HTTP Basic is a place for a key when the description names a basic
+// scheme (Zendesk, Freshdesk, Gorgias); its username or password beside the
+// key is checked as any argument.
+func TestABasicKeyMatchesABasicScheme(t *testing.T) {
+	basic := strings.Replace(desc, `"bearer": {"type": "http", "scheme": "bearer"}`, `"basic": {"type": "http", "scheme": "basic"}`, 1)
+	basic = strings.Replace(basic, `"security": [{"key": []}]`, `"security": [{"basic": []}]`, 1)
+	for _, a := range []Auth{{In: "basic", User: "me@example.com/token"}, {In: "basic", Password: "X"}, {In: "basic"}} {
+		if _, err := Parse([]byte(basic), a); err != nil {
+			t.Fatalf("%+v: %v", a, err)
+		}
+	}
+	// A basic key where the description only takes its header key.
+	if _, err := Parse([]byte(desc), Auth{In: "basic", User: "me"}); err == nil || !strings.Contains(err.Error(), "none of its security schemes") {
+		t.Fatalf("basic where only a header key is taken: %v", err)
+	}
+	for name, a := range map[string]Auth{
+		"a name":            {In: "basic", Name: "Authorization"},
+		"a prefix":          {In: "basic", Prefix: "Basic "},
+		"a colon":           {In: "basic", User: "me:you"},
+		"both":              {In: "basic", User: "me", Password: "X"},
+		"a newline":         {In: "basic", User: "me\nHost: elsewhere"},
+		"too long":          {In: "basic", User: strings.Repeat("a", MaxBasicPart+1)},
+		"a header's user":   {In: "header", Name: "X-API-Key", User: "me"},
+		"a header, no name": {In: "header"},
+		"somewhere else":    {In: "cookie", Name: "k"},
+	} {
+		var r *Refused
+		if _, err := Parse([]byte(basic), a); !errors.As(err, &r) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A description that names no security scheme at all (GitHub's) takes the
+// key where the request says, from the vendor's docs; an operation that
+// names one is still refused, as there's none it could be.
+func TestADescriptionNamingNoSchemeTakesTheKeyAsAsked(t *testing.T) {
+	none := strings.Replace(desc, `"securitySchemes": {"key": {"type": "apiKey", "in": "header", "name": "X-API-Key"}, "bearer": {"type": "http", "scheme": "bearer"}},`, ``, 1)
+	none = strings.Replace(none, ` "security": [{"key": []}],`+"\n", "", 1)
+	if none == desc || strings.Contains(none, "securitySchemes") || strings.Contains(none, `"security"`) {
+		t.Fatalf("setup: %s", none)
+	}
+	s, err := Parse([]byte(none), Auth{In: "header", Name: "Authorization", Prefix: "token "})
+	if err != nil || len(s.Operations) == 0 {
+		t.Fatalf("%+v %v", s, err)
+	}
+	named := strings.Replace(none, `"operationId": "putNotes",`, `"operationId": "putNotes", "security": [{"oauth": []}],`, 1)
+	if _, err := Parse([]byte(named), Auth{In: "header", Name: "Authorization"}); err == nil || !strings.Contains(err.Error(), "secured otherwise") {
+		t.Fatalf("an operation naming a scheme that isn't there: %v", err)
+	}
+	// The key's place must still be one.
+	if _, err := Parse([]byte(none), Auth{In: "header"}); err == nil {
+		t.Fatal("no header name")
+	}
+}

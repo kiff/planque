@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/kiff/planque/internal/jcs"
 )
@@ -38,11 +39,52 @@ const (
 )
 
 // Auth is where a grant's key goes on each call: a header (Authorization
-// with a "Bearer " prefix, X-API-Key…) or a query parameter.
+// with a "Bearer " prefix, X-API-Key…), a query parameter, or HTTP Basic.
 type Auth struct {
-	In     string `json:"in"` // "header" or "query"
+	In     string `json:"in"` // "header", "query" or "basic"
 	Name   string `json:"name"`
 	Prefix string `json:"prefix,omitempty"`
+	// HTTP Basic: the key is the password, with User as the username
+	// (an email, "me@example.com/token"), or, with no User, the username,
+	// with Password as the password ("X", or none). Neither is a secret:
+	// the owner reads them in the approval.
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// MaxBasicPart is the most a Basic username or password given beside the
+// key may be.
+const MaxBasicPart = 200
+
+// Check is why a is no place for a key, or nil.
+func (a Auth) Check() error {
+	switch a.In {
+	case "header", "query":
+		if strings.TrimSpace(a.Name) == "" {
+			return refuse("the key's header or query parameter needs a name")
+		}
+		if a.User != "" || a.Password != "" {
+			return refuse("a username or password goes with HTTP Basic only")
+		}
+	case "basic":
+		if a.Name != "" || a.Prefix != "" {
+			return refuse("an HTTP Basic key has no header name or prefix")
+		}
+		for _, part := range []string{a.User, a.Password} {
+			if len(part) > MaxBasicPart || strings.ContainsFunc(part, unicode.IsControl) {
+				return refuse("a Basic username or password is one line of at most %d characters", MaxBasicPart)
+			}
+		}
+		if strings.Contains(a.User, ":") {
+			return refuse("a Basic username can't hold a colon")
+		}
+		if a.User != "" && a.Password != "" {
+			return refuse("with a Basic username given, the key is the password: give no password")
+		}
+	default:
+		return refuse(`the key goes in a header, the query or HTTP Basic ("in": "header", "query" or "basic")`)
+	}
+	return nil
 }
 
 // Param is a path or query parameter of an operation.
@@ -306,11 +348,8 @@ func semanticSchema(v any) any {
 // matchAuth is the name of the description's security scheme the grant's
 // key is, or why there's none.
 func matchAuth(doc map[string]any, a Auth) (string, error) {
-	if a.In != "header" && a.In != "query" {
-		return "", refuse(`the key goes in a header or the query ("in": "header" or "query")`)
-	}
-	if strings.TrimSpace(a.Name) == "" {
-		return "", refuse("the key's header or query parameter needs a name")
+	if err := a.Check(); err != nil {
+		return "", err
 	}
 	comps, _ := doc["components"].(map[string]any)
 	schemes, _ := comps["securitySchemes"].(map[string]any)
@@ -338,12 +377,19 @@ func matchAuth(doc map[string]any, a Auth) (string, error) {
 				strings.EqualFold(strings.TrimSpace(a.Prefix), "Bearer") {
 				return n, nil
 			}
+			if strings.EqualFold(scheme, "basic") && a.In == "basic" {
+				return n, nil
+			}
 		default:
 			offered = append(offered, fmt.Sprintf("%s (%s, not read)", n, typ))
 		}
 	}
 	if len(offered) == 0 {
-		return "", refuse("it names no security scheme for an API key")
+		// A description that names no scheme at all (GitHub's): the key goes
+		// as the request says, from the vendor's docs, and the owner reads
+		// where in the approval. An operation that names a scheme is still
+		// refused, since there's none it could be.
+		return "", nil
 	}
 	return "", refuse("none of its security schemes is a key sent as asked; it offers %s", strings.Join(offered, ", "))
 }
