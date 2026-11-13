@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/kiff/planque/internal/kiff"
 )
@@ -26,6 +25,8 @@ func (e *env) people() {
 	e.kiff.Keys["s_owner"] = kiff.Me{TenantID: tenant, Capabilities: []string{"read", "tools.connect", "cards.manage"}}
 	e.kiff.Keys["s_viewer"] = kiff.Me{TenantID: tenant, Capabilities: []string{"read"}}
 	e.kiff.Keys["s_other_owner"] = kiff.Me{TenantID: "tnt_other", Capabilities: []string{"read", "tools.connect", "cards.manage"}}
+	// An agent's session that somehow holds cards.manage is still an agent's, not a person's.
+	e.kiff.Keys["s_agent_manager"] = kiff.Me{TenantID: tenant, AgentID: "agt_taf", Capabilities: []string{"read", "cards.manage"}}
 }
 
 func (e *env) endAgent(tenantID, agent, key, query string) (int, map[string]any) {
@@ -44,6 +45,18 @@ func (e *env) requestFor(agent string) string {
 	return out["id"].(string)
 }
 
+// works says whether the taf's own key can still call tool through KIFF
+// and planque, and get an answer that isn't an error.
+func (e *env) works(tool string) bool {
+	e.t.Helper()
+	res, err := e.kiff.Call(context.Background(), "k_taf", tool, map[string]any{})
+	if err != nil || res.Decision != "allowed" {
+		return false
+	}
+	_, isErr := resultText(e.t, res.Result)
+	return !isErr
+}
+
 // live is every status in which a grant can still be approved, signed in
 // or used.
 var live = map[string]bool{StatusPending: true, StatusApproved: true, StatusSignedIn: true, StatusListed: true,
@@ -55,14 +68,29 @@ func (e *env) removedTaf() (failed, pending string, connected *Grant, other stri
 	e.t.Helper()
 	e.enrol()
 	e.people()
-	// A failed one: a sign-in whose tools nobody approved within a day.
-	failed = e.listedGrant()
-	e.later(holdTTL + time.Minute)
+	// Connected first: a later request for the same agent and tools doesn't take KIFF's tool names.
+	connected = e.connect()
+	if !e.works("list_charges") {
+		e.t.Fatal("setup: the connected grant doesn't answer a call")
+	}
+	// A failed one, stored as failed: moving the clock to fail it the usual way would also expire KIFF's
+	// permits, and the connected grant must answer calls until it ends.
+	failed, _ = e.request()
+	g, err := e.s.loadGrant(context.Background(), tenant, failed)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	g.Status = StatusFailed
+	if err := e.s.saveGrant(context.Background(), g); err != nil {
+		e.t.Fatal(err)
+	}
 	if s := e.status(failed); s != StatusFailed {
 		e.t.Fatalf("setup: %s, want failed", s)
 	}
 	pending, _ = e.request()
-	connected = e.connect()
+	if !e.works("list_charges") {
+		e.t.Fatal("setup: the connected grant stopped answering once the other requests were made")
+	}
 	other = e.requestFor("agt_other")
 	return
 }
@@ -83,8 +111,8 @@ func TestEndingARemovedTafsAgentEndsEveryGrantItHas(t *testing.T) {
 	if a, r := e.vendor.Live(); a != 0 || r != 0 {
 		t.Errorf("tokens still live at the vendor for a removed taf: %d, %d", a, r)
 	}
-	if code := e.relayCallRaw(connected); code == 200 {
-		t.Error("the removed taf's connection still relays a call")
+	if e.works("list_charges") {
+		t.Error("the removed taf's connection still answers a call")
 	}
 	if s := e.status(other); s != StatusPending {
 		t.Errorf("another agent's grant: %s, want it left pending", s)
@@ -122,8 +150,8 @@ func TestThePreviewOfEndingAnAgentEndsNothing(t *testing.T) {
 	if a, r := e.vendor.Live(); a != liveA || r != liveR {
 		t.Errorf("the preview revoked tokens: %d, %d (was %d, %d)", a, r, liveA, liveR)
 	}
-	if code := e.relayCallRaw(connected); code != 200 {
-		t.Errorf("after a preview the connection relays %d, want it still working", code)
+	if !e.works("list_charges") {
+		t.Error("after a preview the connection no longer answers, want it still working")
 	}
 
 	st, done := e.endAgent(tenant, "agt_taf", "s_owner", "")
@@ -179,7 +207,8 @@ func TestEndingAnAgentKeepsASignInAnotherTafUses(t *testing.T) {
 }
 
 // Only a person who manages this account's tafs ends an agent: no service
-// key (Setup's, a taf's own, an admin key), no person who only reads, no
+// key (Setup's, a taf's own, an admin key), no agent's session even with
+// cards.manage, no person who only reads, no
 // one from another account by either path, and no call without a key.
 // Each refusal ends nothing, preview or not.
 func TestOnlyThePersonWhoManagesTheTafsEndsAnAgent(t *testing.T) {
@@ -193,6 +222,7 @@ func TestOnlyThePersonWhoManagesTheTafsEndsAnAgent(t *testing.T) {
 		{"the taf's own key", tenant, "k_taf"},
 		{"an admin API key", tenant, "k_admin"},
 		{"a person who only reads", tenant, "s_viewer"},
+		{"an agent's session holding cards.manage", tenant, "s_agent_manager"},
 		{"another account's owner, on this account", tenant, "s_other_owner"},
 		{"this account's owner, on another account's path", "tnt_other", "s_owner"},
 		{"another account's key", tenant, "k_other"},

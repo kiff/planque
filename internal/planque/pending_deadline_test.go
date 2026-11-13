@@ -52,7 +52,7 @@ func TestAPendingGrantNobodySignsEndsAfterSevenDays(t *testing.T) {
 		t.Fatalf("past the deadline: %s, want failed (not approved in time)", s)
 	}
 	// The record stays, as the account's history, and can't be approved now.
-	if st, out := e.approveAndSignIn(id, digest); st == 200 {
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, ""); st == 200 {
 		t.Fatalf("a request past its deadline was approved: %v", out)
 	}
 	if a, r := e.vendor.Live(); a != 0 || r != 0 {
