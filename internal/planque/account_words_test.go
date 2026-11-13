@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// A managed app's connection is named by its account as the provider shows
-// it, never by the provider's id for the connection (ca_…): in the grant's
-// view, its listing for Setup and its catalog. With no name shown, it's left
-// out, and the app names the row by the app.
+// A managed app's connection is named for people by its app and its account
+// as the provider shows it (`title`), never by the provider's id for the
+// connection (ca_…). `account` stays that id: the apps send it back to name
+// the connection a door or an event is for, and planque checks it there.
 func TestAManagedConnectionIsNamedByItsAccountNeverItsID(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	g := connectConnector(t, e, f)
@@ -21,8 +21,8 @@ func TestAManagedConnectionIsNamedByItsAccountNeverItsID(t *testing.T) {
 	path := "/v1/accounts/" + tenant + "/grants/" + g.ID
 	for _, at := range []string{path, path + "/catalog"} {
 		st, out := e.do("GET", at, nil, nil, "k_setup")
-		if st != 200 || out["account"] != "Demo Shop" {
-			t.Fatalf("%s: %d account %v", at, st, out["account"])
+		if st != 200 || out["account"] != g.Account {
+			t.Fatalf("%s: %d account %v, want the provider's id kept", at, st, out["account"])
 		}
 	}
 	// Its name for people, the same in every app: the app and its account, and the day it was asked for.
@@ -30,9 +30,12 @@ func TestAManagedConnectionIsNamedByItsAccountNeverItsID(t *testing.T) {
 	if view["title"] != "Support desk · Demo Shop" || len(view["since"].(string)) != 10 {
 		t.Fatalf("title %v, since %v", view["title"], view["since"])
 	}
-	st, out := e.do("GET", "/v1/accounts/"+tenant+"/asked-grants", nil, nil, "k_setup")
-	if st != 200 || strings.Contains(stringOf(out), "account_demo") {
-		t.Fatalf("Setup's listing names the provider's id: %d %v", st, out)
+	if strings.Contains(stringOf(view["title"]), "account_demo") {
+		t.Fatalf("the title names the provider's id: %v", view["title"])
+	}
+	// The owner's approval text names the account by its name, never the id.
+	if text, _ := view["text"].(string); strings.Contains(text, "account_demo") {
+		t.Fatalf("the approval text names the provider's id: %s", text)
 	}
 }
 

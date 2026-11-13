@@ -837,7 +837,7 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 		}
 		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": accountLabel(g), "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
 func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []ToolRequest) error {
 	if err := s.checkConnector(ctx, g); err != nil {
