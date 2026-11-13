@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -40,7 +43,7 @@ func TestTheMatrixReadsEachDescriptionAsPlanqueDoes(t *testing.T) {
 	}
 }
 
-// Without the provider's key the managed column says so, and never guesses.
+// Without the sign-in reader key the managed column says so, and never guesses.
 func TestTheManagedColumnSaysWhenItWasntChecked(t *testing.T) {
 	if got := managed(nil, "gmail"); !strings.Contains(got, "not checked") {
 		t.Errorf("no provider: %q", got)
@@ -51,5 +54,50 @@ func TestTheManagedColumnSaysWhenItWasntChecked(t *testing.T) {
 	out := table([]row{{App: "a", Route: "✅ header X"}, {App: "b", Route: "❌", Why: "x | y"}})
 	if !strings.Contains(out, "1 of 2 apps") || strings.Contains(out, "x | y") {
 		t.Errorf("table: %s", out)
+	}
+}
+
+// The managed column reads planque's sign-in state route with the reader key: each state in words, a refused key
+// and a route that's off said as unread, and the key never sent anywhere a redirect points.
+func TestTheManagedColumnReadsPlanquesSignInState(t *testing.T) {
+	var elsewhere string
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { elsewhere = r.Header.Get("Authorization") }))
+	defer other.Close()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer reader" {
+			w.WriteHeader(401)
+			return
+		}
+		slug := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/catalog/connector:composio:"), "/sign-in")
+		switch slug {
+		case "moved":
+			http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+		case "gone":
+			w.WriteHeader(404)
+		default:
+			_, _ = io.WriteString(w, `{"entry":"connector:composio:`+slug+`","state":"`+slug+`"}`)
+		}
+	}))
+	defer srv.Close()
+	p := &signInReader{base: srv.URL, key: "reader", http: srv.Client()}
+	p.http.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	for slug, want := range map[string]string{
+		"ready": "✅ ready", "on_the_owners_pick": "✅ on the owner's pick", "needs_setup": "❌ needs", "not_at_provider": "❌ not at the provider",
+		"something_new": "? couldn't be read", "gone": "? not answered", "moved": "? couldn't be read",
+	} {
+		if got := managed(p, slug); !strings.HasPrefix(got, want) {
+			t.Errorf("%s: %q, want %q", slug, got, want)
+		}
+	}
+	if elsewhere != "" {
+		t.Errorf("the reader key followed a redirect: %q", elsewhere)
+	}
+	if got := managed(&signInReader{base: srv.URL, key: "wrong", http: srv.Client()}, "ready"); !strings.Contains(got, "refused") {
+		t.Errorf("a wrong key: %q", got)
+	}
+	t.Setenv("CONNECT_MATRIX_PLANQUE_URL", "http://planque.example")
+	t.Setenv("CONNECT_MATRIX_SIGNIN_KEY", "reader")
+	if managedReader() != nil {
+		t.Error("the reader key would go over http")
 	}
 }

@@ -1,12 +1,13 @@
 // Command connectmatrix reads each app's published API description as planque does, and says whether the app can
 // be connected by its key: the description found and read (JSON or YAML), its key expressed, its tools listed. Each
-// red is a generic cause to fix in planque, never one vendor's patch. It reads public pages only and, given the
-// managed sign-in provider's key (managed.go), that provider's app metadata: never a session, an account or a call.
+// red is a generic cause to fix in planque, never one vendor's patch. It reads public pages only and, given
+// planque's sign-in reader key (managed.go), planque's answer of whether the managed sign-in works for each app:
+// never a session, an account or a call, and no provider key.
 //
 //	go run ./cmd/connectmatrix deploy/connect-matrix.json
 //
 // prints a Markdown table and exits 0: it reports, it doesn't gate. This repo holds the code and the app list only:
-// no workflow runs it here, so its results and the provider's key stay out of a public log.
+// no workflow runs it here, so its results and the reader key stay out of a public log.
 package main
 
 import (
@@ -56,7 +57,7 @@ func main() {
 		os.Exit(2)
 	}
 	client := &http.Client{Timeout: 90 * time.Second}
-	provider := managedProvider()
+	provider := managedReader()
 	var rows []row
 	for _, a := range list.Apps {
 		r := check(client, a)
