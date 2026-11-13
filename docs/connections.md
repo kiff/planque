@@ -4,6 +4,10 @@ planque holds the vendor credential and sends each operation only with the
 permit for that exact call. The owner approves the requested connection on
 their device before its tools become available.
 
+It follows the sign-in standard vendors' MCP servers speak: OAuth 2.1 with
+discovery (RFC 9728, RFC 8414), dynamic client registration (RFC 7591) and
+PKCE.
+
 ## MCP client identity
 
 When the authorization server advertises
