@@ -2,12 +2,16 @@ package planque
 
 import (
 	"encoding/json"
+	"regexp"
 	"slices"
 	"strings"
 )
 
 // maxReturns bounds the ids and links a catalog tool names.
 const maxReturns = 20
+
+// plainPath is a path in an answer as returns names it.
+var plainPath = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // returnsOf are the ids and links a tool's answer gives back, by their
 // path in it, read from the answer's JSON schema (properties, an array's
@@ -41,6 +45,10 @@ func returnsOf(schema json.RawMessage) []string {
 			p := k
 			if path != "" {
 				p = path + "." + k
+			}
+			// The vendor's names, read by Coach: plain ones only, bounded.
+			if len(p) > 128 || !plainPath.MatchString(p) {
+				continue
 			}
 			if identifying(k) && len(out) < maxReturns {
 				out = append(out, p)

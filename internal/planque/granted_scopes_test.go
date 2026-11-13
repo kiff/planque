@@ -92,3 +92,30 @@ func TestAReusedSignInNamesItsAccount(t *testing.T) {
 		t.Fatalf("tools: %d %v", st, out["text"])
 	}
 }
+
+// A held sign-in is reused for a new taf only when what the vendor granted
+// lets each tool asked run: granted fewer scopes than a tool needs, a new
+// sign-in is asked for instead, never a connection stuck on a tool it
+// can't use.
+// Category: authority
+// Attack: a held sign-in granted Sheets alone reused for a search needing Drive
+// Refused: not reused; a new sign-in is asked for
+func TestAHeldSignInGrantedLessIsntReusedForMore(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	f.search, f.granted = true, "https://www.googleapis.com/auth/spreadsheets"
+	f.replyScopes = []string{"https://www.googleapis.com/auth/spreadsheets"}
+	f.searchScopes = []string{"https://www.googleapis.com/auth/drive.readonly"}
+	first := connectConnector(t, e, f)
+	if len(first.Connector.Granted) != 1 {
+		t.Fatalf("granted: %v", first.Connector.Granted)
+	}
+	entry := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
+	st, out := e.do("POST", entry, map[string]any{"agent": "agt_search", "tools": []string{"DESK_DEMO_SEARCH"}}, nil, "k_setup")
+	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusPending || v["signed_in"] == true {
+		t.Fatalf("a search on a Sheets-only sign-in: %d %v", st, out)
+	}
+	st, out = e.do("POST", entry, map[string]any{"agent": "agt_reply", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusListed || v["signed_in"] != true {
+		t.Fatalf("a reply the sign-in covers: %d %v", st, out)
+	}
+}

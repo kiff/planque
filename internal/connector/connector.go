@@ -127,23 +127,6 @@ type Page[T any] struct {
 
 // Tool is one concrete, versioned upstream action. Platform meta-executors
 // cannot become granted business tools.
-// Covered says whether granted, the scopes a sign-in was granted, lets t
-// run: t lists the scopes any one of which lets it run, as the vendor's API
-// does for each method, and a scope covers its read-only form. Unknown
-// either way (no scopes granted known, none listed for t) is covered:
-// the vendor then decides at the call, as before.
-func (t Tool) Covered(granted []string) bool {
-	if len(granted) == 0 || len(t.Scopes) == 0 {
-		return true
-	}
-	for _, need := range t.Scopes {
-		if slices.Contains(granted, need) || strings.HasSuffix(need, ".readonly") && slices.Contains(granted, strings.TrimSuffix(need, ".readonly")) {
-			return true
-		}
-	}
-	return false
-}
-
 type Tool struct {
 	Slug        string          `json:"slug"`
 	Toolkit     string          `json:"toolkit"`
@@ -160,6 +143,28 @@ type Tool struct {
 
 var slug = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$`)
 var version = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+
+// Covered says whether granted, the scopes a sign-in was granted, lets t
+// run: t lists the scopes any one of which lets it run, as the vendor's API
+// does for each method, and a scope covers its read-only form. Unknown
+// either way (no scopes granted known, none listed for t), or the two
+// written in different forms (a URL against a short name), is covered:
+// the vendor then decides at the call, as before.
+func (t Tool) Covered(granted []string) bool {
+	if len(granted) == 0 || len(t.Scopes) == 0 || urlForm(granted[0]) != urlForm(t.Scopes[0]) {
+		return true
+	}
+	for _, need := range t.Scopes {
+		if slices.Contains(granted, need) || strings.HasSuffix(need, ".readonly") && slices.Contains(granted, strings.TrimSuffix(need, ".readonly")) {
+			return true
+		}
+	}
+	return false
+}
+
+// urlForm says a scope is written as a URL (https://…/auth/drive) rather
+// than a short name (drive.readonly).
+func urlForm(scope string) bool { return strings.Contains(scope, "://") }
 
 func (t Tool) Validate() error {
 	if !slug.MatchString(t.Slug) || !slug.MatchString(t.Toolkit) || !version.MatchString(t.Version) || strings.EqualFold(t.Version, "latest") || len(t.Name) == 0 || !json.Valid(t.InputSchema) {

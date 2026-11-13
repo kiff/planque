@@ -11,12 +11,13 @@ func TestAToolIsCoveredByAnyOneOfItsScopes(t *testing.T) {
 		granted []string
 		want    bool
 	}{
-		"one of them":         {read, []string{"openid", "https://www.googleapis.com/auth/drive.metadata.readonly"}, true},
-		"the full form":       {read, []string{"https://www.googleapis.com/auth/drive"}, true},
-		"none of them":        {read, []string{"https://www.googleapis.com/auth/spreadsheets"}, false},
-		"a narrower one":      {Tool{Scopes: []string{"https://www.googleapis.com/auth/drive"}}, []string{"https://www.googleapis.com/auth/drive.readonly"}, false},
-		"granted unknown":     {read, nil, true},
-		"the tool lists none": {Tool{}, []string{"https://www.googleapis.com/auth/spreadsheets"}, true},
+		"one of them":             {read, []string{"openid", "https://www.googleapis.com/auth/drive.metadata.readonly"}, true},
+		"the full form":           {read, []string{"https://www.googleapis.com/auth/drive"}, true},
+		"none of them":            {read, []string{"https://www.googleapis.com/auth/spreadsheets"}, false},
+		"a narrower one":          {Tool{Scopes: []string{"https://www.googleapis.com/auth/drive"}}, []string{"https://www.googleapis.com/auth/drive.readonly"}, false},
+		"granted unknown":         {read, nil, true},
+		"written in another form": {read, []string{"drive.readonly"}, true},
+		"the tool lists none":     {Tool{}, []string{"https://www.googleapis.com/auth/spreadsheets"}, true},
 	} {
 		if got := c.tool.Covered(c.granted); got != c.want {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
