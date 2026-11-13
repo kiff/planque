@@ -1,7 +1,7 @@
 # Google Sheets
 
 Checked: 2026-11-13 · Sources: the connection service's Google Sheets tool
-definitions as planque reads them (58 tools), Google's Sheets and Drive API
+definitions as planque reads them (50 tools), Google's Sheets and Drive API
 references, and test runs on a phone on 13 Nov 2026.
 
 ## How it connects
@@ -52,7 +52,7 @@ So:
 A write answers the range it changed and how many cells; that answer is the
 proof the write landed, so the run's report should carry it.
 
-**Prefer** `VALUES_UPDATE` on a known range, or `VALUES_APPEND`, over tools
+**Prefer** `GOOGLESHEETS_VALUES_UPDATE` on a known range, or `GOOGLESHEETS_SPREADSHEETS_VALUES_APPEND`, over tools
 that clear, delete or sort. A job that only fills a column needs no other
 write.
 
@@ -64,9 +64,6 @@ write.
 - `GOOGLESHEETS_FIND_REPLACE`: it can change cells across a whole sheet.
 - Moving a spreadsheet between folders, or the Drive change feed: they act
   on the owner's Drive, beyond the sheet.
-- Deprecated tools (`GOOGLESHEETS_EXECUTE_SQL`, `GOOGLESHEETS_BATCH_UPDATE`,
-  `GOOGLESHEETS_QUERY_TABLE`, `GOOGLESHEETS_SHEET_FROM_JSON` and others marked
-  so): use the tools above.
 
 ## Access and plans
 
