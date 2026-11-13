@@ -71,6 +71,9 @@ type ConnectorState struct {
 	Revocation *connector.Revocation `json:"revocation,omitempty"`
 	// AccountName is the vendor account's name as the provider shows it.
 	AccountName string `json:"account_name,omitempty"`
+	// Granted are the scopes the vendor granted the sign-in, as the
+	// provider last reported them; empty when it doesn't.
+	Granted []string `json:"granted,omitempty"`
 	// Mode is the vendor account's mode, "live" or "test", as the objects
 	// permitted calls returned said it (their "livemode"), and when: live
 	// wins, so once any live object is seen it stays live. Empty is
@@ -357,7 +360,31 @@ func (s *Server) checkConnector(ctx context.Context, g *Grant) error {
 	if a.ID != g.Connector.Account || !a.Matches(id) {
 		return connector.ErrAccount
 	}
+	if len(a.Scopes) > 0 {
+		g.Connector.Granted = a.Scopes
+	}
+	if a.Name != "" && g.Connector.AccountName == "" {
+		g.Connector.AccountName = a.Name
+	}
 	return nil
+}
+
+// grantedScopes are the scopes g's sign-in has: those the vendor granted,
+// when the provider reports them, else those a narrowed sign-in asked for;
+// nil when neither is known (the app's usual access).
+func grantedScopes(g *Grant) []string {
+	if g.Connector != nil && len(g.Connector.Granted) > 0 {
+		return g.Connector.Granted
+	}
+	if g.Request.Connector != nil {
+		return g.Request.Connector.Scopes
+	}
+	return nil
+}
+
+// uncoveredWords says, in plain words, why t can't run on g's sign-in.
+func uncoveredWords(g *Grant, t connector.Tool) string {
+	return vendorName(g) + " is only partly signed in: " + label(t.Name) + " needs access its sign-in didn't give, so it can't be used on this connection"
 }
 
 func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, providerID, toolkit string) {
@@ -767,18 +794,32 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 		return
 	}
 	tools := make([]CatalogTool, 0, len(page.Items))
+	// A tool the sign-in's scopes don't let run is never offered: it's
+	// listed apart, with why, so the taf's Card never grants it.
+	type unusable struct {
+		Name  string `json:"name"`
+		Title string `json:"title"`
+		Why   string `json:"why"`
+	}
+	unusables := []unusable{}
+	granted := grantedScopes(g)
 	for _, t := range page.Items {
 		if t.Validate() != nil || t.Toolkit != g.Request.Connector.Toolkit {
 			s.fail(w, r, connector.ErrDefinition)
 			return
 		}
+		// Kept either way, so a tool chosen that it can't run is refused with why.
 		if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: connectorToolKey(g, t.Alias()), TTL: s.now().Add(holdTTL).Unix()}, t, store.Cond{}); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly})
+		if !t.Covered(granted) {
+			unusables = append(unusables, unusable{Name: t.Alias(), Title: label(t.Name), Why: uncoveredWords(g, t)})
+			continue
+		}
+		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "next_cursor": page.Next, "skipped": page.Skipped})
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
 func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []ToolRequest) error {
 	if err := s.checkConnector(ctx, g); err != nil {
@@ -791,6 +832,9 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 		it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), connectorToolKey(g, ask.Tool), &definition)
 		if err != nil || it.TTL <= s.now().Unix() || definition.Alias() != ask.Tool || definition.Toolkit != g.Request.Connector.Toolkit {
 			return apiError{http.StatusBadRequest, "read the app's tool catalog before selecting this action"}
+		}
+		if !definition.Covered(grantedScopes(g)) {
+			return apiError{http.StatusConflict, uncoveredWords(g, definition) + ": choose the tools its catalog offers"}
 		}
 		g.Connector.Tools = append(g.Connector.Tools, definition)
 		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
@@ -831,6 +875,10 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 		// A sign-in narrowed to the tools the taf asked for serves only those.
 		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
 			return errOutsideSignIn(c.Title, found.Name)
+		}
+		// Nor one its scopes don't let run: the Card would grant a tool the vendor refuses.
+		if !found.Covered(grantedScopes(g)) {
+			return apiError{http.StatusConflict, uncoveredWords(g, *found) + ": choose the tools its catalog offers"}
 		}
 		definitions = append(definitions, *found)
 	}

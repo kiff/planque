@@ -29,6 +29,8 @@ type Tool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// OutputSchema is what a call returns, when the server says.
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 
 // Server is how a server names itself at initialize (serverInfo).

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -126,6 +127,23 @@ type Page[T any] struct {
 
 // Tool is one concrete, versioned upstream action. Platform meta-executors
 // cannot become granted business tools.
+// Covered says whether granted, the scopes a sign-in was granted, lets t
+// run: t lists the scopes any one of which lets it run, as the vendor's API
+// does for each method, and a scope covers its read-only form. Unknown
+// either way (no scopes granted known, none listed for t) is covered:
+// the vendor then decides at the call, as before.
+func (t Tool) Covered(granted []string) bool {
+	if len(granted) == 0 || len(t.Scopes) == 0 {
+		return true
+	}
+	for _, need := range t.Scopes {
+		if slices.Contains(granted, need) || strings.HasSuffix(need, ".readonly") && slices.Contains(granted, strings.TrimSuffix(need, ".readonly")) {
+			return true
+		}
+	}
+	return false
+}
+
 type Tool struct {
 	Slug        string          `json:"slug"`
 	Toolkit     string          `json:"toolkit"`
@@ -135,6 +153,9 @@ type Tool struct {
 	InputSchema json.RawMessage `json:"input_schema"`
 	ReadOnly    bool            `json:"read_only"`
 	Scopes      []string        `json:"scopes,omitempty"`
+	// Output is what a call returns, as the provider describes it, read
+	// for the catalog only: never kept with a grant's signed definitions.
+	Output json.RawMessage `json:"-"`
 }
 
 var slug = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,255}$`)
@@ -181,6 +202,10 @@ type Account struct {
 	// Name is the vendor account's name as the provider shows it (a
 	// business's name), one safe line; empty when it shows none.
 	Name string `json:"name,omitempty"`
+	// Scopes are the scopes the vendor granted the sign-in, when the
+	// provider reports them: a person may grant fewer than were asked.
+	// Empty is unknown.
+	Scopes []string `json:"scopes,omitempty"`
 }
 
 func (a Account) Matches(id Identity) bool {
