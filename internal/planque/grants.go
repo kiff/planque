@@ -1048,8 +1048,8 @@ type grantView struct {
 	// Title names the connection for people, the same in every app: its app
 	// and, when known, its account ("Gmail · Demo Shop"); Since is the day it
 	// was asked for (2026-11-13), for the app to say in its own words.
-	Title string `json:"title"`
-	Since string `json:"since,omitempty"`
+	Title  string `json:"title"`
+	Since  string `json:"since,omitempty"`
 	Status string `json:"status"`
 	// Entry is the catalog entry for the grant's app: the one its request
 	// names, else the one planque recorded or finds for it (entry.go), empty
