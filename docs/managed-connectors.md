@@ -143,7 +143,17 @@ The account-authenticated catalog endpoints include upstream discovery:
    narrowing can replace it, and the words say it plainly, with why: "<app>
    will ask for more access than this taf uses, because its sign-in can't be
    narrowed to this taf's actions.", and the card ends "Sign in, then approve
-   its actions: the taf gets only those, nothing before." Neither names the tools: the asked ones are the provider's names
+   its actions: the taf gets only those, nothing before." When the app's
+   usual sign-in asks for personal data (Google's date of birth, addresses,
+   phone numbers, other email addresses, contacts, language), it's never
+   used: a sign-in that can't be narrowed, or one asked with no tools, asks
+   for the managed ceiling less those, pinned as its own (wide), recorded in
+   `scopes`, and still said to be more than the taf uses. A personal scope
+   stays only for a tool asked that runs on nothing else (the narrowest
+   read-only one); a tool added later that needs a dropped one isn't
+   covered. When no such sign-in can be set up (the day's set-ups used, the
+   provider failing), nothing is asked: 429 or 503, with why. The account's
+   own address stays. Neither names the tools: the asked ones are the provider's names
    ("Fetch message by thread id"), and the actions to approve come next, each
    by the title the taf's request gives it. KIFF's Card stays the boundary
    either way: the taf calls only the tools its Card grants. A reused sign-in

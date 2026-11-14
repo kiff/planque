@@ -90,12 +90,23 @@ type Scoped struct {
 	// Scopes are what it asks for, sorted: the tools' least-privilege scopes
 	// and the ones the provider always asks (a refresh, who you are).
 	Scopes []string
+	// Wide: it couldn't be narrowed to the tools, so it asks for the app's
+	// usual access less the personal data no tool of the app needs (a date
+	// of birth, addresses, phone numbers, contacts): more than the tools
+	// use, said so to the owner, never the usual sign-in's personal data.
+	Wide bool
 }
 
 // ErrUnscoped: the provider can't narrow the app's sign-in to the tools (its
 // own sign-in has no scope ceiling, a tool needs a scope outside it, or the
 // provider couldn't say). The caller keeps the app's usual sign-in, and says so.
 var ErrUnscoped = errors.New("this app's sign-in can't be narrowed to these tools")
+
+// ErrPersonal: the app's usual sign-in asks for personal data no tool asked
+// needs, and no sign-in without it could be set up now (the account's
+// set-ups for the day used, or the provider failing). Nothing is asked: the
+// caller never falls back to the usual sign-in then. It wraps the cause.
+var ErrPersonal = errors.New("this app's sign-in can't be set up without personal data the taf doesn't use")
 
 // Allowance is what making a new provider sign-in costs the account: Take
 // before making one (an error: none is made), GiveBack when making it failed.
