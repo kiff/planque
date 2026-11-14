@@ -333,3 +333,57 @@ func TestTheCleanUpPacesItsWritesBySize(t *testing.T) {
 		t.Fatalf("a pace outlived its context: %v", d)
 	}
 }
+
+// Out of time mid-page, the clean-up stops after the record it's on, keeps
+// its cursor at the page's start, and the next sweep carries on from there,
+// passing over the records already done: a page of slow writes never
+// outlives the sweep, and each run still moves on by one record at least.
+func TestTheCleanUpStopsMidPageWhenItsTimeIsUp(t *testing.T) {
+	page, budget := cleanPage, cleanBudget
+	cleanPage, cleanBudget = 200, 0
+	t.Cleanup(func() { cleanPage, cleanBudget = page, budget })
+	e, _ := newConnectorFixture(t)
+	ctx := context.Background()
+	sks := []string{"OP#g#a", "OP#g#b", "OP#g#c"}
+	for _, sk := range sks {
+		op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: time.Now().UTC().Add(-72 * time.Hour),
+			Result: json.RawMessage(`{"content":[{"type":"text","text":"customer_secret"}],"isError":false}`)}
+		if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: sk, Ver: 1}, op, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for run := 1; run <= len(sks); run++ {
+		d, _, err := e.s.CleanStoredAnswers(ctx)
+		if err != nil || d != 1 {
+			t.Fatalf("run %d: dropped %d, %v; want one record a run", run, d, err)
+		}
+		_, done, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK)
+		if done != (run == len(sks)) {
+			t.Fatalf("run %d: marked done = %v", run, done)
+		}
+	}
+	for _, sk := range sks {
+		var rec operation
+		if _, err := getDoc(ctx, e.kv, tenantPK(tenant), sk, &rec); err != nil || strings.Contains(string(rec.Result), "customer_secret") {
+			t.Fatalf("%s still holds its answer: %v", sk, err)
+		}
+	}
+}
+
+// A request with less time left than one record's worst case stops after
+// one record, whatever cleanBudget says.
+func TestTheCleanUpStopsWithinItsRequestsDeadline(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), cleanLast/2)
+	defer cancel()
+	for _, sk := range []string{"OP#g#a", "OP#g#b"} {
+		op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: time.Now().UTC().Add(-72 * time.Hour),
+			Result: json.RawMessage(`{"content":[{"type":"text","text":"x"}],"isError":false}`)}
+		if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: sk, Ver: 1}, op, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d, _, err := e.s.CleanStoredAnswers(ctx); err != nil || d != 1 {
+		t.Fatalf("with little time left: dropped %d, %v; want one", d, err)
+	}
+}
