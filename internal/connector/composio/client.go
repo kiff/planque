@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kiff/planque/deploy/guides"
 	"github.com/kiff/planque/internal/connector"
 )
 
@@ -601,8 +602,8 @@ var breadth = []string{
 }
 
 // narrowest is the scopes tools need, each tool's narrowest one by breadth
-// among those it accepts in the ceiling: a read takes a read-only scope when
-// it accepts one; a write never does, whatever its list says (the provider
+// among those it accepts in the ceiling: a read (the provider's tag, or the
+// app's reviewed guide's "read") takes a read-only scope when it accepts one; a write never does, whatever its list says (the provider
 // lists gmail.readonly for creating a draft, which it can't). Nil when a
 // tool can't be read, accepts no scope breadth orders, or accepts only
 // personal ones: the recommendation decides then.
@@ -611,6 +612,7 @@ func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceilin
 	if err != nil {
 		return nil
 	}
+	reviewed := guides.Reads(strings.ToLower(app.Slug))
 	var out []string
 	for _, slug := range tools {
 		i := slices.IndexFunc(listed, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
@@ -621,9 +623,13 @@ func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceilin
 		if err != nil {
 			return nil
 		}
+		// A read as the provider tags it, or as the app's reviewed guide marks
+		// it when the provider doesn't (14 Nov: two Gmail reads untagged, so
+		// full mail): unknown is still a write.
+		read := t.ReadOnly || slices.ContainsFunc(reviewed, func(r string) bool { return strings.EqualFold(r, slug) })
 		pick := ""
 		for _, s := range breadth {
-			if !slices.Contains(t.Scopes, s) || !slices.Contains(ceiling, s) || !t.ReadOnly && strings.HasSuffix(s, ".readonly") {
+			if !slices.Contains(t.Scopes, s) || !slices.Contains(ceiling, s) || !read && strings.HasSuffix(s, ".readonly") {
 				continue
 			}
 			pick = s
