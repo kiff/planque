@@ -1388,6 +1388,14 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 			t.Fatalf("by %q, the request: %+v", asked, g.Request.Tools)
 		}
 	}
+	// A never-served tool stays refused by its slug, in any case, as by its name:
+	// the slug is mapped to the catalog's name before the never-served check.
+	neverServe(t, "DESK_DEMO_SEARCH")
+	for _, asked := range []string{"DESK_DEMO_SEARCH", "desk_demo_search", connector.Tool{Toolkit: "desk_demo", Slug: "DESK_DEMO_SEARCH"}.Alias()} {
+		if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Search tickets", Name: "search_tickets", ReadOnly: true}}, "profile": p}, nil, "k_setup"); st != 400 || out["code"] != refToolNotServed {
+			t.Fatalf("a never-served tool by %q: %d %v", asked, st, out)
+		}
+	}
 	// A slug the catalog doesn't hold is refused as before, in Coach's own words.
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
 		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
