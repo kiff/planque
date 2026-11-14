@@ -1,6 +1,6 @@
 # Qonto
 
-Checked: 2026-11-13 · Sources: planque's reviewed entries `qonto-key@1` and
+Checked: 2026-11-14 · Sources: planque's reviewed entries `qonto-key@1` and
 `qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)), and
 Qonto's published invoicing API description.
 
@@ -43,21 +43,23 @@ any other.
 
 ## Access and plans
 
-- **Invoicing through the API needs a Qonto plan that includes invoicing**;
-  the smallest plans may not. If a read of invoices is refused, that's why.
+- **Drafting an invoice and listing clients work on every Qonto plan**, per
+  Qonto's pages for them.
 - **The key belongs to the business,** not a person: anyone with it reads
-  the business's accounts. The owner can revoke it in Qonto at any time.
-- **Rate:** Qonto limits calls per minute and doesn't publish every limit.
-  A taf reading invoices daily stays far below it.
+  the business's accounts.
+- **Rate:** Qonto allows 1,000 calls per 10 seconds and 10,000 per 10
+  minutes, counted per address, and slows a key down after many refused
+  calls in an hour. A taf reading invoices daily stays far below it.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
 | The key is refused (401) | Wrong format, revoked, or the login and secret swapped | "Qonto didn't accept the key. Paste it again as your organisation login, a colon, then the secret key." |
-| Refused (403) | The plan doesn't include invoicing, or the key lacks that access | "Your Qonto plan doesn't let this key read invoices. Check the plan, or make a key with invoicing access." |
+| Refused (403) | This key isn't allowed to call that part of Qonto | "Qonto doesn't let this key do that step. The taf will do without it." |
 | The draft is refused: IBAN | The IBAN isn't one of the business's accounts | "That IBAN isn't one of your Qonto accounts, so the draft wasn't made." |
-| The draft is refused: quote | The quote isn't accepted, or is already invoiced | "That quote isn't accepted yet, or already has an invoice. Nothing was drafted." |
+| The draft is refused: quote not found | The quote doesn't exist, or belongs to another organisation | "That quote isn't in your Qonto account. Nothing was drafted." |
+| The draft is refused: conflict | The invoice number is already used, or the invoice conflicts with another | "Qonto refused the draft because it clashes with an existing invoice. Nothing was drafted." |
 | Too many calls (429) | Over Qonto's rate | "Qonto asked us to slow down. The taf will try again in a minute." |
 
 After any refusal the taf stops that step and says so.

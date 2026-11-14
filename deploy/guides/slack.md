@@ -1,6 +1,6 @@
 # Slack
 
-Checked: 2026-11-13 · Sources: the connection service's Slack tool
+Checked: 2026-11-14 · Sources: the connection service's Slack tool
 definitions as planque reads them (165 tools, [generated](generated/slack.md)),
 and Slack's API reference.
 
@@ -54,7 +54,7 @@ posted to the owner alone goes as a direct message to themselves.
 ## Access and plans
 
 - **On Slack's free plan, only the last 90 days** of messages and files can
-  be read. Paid plans keep everything.
+  be read, and they're deleted after a year.
 - **Rate:** Slack limits each method, roughly from 1 to 100 calls a minute.
   Posting is about one message a second per channel. Reading history is
   limited more tightly for apps outside Slack's marketplace, so a job
@@ -73,6 +73,6 @@ posted to the owner alone goes as a direct message to themselves.
 | Too many calls (429, `ratelimited`) | Over Slack's limit for that method | "Slack asked us to slow down. The taf will continue in a minute." |
 | Admin approval needed at sign-in | The workspace restricts outside apps | "Your Slack admin needs to approve this connection. Ask them, or use another workspace." |
 | The sign-in no longer works (`invalid_auth`, `token_revoked`) | Removed, or the owner left the workspace | "Slack needs you to sign in again. Nothing was posted." |
-| Message too long (`msg_too_long`) | Over Slack's length limit | Split it and try once; tell the owner only if it fails again. |
+| Message cut short | Slack cuts a message far over its length guide (about 4,000 characters of text) | Keep messages short; split a long report into several. |
 
 After any refusal the taf stops that step and says so.
