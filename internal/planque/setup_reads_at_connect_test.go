@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -95,30 +96,57 @@ func TestSetupReadsThatArentReadsConnectNothing(t *testing.T) {
 	}
 }
 
-// Negative 5: a bare server's catalog is unknown before its sign-in, so its
-// first request can't name setup reads: it connects first, then asks for
-// its reads with its tools, two steps as before. A request with tools at
-// once can't either.
-func TestABareServerKeepsItsTwoSteps(t *testing.T) {
+// A bare server's first request names its setup reads too (the Eval's setup
+// connects by server): the owner approves them with the sign-in, and once
+// signed in they're checked against what the server lists and connected,
+// with no second approval. A name it doesn't list connects none, and the
+// grant's events say why. A request with its tools at once, a key or a
+// reused sign-in can't name them.
+func TestABareServerTakesItsSetupReadsAtConnect(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
 	grants := "/v1/accounts/" + tenant + "/grants"
 	for name, body := range map[string]map[string]any{
-		"a bare server":      {"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}, "setup_reads": []string{"list_charges"}},
 		"with tools at once": {"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{map[string]any{"tool": "list_charges", "title": "List charges", "read_only": true}}, "setup_reads": []string{"list_charges"}},
+		"a reused sign-in":   {"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}, "reuse": "grt_x", "setup_reads": []string{"list_charges"}},
 	} {
 		st, out := e.do("POST", grants, body, nil, "k_setup")
-		if st != 400 || !strings.Contains(out["error"].(string), "setup_reads goes on a catalog entry's first request") {
+		if st != 400 || !strings.Contains(fmt.Sprint(out["error"]), "setup_reads goes on a server's first request") {
 			t.Fatalf("%s: %d %v", name, st, out)
 		}
 	}
 	if c := e.kiff.Connections(tenant); len(c) != 0 {
 		t.Fatalf("in KIFF: %v", c)
 	}
-	// Connected first, it's listed: its reads come with its tools, a second approval.
-	id := e.listedGrant()
-	if g, _ := e.s.loadGrant(context.Background(), tenant, id); g.Status != StatusListed || len(g.Tools) != 0 {
-		t.Fatalf("the bare server's first step: %s %v", g.Status, g.Tools)
+	// Named at connect: approved with the sign-in, connected once signed in.
+	st, out := e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}, "setup_reads": []string{"stripe_api_details", "list_charges"}}, nil, "k_setup")
+	if st != 201 || !strings.Contains(fmt.Sprint(out["text"]), "stripe_api_details") {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	id := out["id"].(string)
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if len(g.Tools) != 2 || !g.Tools[0].SetupReads || !g.Tools[1].SetupReads {
+		t.Fatalf("the grant's tools: %+v", g.Tools)
+	}
+	// A name the server doesn't list: nothing connects, and the events say why.
+	st, out = e.do("POST", grants, map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf2", "tools": []any{}, "setup_reads": []string{"list_everything"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	id = out["id"].(string)
+	if st, out := e.approveAndSignIn(id, out["digest"].(string)); st != 200 || out["status"] != StatusListed {
+		t.Fatalf("an unlisted read: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(context.Background(), tenant, id)
+	said := false
+	for _, ev := range g.Events {
+		said = said || strings.Contains(ev.What, "lists no tool named list_everything")
+	}
+	if len(g.Tools) != 0 || !said {
+		t.Fatalf("an unlisted read: tools %v, events %v", g.Tools, g.Events)
 	}
 }
 
