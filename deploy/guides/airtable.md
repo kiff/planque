@@ -1,6 +1,6 @@
 # Airtable
 
-Checked: 2026-11-13 · Sources: the connection service's published Airtable
+Checked: 2026-11-14 · Sources: the connection service's published Airtable
 tool list, Airtable's API reference (rate limits, errors, access scopes,
 records) and its help pages on monthly call limits. Not yet run on a phone.
 The tool names below are checked against the generated part once the keyed
@@ -63,25 +63,22 @@ named.
 
 ## Access and plans
 
-- **Reading records needs record read access** plus reading the base's
-  structure, which lists its tables and fields. Writing needs record write
-  access. A sign-in made for reading doesn't let the taf write.
-- **The owner's role in the base counts too.** Reading needs at least
-  read-only access to the base; adding or changing records needs editor
-  access. A table or field can also be locked to some people; then a write
-  to it is refused even with the right sign-in.
+- **Reading records needs record read access;** listing a base's tables
+  and fields needs its structure access. Writing needs record write access.
+  A sign-in made for reading doesn't let the taf write.
+- **The owner's own access counts too.** A sign-in can't do more in a base
+  than the person who signed in.
 - **Monthly call caps, per workspace:** about 1,000 calls a month on the
   free plan, and about 100,000 on the Team plan. Business and above have no
   monthly cap. On the free plan, going over starts a one-time 30-day grace
-  period. On Team, going over slows calls down.
+  period. On Team, going over slows calls to 2 a second until the month resets;
+  on Free, calls are blocked once the grace period ends.
 - **Rate:** about 5 calls a second per base, whatever the plan. Over it,
   Airtable refuses for 30 seconds.
-- **Batches:** a call adds or changes up to 10 records. A job adding 200
-  rows makes 20 calls, which counts against the monthly cap.
-- **Big answers:** lists answer at most 100 records a page. A complex filter
-  over a large table can time out; narrow it or ask for fewer per page.
-- **An enterprise account's admin** can block outside apps. Then the list of
-  bases comes back empty, with no error.
+- **Big answers:** lists answer at most 100 records a page; a taf follows
+  the page marker rather than reading everything each run.
+- **An enterprise account's admin** can block outside apps, or keep some
+  bases and workspaces from being chosen at sign-in.
 
 ## When it fails
 
@@ -89,8 +86,7 @@ named.
 |---|---|---|
 | Refused for missing access | The sign-in didn't give this tool's access: reading only, say, and the tool adds records | "Airtable is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Refused, or "not found", on a base or table | The base wasn't chosen at sign-in, the owner can't see it, or the name is wrong | "I can't reach that base. Add it to the connection in Airtable, or check you have access to it." |
-| Refused writing one table or field | It's locked to some people, or the owner is read-only in the base | "That table or field is locked for your account in Airtable. Someone who owns the base can unlock it." |
-| The list of bases comes back empty | An enterprise admin blocks outside apps | "Your Airtable admin blocks outside apps. Ask them to allow it, or connect another account." |
+| The sign-in is refused, or a base can't be chosen | An enterprise admin blocks outside apps, or that base | "Your Airtable admin blocks outside apps. Ask them to allow it, or connect another account." |
 | Too many calls, right away | Over 5 calls a second on one base | Wait 30 seconds and continue; tell the owner only if it keeps happening. |
 | Too many calls, all day | The workspace's monthly calls are used up | "Your Airtable plan's monthly allowance is used up. The taf will continue next month, or sooner on a bigger plan." |
 | Not accepted | A value doesn't fit its field (text in a number field, an unknown choice) | Fix it and try once; else "Airtable didn't accept that change. Nothing was written." |

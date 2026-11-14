@@ -1,6 +1,6 @@
 # Stripe
 
-Checked: 2026-11-13 · Sources: planque's direct Stripe connection and its
+Checked: 2026-11-14 · Sources: planque's direct Stripe connection and its
 reviewed refund entry (`docs/managed-connectors.md`), Stripe's API reference,
 and Stripe's published server tools.
 
@@ -25,7 +25,7 @@ The direct connection narrows Stripe's general tools to named operations.
 |---|---|---|---|
 | `stripe_api_details` | Describes one Stripe operation's fields, before a call | read | the fields |
 | `stripe_api_read` (the account) | Reads the account the sign-in is in | read | the account id, its country, its mode |
-| `stripe_api_read` (a charge) | Reads one payment | read | the charge id, amount, currency, its refunds |
+| `stripe_api_read` (a charge) | Reads one payment | read | the charge id, amount, currency (its refunds only when asked for, or by listing refunds) |
 | `stripe_api_read` (refunds) | Lists recent refunds, at most 100 | read | refund ids, amounts, the charge each is for |
 | `stripe_api_write` (a refund) | Refunds a payment, whole or in part | write, money out | the refund id and its status |
 
@@ -54,8 +54,9 @@ KIFF's Card caps refunds in euros; a refund in another currency is refused.
 - **Rate:** Stripe allows about 100 calls a second in live mode and 25 in
   test mode. A refund job never comes near it; a job reading thousands of
   payments should page.
-- **A refund can't be undone.** It can only be cancelled while it's still
-  pending, which most card refunds aren't for long.
+- **A refund can't be undone by a taf.** Stripe allows cancelling only a
+  few kinds of refund, mostly from its own dashboard, so treat every refund
+  as final.
 
 ## When it fails
 
