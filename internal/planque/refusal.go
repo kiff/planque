@@ -1,6 +1,9 @@
 package planque
 
-import "net/http"
+import (
+	"net/http"
+	"slices"
+)
 
 // toolRefusal is why planque refused a connection's tools, for the agent that
 // fixes the request: a stable code, the tool and field at fault, the form
@@ -35,6 +38,7 @@ const (
 	refReadOnlyMovesAmount = "read_only_moves_amount" // a read-only tool that moves an amount
 	refIdempotencyReserved = "idempotency_reserved"   // amount_argument is planque's own idempotency argument
 	refSetupReadsNotRead   = "setup_reads_not_read"   // setup_reads on a tool that isn't read-only
+	refSetupReadsAlone     = "setup_reads_alone"      // setting tools that are all setup reads: they go with the taf's tools, in one approval
 
 	// checkNarrowing, checkPin
 	refPinShape         = "pin_shape"         // a pin's path isn't a dotted path, or its value isn't JSON; field = the pin
@@ -67,4 +71,23 @@ const (
 func notServed(slug, field string) *toolRefusal {
 	return &toolRefusal{Code: refToolNotServed, Tool: slug, Field: field, Want: "another of the app's tools",
 		Msg: slug + " is never served: it moves money or closes a bill for good (voiding, deleting, finalizing, paying or writing off), so planque refuses it on this app; leave it out"}
+}
+
+// setupReadsAlone refuses setting tools that are all the asking agent's own
+// reads: an approval for those alone is one more tap for the owner, and
+// gives the taf nothing. They ride the request that sets the taf's tools,
+// which the owner approves once, with its Card. The one exception is a
+// vendor's describing tool (stripe_api_details): a narrowed write's fields
+// are read with it, so planque asks for it approved first (operationsCheck).
+func setupReadsAlone(tools []ToolRequest) *toolRefusal {
+	if len(tools) == 0 || slices.ContainsFunc(tools, func(t ToolRequest) bool { return !t.SetupReads }) {
+		return nil
+	}
+	if !slices.ContainsFunc(tools, func(t ToolRequest) bool {
+		return !slices.ContainsFunc(describers, func(d describer) bool { return d.Tool == t.Tool })
+	}) {
+		return nil
+	}
+	return &toolRefusal{Code: refSetupReadsAlone, Field: "setup_reads", Want: "the taf's tools in the same request",
+		Msg: "setup_reads go with the taf's tools: add these reads in the request that sets the taf's tools, so the owner approves them once with its Card, never in an approval of their own"}
 }

@@ -1340,6 +1340,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
+	// Setup's reads alone are never an approval of their own (the Eval's
+	// third tap): they come with the taf's tools.
+	if r := setupReadsAlone(req.Tools); r != nil {
+		writeRefusal(w, r)
+		return
+	}
 	// A direct Stripe connection that asks for the refund takes planque's
 	// whole request, its case reads and its reviewed profile: a refund's
 	// money rules are never a model's draft (stripe_refunds.go).
