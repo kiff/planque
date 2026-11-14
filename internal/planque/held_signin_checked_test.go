@@ -224,7 +224,7 @@ func TestAReconnectWhoseAccountCantBeComparedConnectsNothing(t *testing.T) {
 		f.noName = true
 		code := e.signIn(f.callback + "&status=ACTIVE")
 		revoked := len(f.revoked)
-		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 409 || !strings.Contains(mustJSONString(out), "can't tell") {
+		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 409 || !strings.Contains(mustJSONString(out), "can't be shown") {
 			t.Fatalf("confirm with no name: %d %v", st, out)
 		}
 		g, _ = e.s.loadGrant(ctx, tenant, first.ID)

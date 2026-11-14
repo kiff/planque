@@ -1265,7 +1265,7 @@ var errOtherAccount = apiError{http.StatusConflict, "that sign-in is to another 
 
 // errAccountUnknown: a reconnect whose account can't be compared, because
 // the provider showed no name for this connection's account or the new one.
-var errAccountUnknown = apiError{http.StatusConflict, "planque can't tell that a new sign-in is to this connection's own account, so it can't sign in again here: remove access and connect the app again"}
+var errAccountUnknown = apiError{http.StatusConflict, "this sign-in can't be shown to be on this connection's own account, so it can't sign in again here: remove access and connect the app again"}
 
 // reconnectConnector finishes a signed-out managed connection's new sign-in,
 // once the approving device confirmed it: only on the same vendor account,
