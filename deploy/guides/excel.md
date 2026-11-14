@@ -1,13 +1,13 @@
 # Excel
 
-Checked: 2026-11-13 · Sources: the connection service's Excel tool
+Checked: 2026-11-14 · Sources: the connection service's Excel tool
 definitions as planque reads them (125 tools, [generated](generated/excel.md)),
 and Microsoft's workbook API reference.
 
 ## How it connects
 
-- **A sign-in to Microsoft**, held by the connection service: a personal
-  account, or a work or school one. The catalog lists the tools and, with a
+- **A sign-in to Microsoft**, held by the connection service: a work or
+  school account. Workbooks in a personal OneDrive can't be opened. The catalog lists the tools and, with a
   known sign-in, puts the ones its access doesn't cover under `unusable`.
   Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
@@ -41,16 +41,16 @@ writes over what's there; writing a range can.
   `EXCEL_ADD_WORKBOOK_PERMISSION`, `EXCEL_REVOKE_WORKBOOK_PERMISSION`).
 - Deleting files, sheets, tables or ranges (`EXCEL_DELETE_DRIVE_ITEM`,
   `EXCEL_DELETE_WORKSHEET`, `EXCEL_DELETE_TABLE`, `EXCEL_DELETE_RANGE`,
-  `EXCEL_CLEAR_RANGE`) unless the job is about removing data.
+  `EXCEL_CLEAR_RANGE` and the others) unless the job is about removing data.
 - Protecting or unprotecting sheets, and the raw batch tools
   (`EXCEL_RUN_GRAPH_MUTATION_BATCH`).
 
 ## Access and plans
 
-- **Any Microsoft account works.** The workbook must be in the new format
+- **A work or school account is needed.** The workbook must be in the new format
   (`.xlsx`); old `.xls` files can't be opened by the API.
-- **Size:** workbooks up to about 100 MB, and one write should stay under
-  about 5 million cells.
+- **Size:** very large ranges can fail; read and write big data in smaller
+  ranges.
 - **Rate:** Microsoft limits calls per workbook; writing row by row over
   hundreds of rows should be done as one range or a few table rows at a time.
 - **A workbook open elsewhere** is still written, and people see the change

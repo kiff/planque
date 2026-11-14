@@ -1,6 +1,6 @@
 # Google Photos
 
-Checked: 2026-11-13 · Sources: the connection service's Google Photos tool
+Checked: 2026-11-14 · Sources: the connection service's Google Photos tool
 definitions as planque reads them (13 tools, [generated](generated/googlephotos.md)),
 and Google's Photos API reference.
 
@@ -45,14 +45,14 @@ album the owner made by hand.
 - **Storage is the owner's:** 15 GB free across Gmail, Drive and Photos.
   Uploads count against it.
 - **Size:** photos up to 200 MB and videos up to 20 GB each.
-- **Rate:** about 10,000 calls a day, and 75,000 for downloading. A taf never
-  comes near it.
+- **Rate:** about 10,000 calls a day, and 75,000 for downloading, shared by
+  everyone using the same connection. A single taf rarely comes near it.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Nothing found, or refused, on a photo the owner took | Outside apps see only what they uploaded | "I can only see photos I added myself. Send me the photo, or share the album's link instead." |
+| Nothing found, or refused, on a photo the owner took | Outside apps see only what they uploaded | "I can only see photos I added myself. Send me the photo and I'll add it." |
 | Storage full (403) | The owner's storage is used up | "Your Google storage is full, so the photo wasn't saved." |
 | Not found (404) | The owner deleted it in the app | "That photo isn't there any more." |
 | Too many calls (429) | Over the day's limit | "Google asked us to slow down. The taf will continue later." |

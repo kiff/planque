@@ -1,6 +1,6 @@
 # Zoho Invoice
 
-Checked: 2026-11-13 · Sources: the connection service's Zoho Invoice tool
+Checked: 2026-11-14 · Sources: the connection service's Zoho Invoice tool
 definitions as planque reads them (137 tools), and Zoho Invoice's API
 documentation (introduction, sign-in, errors, paging, invoices, contacts,
 customer payments, estimates, items).
@@ -61,12 +61,18 @@ yes. There's no tool to change an invoice once made.
 - Deleting anything (invoices, payments, contacts, estimates): it changes
   the books' history.
 - Voiding or writing off an invoice (`ZOHO_INVOICE_MARK_INVOICE_AS_VOID`,
-  `ZOHO_INVOICE_WRITE_OFF_INVOICE`), and refunds
-  (`ZOHO_INVOICE_REFUND_CUSTOMER_PAYMENT`): only the owner decides those.
+  `ZOHO_INVOICE_WRITE_OFF_INVOICE`), refunds
+  (`ZOHO_INVOICE_REFUND_CUSTOMER_PAYMENT`,
+  `ZOHO_INVOICE_CREATE_REFUND_CREDIT_NOTE_REFUNDS`), and credit notes: only
+  the owner decides those.
 - Organization and user admin (`ZOHO_INVOICE_CREATE_USER`), currencies,
   exchange rates and taxes: they change the whole organization.
 - Bulk reminders and multiple-estimate emails: a mistake reaches many
   customers at once.
+- Free-text emails and statements to a customer
+  (`ZOHO_INVOICE_SEND_CONTACT_EMAIL`, `ZOHO_INVOICE_EMAIL_CONTACT_STATEMENT`),
+  and marking an invoice sent without sending it, unless the owner asks for
+  exactly that.
 - Recurring invoices (create, stop, resume): they bill customers on a
   schedule without a yes each time.
 - Opening the customer portal (`ZOHO_INVOICE_ENABLE_PORTAL_ACCESS`): it
