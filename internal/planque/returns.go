@@ -10,6 +10,11 @@ import (
 // maxReturns bounds the ids and links a catalog tool names.
 const maxReturns = 20
 
+// maxSchemaVisits bounds the nodes one schema's walk visits, references and
+// alternatives included: a schema whose definitions all reference each
+// other otherwise walks every ordering of them.
+const maxSchemaVisits = 500
+
 // plainPath is a path in an answer as returns names it.
 var plainPath = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
@@ -40,24 +45,38 @@ func returnsOf(schema json.RawMessage) []string {
 		}
 	}
 	var out []string
+	visits := 0
+	// Each reference is followed at most once per path and depth: what it
+	// gives there it gives every time, so a second way to reach it adds
+	// nothing.
+	followed := map[string]bool{}
 	var walk func(node map[string]any, path string, depth int, seen []string)
 	walk = func(node map[string]any, path string, depth int, seen []string) {
-		if node == nil || depth > 3 || len(out) >= maxReturns {
+		if node == nil || depth > 3 || len(out) >= maxReturns || visits >= maxSchemaVisits {
 			return
 		}
+		visits++
 		// A reference is the node it points to; one already on this path
 		// (a model that contains itself) is read once.
 		if ref, ok := node["$ref"].(string); ok {
-			if d, ok := defs[ref]; ok && !slices.Contains(seen, ref) {
+			key := ref + "\x00" + path + "\x00" + string(rune('0'+depth))
+			if d, ok := defs[ref]; ok && !slices.Contains(seen, ref) && !followed[key] {
+				followed[key] = true
 				walk(d, path, depth, append(slices.Clone(seen), ref))
 			}
 		}
 		for _, key := range []string{"anyOf", "oneOf", "allOf"} {
 			if alts, ok := node[key].([]any); ok {
 				for _, a := range alts {
-					if am, ok := a.(map[string]any); ok {
-						walk(am, path, depth, seen)
+					am, ok := a.(map[string]any)
+					if !ok {
+						continue
 					}
+					// A reference already followed here costs nothing again.
+					if ref, isRef := am["$ref"].(string); isRef && followed[ref+"\x00"+path+"\x00"+string(rune('0'+depth))] {
+						continue
+					}
+					walk(am, path, depth, seen)
 				}
 			}
 		}
