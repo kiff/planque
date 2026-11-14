@@ -3120,7 +3120,10 @@ type grantAPI struct {
 // connection only, as the grant's own view says them; a vendor's own
 // sign-in has no mode planque knows.
 type connection struct {
-	Agent     string    `json:"agent"`
+	Agent string `json:"agent"`
+	// AgentName is the taf's name the request gave, so the caller can tell
+	// two agents' connections apart by the taf they were asked for.
+	AgentName string    `json:"agent_name,omitempty"`
 	Vendor    string    `json:"vendor"`
 	Title     string    `json:"title"`
 	Since     string    `json:"since,omitempty"`
@@ -3134,7 +3137,7 @@ type connection struct {
 }
 
 func connectionOf(g *Grant) connection {
-	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
+	c := connection{Agent: g.Request.Agent, AgentName: label(g.Request.AgentName), Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
 	switch c.Kind {
 	case KindVendorSignIn:
 		c.Server = g.Request.Server
