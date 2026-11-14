@@ -2,7 +2,8 @@
 
 Checked: 2026-11-14 · Sources: the connection service's Ashby tool
 definitions as planque reads them (191 tools), and Ashby's API documentation
-(authentication, responses, the candidate and application references).
+(authentication, responses, the candidate and application references) and
+its help page on API keys.
 
 ## How it connects
 
