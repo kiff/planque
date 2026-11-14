@@ -94,6 +94,9 @@ type Scoped struct {
 	// usual access less the personal data no tool of the app needs (a date
 	// of birth, addresses, phone numbers, contacts): more than the tools
 	// use, said so to the owner, never the usual sign-in's personal data.
+	// Also a narrowed one the provider recommended with scopes the reviewed
+	// order ranks (Google's): it couldn't be checked tool by tool, and may
+	// ask more than the tools need.
 	Wide bool
 }
 

@@ -153,6 +153,13 @@ The account-authenticated catalog endpoints include upstream discovery:
    asked only for what this taf's actions need.", and the grant binds only those
    tools later (409 for another: a new connection asks for it).
 
+   A recommendation with a scope the reviewed order ranks (a Google scope)
+   is one that couldn't be checked tool by tool, and the provider's can be
+   wider than the tools need (14 Nov: full mail access for two Gmail reads).
+   It's pinned the same way but marked wide: `usual_access`, and the words
+   say "<app> will ask for more access than this taf uses…", never "only
+   what this taf's actions need".
+
    When the provider can't narrow it (no ceiling, a tool outside it, its
    recommendation failing, an operator's own sign-in, or the account's
    set-ups for the day used), the sign-in asks

@@ -265,6 +265,10 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 		"GMAIL_LIST_THREADS":       tool("GMAIL_LIST_THREADS", "Lists threads.", true, mail, g+"gmail.modify", g+"gmail.readonly"),
 		"GMAIL_CREATE_EMAIL_DRAFT": tool("GMAIL_CREATE_EMAIL_DRAFT", "Creates a draft.", false, mail, g+"gmail.compose", g+"gmail.modify", g+"gmail.readonly", g+"contacts.readonly"),
 		"GMAIL_ODD":                tool("GMAIL_ODD", "Does something.", true, "https://example.test/odd"),
+		// A write the provider doesn't tag, listing a read-only scope it can't run on.
+		"GMAIL_SEND_UNTAGGED": tool("GMAIL_SEND_UNTAGGED", "Sends an email.", false, mail, g+"gmail.compose", g+"gmail.readonly"),
+		// A read whose definition can't be read (no pinned version): the recommendation decides.
+		"GMAIL_FETCH_UNREAD": strings.Replace(tool("GMAIL_FETCH_UNREAD", "Fetches emails.", true, mail, g+"gmail.readonly"), "20300101_00", "latest", 1),
 	}
 	available := ceiling
 	var asked []string
@@ -308,18 +312,24 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// wide: what it asks may be more than the tools need, so the owner is
+	// told so (14 Nov: full mail access for two Gmail reads was said to be
+	// "only what this taf's actions need").
 	for _, c2 := range []struct {
 		name  string
 		tools []string
 		want  []string
+		wide  bool
 	}{
-		{"reads", []string{"GMAIL_FETCH_EMAILS", "GMAIL_LIST_THREADS"}, []string{g + "gmail.readonly"}},
-		{"reads and a draft", []string{"GMAIL_FETCH_EMAILS", "GMAIL_CREATE_EMAIL_DRAFT"}, []string{g + "gmail.compose", g + "gmail.readonly"}},
-		{"a tool the order doesn't rank", []string{"GMAIL_FETCH_EMAILS", "GMAIL_ODD"}, []string{mail}},
+		{"reads", []string{"GMAIL_FETCH_EMAILS", "GMAIL_LIST_THREADS"}, []string{g + "gmail.readonly"}, false},
+		{"reads and a draft", []string{"GMAIL_FETCH_EMAILS", "GMAIL_CREATE_EMAIL_DRAFT"}, []string{g + "gmail.compose", g + "gmail.readonly"}, false},
+		{"an untagged write", []string{"GMAIL_SEND_UNTAGGED"}, []string{g + "gmail.compose"}, false},
+		{"a tool the order doesn't rank", []string{"GMAIL_FETCH_EMAILS", "GMAIL_ODD"}, []string{mail}, true},
+		{"full mail recommended for reads", []string{"GMAIL_FETCH_UNREAD", "GMAIL_LIST_THREADS"}, []string{mail}, true},
 	} {
 		scoped, err := c.Scope(ctx, app, c2.tools, connector.Allowance{})
-		if err != nil || scoped.Wide || strings.Join(asked, " ") != strings.Join(c2.want, " ") {
-			t.Fatalf("%s: %+v %v, asks %v, want %v", c2.name, scoped, err, asked, c2.want)
+		if err != nil || scoped.Wide != c2.wide || strings.Join(asked, " ") != strings.Join(c2.want, " ") {
+			t.Fatalf("%s: %+v %v, asks %v, want %v (wide %v)", c2.name, scoped, err, asked, c2.want, c2.wide)
 		}
 		if !slices.Contains(scoped.Scopes, "openid") {
 			t.Fatalf("%s: the app's required scopes left out: %v", c2.name, scoped.Scopes)

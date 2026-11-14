@@ -517,7 +517,13 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	if err != nil {
 		return connector.Scoped{}, unpinned(ceiling, err)
 	}
-	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...))}, nil
+	// A recommendation with a scope breadth ranks is one narrowest couldn't
+	// check tool by tool, and the provider's can be wider than the tools
+	// need, so it is never said to be only what they need (14 Nov: two Gmail
+	// reads were asked full mail access under "only what this taf's actions
+	// need"). Scopes breadth doesn't rank are the provider's to say.
+	wide := slices.ContainsFunc(least, func(s string) bool { return slices.Contains(breadth, s) })
+	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...)), Wide: wide}, nil
 }
 
 // unpinned is why no narrower sign-in could be set up (err): ErrPersonal
