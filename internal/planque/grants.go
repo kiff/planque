@@ -244,12 +244,17 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	if req.SetupReads != nil {
-		// Only an entry whose tools come from its server's list once signed
-		// in: planque knows that server, so the reads' names are checked
-		// against what it lists. A bare server's catalog is unknown before
-		// the sign-in: it connects first, then asks for its reads.
-		if !fromCatalog || entry == nil || len(entry.Tools) != 0 || entry.Kind != "" || entry.Server == "" || len(*req.Tools) != 0 {
-			writeErr(w, http.StatusBadRequest, "setup_reads goes on a catalog entry's first request, connected first (tools: []): a server connects first, then asks for its reads with its tools")
+		// Only a first request that connects first (tools: []), to a server
+		// whose tools come from its own list once signed in: a catalog entry
+		// of one, or a bare MCP server. The names are checked against that
+		// list once signed in; one it doesn't list, or doesn't mark
+		// read-only, connects none, and the grant's events say why. So the
+		// owner approves the reads with the sign-in, and the write whose
+		// fields they read comes next with the taf's Card: two approvals.
+		entryServer := fromCatalog && entry != nil && len(entry.Tools) == 0 && entry.Kind == "" && entry.Server != ""
+		bareServer := !fromCatalog && req.Server != "" && req.Kind == "" && req.API == nil && req.Browser == nil && req.Reuse == ""
+		if !(entryServer || bareServer) || len(*req.Tools) != 0 {
+			writeErr(w, http.StatusBadRequest, "setup_reads goes on a server's first request, connected first (tools: []): a request with its tools at once, or a key, a browser or a reused sign-in, asks for its reads with its tools")
 			return
 		}
 		if msg := setupReadNames(req.SetupReads); msg != "" {
