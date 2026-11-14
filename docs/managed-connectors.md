@@ -120,17 +120,21 @@ The account-authenticated catalog endpoints include upstream discovery:
    account's on-demand set-ups for the day, as setting up an app does. Slugs
    are compared in upper case, as the provider names them. The scopes and the tools are
    in the signed request (`asked_tools`, `scopes`), the words say "<app> is
-   asked only for what this taf uses: …", and the grant binds only those
+   asked only for what this taf's actions need.", and the grant binds only those
    tools later (409 for another: a new connection asks for it).
 
    When the provider can't narrow it (no ceiling, a tool outside it, its
    recommendation failing, an operator's own sign-in, or the account's
    set-ups for the day used), the sign-in asks
    for the app's usual access, recorded as `usual_access` so a later
-   narrowing can replace it, and the words say it plainly: "<app> will ask
-   for more access than this taf uses. The taf can still only use: …". KIFF's
-   Card stays the boundary either way: the taf calls only the tools its Card
-   grants. A reused sign-in carries its narrowing to the new grant.
+   narrowing can replace it, and the words say it plainly, with why: "<app>
+   will ask for more access than this taf uses, because its sign-in can't be
+   narrowed to this taf's actions; the taf still gets only the actions you
+   approve." Neither names the tools: the asked ones are the provider's names
+   ("Fetch message by thread id"), and the actions to approve come next, each
+   by the title the taf's request gives it. KIFF's Card stays the boundary
+   either way: the taf calls only the tools its Card grants. A reused sign-in
+   carries its narrowing to the new grant.
 3. The owner's device signs `/approve` with that grant's digest. Only then
    is a scoped hosted sign-in created: `/tool_router/session` pins the approved
    config through `auth_configs`, and `/tool_router/session/{id}/link` creates

@@ -48,7 +48,8 @@ type Approval struct {
 	FirstToolsF string // the tools
 	AddedToolsF string // the tools
 
-	// A connection through a connection service.
+	// A managed app's connection. No internal names, and no provider's
+	// tool names: the actions are named, by their titles, on the next card.
 	ConnectTitledF   string // the app, the taf
 	ConnectReusedF   string // the app, the taf
 	ReusedNext       string
@@ -56,8 +57,8 @@ type Approval struct {
 	EnterTokenF      string // the app, the taf
 	SignInThenChoose string
 	OnlyYourAccountF string // the app
-	MoreAccessF      string // the app, its tools
-	OnlyWhatItUsesF  string // the app, its tools
+	MoreAccessF      string // the app; says why, and that the taf gets only what's approved
+	OnlyWhatItUsesF  string // the app
 
 	// A registered application.
 	AccessAtF     string // the application

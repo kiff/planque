@@ -641,7 +641,8 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	if !slices.Equal(f.scopedMade, []string{`planque-scoped-desk_demo-` + scopedSuffix([]string{"tickets.read"}) + `: ["tickets.read"]`}) {
 		t.Fatalf("scoped sign-ins made: %v", f.scopedMade)
 	}
-	if words := v["text"].(string); !strings.Contains(words, " Support desk is asked only for what this taf uses: List tickets.") {
+	// No provider's tool name ("List tickets" from DESK_DEMO_LIST_TICKETS): the actions come next, by their titles.
+	if words := v["text"].(string); !strings.Contains(words, " Support desk is asked only for what this taf's actions need. ") || strings.Contains(words, "List tickets") {
 		t.Fatalf("words: %q", words)
 	}
 	// The scopes are what the owner signs.
@@ -724,7 +725,9 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 			if c := g.Request.Connector; !c.UsualAccess || c.Scopes != nil || c.AuthConfig != "ac_desk_demo" || len(f.scopedMade) != 0 {
 				t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
 			}
-			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses. The taf can still only use: Reply.") {
+			// Why it asks for more, and what the taf still gets; no provider's tool name.
+			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions; the taf still gets only the actions you approve.") ||
+				strings.Contains(words, "Reply.") {
 				t.Fatalf("words: %q", words)
 			}
 		})
@@ -839,7 +842,8 @@ func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
 
 // A managed connection's words name the app by its title and the taf by its
 // name, and no connection provider: what the owner reads and signs. Without a
-// name, the taf is named by its agent; a name that isn't one line is refused.
+// name, it's "this taf", and no card shows its agent id; a name that isn't one
+// line is refused.
 func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	e, _ := newConnectorFixture(t)
 	path := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
@@ -852,10 +856,10 @@ func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	if vendor == "" || !strings.HasPrefix(text, "Connect "+vendor+" for Refunds. ") || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "desk_demo") {
 		t.Fatalf("words: %q (vendor %q)", text, vendor)
 	}
-	// Without a name, "this taf": its agent id is under Details, never in the words (kiff/tafs#476).
+	// Without a name, "this taf": its agent id is in neither the words nor Details (kiff/tafs#476).
 	st, out = e.do("POST", path, map[string]string{"agent": "agt_taf"}, nil, "k_setup")
 	if g, _ := out["grant"].(map[string]any); st != 201 || !strings.Contains(g["text"].(string), " for this taf. ") || strings.Contains(g["text"].(string), "agt_taf") ||
-		!slices.Contains(g["terms"].([]any), any("For the taf's agent agt_taf")) {
+		strings.Contains(mustJSONString(g["terms"]), "agt_taf") {
 		t.Fatalf("without a name: %d %v", st, out)
 	}
 	if st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds\nand more"}, nil, "k_setup"); st != 400 {
@@ -902,7 +906,7 @@ func TestConnectorAnyAppIsSetUpOnTheOwnersPick(t *testing.T) {
 		t.Fatalf("on demand: %d %v", st, out)
 	}
 	g := out["grant"].(map[string]any)
-	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. Your sign-in to Not set up stays with the connection service") {
+	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. The taf never sees your Not set up sign-in.") {
 		t.Fatalf("the on-demand grant: %v", g)
 	}
 	if st, out := e.do("POST", catalog+"/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_other"}, nil, "k_setup"); st != 201 || out["grant"].(map[string]any)["on_demand"] != true {
@@ -1239,7 +1243,7 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	}
 	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_refunds", "agent_name": "Refund requests", "tools": []any{}}, nil, "k_setup")
 	if st != 201 || out["status"] != StatusListed || out["signed_in"] != true ||
-		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in or key.") {
+		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in. The taf never sees it.") {
 		t.Fatalf("reuse: %d %v", st, out)
 	}
 	id := out["id"].(string)
