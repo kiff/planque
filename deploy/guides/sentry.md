@@ -1,91 +1,97 @@
 # Sentry
 
 Checked: 2026-11-13 · Sources: the connection service's Sentry tool
-definitions as planque reads them ([generated part](generated/sentry.md), 210
-tools), and Sentry's API reference: authentication, permissions and scopes,
-rate limits, pagination, the issue endpoints, and the data storage location
-page.
+definitions as planque reads them (the generated part beside this file),
+and Sentry's API documentation (rate limits, issues, events, releases).
 
 ## How it connects
 
-- **A sign-in to Sentry**, held by the connection service; the taf never sees
-  a password or token. With a known sign-in, the catalog puts the tools its
-  access doesn't cover under `unusable`, with why. A held sign-in is reused
-  for a new taf when it covers the tools asked.
-- **One organisation per sign-in.** The owner picks one Sentry organisation
-  while signing in, and the sign-in reaches only that one. A second
-  organisation needs a second sign-in.
-- **One approval for the sign-in, one for the tools and the Card.** Ask for
-  every tool the job needs in the first request.
+- **A sign-in to Sentry**, held by the connection service; the taf never
+  sees a password or token. planque's catalog lists the tools and, with a
+  known sign-in, puts the ones its access doesn't cover under `unusable`,
+  with why.
+- **Almost every tool needs the organization's slug** (the short name in
+  its Sentry address). Read it first with `SENTRY_LIST_ORGANIZATIONS`, then
+  keep it.
+- **A held sign-in is reused** for a new taf when it covers the tools asked.
+  Ask for every tool the job needs in the first request.
+- **Organizations live in a region** (Sentry names a US and a DE host). Sentry
+  says its regional address answers faster; it doesn't say other addresses
+  fail.
 
 ## Tools a job usually needs
 
-Read changes nothing in Sentry. Returns are the ids Sentry's reference
-documents for each call.
+Read means it changes nothing in Sentry. The catalog gives no `returns`
+paths for Sentry today; the ids below are those Sentry's documented
+answers show. "Not documented" means the reference shows no answer.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `SENTRY_LIST_ORGANIZATIONS` | Lists the organisation the sign-in reaches | read | organisation ids and slugs |
-| `SENTRY_RETRIEVE_ORGANIZATION_PROJECTS` | Lists the organisation's projects | read | project ids and slugs, a page cursor |
-| `SENTRY_LIST_AN_ORGANIZATIONS_ISSUES` | Lists issues, filtered by project, environment, period or search; up to 100 a page | read | issue ids, short ids, links, a page cursor |
-| `SENTRY_RETRIEVE_PROJECT_ISSUES_LIST` | Lists one project's issues | read | issue ids, short ids, a page cursor |
-| `SENTRY_GET_ORGANIZATION_ISSUE_DETAILS` | Reads one issue: counts, first and last seen, status, assignee | read | the issue id, short id, link |
-| `SENTRY_RETRIEVE_ISSUE_EVENTS_BY_ID` | Lists the events (occurrences) of one issue | read | event ids |
-| `SENTRY_FETCH_ISSUE_EVENT_BY_ID` | Reads one event of an issue, with its stack trace and context | read | the event id |
-| `SENTRY_LIST_A_TAGS_VALUES_FOR_AN_ISSUE` | Counts one tag's values for an issue (browser, release, user) | read | tag values and counts |
-| `SENTRY_LIST_ORGANIZATION_RELEASES` | Lists releases | read | release versions |
-| `SENTRY_UPDATE_ISSUE_ATTRIBUTES_IN_ORGANIZATION` | Changes one issue: resolve, ignore, reopen, assign, bookmark | write, visible to the team | the updated issue |
+| `SENTRY_LIST_ORGANIZATIONS` | Lists the organizations the sign-in can see | read | not documented |
+| `SENTRY_GET_PROJECT_LIST` | Lists the projects the sign-in can see | read | not documented |
+| `SENTRY_LIST_AN_ORGANIZATIONS_ISSUES` | Lists issues (grouped errors) across projects, filtered by project, environment, time and search; unresolved by default | read | issue ids, short ids, links, statuses, a paging cursor |
+| `SENTRY_GET_ORGANIZATION_ISSUE_DETAILS` | Reads one issue: status, assignee, first and last seen, event count | read | the issue's id, short id, link |
+| `SENTRY_RETRIEVE_ISSUE_EVENTS_BY_ID` | Lists the events (single occurrences) behind one issue | read | event ids, titles, dates, tags |
+| `SENTRY_FETCH_ISSUE_EVENT_BY_ID` | Reads one event of an issue in full | read | not documented |
+| `SENTRY_LIST_ORGANIZATION_RELEASES` | Lists releases, with how many new issues each brought | read | release versions, dates, projects |
+| `SENTRY_GET_ORGANIZATION_RELEASE_VERSION` | Reads one release | read | not documented |
+| `SENTRY_UPDATE_ISSUE_ATTRIBUTES_IN_ORGANIZATION` | Changes one issue: resolve, ignore, reopen, assign, bookmark | write | not documented |
 
-**What to keep:** the organisation slug and project slug, and each issue's
-id (with its short id and link, to show the owner). A list without a search
-shows only unresolved issues: send an empty search to see all.
+**What to keep:** the organization's slug; each issue's id, to read or
+update that same issue later; its short id and link, to show the owner. A
+paging cursor is used once, then dropped. Never look an issue up by its
+title: use the id the taf kept.
 
-**Start read-only.** A daily or weekly digest of new and rising issues is
-read tools only. Offer `SENTRY_UPDATE_ISSUE_ATTRIBUTES_IN_ORGANIZATION` only
-when the owner asked the taf to triage, and show each change first. Never
-set an issue public: that opens it to anyone with the link.
+**Start read-only.** "Tell me each morning what's new and broken" needs only
+reads. Resolving, ignoring or assigning an issue changes what the team sees
+and is told about, so offer
+`SENTRY_UPDATE_ISSUE_ATTRIBUTES_IN_ORGANIZATION` only when the owner asked,
+and each change waits for their yes. Sentry changes only the fields sent.
 
 ## Don't offer
 
-- Deleting anything (`SENTRY_DELETE_*`, `SENTRY_BULK_REMOVE_AN_ORGANIZATIONS_ISSUES`):
-  Sentry's events can only go by deleting the whole issue, and they don't
-  come back.
-- Bulk issue changes (`SENTRY_BULK_MUTATE_AN_ORGANIZATIONS_ISSUES`,
-  `SENTRY_UPDATE_PROJECT_ISSUE_STATUS_AND_DETAILS`): one call can merge,
-  discard or resolve many issues at once.
-- People and permissions: inviting or removing members, roles, teams, and
-  the SCIM and user email tools.
-- Settings: organisation and project settings, client keys, spike
-  protection, inbound filters, symbol sources, ownership rules,
-  integrations, webhooks, and creating or changing alerts and monitors
-  (they decide who gets paged).
-- `SENTRY_INGEST_EVENT_VIA_DSN`: it sends raw events into a project and
-  would pollute the owner's error data.
+- Deleting anything: issues (`SENTRY_DELETE_ORGANIZATION_ISSUE`,
+  `SENTRY_DELETE_PROJECT_ISSUES`, `SENTRY_BULK_REMOVE_AN_ORGANIZATIONS_ISSUES`),
+  projects, releases, alerts, monitors or replays. A deleted issue's history
+  is gone.
+- Bulk changes (`SENTRY_BULK_MUTATE_AN_ORGANIZATIONS_ISSUES`,
+  `SENTRY_UPDATE_PROJECT_ISSUE_STATUS_AND_DETAILS`, which changes many issues
+  of a project at once and can merge them). Change one issue at a time.
+- Project and organization admin: members, teams, roles, keys, alert rules,
+  webhooks, integrations, spike protection, ownership settings.
+- Creating releases or deploys (`SENTRY_CREATE_RELEASE_FOR_ORGANIZATION`,
+  `SENTRY_CREATE_RELEASE_DEPLOY_FOR_ORG`): that's the team's build pipeline's
+  job.
+- Sending events in (`SENTRY_INGEST_EVENT_VIA_DSN`): it would put made-up
+  errors into the owner's data.
+- Starting an automated fix (`SENTRY_START_SEER_ISSUE_FIX`): it acts on
+  the team's code outside the owner's view.
+- `SENTRY_RETRIEVE_CUSTOM_INTEG_ISSUE_LINKS_GIVEN_SENTRY_ISSUE` is generated
+  as a write though it reads; leave it out.
 
 ## Access and plans
 
-- **Reading issues and events** needs read access to them; changing an issue
-  needs write access to issues. Deleting needs admin access, which a taf
-  never asks for. Organisation, project, team and member tools each need
-  their own access.
-- **The sign-in's access lasts 30 days** and is renewed with a refresh
-  token. If renewal fails, the owner signs in again.
-- **Rate:** Sentry limits each caller per endpoint, both calls per second
-  and calls running at once. It doesn't publish one number for all
-  endpoints. Polling often hits the limit quickly: read once per run, page
-  with the cursor, and don't run calls in parallel.
-- **Data location:** an organisation keeps its error data in the US or in
-  the EU (Frankfurt), chosen when it was created; it can't be moved.
+- **Reading issues and events needs event read access; changing an issue
+  needs event write access.** Releases need release access. A sign-in made
+  for reading doesn't let the taf change issues.
+- **Rate:** Sentry limits each caller per tool, per second, and also caps
+  how many calls run at once. It publishes no fixed numbers: they differ by
+  tool. Each answer says how many calls are left and when the count resets.
+  Polling often trips the limit; a taf reads on its schedule and pages with
+  the cursor.
+- **Pages:** issue lists answer at most 100 a page.
+- **Plans** aren't covered here: we checked no plan limit on these tools.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| The sign-in no longer works (401) | Access was removed, or it expired and couldn't be renewed | "Sentry needs you to sign in again. Nothing was changed." |
-| Refused for missing access (403) | The sign-in didn't give this tool's access | "Sentry is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Not found (404) | The issue was deleted, or it's in another organisation than the one chosen at sign-in | "I can't find that in the Sentry organisation you connected. If it's in another organisation, connect that one too." |
-| Refused for too many calls | Over Sentry's limit for this endpoint | "Sentry asked us to slow down. The taf will try again in a few minutes." |
-| Refused as invalid (400) | A bad search, period or status value | Fix it and try once; else "Sentry didn't accept that request. Nothing was changed." |
+| Refused for missing access (403) | The sign-in didn't give this tool's access, or the person's role in the organization doesn't allow it | "Sentry is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Too many calls | Over the per-tool rate or the limit on calls at once | "Sentry asked us to slow down. The taf will try again shortly." |
+| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "Sentry needs you to sign in again. Nothing was changed." |
+| Not found (404) | The issue was deleted or merged, or belongs to a project the sign-in can't see | "That issue isn't in Sentry any more, or this connection can't see it. The taf will skip it." |
+| Rejected (400) | A value Sentry didn't accept, such as an unknown assignee | "Sentry didn't accept that change. The taf has stopped and will show you what it tried." |
 
 After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+leads to a write: a taf that can't read an issue never resolves or assigns
+it.

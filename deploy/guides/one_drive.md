@@ -1,97 +1,98 @@
 # OneDrive
 
 Checked: 2026-11-13 · Sources: the connection service's OneDrive tool
-definitions as planque reads them (101 tools), Microsoft's OneDrive and
-Graph API references (files, uploads, workbooks, error codes) and
-Microsoft's app consent documentation.
+definitions as planque reads them (101 tools), and OneDrive's API
+documentation (items, uploads, error answers, working at scale).
 
 ## How it connects
 
-- **A sign-in to Microsoft**, held by the connection service; the taf never
-  sees a password or token. A personal or a work or school account both
-  sign in; some tools work only on the second (see below).
+- **A sign-in to OneDrive**, held by the connection service; the taf never
+  sees a password or token. planque's catalog lists the tools and, with a
+  known sign-in, puts the ones its access doesn't cover under `unusable`,
+  with why.
+- **The sign-in acts as the person.** The taf sees the files that person
+  can open, and nothing more.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
-  A sign-in made for reading doesn't let the taf write, so ask for every tool
-  the job needs in the first request.
-- **A work or school account answers to its organisation.** By default a
-  person can allow an app into their own files, but wider access, such as
-  every file in the organisation, needs an admin's approval, and an admin can
-  turn off people's own approvals altogether.
+  Ask for every tool the job needs in the first request, so nothing is asked
+  twice.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the drive.
+Read means it changes nothing in the drive. Returns are what a taf keeps to
+use next time. The catalog's `returns` is empty for OneDrive today; the ids
+below are those OneDrive's answers carry. A file or folder's answer holds
+its id, its name, a link that opens it in a browser, and its parent folder.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `ONE_DRIVE_ONEDRIVE_FIND_FILE` | Finds files by name, in a folder or the whole drive | read | item ids, names, a cursor |
-| `ONE_DRIVE_SEARCH_ITEMS` | Searches names and content across the drive | read | item ids, names, web links, a page token |
-| `ONE_DRIVE_LIST_FOLDER_CHILDREN` | Lists what's in one folder, by id or path | read | item ids, names, a page token |
-| `ONE_DRIVE_GET_ITEM` / `ONE_DRIVE_GET_ITEM_BY_PATH` | Reads one item's details | read | the item id, drive id, eTag, web link |
-| `ONE_DRIVE_DOWNLOAD_FILE` | Downloads one file's content | read | the file's content |
-| `ONE_DRIVE_LIST_WORKBOOK_WORKSHEETS` | Lists the sheets of a workbook (.xlsx) | read | sheet ids and names |
-| `ONE_DRIVE_READ_WORKBOOK_RANGE` | Reads cells of a sheet, such as A1:F50 | read | the address, values, formulas |
-| `ONE_DRIVE_ONEDRIVE_CREATE_FOLDER` | Makes a folder | write | the new folder's id |
-| `ONE_DRIVE_ONEDRIVE_UPLOAD_FILE` | Uploads a new file into a folder | write | the new file's id, web link |
-| `ONE_DRIVE_UPDATE_FILE_CONTENT` | Replaces a file's content with a new version | write | the item id, new eTag |
-| `ONE_DRIVE_UPDATE_WORKBOOK_RANGE` | Writes values or formulas into cells | write | the address, values written |
+| `ONE_DRIVE_GET_ROOT` | Reads the top folder of the person's drive | read | the folder's id |
+| `ONE_DRIVE_LIST_FOLDER_CHILDREN` | Lists what is in one folder | read | item ids, names, links |
+| `ONE_DRIVE_SEARCH_ITEMS` | Finds files and folders by words | read | matching item ids, names, links |
+| `ONE_DRIVE_GET_ITEM` | Reads one file or folder's details | read | the item's id, link, parent folder |
+| `ONE_DRIVE_GET_ITEM_BY_PATH` | Reads an item by its folder path | read | the item's id, link |
+| `ONE_DRIVE_DOWNLOAD_FILE` | Fetches a file's content | read | the file's content |
+| `ONE_DRIVE_LIST_ROOT_DRIVE_CHANGES` | Lists what changed in the drive since the last check | read | changed items, a link for the next check |
+| `ONE_DRIVE_ONEDRIVE_CREATE_FOLDER` | Makes a new folder | write | the folder's id, link |
+| `ONE_DRIVE_ONEDRIVE_UPLOAD_FILE` | Adds a new file to a folder | write | the file's id, link |
+| `ONE_DRIVE_UPDATE_FILE_CONTENT` | Replaces a file's content | write | the file's id |
+| `ONE_DRIVE_UPDATE_DRIVE_ITEM_METADATA` | Renames a file or changes its details | write | the item |
+| `ONE_DRIVE_MOVE_ITEM` | Moves a file or folder to another folder | write | the item, with its new parent |
+| `ONE_DRIVE_CREATE_LINK` | Makes a sharing link to a file | write, outside | the sharing link |
 
-**What to keep:** a file's item id and drive id, to reach the same file
-next time instead of searching; its eTag, to replace its content only if
-nobody changed it since. Never search for something the taf made: use the id
-it kept.
+**What to keep:** the id of each folder and file the taf made or works on,
+to open the same one next time; the change-check link, so the next run asks
+only for what is new. Never search for something the taf made: use the id it
+kept.
 
-**Start read-only.** "Read the files in this folder and summarise them" is
-a list or search tool plus `ONE_DRIVE_DOWNLOAD_FILE`. Offer a writing
-tool only when the owner asked for changes, in their own folder or workbook.
+**Start read-only.** "File the receipts into a folder" is a list or search,
+a download, and an upload or a move. A sharing link lets other people open
+the file, so offer it only when the owner asked for sharing, and each link
+waits for the owner's yes.
 
 ## Don't offer
 
-- Deleting tools (`ONE_DRIVE_DELETE_*`), above all
-  `ONE_DRIVE_DELETE_ITEM_PERMANENTLY`, which skips the recycle bin.
-- Sharing and permission tools: `ONE_DRIVE_CREATE_LINK`,
-  `ONE_DRIVE_INVITE_USER_TO_ITEM`, `ONE_DRIVE_CREATE_ITEM_PERMISSION`,
-  `ONE_DRIVE_GRANT_SHARE_PERMISSION`, `ONE_DRIVE_UPDATE_DRIVE_ITEMS_PERMISSIONS`,
-  `ONE_DRIVE_REVOKE_SHARING_LINK_GRANTS`, and the tools that grant, change or
-  remove access on team sites and their lists. They decide who else sees the
-  owner's files.
-- `ONE_DRIVE_RESTORE_ITEM_VERSION`, `ONE_DRIVE_MOVE_ITEM` and check-in or
-  check-out tools, unless the owner asked: they change what others find.
-- People and subscription tools (`ONE_DRIVE_GET_USER`,
-  `ONE_DRIVE_LIST_SUBSCRIPTIONS`): not a taf's business.
+- Deleting (`ONE_DRIVE_DELETE_ITEM`, `ONE_DRIVE_DELETE_ITEM_PERMANENTLY`):
+  the first sends to the recycle bin, the second can't be undone.
+- Sharing and permission tools (`ONE_DRIVE_INVITE_USER_TO_ITEM`,
+  `ONE_DRIVE_CREATE_ITEM_PERMISSION`, `ONE_DRIVE_GRANT_SHARE_PERMISSION`,
+  `ONE_DRIVE_UPDATE_DRIVE_ITEMS_PERMISSIONS` and the others that add or
+  remove access): they change who can open the owner's files.
+- The site and list tools: they reach a company's shared sites, not the
+  person's own drive.
+- Spreadsheet cell tools (the `ONE_DRIVE_*_WORKBOOK_*` ones): a job that
+  works inside a spreadsheet needs its own guide and checks.
+- Check-out, check-in and change subscriptions: the taf reads on its
+  schedule, and a forgotten check-out locks a file for others.
 
 ## Access and plans
 
-- **Workbook tools need a work or school account.** Microsoft's sheet and
-  cell tools don't yet work on files in a personal OneDrive, and only on
-  .xlsx files, never the older .xls. On a personal account, download the
-  file instead.
-- **Sheet and cell reads ask for write access** in the catalog, so a
-  read-only sign-in lists them under `unusable`. Ask for write access when
-  the job reads cells, and say the taf still writes nothing.
-- **Uploads:** one call carries a file up to 250 MB; larger files go in
-  parts through an upload session.
-- **Workbook sessions end** after about 5 minutes without a call (about 7 if
-  changes aren't kept). A job open longer starts a new one.
-- **Storage is the owner's plan.** When the drive is full, uploads and new
-  versions are refused until space is freed or bought.
-- **Rate:** Microsoft slows down an app that calls too often, and may say how
-  long to wait. A job reading thousands of files a run should page and
-  pause.
+- **Reading needs file read access; uploading, moving and renaming need
+  file write access.** A sign-in made for reading doesn't let the taf write.
+- **One upload takes files up to 250 MB.** Bigger files need an upload in
+  parts (`ONE_DRIVE_CREATE_UPLOAD_SESSION`), which a usual job doesn't need.
+- **A download link** from OneDrive works for about an hour. Don't keep it;
+  keep the file's id.
+- **A file changed by someone else** since the taf read it can refuse an
+  update. Read it again before writing.
+- **Rate:** OneDrive slows apps that call too often, more at busy hours, and
+  says how long to wait. An app that doesn't wait can be blocked. A job
+  that checks a folder often should use the change list rather than reading
+  every file each run.
+- **Storage:** a full drive refuses uploads until space is freed.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused, `accessDenied` (403) | The sign-in lacks this access, or the file isn't shared with the owner | "OneDrive won't let this step through: the connection doesn't cover it or the file isn't yours to change. Want to sign in again and allow it, or skip this step?" |
-| Needs admin approval at sign-in | The organisation's admin must allow the app | "Your organisation's Microsoft admin has to approve this connection. Ask them, or connect a personal account." |
-| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "OneDrive needs you to sign in again. Nothing was changed." |
-| Not found, `itemNotFound` (404) | The file was moved, renamed away or deleted | "That file isn't where it was any more. The taf will skip it; tell it where the file is now?" |
-| `nameAlreadyExists` (409) | A file of that name is already there | Pick a new name or ask; never overwrite silently. |
-| `resourceModified` (412) | Someone changed the file since the taf read it | Read it again and retry once; else "The file changed while the taf worked. Nothing was overwritten." |
-| `quotaLimitReached` (507) | The drive is full | "Your OneDrive is full. Free some space and the taf will carry on." |
-| Too many calls (429), or unavailable (503) | Microsoft is slowing the app down | "OneDrive asked us to slow down. The taf will try again shortly." |
-| A workbook call fails on a personal account, or on an .xls file | Workbook tools need a work account and .xlsx | "That spreadsheet can't be edited from here. Save it as .xlsx in a work OneDrive, or the taf can only download it." |
+| Refused for missing access (403, `accessDenied`) | The sign-in didn't give this tool's access, or the person can't open that file | "OneDrive is only partly connected, or that file isn't yours to change. Want to sign in again and allow it, or do without this step?" |
+| The sign-in no longer works (401) | The sign-in expired or was removed | "OneDrive needs you to sign in again. Nothing was changed." |
+| Not found (404, `itemNotFound`) | The file or folder was deleted or moved | "That file isn't in OneDrive any more. The taf will skip it." |
+| Name taken, or folder missing (409) | A file with that name exists, or the target folder isn't there | "There's already a file with that name, or the folder is gone. The taf will stop and show you what it tried." |
+| Changed since read (412, `resourceModified`) | Someone edited the file after the taf read it | "Someone changed that file meanwhile. The taf will read it again before writing." |
+| File too large (413) | Over the size one call accepts | "That file is too big to add in one go. The taf has stopped." |
+| Too many calls (429 or 503) | OneDrive is slowing this app down | "OneDrive asked us to slow down. The taf will try again later." |
+| Drive full (507, `quotaLimitReached`) | The person's storage is used up | "Your OneDrive is full. Free some space, and the taf will try again." |
 
 After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+leads to a write: a taf that can't find its folder asks, rather than making
+another one.

@@ -1,93 +1,92 @@
 # Pipedrive
 
 Checked: 2026-11-13 · Sources: the connection service's Pipedrive tool
-definitions as planque reads them (403 tools), Pipedrive's API reference,
-its rate-limit, status-code and app-scope pages.
+definitions as planque reads them, and Pipedrive's API documentation (rate
+limits, status codes, sign-in, and its published API description).
 
 ## How it connects
 
 - **A sign-in to Pipedrive**, held by the connection service; the taf never
-  sees a password or token. planque's catalog puts the tools the sign-in's
-  access doesn't cover under `unusable`, with why.
+  sees a password or token. The owner allows a set of access areas (deals,
+  persons, activities and so on), and calls outside them are refused.
+  planque's catalog lists the tools and, with a known sign-in, puts the ones
+  its access doesn't cover under `unusable`, with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
-  A sign-in made for reading deals doesn't let the taf change them, so ask
-  for every tool the job needs in the first request.
-- **The taf sees what the signed-in user sees.** Pipedrive's visibility
-  settings still apply: deals or contacts hidden from that user stay hidden.
+  Ask for every tool the job needs in the first request.
+- **A sign-in unused for 60 days ends.** Then the owner signs in again.
 
 ## Tools a job usually needs
 
-There are hundreds; a sales job needs a handful. Read means it changes
-nothing in the account.
+Read means it changes nothing in Pipedrive. The catalog gives no `returns`
+paths for Pipedrive today; the ids below are those Pipedrive's documented
+answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `PIPEDRIVE_SEARCH_DEALS` | Finds deals by a word in the title or notes | read | deal ids, titles |
-| `PIPEDRIVE_SEARCH_PERSONS` | Finds people by name, email or phone | read | person ids, names, their organisation's id |
-| `PIPEDRIVE_LIST_DEALS` | Lists deals by owner, stage, status or ids, a page at a time | read | deal ids, stage ids, a cursor |
-| `PIPEDRIVE_GET_PERSON` / `PIPEDRIVE_GET_ORGANIZATION` | Reads one person or organisation | read | the id, owner, contact details |
-| `PIPEDRIVE_LIST_DEAL_ACTIVITIES` | Lists the calls, meetings and tasks on a deal | read | activity ids, due dates, done or not |
-| `PIPEDRIVE_GET_ALL_NOTES` | Lists notes on a deal, person or organisation | read | note ids, content |
-| `PIPEDRIVE_GET_ALL_PIPELINES` / `PIPEDRIVE_GET_ALL_STAGES` | Reads the pipelines and their stages | read | pipeline ids, stage ids, names |
-| `PIPEDRIVE_ADD_NOTE` | Adds a note to a deal, person, organisation or lead | write | the note id |
-| `PIPEDRIVE_ADD_AN_ACTIVITY` | Plans a call, meeting or task, linked to a deal or person | write | the activity id |
-| `PIPEDRIVE_UPDATE_ACTIVITY` | Changes an activity or marks it done | write | the activity id |
-| `PIPEDRIVE_ADD_A_PERSON` | Adds a person | write | the person id |
-| `PIPEDRIVE_ADD_A_DEAL` | Opens a deal | write | the deal id |
-| `PIPEDRIVE_UPDATE_DEAL` | Changes a deal: stage, value, close date, won or lost | write | the deal id, its stage id |
+| `PIPEDRIVE_GET_CURRENT_USER_DATA` | Reads the signed-in user | read | the user's id |
+| `PIPEDRIVE_SEARCH_PERSONS` | Finds people by name, email or phone | read | person ids, their organization's id |
+| `PIPEDRIVE_SEARCH_ORGANIZATIONS` | Finds companies by name | read | organization ids |
+| `PIPEDRIVE_SEARCH_DEALS` | Finds deals by title or text | read | deal ids, their stage, person and organization |
+| `PIPEDRIVE_GET_DEAL` | Reads one deal | read | the deal's id, stage, pipeline, person and organization ids |
+| `PIPEDRIVE_GET_ALL_DEALS_BETA` | Lists deals, by stage, status or owner, a page at a time | read | deal ids, a cursor for the next page |
+| `PIPEDRIVE_GET_ALL_ACTIVITIES_BETA` | Lists calls, meetings and to-dos, by date or done | read | activity ids with their deal and person ids, a cursor |
+| `PIPEDRIVE_GET_ALL_LEADS` | Lists leads not yet turned into deals | read | lead ids, their person and organization ids |
+| `PIPEDRIVE_ADD_A_PERSON` | Adds a person | write | the person's id |
+| `PIPEDRIVE_ADD_LEAD` | Adds a lead, linked to a person or organization | write | the lead's id |
+| `PIPEDRIVE_ADD_A_DEAL` | Adds a deal | write | the deal's id |
+| `PIPEDRIVE_UPDATE_A_DEAL` | Changes a deal: stage, value, expected close, won or lost | write | the deal, with its new stage |
+| `PIPEDRIVE_ADD_AN_ACTIVITY` | Adds a follow-up call, meeting or to-do | write | the activity's id |
+| `PIPEDRIVE_ADD_NOTE` | Adds a note to a deal, person, organization or lead | write | the note's id |
 
-**What to keep:** the ids the taf works on (deal, person, organisation,
-activity, note) and the pipeline and stage ids the owner's process uses.
-Never search for something the taf made: use the id it kept. Look up
-pipelines and stages once and keep them; don't guess a stage from its name.
+**What to keep:** each person's, deal's and lead's id, to update that same
+record next time; the signed-in user's id, to list only their own deals.
+Never look a record up again by name: use the id the taf kept.
 
-**Start read-only.** "Tell me which deals have no next step" is a list tool
-plus `PIPEDRIVE_LIST_DEAL_ACTIVITIES`. Adding notes and activities comes
-next. Moving a deal's stage or marking it won or lost shows on the team's
-reports: offer `PIPEDRIVE_UPDATE_DEAL` only when the owner asked, and show
-each change first.
+**Search first.** Before adding a person, search by their email. Add them
+only when nothing matches, so no one is entered twice. A search needs at
+least two characters.
+
+**Start read-only.** "Tell me which deals have no next step" needs only the
+read tools. Adding a follow-up activity or a note is a small write; moving
+a deal's stage or marking it won or lost changes the owner's pipeline, so
+offer it only when asked, and each change waits for the owner's yes.
 
 ## Don't offer
 
-- Deleting tools (`PIPEDRIVE_DELETE_*`), including bulk deletes, and
-  `PIPEDRIVE_UPDATE_DEAL_V2`, which can mark a deal deleted.
-- Merging tools (`PIPEDRIVE_MERGE_*`): two records become one, which can't be
-  undone from here.
-- Admin tools: pipelines and stages (adding, changing, deleting), activity
-  types, fields, filters shared with the team, users, teams, roles and their
-  pipeline visibility, and webhooks.
-- Mail, call-log, video-call and messaging tools, products, subscriptions,
-  installments and goals, unless the job is about exactly that and the owner
-  asked.
+- Deleting (`PIPEDRIVE_DELETE_PERSON`, `PIPEDRIVE_DELETE_A_PERSON`,
+  `PIPEDRIVE_DELETE_DEAL` and the others): records are removed for everyone.
+- Merging (`PIPEDRIVE_MERGE_PERSONS`, `PIPEDRIVE_MERGE_DEALS`,
+  `PIPEDRIVE_MERGE_ORGANIZATIONS` and their two-record versions): a merge
+  can't be undone from here.
+- Setup and admin: pipelines and stages (`PIPEDRIVE_ADD_PIPELINE`,
+  `PIPEDRIVE_ADD_STAGE`), custom fields (`PIPEDRIVE_ADD_PERSON_FIELD`),
+  saved filters, activity types and lead labels. They change Pipedrive for
+  the whole team.
+- Turning deals into leads or back (`PIPEDRIVE_CONVERT_DEAL_TO_LEAD`,
+  `PIPEDRIVE_CONVERT_LEAD_TO_DEAL`) unless the owner asks.
 
 ## Access and plans
 
-- **Every plan can use the API**, with limits that grow with the plan.
-- **Daily budget per company:** Pipedrive counts tokens, not calls. Each day
-  a company gets 30,000 tokens times its plan's multiplier (Lite 1, Growth 2,
-  Premium 5, Ultimate 7) times its number of seats. Reading one record costs
-  2, a list 20, an update 10, a search 40. The budget is shared by every app
-  the company uses and resets at midnight in Pipedrive's server time.
-- **Bursts:** per user, over a rolling two seconds, from 80 calls on Lite to
-  480 on Ultimate for a signed-in app. Searches are capped at 10 every two
-  seconds on every plan, so search once and keep the ids.
-- **A lapsed account** (trial over, payment missing) is refused with a
-  payment notice until it is active again.
-- **Pipelines, stages, fields and users** need a Pipedrive admin's sign-in;
-  they aren't offered anyway.
+- **A daily budget, per company:** Pipedrive gives each company a number of
+  call tokens a day, set by its plan and its number of seats, and shared by
+  every app. Each call costs tokens; a search costs more than a read of one
+  record. When the day's budget is spent, calls are refused until the next
+  day. Pipedrive's admins get an email at 75% and 100%.
+- **Bursts:** calls are also limited over any two seconds, more on higher
+  plans. Searches are limited to 10 every two seconds on every plan.
+- **A job that runs every hour** should list what changed since the last
+  run, not read everything again.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access | The sign-in didn't allow this tool: it was made for reading, say | "Pipedrive is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Refused (403) | The user isn't allowed this action, or reached a usage limit for that kind of record | "Pipedrive says your user can't do this. A Pipedrive admin can change your rights, or the taf can skip it." |
-| Payment required (402) | The company account isn't active: trial over or payment missing | "Your Pipedrive account isn't active, so nothing can be read or changed. Once it's active the taf carries on." |
-| Too many calls (429), in a burst | Too many calls in two seconds | Wait a few seconds and try again; tell the owner only if it keeps failing. |
-| Too many calls (429), all day | The company's daily budget is used | "Your company's Pipedrive allowance for today is used up. The taf will continue after it resets tonight." |
-| The sign-in no longer works (401) | The owner removed the app, or the sign-in expired | "Pipedrive needs you to sign in again. Nothing was changed." |
-| Not found (404) | The record was deleted or merged, or the user can't see it | "That record isn't in Pipedrive any more. The taf will skip it." |
-| Bad request (400) | A field the taf sent isn't valid: a stage from another pipeline, say | Fix it and try once; else "Pipedrive didn't accept that change. Nothing was written." |
+| Refused, not allowed (403) | The sign-in didn't give this area, or the account hit a usage limit | "Pipedrive is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Too many calls (429) | Over the two-second limit, or the day's budget is spent | "Pipedrive asked us to slow down. The taf will try again shortly, or tomorrow if today's allowance is used up." |
+| Account not open (402) | The trial ended, or payment details are missing | "Your Pipedrive account isn't active right now. Nothing was changed." |
+| The sign-in no longer works (401) | The sign-in ended, or was removed | "Pipedrive needs you to sign in again. Nothing was changed." |
+| Not found (404) or gone (410) | The record was deleted or merged | "That record isn't in Pipedrive any more. The taf will skip it." |
+| Pipedrive is unavailable (503) | Planned maintenance | "Pipedrive is down for maintenance. The taf will try again later." |
 
 After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+leads to a write: a taf that can't find a person never adds them again.

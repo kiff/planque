@@ -157,16 +157,21 @@ type APIRequest struct {
 // kiff/planque#12 by a phone enrolled with its key name that key, and are
 // kept as they were recorded.
 type Approval struct {
-	DeviceKey   []byte    `json:"device_key,omitempty"`
-	DeviceID    string    `json:"device_id,omitempty"`
-	Subject     string    `json:"subject,omitempty"`
-	DeviceName  string    `json:"device_name,omitempty"` // as KIFF names it, for the owner to read
-	Fingerprint string    `json:"fingerprint"`           // the key's fingerprint, or KIFF's device id
-	Message     string    `json:"message"`               // the exact text signed
-	Body        string    `json:"body"`                  // the request body its hash covers
-	Signature   string    `json:"signature"`
-	SignedAt    string    `json:"signed_at"`
-	ApprovedAt  time.Time `json:"approved_at"`
+	DeviceKey   []byte `json:"device_key,omitempty"`
+	DeviceID    string `json:"device_id,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"` // as KIFF names it, for the owner to read
+	Fingerprint string `json:"fingerprint"`           // the key's fingerprint, or KIFF's device id
+	Message     string `json:"message"`               // the exact text signed
+	// Request is this request's own message when it was signed together
+	// with another (kiff.requests.v1): Message names its SHA-256 beside the
+	// other's, so a check of what was approved (KIFF's, for Setup's reads)
+	// reads it here. Empty for a request signed alone.
+	Request    string    `json:"request,omitempty"`
+	Body       string    `json:"body"` // the request body its hash covers
+	Signature  string    `json:"signature"`
+	SignedAt   string    `json:"signed_at"`
+	ApprovedAt time.Time `json:"approved_at"`
 	// Key is which key signed, as KIFF says it (kiff/tafs#494): "device" or
 	// "critical" (the approval key, behind the fingerprint); empty before
 	// KIFF said. Window is the approval window a device-key signature was
