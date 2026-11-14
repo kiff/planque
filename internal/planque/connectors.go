@@ -436,6 +436,12 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	for _, t := range ask.Tools {
+		if connector.NeverServed(toolkit, t) {
+			writeRefusal(w, notServed(t, "tools"))
+			return
+		}
+	}
 	if r := checkTools(ask.Agent, nil); r != nil {
 		writeRefusal(w, r)
 		return
@@ -809,6 +815,10 @@ func (s *Server) connectorTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.S
 	listed := make([]mcpTool, 0, len(definitions))
 	aliases := map[string]bool{}
 	for _, t := range definitions {
+		// One approved before planque stopped serving it isn't listed; the rest still are.
+		if connector.NeverServed(t.Toolkit, t.Slug) {
+			continue
+		}
 		if t.Validate() != nil || t.Toolkit != g.Request.Connector.Toolkit || aliases[t.Alias()] {
 			return nil, mcp.Server{}, connector.ErrDefinition
 		}
@@ -876,6 +886,9 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 	g.Catalog = nil
 	g.Connector.Tools = nil
 	for _, ask := range tools {
+		if slug, ok := connector.NeverServedAlias(g.Request.Connector.Toolkit, ask.Tool); ok {
+			return notServed(slug, "tool")
+		}
 		var definition connector.Tool
 		it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), connectorToolKey(g, ask.Tool), &definition)
 		if err != nil || it.TTL <= s.now().Unix() || definition.Alias() != ask.Tool || definition.Toolkit != g.Request.Connector.Toolkit {
@@ -917,6 +930,10 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 				}
 			}
 		}
+		// One the grant holds from before planque stopped serving it isn't bound again.
+		if found != nil && connector.NeverServed(found.Toolkit, found.Slug) {
+			return notServed(found.Slug, "tool")
+		}
 		if found == nil || found.Validate() != nil || found.Toolkit != g.Request.Connector.Toolkit {
 			return connector.ErrDefinition
 		}
@@ -952,6 +969,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	p, err := s.provider(g)
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
 		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
+	}
+	// Approved before planque stopped serving it: never sent, whatever the grant holds.
+	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {
+		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it can't be undone.")
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {

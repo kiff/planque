@@ -63,6 +63,7 @@ const (
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
 	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
 	CodeWaitsForApproval  = "waits_for_approval"     // an addition's tool, declared, and the owner hasn't approved it yet
+	CodeToolNotServed     = "tool_not_served"        // a managed app's tool planque never serves (connector.NeverServed)
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
