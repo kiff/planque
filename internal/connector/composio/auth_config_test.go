@@ -353,7 +353,29 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 	c.readAt = time.Time{}
 	c.scoped = nil
 	c.mu.Unlock()
-	if _, err := c.Scope(ctx, app, []string{"GMAIL_FETCH_EMAILS"}, connector.Allowance{}); err != nil || strings.Join(asked, " ") != g+"gmail.modify" {
-		t.Fatalf("a ceiling without gmail.readonly: %v, asks %v", err, asked)
+	// It is wide then: more than the read needs, and the owner is told so.
+	if scoped, err := c.Scope(ctx, app, []string{"GMAIL_FETCH_EMAILS"}, connector.Allowance{}); err != nil || !scoped.Wide || strings.Join(asked, " ") != g+"gmail.modify" {
+		t.Fatalf("a ceiling without gmail.readonly: %+v %v, asks %v", scoped, err, asked)
+	}
+	// 14 Nov: the provider's managed Gmail sign-in offers full mail alone. Two
+	// reads and a draft each take it, wide; never said to be only what they need.
+	available = []string{mail, g + "userinfo.email", g + "user.birthday.read"}
+	for _, tools := range [][]string{{"GMAIL_FETCH_EMAILS", "GMAIL_LIST_THREADS"}, {"GMAIL_CREATE_EMAIL_DRAFT"}} {
+		c.mu.Lock()
+		c.readAt = time.Time{}
+		c.scoped = nil
+		c.mu.Unlock()
+		if scoped, err := c.Scope(ctx, app, tools, connector.Allowance{}); err != nil || !scoped.Wide || strings.Join(asked, " ") != mail {
+			t.Fatalf("%v in a full-mail ceiling: %+v %v, asks %v", tools, scoped, err, asked)
+		}
+	}
+	// Its narrowest in the ceiling is no wider than its narrowest: not wide.
+	available = []string{mail, g + "gmail.compose", g + "userinfo.email"}
+	c.mu.Lock()
+	c.readAt = time.Time{}
+	c.scoped = nil
+	c.mu.Unlock()
+	if scoped, err := c.Scope(ctx, app, []string{"GMAIL_CREATE_EMAIL_DRAFT"}, connector.Allowance{}); err != nil || scoped.Wide || strings.Join(asked, " ") != g+"gmail.compose" {
+		t.Fatalf("a draft with gmail.compose in the ceiling: %+v %v, asks %v", scoped, err, asked)
 	}
 }

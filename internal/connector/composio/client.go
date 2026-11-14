@@ -490,12 +490,12 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	// Each tool's narrowest scope, from its own list, when every one is known:
 	// the provider's recommendation can be wider (14 Nov: full mail access for
 	// two Gmail reads that run on gmail.readonly).
-	if least := c.narrowest(ctx, app, tools, ceiling); len(least) > 0 {
+	if least, wider := c.narrowest(ctx, app, tools, ceiling); len(least) > 0 {
 		id, err := c.pin(ctx, app, least, budget)
 		if err != nil {
 			return connector.Scoped{}, unpinned(ceiling, err)
 		}
-		return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...))}, nil
+		return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...)), Wide: wider}, nil
 	}
 	var rec struct {
 		Scopes struct {
@@ -606,43 +606,55 @@ var breadth = []string{
 // app's reviewed guide's "read") takes a read-only scope when it accepts one; a write never does, whatever its list says (the provider
 // lists gmail.readonly for creating a draft, which it can't). Nil when a
 // tool can't be read, accepts no scope breadth orders, or accepts only
-// personal ones: the recommendation decides then.
-func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceiling []string) []string {
+// personal ones: the recommendation decides then. wider: a tool took a
+// wider scope than its narrowest, the ceiling lacking that one (14 Nov: the
+// provider's managed Gmail sign-in offers full mail alone, not
+// gmail.readonly), so it is never said to be only what the tools need.
+func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceiling []string) (least []string, wider bool) {
 	listed, err := c.listed(ctx, app, tools)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	reviewed := guides.Reads(strings.ToLower(app.Slug))
 	var out []string
 	for _, slug := range tools {
 		i := slices.IndexFunc(listed, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
 		if i < 0 {
-			return nil
+			return nil, false
 		}
 		t, err := listed[i].tool()
 		if err != nil {
-			return nil
+			return nil, false
 		}
 		// A read as the provider tags it, or as the app's reviewed guide marks
 		// it when the provider doesn't (14 Nov: two Gmail reads untagged, so
 		// full mail): unknown is still a write.
 		read := t.ReadOnly || slices.ContainsFunc(reviewed, func(r string) bool { return strings.EqualFold(r, slug) })
-		pick := ""
+		// pick is its narrowest in the ceiling; best, its narrowest at all.
+		pick, best := "", ""
 		for _, s := range breadth {
-			if !slices.Contains(t.Scopes, s) || !slices.Contains(ceiling, s) || !read && strings.HasSuffix(s, ".readonly") {
+			if !slices.Contains(t.Scopes, s) || !read && strings.HasSuffix(s, ".readonly") {
 				continue
 			}
-			pick = s
-			break
+			if best == "" {
+				best = s
+			}
+			if slices.Contains(ceiling, s) {
+				pick = s
+				break
+			}
 		}
 		if pick == "" {
-			return nil
+			return nil, false
+		}
+		if pick != best {
+			wider = true
 		}
 		if !slices.Contains(out, pick) {
 			out = append(out, pick)
 		}
 	}
-	return cleanScopes(out)
+	return cleanScopes(out), wider
 }
 
 // listed is tools as the provider lists them, for their scopes.

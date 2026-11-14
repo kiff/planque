@@ -162,7 +162,10 @@ The account-authenticated catalog endpoints include upstream discovery:
    wider than the tools need (14 Nov: full mail access for two Gmail reads).
    It's pinned the same way but marked wide: `usual_access`, and the words
    say "<app> will ask for more access than this taf uses…", never "only
-   what this taf's actions need".
+   what this taf's actions need". So is a tool that took a wider scope than
+   its narrowest because the ceiling lacks that one: the provider's managed
+   Gmail sign-in offers full mail alone, not `gmail.readonly`, so a Gmail
+   read on it asks full mail and is said to.
 
    When the provider can't narrow it (no ceiling, a tool outside it, its
    recommendation failing, an operator's own sign-in, or the account's
