@@ -102,6 +102,12 @@ type Scoped struct {
 // provider couldn't say). The caller keeps the app's usual sign-in, and says so.
 var ErrUnscoped = errors.New("this app's sign-in can't be narrowed to these tools")
 
+// ErrPersonal: the app's usual sign-in asks for personal data no tool asked
+// needs, and no sign-in without it could be set up now (the account's
+// set-ups for the day used, or the provider failing). Nothing is asked: the
+// caller never falls back to the usual sign-in then. It wraps the cause.
+var ErrPersonal = errors.New("this app's sign-in can't be set up without personal data the taf doesn't use")
+
 // Allowance is what making a new provider sign-in costs the account: Take
 // before making one (an error: none is made), GiveBack when making it failed.
 type Allowance struct {

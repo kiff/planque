@@ -4,10 +4,13 @@ package composio
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -442,7 +445,7 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 // its name. A new one is paid from the allowance first. ErrUnscoped for
 // anything it can't do, so the caller keeps the app's usual sign-in.
 func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, budget connector.Allowance) (connector.Scoped, error) {
-	if !app.Managed || app.AuthScheme != "OAUTH2" || !identifier.MatchString(app.Slug) || len(tools) == 0 {
+	if !app.Managed || app.AuthScheme != "OAUTH2" || !identifier.MatchString(app.Slug) {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
 	for _, t := range tools {
@@ -479,6 +482,10 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	if len(ceiling) == 0 {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
+	// No tools named: nothing to narrow to, but never the usual sign-in's personal data.
+	if len(tools) == 0 {
+		return c.wide(ctx, app, tools, ceiling, always, budget)
+	}
 	var rec struct {
 		Scopes struct {
 			Least []string `json:"least_privilege"`
@@ -490,31 +497,70 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	// usual sign-in asks for (14 Nov: a drafts-only Gmail taf's sign-in
 	// asked for a date of birth, addresses, phone numbers and contacts).
 	if _, err := c.request(ctx, "POST", "/toolkits/"+app.Slug+"/scopes/recommended", nil, body, &rec); err != nil {
-		return c.wide(ctx, app, ceiling, always, budget)
+		return c.wide(ctx, app, tools, ceiling, always, budget)
 	}
 	least := cleanScopes(rec.Scopes.Least)
 	if len(least) == 0 || slices.ContainsFunc(least, func(s string) bool { return !slices.Contains(ceiling, s) }) {
-		return c.wide(ctx, app, ceiling, always, budget)
+		return c.wide(ctx, app, tools, ceiling, always, budget)
 	}
 	id, err := c.pin(ctx, app, least, budget)
 	if err != nil {
-		return connector.Scoped{}, connector.ErrUnscoped
+		return connector.Scoped{}, unpinned(ceiling, err)
 	}
 	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...))}, nil
 }
 
+// unpinned is why no narrower sign-in could be set up (err): ErrPersonal
+// when the usual one, the only one left, would ask for personal data.
+func unpinned(ceiling []string, err error) error {
+	if slices.ContainsFunc(ceiling, personalScope) {
+		return fmt.Errorf("%w: %w", connector.ErrPersonal, err)
+	}
+	return connector.ErrUnscoped
+}
+
 // wide is app's sign-in when it can't be narrowed to the tools: its managed
 // ceiling less the personal scopes (personalScope), pinned as a sign-in of
-// its own, and said to be wide. ErrUnscoped when that leaves out nothing
-// (the usual sign-in is then as narrow) or nothing is left.
-func (c *Client) wide(ctx context.Context, app connector.App, ceiling, always []string, budget connector.Allowance) (connector.Scoped, error) {
-	plain := slices.DeleteFunc(slices.Clone(ceiling), personalScope)
-	if len(plain) == 0 || len(plain) == len(ceiling) {
+// its own, and said to be wide. A personal scope stays when a tool asked
+// can run on nothing else (finding people, reading contacts): one of those
+// it accepts, read-only when it can be. ErrUnscoped when a tool asked can't
+// be read, when that leaves out nothing (the usual sign-in is then as
+// narrow), or when nothing is left.
+func (c *Client) wide(ctx context.Context, app connector.App, tools, ceiling, always []string, budget connector.Allowance) (connector.Scoped, error) {
+	if !slices.ContainsFunc(ceiling, personalScope) {
 		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	// The tools asked, as the provider lists them: only their scopes count
+	// here (each definition is checked when it's bound).
+	var page struct {
+		Items []wireTool `json:"items"`
+	}
+	q := url.Values{"toolkit_slug": {app.Slug}, "tool_slugs": {strings.Join(tools, ",")}, "limit": {"100"}, "include_deprecated": {"false"}}
+	keep := []string{}
+	if len(tools) > 0 {
+		if _, err := c.request(ctx, "GET", "/tools", q, nil, &page); err != nil {
+			return connector.Scoped{}, unpinned(ceiling, err)
+		}
+	}
+	for _, slug := range tools {
+		i := slices.IndexFunc(page.Items, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
+		if i < 0 {
+			return connector.Scoped{}, unpinned(ceiling, errors.New("the provider didn't list "+slug))
+		}
+		if s := personalOnly(cleanScopes(page.Items[i].Scopes), ceiling); s != "" && !slices.Contains(keep, s) {
+			keep = append(keep, s)
+		}
+	}
+	plain := slices.DeleteFunc(slices.Clone(ceiling), func(s string) bool { return personalScope(s) && !slices.Contains(keep, s) })
+	if len(plain) == len(ceiling) {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	if len(plain) == 0 {
+		return connector.Scoped{}, unpinned(ceiling, errors.New("only personal scopes are offered"))
 	}
 	id, err := c.pin(ctx, app, plain, budget)
 	if err != nil {
-		return connector.Scoped{}, connector.ErrUnscoped
+		return connector.Scoped{}, unpinned(ceiling, err)
 	}
 	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(plain), slices.DeleteFunc(slices.Clone(always), personalScope)...)), Wide: true}, nil
 }
@@ -527,6 +573,27 @@ func (c *Client) wide(ctx context.Context, app connector.App, ceiling, always []
 var personal = []string{"user.birthday.read", "user.addresses.read", "user.phonenumbers.read", "user.emails.read",
 	"user.gender.read", "user.organization.read", "profile.agerange.read", "profile.language.read",
 	"contacts", "contacts.readonly", "contacts.other.readonly", "directory.readonly"}
+
+// personalOnly is the scope to keep for a tool that runs on personal
+// scopes alone (each of accepted is personal): one of them in the ceiling,
+// read-only when it can be, the narrowest such (contacts.readonly before
+// contacts.other.readonly); "" for a tool that runs without one.
+func personalOnly(accepted, ceiling []string) string {
+	if len(accepted) == 0 || slices.ContainsFunc(accepted, func(s string) bool { return !personalScope(s) }) {
+		return ""
+	}
+	in := slices.DeleteFunc(slices.Clone(accepted), func(s string) bool { return !slices.Contains(ceiling, s) })
+	slices.SortFunc(in, func(a, b string) int { return cmp.Or(cmp.Compare(len(a), len(b)), strings.Compare(a, b)) })
+	for _, s := range in {
+		if strings.HasSuffix(s, ".readonly") || strings.HasSuffix(s, ".read") {
+			return s
+		}
+	}
+	if len(in) > 0 {
+		return in[0]
+	}
+	return ""
+}
 
 // personalScope says s reads a person's own data (personal), in Google's URL form.
 func personalScope(s string) bool {

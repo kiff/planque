@@ -193,6 +193,14 @@ func TestAWideSignInNeverAsksForPersonalData(t *testing.T) {
 		case "/api/v3.1/toolkits/mail/scopes/recommended":
 			// The recommendation failing (a tool outside the ceiling, the beta down).
 			return response(400, `{"error":{"message":"scope_not_available"}}`), nil
+		case "/api/v3.1/tools":
+			// MAIL_CREATE_DRAFT runs on Gmail's own scope, or on contacts: contacts aren't needed.
+			// MAIL_SEARCH_PEOPLE runs on contacts alone: one stays, the narrowest read-only one.
+			if r.URL.Query().Get("toolkit_slug") != "mail" || r.URL.Query().Get("tool_slugs") == "" {
+				t.Fatalf("the tools asked, listed as: %s", r.URL.RawQuery)
+			}
+			return response(200, `{"items":[{"slug":"MAIL_CREATE_DRAFT","scopes":["`+g+`gmail.compose","`+g+`contacts.readonly"]},`+
+				`{"slug":"MAIL_SEARCH_PEOPLE","scopes":["`+g+`contacts","`+g+`contacts.readonly","`+g+`contacts.other.readonly"]}]}`), nil
 		}
 		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
 		return nil, nil
@@ -218,9 +226,14 @@ func TestAWideSignInNeverAsksForPersonalData(t *testing.T) {
 	if again, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); err != nil || again.AuthConfig != "ac_wide" || made != 1 {
 		t.Fatalf("again: %+v %v (made %d)", again, err, made)
 	}
+	// A tool that runs on contacts alone keeps one contact scope, read-only: the rest stay out.
+	scoped, err = c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT", "MAIL_SEARCH_PEOPLE"}, connector.Allowance{})
+	if err != nil || !scoped.Wide || made != 2 || strings.Join(asked, " ") != strings.Join([]string{g + "contacts.readonly", g + "gmail.compose", g + "gmail.modify", g + "userinfo.email"}, " ") {
+		t.Fatalf("with people search: %+v %v, asks %v (made %d)", scoped, err, asked, made)
+	}
 	// No personal scope in the ceiling: nothing to leave out, the usual sign-in.
 	plainKit = true
-	if _, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) || made != 1 {
+	if _, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) || made != 2 {
 		t.Fatalf("a ceiling with no personal data: %v (made %d)", err, made)
 	}
 }
