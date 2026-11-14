@@ -87,3 +87,15 @@ func TestReturnsOfASchemaOfMutualReferencesIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// The relayed part of a typed model's schema (the provider's data, a
+// reference, with the definitions it points into, as the connector keeps
+// it): its returns resolve through the reference, with no data. prefix.
+func TestReturnsOfTheRelayedPartFollowItsReference(t *testing.T) {
+	schema := []byte(`{"$ref":"#/$defs/D","description":"Data from the action execution",
+	 "$defs":{"D":{"type":"object","properties":{"messages":{"type":"array","items":{"$ref":"#/$defs/M"}}}},
+	          "M":{"type":"object","properties":{"messageId":{"type":"string"},"subject":{"type":"string"}}}}}`)
+	if got := returnsOf(schema); !slices.Equal(got, []string{"messages.messageId"}) {
+		t.Fatalf("returns: %v", got)
+	}
+}

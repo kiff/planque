@@ -38,7 +38,7 @@ func (w wireTool) tool() (connector.Tool, error) {
 	}
 	t := connector.Tool{Slug: w.Slug, Toolkit: w.Toolkit.Slug, Version: w.Version, Name: w.Name, Description: w.Description, InputSchema: schema, Scopes: w.Scopes}
 	if len(w.Output) > 0 && len(w.Output) <= 256<<10 && json.Valid(w.Output) {
-		t.Output = w.Output
+		t.Output = relayed(w.Output)
 	}
 	// Read-only only when the provider tags it so and nothing about it says
 	// it can change things (connector.MayChange): unknown means a write.
@@ -313,4 +313,44 @@ func (c *Client) Search(ctx context.Context, query string, toolkits []string, cu
 		result.Tools = append(result.Tools, t)
 	}
 	return result, nil
+}
+
+// relayed is the part of a tool's output schema that a call's answer
+// carries. The provider describes its whole answer, {data, error,
+// successful}, but Execute relays only data: a schema with exactly those
+// three properties is described by data's, with the schema's definitions
+// kept so its references still resolve. Any other schema is as given.
+// Without this, a tool's returns named paths under data. that no relayed
+// answer has, and a check drafted from them read nothing (14 Nov: Gmail's
+// "data.messages").
+func relayed(schema json.RawMessage) json.RawMessage {
+	var root map[string]any
+	if json.Unmarshal(schema, &root) != nil {
+		return schema
+	}
+	props, _ := root["properties"].(map[string]any)
+	if len(props) != 3 {
+		return schema
+	}
+	for _, k := range []string{"data", "error", "successful"} {
+		if _, ok := props[k]; !ok {
+			return schema
+		}
+	}
+	data, ok := props["data"].(map[string]any)
+	if !ok {
+		return schema
+	}
+	for _, key := range []string{"$defs", "definitions"} {
+		if defs, ok := root[key]; ok {
+			if _, own := data[key]; !own {
+				data[key] = defs
+			}
+		}
+	}
+	out, err := json.Marshal(data)
+	if err != nil {
+		return schema
+	}
+	return out
 }
