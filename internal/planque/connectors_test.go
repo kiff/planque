@@ -1492,7 +1492,6 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // A path the catalog's returns name is found in the answer a call relays
 // (14 Nov: a check drafted from "data.messages" read nothing, since the
 // relay carries the provider's data alone). The path the returns named
@@ -1537,7 +1536,9 @@ func TestAToolsReturnsNameWhatItsRelayedAnswerHas(t *testing.T) {
 	}
 	if at("data.ticket_id") {
 		t.Errorf("the relayed answer still has data.: %v", relayed)
-=======
+	}
+}
+
 // A narrowed sign-in the provider refuses is logged with the provider's own
 // reason, its key never (14 Nov: a 403 on the set-up of Gmail's narrowed
 // sign-in was logged as "composio: POST /auth_configs: 403" alone).
@@ -1561,6 +1562,5 @@ func TestARefusedNarrowedSignInIsLoggedWithTheProvidersReason(t *testing.T) {
 	}
 	if strings.Contains(out["error"].(string), "Custom scopes") {
 		t.Fatalf("the provider's words reached the person: %v", out)
->>>>>>> origin/main
 	}
 }
