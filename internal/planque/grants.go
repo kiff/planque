@@ -716,8 +716,9 @@ func requestText(w words.Approval, q Request, held bool, account string, catalog
 	return connectionText(w, q, held, account, catalog...) + appWords(w, q)
 }
 
-// accountLabel is the account g acts in, as the owner's text names it: a
-// managed app's account by the name the provider shows, never its id.
+// accountLabel is the account g acts in, as the owner's text and every view
+// name it: a managed app's account by the name the provider shows, never the
+// provider's id for the connection (ca_…), which means nothing to a person.
 func accountLabel(g *Grant) string {
 	if g.Request.Connector != nil {
 		if g.Connector != nil {
@@ -726,6 +727,23 @@ func accountLabel(g *Grant) string {
 		return ""
 	}
 	return g.Account
+}
+
+// connectionTitle is g's name for people: its app, and its account when
+// known ("Gmail · Demo Shop"), never a provider's id.
+func connectionTitle(g *Grant) string {
+	if a := label(accountLabel(g)); a != "" {
+		return vendorName(g) + " · " + a
+	}
+	return vendorName(g)
+}
+
+// sinceOf is the day g was asked for, as YYYY-MM-DD, or "".
+func sinceOf(g *Grant) string {
+	if len(g.Request.CreatedAt) >= 10 {
+		return g.Request.CreatedAt[:10]
+	}
+	return ""
 }
 
 func connectionText(w words.Approval, q Request, held bool, account string, catalog ...CatalogTool) string {
@@ -1027,6 +1045,11 @@ type grantView struct {
 	// Vendor is the vendor's name for people: what its server calls itself,
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
+	// Title names the connection for people, the same in every app: its app
+	// and, when known, its account ("Gmail · Demo Shop"); Since is the day it
+	// was asked for (2026-11-13), for the app to say in its own words.
+	Title  string `json:"title"`
+	Since  string `json:"since,omitempty"`
 	Status string `json:"status"`
 	// Entry is the catalog entry for the grant's app: the one its request
 	// names, else the one planque recorded or finds for it (entry.go), empty
@@ -1081,6 +1104,12 @@ type grantView struct {
 	// ModeWords is Mode in the owner's words, so every app says the same,
 	// planque's rule for an unknown mode included.
 	ModeWords string `json:"mode_words,omitempty"`
+	// UsedBy, Health and Actions are the connection as the owner's list
+	// shows it (connection_rows.go): the tafs that use it by their names,
+	// its health in plain words, and only the actions that can work for it.
+	UsedBy  []string           `json:"used_by"`
+	Health  *connectionHealth  `json:"health,omitempty"`
+	Actions []connectionAction `json:"actions"`
 }
 
 // Who holds a grant's sign-in.
@@ -1110,7 +1139,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -1147,6 +1176,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.Digest, v.DigestV = d, 2
 		}
 	}
+	s.fillRow(r, g, &v, time.Time{}, false)
 	return v
 }
 
@@ -1790,7 +1820,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		}
 		if re != nil && re.Refused() {
 			// The vendor doesn't let planque's client sign in: nothing the owner can do now, and trying again won't help.
-			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client"})
+			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client", ""})
 			return
 		}
 		writeErr(w, http.StatusBadGateway, "Couldn't register with "+host+": "+err.Error())
@@ -2069,6 +2099,15 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		if g.Reconnect {
+			// Signed in again: the same grant, connected with what it had.
+			if err := s.reconnectConnector(r, g); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, s.view(r, g))
+			return
+		}
 		if err := s.list(r.Context(), g, ""); err != nil {
 			s.fail(w, r, err)
 			return
@@ -2924,6 +2963,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		return nil, err
 	}
 	out := []grantView{}
+	uses := s.lastUses(ctx, tenant)
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -2934,7 +2974,9 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		out = append(out, s.view(r, &g))
+		v := s.view(r, &g)
+		s.fillRow(r, &g, &v, uses[g.ID], true)
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -3080,6 +3122,8 @@ type grantAPI struct {
 type connection struct {
 	Agent     string    `json:"agent"`
 	Vendor    string    `json:"vendor"`
+	Title     string    `json:"title"`
+	Since     string    `json:"since,omitempty"`
 	Kind      string    `json:"kind"`
 	Server    string    `json:"server,omitempty"`
 	Entry     string    `json:"entry,omitempty"`
@@ -3090,7 +3134,7 @@ type connection struct {
 }
 
 func connectionOf(g *Grant) connection {
-	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Kind: connectionKind(g), Status: g.Status}
+	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
 	switch c.Kind {
 	case KindVendorSignIn:
 		c.Server = g.Request.Server

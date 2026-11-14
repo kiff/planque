@@ -1,6 +1,6 @@
 # Discord Bot
 
-Checked: 2026-11-13 · Sources: the connection service's Discord Bot tool
+Checked: 2026-11-14 · Sources: the connection service's Discord Bot tool
 definitions as planque reads them (157 tools), Discord's developer docs
 (docs.discord.com: OAuth2, Messages, Guilds, Users, Gateway intents, Rate
 Limits, and Opcodes and Status Codes).
@@ -19,7 +19,7 @@ Limits, and Opcodes and Status Codes).
 
 - **Adding the bot to a server**, a sign-in held by the connection service;
   the taf never sees a token. On Discord's page the owner picks the server;
-  only servers where they have the right to add apps are offered.
+  they need the right to add apps there.
 - **The bot sees what its role allows.** Channels its role can't view are
   invisible to it, and posting needs the right to send in that channel. A
   server admin can change this in the server's settings.
@@ -35,14 +35,14 @@ for this app; the ids below are the ones Discord's reference documents.
 |---|---|---|---|
 | `DISCORDBOT_GET_CONNECTED_GUILD` | Reads the server this connection is for | read | not documented |
 | `DISCORDBOT_LIST_GUILD_CHANNELS` | Lists the server's channels (not threads) | read | channel ids, names, types |
-| `DISCORDBOT_GET_ACTIVE_GUILD_THREADS` | Lists the server's open threads | read | thread ids, their channel ids |
+| `DISCORDBOT_GET_ACTIVE_GUILD_THREADS` | Lists the server's open threads | read | thread ids |
 | `DISCORDBOT_LIST_MESSAGES` | Reads a channel's messages, up to 100 a page | read | message ids, authors, times |
 | `DISCORDBOT_GET_MESSAGE` | Reads one message | read | the message id, its channel id |
 | `DISCORDBOT_SEARCH_GUILD_MESSAGES` | Searches the server's messages, up to 25 a page | read | message ids, a total that may be approximate |
 | `DISCORDBOT_CREATE_MESSAGE` | Posts a message, up to 2,000 characters | write, visible to the server | the message id, its channel id |
 | `DISCORDBOT_UPDATE_MESSAGE` | Edits a message the bot posted | write, visible | the message id |
-| `DISCORDBOT_CREATE_THREAD_FROM_MESSAGE` | Opens a thread on a message | write, visible | the thread's channel id |
-| `DISCORDBOT_ADD_MY_MESSAGE_REACTION` | Adds the bot's reaction to a message | write, visible | nothing |
+| `DISCORDBOT_CREATE_THREAD_FROM_MESSAGE` | Opens a thread on a message | write, visible | not documented |
+| `DISCORDBOT_ADD_MY_MESSAGE_REACTION` | Adds the bot's reaction to a message | write, visible | nothing (an empty answer) |
 
 **What to keep:** the server id, the channel id the owner chose, and the id
 of each message the bot posted, to edit it or reply in a thread later. Look
@@ -72,14 +72,13 @@ for their yes: the whole channel sees it.
 - Webhooks and invites: `DISCORDBOT_CREATE_WEBHOOK`, the `EXECUTE_` webhook
   tools, `DISCORDBOT_CREATE_CHANNEL_INVITE`, `DISCORDBOT_INVITE_REVOKE`. A
   webhook is a standing way to post that outlives the taf.
-- Direct messages (`DISCORDBOT_CREATE_DM`): Discord warns against bots
-  messaging members unasked, and limits those that do.
+- Direct messages (`DISCORDBOT_CREATE_DM`): they reach members one by one,
+  who didn't ask the taf for them.
 - `DISCORDBOT_LEAVE_GUILD`, the application-command and interaction tools,
   and the audit log and ban list.
 
 ## Access and plans
 
-- **No paid plan** is needed for any tool above.
 - **Message text needs a special allowance.** Without Discord's
   message-content access, messages come back with empty text, except
   messages that mention the bot, DMs with it and its own posts. Search
@@ -88,10 +87,10 @@ for their yes: the whole channel sees it.
   history; without that, reads come back empty.
 - **From 16 Nov 2026** the channel list leaves out channels the bot can't
   see.
-- **Rate:** a bot may make about 50 calls a second in all, and each
-  channel has its own tighter limits. A refusal says how long to wait.
-- **Many refused calls** (about 10,000 in 10 minutes of refused or
-  too-fast calls) get the caller blocked for a while. On a refusal, stop;
+- **Rate:** a bot may make about 50 calls a second in all, and each kind
+  of call has its own limits too. A refusal says how long to wait.
+- **Many refused calls** (10,000 refused or too-fast calls in 10 minutes)
+  get the caller blocked for a while. On a refusal, stop;
   don't retry in a loop.
 
 ## When it fails
@@ -105,7 +104,7 @@ for their yes: the whole channel sees it.
 | Too many calls (429), or a slow-mode refusal | Over Discord's limit for that channel | "Discord asked us to slow down. The taf will continue in a moment." |
 | Not found (404): unknown channel, message or server | It was deleted, or the bot was removed from the server | "That channel or message isn't there any more. Is the bot still in your server?" |
 | Refused (400) | A message over 2,000 characters, empty, or a bad field | Fix it and try once; else "Discord didn't accept that post. Nothing was posted." |
-| The sign-in no longer works (401) | The bot's access was revoked or reset | "Discord Bot needs to be connected again. Nothing was posted." |
+| The sign-in no longer works (401) | The bot's sign-in is missing or no longer valid | "Discord Bot needs to be connected again. Nothing was posted." |
 
 After any refusal the taf stops that step and says so. A refused read never
 leads to a write.

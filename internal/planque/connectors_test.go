@@ -31,9 +31,15 @@ import (
 // The real adapter and real planque/KIFF handlers run in process. Only the
 // upstream service is synthetic; assertions inspect the outgoing wire request.
 type connectorFixture struct {
-	mu                                sync.Mutex
-	t                                 *testing.T
-	user, callback, accountStatus     string
+	mu                            sync.Mutex
+	t                             *testing.T
+	user, callback, accountStatus string
+	// accountDown makes the provider fail to answer a connected account's read (503).
+	accountDown bool
+	// accountName, when set, is the vendor account's name the provider shows (else "Demo Shop").
+	accountName string
+	// noName: the provider shows no name for the vendor account.
+	noName                            bool
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
@@ -182,13 +188,18 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		f.revocations++
 		f.revoked = append(f.revoked, strings.TrimPrefix(path, "/connected_accounts/"))
 		body = `{"success":true,"revoke_job_id":"job_demo"}`
+	case strings.HasPrefix(path, "/connected_accounts/account_demo") && f.accountDown:
+		return profileResponse(http.StatusServiceUnavailable, `{"error":{"message":"unavailable"}}`), nil
 	case strings.HasPrefix(path, "/connected_accounts/account_demo"):
 		user := f.user
 		if f.foreign {
 			user = "another_owner"
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
-		data := map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		data := map[string]any{"displayName": cmp.Or(f.accountName, "Demo Shop"), "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		if f.noName {
+			delete(data, "displayName")
+		}
 		if f.granted != "" {
 			data["scope"] = f.granted
 		}
@@ -275,7 +286,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		f.executions++
 		_ = json.NewDecoder(r.Body).Decode(&f.sent)
-		if len(f.sent) != 4 || string(f.sent["connected_account_id"]) != `"account_demo"` || string(f.sent["version"]) != `"20261101_00"` {
+		if len(f.sent) != 4 || !strings.HasPrefix(string(f.sent["connected_account_id"]), `"account_demo`) || string(f.sent["version"]) != `"20261101_00"` {
 			f.t.Error("execution did not bind the approved account and version")
 		}
 		if f.lost {
@@ -321,7 +332,11 @@ func newConnectorFixture(t *testing.T) (*env, *connectorFixture) {
 // one to the app (new_sign_in): a test of a held sign-in reused asks without it.
 func requestConnector(t *testing.T, e *env) map[string]any {
 	t.Helper()
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "new_sign_in": true}, nil, "k_setup")
+	ask := map[string]any{"agent": "agt_taf", "new_sign_in": true}
+	if e.tafName != "" {
+		ask["agent_name"] = e.tafName
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", ask, nil, "k_setup")
 	if st != 201 || out["needs_key"] != false {
 		t.Fatalf("request: %d %v", st, out)
 	}

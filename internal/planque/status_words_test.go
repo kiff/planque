@@ -13,7 +13,7 @@ func TestStatusWords(t *testing.T) {
 		{Grant{Status: StatusPending}, "Waiting for your approval"},
 		{Grant{Status: StatusPending, SignedIn: true}, "Signed in · tools waiting for your approval"},
 		{Grant{Status: StatusPending, SignedIn: true, Connected: []ToolRequest{{Tool: "list_charges", Title: "List charges"}}}, "Connected · new tools waiting for your approval"},
-		{Grant{Status: StatusListed, SignedIn: true}, "Signed in · the tools are being chosen"},
+		{Grant{Status: StatusListed, SignedIn: true}, "Unfinished · signed in, no tools chosen yet"},
 		{Grant{Status: StatusApproved, Request: vendor}, "Approved · waiting for the sign-in at mcp.stripe.com"},
 		{Grant{Status: StatusApproved, Request: vendor, VendorName: "Stripe"}, "Approved · waiting for the sign-in at Stripe"},
 		{Grant{Status: StatusSignedIn}, "Signed in · waiting for you to confirm"},

@@ -1,6 +1,6 @@
 # bexio
 
-Checked: 2026-11-13 · Sources: the bexio tool definitions as planque reads
+Checked: 2026-11-14 · Sources: the bexio tool definitions as planque reads
 them (309 tools, generated/bexio.md), and bexio's API reference at
 docs.bexio.com (personal access tokens, rate limiting, errors, pagination,
 changelog).
@@ -75,10 +75,12 @@ for it, and say each one waits for their yes.
   the owner's setup before offering them.
 - **Big lists:** a list answers 500 items by default and at most 2,000 a
   page; bills at most 500. Page through with an offset.
-- **Rate:** bexio limits calls per period and answers "too many requests"
-  past it, with a header saying how many seconds until the next period. Its
-  docs don't publish the number, so a job that reads thousands of records
-  pages and pauses.
+- **Rate:** bexio limits how many calls one company makes a minute, and
+  answers "too many requests" past it, with a header saying how many seconds
+  until the next minute starts. Its docs don't publish the number, so a job
+  that reads thousands of records pages and pauses.
+- **During bexio's trial,** an invoice or quote can be emailed only to the
+  address the key belongs to.
 
 ## When it fails
 

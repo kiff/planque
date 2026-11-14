@@ -1,24 +1,24 @@
 # Dynamics 365
 
-Checked: 2026-11-13 · Sources: the connection service's Dynamics 365 tool
-definitions as planque reads them (119 tools), Microsoft's Web API
-reference for Dynamics 365 data (requests and errors, paging, creating
-rows), its service protection limits page and its daily request limits page.
+Checked: 2026-11-14 · Sources: the connection service's Dynamics 365 tool
+definitions as planque reads them (119 tools), and Dynamics 365's data API
+documentation (updating rows, paging, duplicate detection, service
+protection limits, daily request limits).
 
 ## How it connects
 
-- **A sign-in with the owner's Microsoft work account**, held by the
+- **A sign-in with the owner's work account**, held by the
   connection service; the taf never sees a password or token. planque's
   catalog lists the tools and, with a known sign-in, puts the ones its
   access doesn't cover under `unusable`, with why.
 - **One organisation's environment.** Each company's Dynamics 365 lives at
   its own address; the taf works only in the environment signed in to.
-- **The taf acts as the owner.** It sees and changes only what the owner's
-  own Dynamics 365 role allows.
+- **The taf acts as the owner.** It can't do more than the owner's own
+  access allows.
 
 ## Tools a job usually needs
 
-Read means it changes nothing. Returns are named from Microsoft's API
+Read means it changes nothing. Returns are named from Dynamics 365's API
 reference, since the catalog gives none for this app. Every record id is
 a long unique id (a GUID).
 
@@ -44,8 +44,8 @@ its type (lead, contact, account); and a query's next-page link to carry on
 where it stopped. Never search for something the taf made: use the id it
 kept.
 
-**Paging:** pass the next-page link (`next_link`) as it came; Microsoft's
-API ignores skip-style paging, so the `skip` input of the leads list
+**Paging:** pass the next-page link (`next_link`) as it came, unchanged;
+skip-style paging isn't supported, so the `skip` input of the leads list
 doesn't page. Filter and order by a unique field instead.
 
 **Start read-only:** query and get tools. Offer creating leads, contacts, tasks and notes when the
@@ -67,12 +67,11 @@ Each update is shown to the owner first.
 
 ## Access and plans
 
-- **The owner needs a paid Dynamics 365 licence and a role** that allows
-  each action. A role that lets them read accounts may not let them edit
-  or create them; the taf can't do more than the owner could.
-- **An organisation's Microsoft admin can turn off user consent** to
+- **What the taf can do is what the owner can do:** if the owner can read
+  a kind of record but not change it, so can the taf.
+- **An organisation's admin can turn off user consent** to
   outside apps. Then the sign-in waits for an admin to approve it.
-- **Daily allowance:** Microsoft counts requests per user per 24 hours:
+- **Daily allowance:** requests are counted per user per 24 hours:
   40,000 for a Dynamics 365 Enterprise or Professional licence, 6,000 for a
   Team Member licence.
 - **Short-term limits, per user:** by default about 6,000 requests in any
@@ -86,13 +85,14 @@ Each update is shown to the owner first.
 | What happens | Why | Tell the owner |
 |---|---|---|
 | The sign-in no longer works (401) | Expired or revoked | "Dynamics 365 needs you to sign in again. Nothing was changed." |
-| Refused (403), privilege | The owner's role doesn't allow this action on this record type | "Your Dynamics 365 role doesn't allow this step. Your administrator can extend it, or the taf does without this step." |
-| Sign-in needs approval | The organisation requires an admin to approve outside apps | "Your Microsoft admin needs to approve this connection before it can work." |
-| Not found (404) | The record was deleted, or isn't visible to the owner | "That record isn't there any more. The taf will skip it." |
-| Precondition failed (412) | The record changed since it was read, or would be a duplicate | Read it again and retry once; else "That record changed or already exists. Nothing was changed." |
-| Bad request (400) | A field name or value isn't valid for this organisation | "Dynamics 365 didn't accept that change. Nothing was written." |
-| Too many requests (429) | Over the short-term limit; Microsoft says how long to wait | "Dynamics 365 asked us to slow down. The taf will continue in a few minutes." |
-| Service unavailable (503) | Microsoft's side is down for a while | "Dynamics 365 isn't answering right now. The taf will try again later." |
+| Refused, not allowed | The owner's access doesn't allow this action on this kind of record | "Your Dynamics 365 access doesn't allow this step. Your administrator can extend it, or the taf does without this step." |
+| Sign-in needs approval | The organisation requires an admin to approve outside apps | "Your organisation's admin needs to approve this connection before it can work." |
+| Not found (404) | The record was deleted | "That record isn't there any more. The taf will skip it." |
+| Precondition failed (412) | The record changed since it was read | Read it again and retry once; else "That record changed in the meantime. Nothing was changed." |
+| Refused as a duplicate | A record with the same details exists, when duplicate checks are on | "That record already exists in Dynamics 365. Nothing was added." |
+| Bad request (400) | A field name or value isn't accepted | "Dynamics 365 didn't accept that change. Nothing was written." |
+| Too many requests (429) | Over the short-term limit; the answer says how long to wait | "Dynamics 365 asked us to slow down. The taf will continue in a few minutes." |
+| Server error | A fault on Dynamics 365's side | "Dynamics 365 isn't answering right now. The taf will try again later." |
 
 After any refusal the taf stops that step and says so. A refused read never
 leads to a write.

@@ -1,6 +1,6 @@
 # ClickUp
 
-Checked: 2026-11-13 · Sources: [the generated part](generated/clickup.md)
+Checked: 2026-11-14 · Sources: [the generated part](generated/clickup.md)
 (163 tools), and ClickUp's developer docs at developer.clickup.com: the API
 reference, authentication, rate limits and common errors pages.
 
@@ -33,8 +33,8 @@ keeps; they come from ClickUp's API reference, since the catalog lists none.
 | `CLICKUP_CREATE_TASK` | Adds a task to a list | write, notifies | the task id, its link |
 | `CLICKUP_UPDATE_TASK` | Changes a task's name, status, dates, assignees or description | write, notifies | the task id |
 | `CLICKUP_SET_CUSTOM_FIELD_VALUE` | Sets one custom field on a task | write | not documented |
-| `CLICKUP_CREATE_TASK_COMMENT` | Adds a comment to a task | write, visible to others | the comment id |
-| `CLICKUP_CREATE_CHECKLIST_ITEM` | Adds an item to a task's checklist | write | the checklist id |
+| `CLICKUP_CREATE_TASK_COMMENT` | Adds a comment to a task | write, notifies | the comment id |
+| `CLICKUP_CREATE_CHECKLIST_ITEM` | Adds an item to a task's checklist | write | the checklist id, its items' ids |
 
 **What to keep:** the workspace id and the list id the job works in, and the
 id of every task the taf made, to update that same task next time. Never

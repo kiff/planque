@@ -1,16 +1,15 @@
 # Clay
 
-Checked: 2026-11-13 · Sources: [the generated part](generated/clay.md)
+Checked: 2026-11-14 · Sources: [the generated part](generated/clay.md)
 (15 tools), and Clay's developer docs at developers.clay.com: the Public API
 reference, authentication, errors, rate limits, pagination, searches,
-routines, batch runs and tables pages, plus Clay's credits page.
+routines, batch runs and tables pages, plus Clay's pricing page.
 
 ## How it connects
 
 - **A key the owner pastes**, held by the connection service; the taf never
-  sees it. The owner makes it in Clay under API and CLI, API keys. A key
-  belongs to one Clay user and acts with that user's access to one
-  workspace.
+  sees it. The owner makes it in Clay under API and CLI, API keys. A key is
+  tied to the owner's Clay user and that user's workspace access.
 - **One approval for the key, one for the tools and the Card.** Ask for every
   tool the job needs in the first request.
 - **Check the key first** with `CLAY_GET_CURRENT_USER`: it names the key's
@@ -69,11 +68,10 @@ the balance with `CLAY_GET_CREDIT_BALANCE` first.
     reset on 1 January.
   - Enterprise: 500 a request, 10,000,000 every 30 days.
 
-  Counting searches and job searches aren't offered through the API.
 - **Tables are Enterprise only,** and there's no way to list them: the owner
   gives the table id, the part of the table's Clay link after `/tables/`.
 - **Credits:** Clay counts Data Credits (bought data and outside AI) and
-  Actions (each enrichment step per record). Running out of Data Credits
+  Actions (platform use, such as enrichment). Running out of Data Credits
   can be fixed with a top-up; running out of Actions needs a higher plan.
 - **Rate:** each workspace has a request limit Clay doesn't publish. When it's
   reached, Clay says how many seconds to wait.
@@ -82,14 +80,14 @@ the balance with `CLAY_GET_CREDIT_BALANCE` first.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| "Authentication failed" (401 or 403) | The key is wrong, was deleted, or its user lost access | "Clay didn't accept the key. Could you make a new one in Clay's API keys page and paste it again?" |
+| "Authentication failed" (401 or 403) | The key is wrong or no longer valid, or this step isn't allowed | "Clay didn't accept the key. Could you make a new one in Clay's API keys page and paste it again?" |
 | Search refused for a limit (402) | The plan's per-search or per-period result cap is reached; the message says which, and when it resets | "Clay's search limit for your plan is reached. It frees up on the date Clay gives; a higher plan raises it." |
 | Search refused as invalid (400) | The search was written wrongly | Read the search reference, fix it and try once; else "Clay didn't understand that search. Can you describe who you're looking for another way?" |
 | Not found (404) | A table, function or run id that doesn't exist or isn't in this workspace | "I can't find that in your Clay workspace. Could you check the link or name?" |
 | Refused (409 or 422) | The request doesn't fit the item's current state | Fix it and try once; else "Clay didn't accept that request. Nothing was run." |
 | Too many calls (429) | Over the workspace's rate | "Clay asked us to slow down. The taf will continue in a moment." |
 | Still running (202) | The run or job hasn't finished | Wait and read again later; tell the owner only if it never finishes. |
-| An item failed in a finished run | That item's lookup failed at the data source | "Clay couldn't enrich some of the records. The rest are done." |
+| An item failed in a finished run | That item failed, often at the data source | "Clay couldn't enrich some of the records. The rest are done." |
 | Out of credits or Actions | The workspace's balance is spent | "Your Clay workspace is out of credits. Add more in Clay, then the taf can finish." |
 | Server error (5xx) | A passing problem at Clay | Retry a read later; tell the owner only if it keeps failing. |
 
