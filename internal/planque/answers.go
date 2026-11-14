@@ -61,7 +61,7 @@ func dropAnswer(op *operation) {
 	}
 	_ = json.Unmarshal(op.Result, &was)
 	op.Result, _ = json.Marshal(answerGone(was.IsError))
-	op.ResultUntil = time.Time{}
+	op.ResultUntil, op.AnswerDropped = time.Time{}, true
 }
 
 // SweepAnswers drops every kept answer past answerTTL from its record. It
@@ -130,7 +130,9 @@ var onceAnswers = store.Item{PK: "ONCE", SK: "answers-24h"}
 // dropped as the sweep would drop it, and a younger one gets its expiry and
 // its entry. Every record keeps its outcome, its arguments' hash and its
 // state, all the replay guard reads. It runs from the sweep until it has
-// finished once, then never again; it logs counts only.
+// finished once, then never again; a record it couldn't save (a write in
+// between) leaves the marker unwritten, so the next sweep runs it again. It
+// logs counts only.
 func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, err error) {
 	if _, ok, err := s.KV.Get(ctx, onceAnswers.PK, onceAnswers.SK); err != nil || ok {
 		return 0, 0, err
@@ -139,30 +141,42 @@ func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, 
 	if err != nil {
 		return 0, 0, err
 	}
+	skipped := 0
 	for _, it := range items {
 		if !strings.HasPrefix(it.PK, "TENANT#") {
 			continue
 		}
 		var op operation
-		if json.Unmarshal(it.Doc, &op) != nil || op.State != OpDone || len(op.Result) == 0 || !op.ResultUntil.IsZero() {
+		if json.Unmarshal(it.Doc, &op) != nil || op.State != OpDone || len(op.Result) == 0 || !op.ResultUntil.IsZero() || op.AnswerDropped {
 			continue
 		}
 		next, ver := it, it.Ver
 		next.Ver = ver + 1
+		young := false
 		if until := op.StartedAt.Add(answerTTL); s.now().Before(until) {
+			young = true
 			op.ResultUntil = until.UTC()
 			due := store.Item{PK: pkAnswerDue, SK: dueSK(until, strings.TrimPrefix(it.PK, "TENANT#"), it.SK), Doc: []byte("{}"), TTL: until.Add(7 * 24 * time.Hour).Unix()}
 			if err := s.KV.Put(ctx, due, store.Cond{}); err != nil {
 				return dropped, indexed, err
 			}
-			indexed++
 		} else {
 			dropAnswer(&op)
+		}
+		switch err := putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver}); {
+		case errors.Is(err, store.ErrCondition):
+			skipped++ // written in between: the next run reads it again
+		case err != nil:
+			return dropped, indexed, err
+		case young:
+			indexed++
+		default:
 			dropped++
 		}
-		if err := putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver}); err != nil && !errors.Is(err, store.ErrCondition) {
-			return dropped, indexed, err
-		}
+	}
+	if skipped > 0 {
+		s.log().InfoContext(ctx, "stored answers: some records changed during the clean-up; it runs again", slog.Int("skipped", skipped))
+		return dropped, indexed, nil
 	}
 	if err := putDoc(ctx, s.KV, onceAnswers, map[string]string{"at": s.now().UTC().Format(time.RFC3339)}, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
 		return dropped, indexed, err

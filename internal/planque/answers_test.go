@@ -163,3 +163,64 @@ func TestTheOneTimeCleanUpDropsOldAnswersAndKeepsOutcomes(t *testing.T) {
 		t.Fatalf("sweep of the young answer: %d %v", n, err)
 	}
 }
+
+// racingKV bumps a record's version between the clean-up's Scan and its
+// save, as a write landing in between would (kiff-qa's review of #219).
+type racingKV struct {
+	store.KV
+	bump func()
+}
+
+func (r *racingKV) Scan(ctx context.Context, p string) ([]store.Item, error) {
+	items, err := r.KV.Scan(ctx, p)
+	if r.bump != nil {
+		r.bump()
+		r.bump = nil
+	}
+	return items, err
+}
+
+// A record the clean-up couldn't save, old or young, isn't left with its
+// answer: the marker waits, the next run reads it again, and the answer
+// goes.
+func TestTheCleanUpRunsAgainForARecordWrittenInBetween(t *testing.T) {
+	for _, age := range []time.Duration{72 * time.Hour, 2 * time.Hour} {
+		e, _ := newConnectorFixture(t)
+		ctx := context.Background()
+		op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: time.Now().UTC().Add(-age),
+			Result: json.RawMessage(`{"content":[{"type":"text","text":"customer_secret"}],"isError":false}`)}
+		key := store.Item{PK: tenantPK(tenant), SK: "OP#g#raced"}
+		put := func(ver int64) {
+			it := key
+			it.Ver = ver
+			if err := putDoc(ctx, e.kv, it, op, store.Cond{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		put(2)
+		e.s.KV = &racingKV{KV: e.kv, bump: func() { put(3) }}
+		if _, _, err := e.s.CleanStoredAnswers(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); ok {
+			t.Fatalf("age %v: marked done though a record was skipped", age)
+		}
+		e.at(48 * time.Hour)
+		if _, _, err := e.s.CleanStoredAnswers(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.s.SweepAnswers(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var rec operation
+		if _, err := getDoc(ctx, e.kv, key.PK, key.SK, &rec); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(rec.Result), "customer_secret") || rec.State != OpDone {
+			t.Fatalf("age %v: a raced record keeps the vendor's answer: %s", age, rec.Result)
+		}
+		if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); !ok {
+			t.Fatalf("age %v: the second run didn't finish", age)
+		}
+	}
+}

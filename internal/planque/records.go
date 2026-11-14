@@ -453,7 +453,9 @@ type operation struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 	// ResultUntil is when a vendor's answer in Result expires (answerTTL):
 	// past it, Result keeps only the outcome.
-	ResultUntil     time.Time             `json:"result_until,omitzero"`
+	ResultUntil time.Time `json:"result_until,omitzero"`
+	// AnswerDropped says Result is the outcome alone: the answer is gone.
+	AnswerDropped   bool                  `json:"answer_dropped,omitempty"`
 	Profile         json.RawMessage       `json:"profile,omitempty"`
 	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
 }
