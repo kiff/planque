@@ -1,6 +1,6 @@
 # Sentry
 
-Checked: 2026-11-13 · Sources: the connection service's Sentry tool
+Checked: 2026-11-14 · Sources: the connection service's Sentry tool
 definitions as planque reads them (the generated part beside this file),
 and Sentry's API documentation (rate limits, issues, events, releases).
 
@@ -72,8 +72,8 @@ and each change waits for their yes. Sentry changes only the fields sent.
 ## Access and plans
 
 - **Reading issues and events needs event read access; changing an issue
-  needs event write access.** Releases need release access. A sign-in made
-  for reading doesn't let the taf change issues.
+  needs event write access.** Reading releases needs project or release
+  access. A sign-in made for reading doesn't let the taf change issues.
 - **Rate:** Sentry limits each caller per tool, per second, and also caps
   how many calls run at once. It publishes no fixed numbers: they differ by
   tool. Each answer says how many calls are left and when the count resets.

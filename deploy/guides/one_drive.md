@@ -1,6 +1,6 @@
 # OneDrive
 
-Checked: 2026-11-13 · Sources: the connection service's OneDrive tool
+Checked: 2026-11-14 · Sources: the connection service's OneDrive tool
 definitions as planque reads them (101 tools), and OneDrive's API
 documentation (items, uploads, error answers, working at scale).
 
@@ -70,8 +70,8 @@ waits for the owner's yes.
   file write access.** A sign-in made for reading doesn't let the taf write.
 - **One upload takes files up to 250 MB.** Bigger files need an upload in
   parts (`ONE_DRIVE_CREATE_UPLOAD_SESSION`), which a usual job doesn't need.
-- **A download link** from OneDrive works for about an hour. Don't keep it;
-  keep the file's id.
+- **A download link** from OneDrive works only for a short time, maybe
+  minutes. Don't keep it; keep the file's id.
 - **A file changed by someone else** since the taf read it can refuse an
   update. Read it again before writing.
 - **Rate:** OneDrive slows apps that call too often, more at busy hours, and
