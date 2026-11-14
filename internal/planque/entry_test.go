@@ -423,9 +423,21 @@ func TestAServersConnectionIsCalledByItsReviewedApp(t *testing.T) {
 			t.Errorf("entry %q, server %+v: %q, want %q", tc.entry, tc.server, got, tc.want)
 		}
 	}
-	// A Stripe connection stored with its server's own name reads as Stripe.
-	stored := &Grant{VendorName: "stripe-mcp", Request: Request{CatalogEntry: StripeEntry}}
-	if got := vendorName(stored); got != "Stripe" || connectionTitle(stored) != "Stripe" {
-		t.Fatalf("a stored Stripe connection: %q, %q", got, connectionTitle(stored))
+	// A Stripe connection stored with its server's own name reads as Stripe,
+	// its entry by planque's own id or by the managed app's id the reviewed
+	// server list gives mcp.stripe.com (the owner's, 14 Nov).
+	for _, entry := range []string{StripeEntry, "connector:composio:stripe", "connector:other:stripe"} {
+		stored := &Grant{VendorName: "stripe-mcp", Request: Request{CatalogEntry: entry, Server: "https://mcp.stripe.com"}}
+		if got := vendorName(stored); got != "Stripe" || connectionTitle(stored) != "Stripe" {
+			t.Fatalf("a stored Stripe connection, entry %q: %q, %q", entry, got, connectionTitle(stored))
+		}
+	}
+	if got := e.s.serverVendorName(&Grant{Request: Request{CatalogEntry: "connector:composio:qonto"}}, mcp.Server{Name: "qonto-mcp-server"}); got != "Qonto" {
+		t.Fatalf("Qonto by its managed id: %q", got)
+	}
+	// Another managed app's id names nothing here: the stored name stays.
+	other := &Grant{VendorName: "Gmail", Request: Request{CatalogEntry: "connector:composio:gmail"}}
+	if got := vendorName(other); got != "Gmail" {
+		t.Fatalf("another managed app: %q", got)
 	}
 }
