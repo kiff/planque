@@ -1,6 +1,6 @@
 # Lexoffice
 
-Checked: 2026-11-13 · Sources: the connection service's Lexoffice tool
+Checked: 2026-11-14 · Sources: the connection service's Lexoffice tool
 definitions as planque reads them (43 tools), and the app's public API
 documentation (now published under its new name, Lexware Office).
 
@@ -31,7 +31,7 @@ paths for Lexoffice today; the ids below are those the app's answers carry.
 | `LEXOFFICE_GET_CONTACT` | Reads one contact | read | the contact id, its version |
 | `LEXOFFICE_GET_QUOTATION` | Reads one quote | read | the quote id, its version |
 | `LEXOFFICE_CREATE_CONTACT` | Adds a customer or supplier | write | the new contact's id, its link, its version |
-| `LEXOFFICE_UPDATE_CONTACT` | Changes a contact; needs its current version | write | not checked here; read the contact again for its new version |
+| `LEXOFFICE_UPDATE_CONTACT` | Changes a contact; needs its current version | write | the contact's id, its link, its new version |
 | `LEXOFFICE_CREATE_QUOTATION` | Writes a quote, as a draft unless told to finalize | write | the new quote's id, its link, its version |
 | `LEXOFFICE_CREATE_INVOICE` | Writes an invoice, as a draft unless told to finalize | write | the new invoice's id, its link, its version |
 | `LEXOFFICE_CREATE_VOUCHER` | Books a receipt or incoming bill | write | the new voucher's id, its link, its version |
@@ -60,7 +60,7 @@ owner's call, not the taf's.
 
 - **Rate:** 2 calls a second per client, across all tools. Over that, the
   call is refused and not done. Repeated bursts can get a client blocked
-  for a while, or for good.
+  for seconds to minutes, and it stays blocked until it sends fewer calls.
 - **Every change carries a version.** If someone changed a record since the
   taf read it, the change is refused; read it again first.
 - **The app has no delete** for invoices, quotes, vouchers or contacts

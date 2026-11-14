@@ -1,6 +1,6 @@
 # Intercom
 
-Checked: 2026-11-13 · Sources: the connection service's Intercom tool
+Checked: 2026-11-14 · Sources: the connection service's Intercom tool
 definitions as planque reads them (138 tools), and Intercom's developer
 documentation (rate limits, error answers, OAuth scopes, and the reference
 pages for replying, contacts and tickets).
@@ -75,8 +75,8 @@ and each reply waits for the owner's yes.
   of its own, and a workspace allows 25,000 a minute across all its apps.
 - **Fast replies to one conversation** can be slowed on their own; Intercom
   then says how many seconds to wait.
-- **Two people with the same email** make a lookup by email fail. Use the
-  contact's id instead.
+- **Two people with the same email** make a lookup by email fail. Intercom
+  then asks for the id the person has in the business's own system.
 
 ## When it fails
 

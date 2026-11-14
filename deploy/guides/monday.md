@@ -1,6 +1,6 @@
 # Monday
 
-Checked: 2026-11-13 · Sources: the connection service's Monday tool
+Checked: 2026-11-14 · Sources: the connection service's Monday tool
 definitions as planque reads them (122 tools), and monday.com's API
 documentation (rate limits, errors, items, updates, sign-in for outside
 apps).
@@ -8,11 +8,11 @@ apps).
 ## How it connects
 
 - **A sign-in to Monday**, held by the connection service; the taf never
-  sees a password or token. The person picks what to allow on Monday's own
-  page. planque's catalog lists the tools and, with a known sign-in, puts the
-  ones its access doesn't cover under `unusable`, with why.
-- **The taf acts for the person who signed in**, within what they allowed,
-  and sees only the boards they can open.
+  sees a password or token. The person approves the access asked for on
+  Monday's own page. planque's catalog lists the tools and, with a known
+  sign-in, puts the ones its access doesn't cover under `unusable`, with
+  why.
+- **The taf acts for the person who signed in**, within what they allowed.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
 
@@ -85,13 +85,13 @@ and notify people.
 |---|---|---|
 | Missing access (`missingRequiredPermissions`) | The sign-in didn't allow this kind of action | "Monday is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Not allowed (403) | The person can't do this on that board, or can't use the API (view-only, inactive, or email not confirmed) | "Monday didn't let the taf do this. Check your role on that board, or do without this step." |
-| Board or item not found | The id is wrong, it was deleted, or the person can't open it | "The taf can't see that board or item in Monday. It may be deleted, or not shared with you." |
+| Board or item not found | The id is wrong, or it was deleted | "The taf can't find that board or item in Monday. It may have been deleted." |
 | A value doesn't fit its column | Wrong form for the column's type | "Monday didn't accept a value for that column. The taf has stopped and will show you what it tried." |
 | Board full | The board has 10,000 items | "That Monday board is full. Archive some items, or pick another board." |
 | Board busy (423) | Another change is being saved on the board | "Monday was busy saving another change. The taf will try again in a moment." |
 | Too many calls (429) | Over the minute, at-once or complexity limit; Monday says when to retry | "Monday asked us to slow down. The taf will try again shortly." |
 | Daily limit reached | The plan's daily calls are used up | "Monday's daily limit for your plan is reached. The taf will carry on after midnight UTC." |
-| The sign-in no longer works (401) | Access was removed, or the app was uninstalled | "Monday needs you to sign in again. Nothing was changed." |
+| The sign-in no longer works (401) | The app was uninstalled, or the sign-in isn't valid any more | "Monday needs you to sign in again. Nothing was changed." |
 
 After any refusal the taf stops that step and says so. A refused read never
 leads to a write: a taf that can't find its item asks, rather than adding

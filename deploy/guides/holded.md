@@ -1,6 +1,6 @@
 # Holded
 
-Checked: 2026-11-13 · Sources: the connection service's Holded tool
+Checked: 2026-11-14 · Sources: the connection service's Holded tool
 definitions as planque reads them (10 tools), and Holded's API reference
 (invoices, contacts, error handling and API limits).
 
@@ -22,7 +22,7 @@ paths for Holded today; the ids below are those Holded's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `HOLDED_FIND_CONTACTS` | Finds contacts by exact email, phone, name or tax id, a page at a time | read | contact ids, a page cursor |
+| `HOLDED_FIND_CONTACTS` | Finds contacts by exact email, phone or tax id, or by the start of a name, a page at a time | read | contact ids, a page cursor |
 | `HOLDED_GET_CONTACT` | Reads one contact | read | the contact's id, name, email, tax id |
 | `HOLDED_FIND_INVOICES` | Lists sales invoices by contact, date, due date or number, a page at a time | read | invoice ids, document numbers, status, a page cursor |
 | `HOLDED_GET_INVOICE` | Reads one invoice: lines, totals, due date, payment status | read | the invoice's id, its document number, its contact id |
@@ -37,9 +37,9 @@ later. Look a contact up by exact email or tax id before adding one, so the
 taf doesn't make a second copy.
 
 **A new invoice is a draft** unless the account approves new documents
-automatically, and an approved invoice can't be deleted. "Prepare this month's invoices
-for me to check" fits; anything that approves or sends invoices is the
-owner's step.
+automatically, and an approved invoice can't be deleted. "Prepare this
+month's invoices for me to check" fits; anything that approves or sends
+invoices is the owner's step.
 
 **Updating an invoice replaces it whole** on Holded's side: a field left out
 goes back to its default. Read the invoice just before changing it, and
