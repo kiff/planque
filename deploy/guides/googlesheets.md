@@ -67,6 +67,19 @@ write.
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes):
+  - **reading cells:** read-only Sheets ("see all your spreadsheets"). A few
+    reads (by data filter, developer metadata, validation rules) list no
+    read-only access and take edit access;
+  - **writing cells or sheets:** Sheets edit access ("see, edit, create and
+    delete all your spreadsheets");
+  - **finding a sheet by name, or exporting it:** read-only Drive as well
+    ("see and download all your Drive files"); moving a sheet to a folder
+    takes full Drive.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **No paid plan is needed**; any Google account works. A business admin can
   block outside apps.
 - **Rate:** Google allows about 60 reads and 60 writes a minute for one user,

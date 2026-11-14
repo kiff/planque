@@ -42,6 +42,11 @@ album the owner made by hand.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Photos's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **Storage is the owner's:** 15 GB free across Gmail, Drive and Photos.
   Uploads count against it.
 - **Size:** photos up to 200 MB and videos up to 20 GB each.

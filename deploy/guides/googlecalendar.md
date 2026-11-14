@@ -57,6 +57,19 @@ calendar's own; never assume the server's.
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes):
+  - **reading events and free time:** read-only access to events or
+    calendars ("view events on all your calendars");
+  - **creating or changing events:** access to events ("view and edit events
+    on all your calendars");
+  - **managing calendars themselves** (creating, clearing, deleting or
+    sharing a calendar, its access list): full calendar access, which also
+    lets it share and delete calendars. Offer these only when the job needs
+    them.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **No paid plan is needed.** Rooms and buildings
   (`GOOGLECALENDAR_LIST_BUILDINGS`, `GOOGLECALENDAR_LIST_CALENDAR_RESOURCES`)
   exist only on business accounts.

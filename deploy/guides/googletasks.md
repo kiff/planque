@@ -44,6 +44,11 @@ can't be due at 15:00. A job that needs a time uses Google Calendar.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Tasks's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **No paid plan is needed.** A business admin can block outside apps.
 - **Limits:** up to 100,000 tasks in all, 20,000 open tasks in one list,
   and 2,000 lists. Google's daily call allowance is shared by everyone on
