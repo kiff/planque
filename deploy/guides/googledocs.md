@@ -1,6 +1,6 @@
 # Google Docs
 
-Checked: 2026-11-13 · Sources: the connection service's Google Docs tool
+Checked: 2026-11-14 · Sources: the connection service's Google Docs tool
 definitions as planque reads them (46 tools, [generated](generated/googledocs.md)),
 and Google's Docs API reference.
 
@@ -22,10 +22,10 @@ and Google's Docs API reference.
 | `GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT` | Reads a document as plain text | read | |
 | `GOOGLEDOCS_GET_DOCUMENT_BY_ID` | Reads a document with its structure | read | its revision |
 | `GOOGLEDOCS_SEARCH_DOCUMENTS` | Finds documents by name or date | read, **needs Drive access** | document ids |
-| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF | read | |
+| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF | read, **needs Drive access** | |
 | `GOOGLEDOCS_CREATE_DOCUMENT` | Creates a document with a title and text | write | **the document's id** |
 | `GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN` | Creates a document from formatted text | write | **the document's id** |
-| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template | write | the copy's id |
+| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template | write, **needs Drive access** | the copy's id |
 | `GOOGLEDOCS_REPLACE_ALL_TEXT` | Replaces every match of a phrase | write | |
 | `GOOGLEDOCS_INSERT_TEXT_ACTION` | Inserts text at a place in the document | write | |
 | `GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN` | Replaces a document's whole content | write | |
@@ -44,7 +44,8 @@ each write that depends on a position, or replace by phrase instead.
   replaces everything. Offer it only for documents the taf made.
 - Deleting content ranges, tabs, headers or tables in the owner's own
   documents, unless the job is clearly about editing them.
-- `GOOGLEDOCS_UPLOAD_DRIVE_FILE` and the Drive and Sheets reads in this app:
+- `GOOGLEDOCS_UPLOAD_DRIVE_FILE`, `GOOGLEDOCS_CREATE_DRIVE_FILE` and the
+  Drive and Sheets reads in this app:
   use the Drive and Sheets apps, whose guides cover them.
 
 ## Access and plans
@@ -53,9 +54,11 @@ each write that depends on a position, or replace by phrase instead.
 - **Size:** a document can hold about 1.02 million characters. A taf that
   appends a line every day for years should start a new document each year.
 - **Rate:** Google allows about 60 writes a minute per user. A job writing
-  many small edits should put them in one write.
-- **Suggestions and comments** made by people aren't changed by a replace;
-  a taf can't accept or reject them.
+  many small edits should spread them out.
+- **Suggestions and comments** made by people aren't changed by a replace,
+  and this app has no tool to accept or reject them.
+- **Copying the owner's template** needs Drive access to that template: on
+  access to the taf's own files only, the copy is refused.
 
 ## When it fails
 

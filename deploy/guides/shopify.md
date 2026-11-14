@@ -1,6 +1,6 @@
 # Shopify
 
-Checked: 2026-11-13 · Sources: the connection service's Shopify tool
+Checked: 2026-11-14 · Sources: the connection service's Shopify tool
 definitions as planque reads them (386 tools), and Shopify's Admin API
 documentation (access scopes, rate limits, status codes).
 
@@ -48,13 +48,23 @@ stays within the Card's limit.
 
 ## Don't offer
 
-- Deleting or cancelling (`SHOPIFY_DELETE_ORDER`, `SHOPIFY_DELETE_CUSTOMER`,
-  `SHOPIFY_DELETE_PRODUCT`, `SHOPIFY_CANCEL_ORDER`, `SHOPIFY_CLOSE_ORDER`,
-  `SHOPIFY_CANCEL_FULFILLMENT`): they can't be undone, and a cancel can
+- Deleting or cancelling (`SHOPIFY_DELETE_*`, `SHOPIFY_CANCEL_ORDER`,
+  `SHOPIFY_CLOSE_ORDER`, `SHOPIFY_CANCEL_FULFILLMENT`): they can't be undone, and a cancel can
   refund and restock in one go.
 - Charging or money-like tools (`SHOPIFY_CREATE_ORDER_TRANSACTION`,
   `SHOPIFY_CREATE_GIFT_CARD`, `SHOPIFY_CREATE_DISCOUNT_CODE`,
-  `SHOPIFY_CREATE_PRICE_RULE`) unless the job is exactly that.
+  `SHOPIFY_CREATE_PRICE_RULE`, `SHOPIFY_CREATE_DISCOUNT_CODE_BATCH`) unless
+  the job is exactly that.
+- Turning a draft into a real order (`SHOPIFY_COMPLETE_DRAFT_ORDER`) and
+  emailing customers (`SHOPIFY_SEND_INVOICE`, `SHOPIFY_SEND_CUSTOMER_INVITE`):
+  the draft is there for the owner to review and send.
+- App billing and access (`SHOPIFY_CREATE_APP_SUBSCRIPTION`,
+  `SHOPIFY_CREATE_*_APPLICATION_CHARGE`, `SHOPIFY_CREATE_USAGE_CHARGE`,
+  `SHOPIFY_CANCEL_APP_SUBSCRIPTION`, `SHOPIFY_REVOKE_APP_ACCESS_SCOPES`,
+  `SHOPIFY_CREATE_DELEGATE_ACCESS_TOKEN`).
+- Bulk and open-ended writes (`SHOPIFY_RUN_BULK_MUTATION_OPERATION`,
+  `SHOPIFY_BULK_*`, `SHOPIFY_UPDATE_PRODUCT_VARIANTS_BULK`,
+  `SHOPIFY_GRAPH_QL_*` write tools): one call changes many things at once.
 - The storefront and its plumbing: themes and their assets, script tags,
   webhook subscriptions, storefront tokens, fulfilment services. They change
   what every visitor sees or where the store's data goes.
@@ -71,7 +81,7 @@ stays within the Card's limit.
   An app must be approved by Shopify to read them on a live store. If
   the app isn't approved, Shopify doesn't return those fields.
 - **Rate:** about 2 calls a second sustained, with short bursts up to 40,
-  per store. On Shopify Plus stores it's ten times that. Over the limit,
+  for each app on a store. On Shopify Plus stores it's ten times that. Over the limit,
   Shopify says how long to wait.
 - **Paging:** large lists come a page at a time; 250 items is the most
   in one input list.
@@ -82,7 +92,7 @@ stays within the Card's limit.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403) | The sign-in didn't give this tool's access, or protected customer data isn't allowed | "Shopify is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused for missing access (403) | The sign-in didn't give this tool's access | "Shopify is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Older orders are missing | No "all orders" access, so only the last 60 days are visible | "Shopify only showed the last 60 days of orders. To look further back, sign in again and allow access to all orders." |
 | Too many calls (429) | Over the store's call rate | "Shopify asked us to slow down. The taf will try again in a moment." |
 | Payment required (402) | The store is frozen for an unpaid Shopify bill | "Your Shopify store is paused until its bill is paid. Nothing was changed." |

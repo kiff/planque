@@ -1,6 +1,6 @@
 # HubSpot
 
-Checked: 2026-11-13 · Sources: the connection service's HubSpot tool
+Checked: 2026-11-14 · Sources: the connection service's HubSpot tool
 definitions as planque reads them (352 tools), and HubSpot's developer
 documentation (usage guidelines, CRM search, contacts, notes, error handling).
 
@@ -10,8 +10,8 @@ documentation (usage guidelines, CRM search, contacts, notes, error handling).
   sees a password or token. The owner picks the HubSpot account to connect
   on HubSpot's own page. planque's catalog lists the tools and, with a known
   sign-in, puts the ones its access doesn't cover under `unusable`, with why.
-- **Access is per kind of record.** Contacts, companies, deals and owners
-  each have their own read and write access. A sign-in that reads deals
+- **Access is per kind of record.** Contacts, companies and deals each have
+  their own read and write access; owners can only be read. A sign-in that reads deals
   doesn't necessarily read contacts. Ask for every tool the job needs in the
   first request, so nothing is asked twice.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
@@ -53,10 +53,15 @@ tools only. Offer a write only for what the owner asked to change.
 
 ## Don't offer
 
-- Archiving, merging and permanent deletion (`HUBSPOT_ARCHIVE_*`,
-  `HUBSPOT_MERGE_*`, `HUBSPOT_DELETE_*_GDPR`,
+- Archiving, merging and deleting (`HUBSPOT_ARCHIVE_*`,
+  `HUBSPOT_MERGE_*`, `HUBSPOT_DELETE_*`,
   `HUBSPOT_PERMANENTLY_DELETE_CONTACT_VIA_GDPR`, `HUBSPOT_REMOVE_DEAL`):
   merges and permanent deletes can't be undone.
+- Sending, publishing or scheduling (`HUBSPOT_PUBLISH_*`,
+  `HUBSPOT_SCHEDULE_*`) and changing email opt-ins
+  (`HUBSPOT_UPDATE_EMAIL_SUBSCRIPTIONS`): they reach the owner's customers.
+- Imports (`HUBSPOT_START_IMPORT`, `HUBSPOT_IMPORT_FILE_FROM_URL`), users
+  (`HUBSPOT_REMOVE_SETTINGS_USER`), and calling or video settings.
 - Enrolling contacts in sequences or workflows
   (`HUBSPOT_ENROLL_CONTACT_IN_SEQUENCE`, `HUBSPOT_ENROLL_CONTACT_IN_WORKFLOW`):
   they set off emails and automations the taf doesn't control.
@@ -72,8 +77,8 @@ tools only. Offer a write only for what the owner asked to change.
 
 - **Free HubSpot accounts can use the API.** Which features need a paid
   plan isn't checked here.
-- **Rate:** an app connected to an account gets about a hundred calls every
-  ten seconds. Search is stricter, at five calls a second per account, and
+- **Rate:** an app connected to an account gets about 110 calls every ten
+  seconds. Search is stricter, at five calls a second per account, and
   pages of at most 200 results, up to 10,000 for one search. A bigger job
   narrows its search (by date, say) rather than paging further.
 - **Batches** take at most 100 records at a time.

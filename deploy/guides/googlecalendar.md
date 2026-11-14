@@ -1,6 +1,6 @@
 # Google Calendar
 
-Checked: 2026-11-13 · Sources: the connection service's Google Calendar tool
+Checked: 2026-11-14 · Sources: the connection service's Google Calendar tool
 definitions as planque reads them (47 tools, [generated](generated/googlecalendar.md)),
 and Google's Calendar API reference.
 
@@ -34,9 +34,9 @@ and Google's Calendar API reference.
 cancels that event later rather than finding it by title. The calendar's id
 too, when it isn't the owner's main one (`primary`).
 
-**Guests get an email.** Creating, moving or cancelling an event with guests
-notifies them by default. The Card says so, and the owner sees each one
-before it's sent, unless the owner chose otherwise.
+**Guest emails are a choice.** Whether creating, moving or cancelling an
+event emails its guests depends on the notify setting the taf passes; set it
+on purpose, and say in the Card which one it is.
 
 **Times carry a time zone.** Ask for times with their zone, or read the
 calendar's own; never assume the server's.
@@ -44,10 +44,14 @@ calendar's own; never assume the server's.
 ## Don't offer
 
 - Sharing settings (`GOOGLECALENDAR_ACL_INSERT`, `GOOGLECALENDAR_ACL_UPDATE`,
-  `GOOGLECALENDAR_ACL_DELETE`): they decide who sees the owner's calendar.
-- Deleting or clearing a whole calendar (`GOOGLECALENDAR_CALENDARS_DELETE`).
+  `GOOGLECALENDAR_ACL_PATCH`, `GOOGLECALENDAR_ACL_DELETE`): they decide who
+  sees the owner's calendar.
+- Deleting or clearing a whole calendar (`GOOGLECALENDAR_CALENDARS_DELETE`,
+  `GOOGLECALENDAR_CLEAR_CALENDAR`, `GOOGLECALENDAR_CALENDAR_LIST_DELETE`),
+  and many events at once (`GOOGLECALENDAR_BATCH_EVENTS`).
 - Watching for changes (`GOOGLECALENDAR_EVENTS_WATCH`,
-  `GOOGLECALENDAR_CALENDAR_LIST_WATCH`): a taf reads on its schedule instead.
+  `GOOGLECALENDAR_CALENDAR_LIST_WATCH`, `GOOGLECALENDAR_ACL_WATCH`,
+  `GOOGLECALENDAR_SETTINGS_WATCH`): a taf reads on its schedule instead.
 - `GOOGLECALENDAR_DELETE_EVENT` for events the taf didn't create, unless the
   job is clearly about cancelling them.
 
@@ -58,18 +62,20 @@ calendar's own; never assume the server's.
   exist only on business accounts.
 - **Free time only** needs the narrowest access: a job that only finds slots
   should ask for nothing more.
-- **Rate:** Google allows a generous number of calls per user, but sending
-  many invitations in a short time is limited to stop spam. A taf creating
-  more than a few dozen events with guests a day should pause between them.
-- **Recurring events:** changing one occurrence uses its instance
-  (`GOOGLECALENDAR_EVENTS_INSTANCES`); changing the series changes every one.
+- **Rate:** about 600 calls a minute per user. Invitations have their own
+  cap to stop spam: after about 10,000 invitations to outside guests in a
+  short time, the account can't send more for a while. A job inviting many
+  people should spread them out.
+- **Recurring events:** `GOOGLECALENDAR_EVENTS_INSTANCES` lists the
+  occurrences; changing one is a patch on that occurrence's id. Changing the
+  series changes every one.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in gave read-only or free-time access, and the tool writes | "Google Calendar is only partly connected: adding events needs access you didn't give. Sign in again and allow it, or I'll only read." |
-| Refused, rate or invitation limit (403 or 429) | Too many calls, or too many invitations sent | "Google asked us to slow down sending invitations. The rest go in a few minutes." |
+| Refused, rate or invitation limit (403 or 429) | Too many calls, or too many invitations sent | "Google asked us to slow down. The rest goes in a few minutes." |
 | The event isn't found (404, or 410 "deleted") | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
 | A conflict (409) | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |
 | The sign-in no longer works (401) | Removed, or expired | "Google Calendar needs you to sign in again. Nothing was changed." |

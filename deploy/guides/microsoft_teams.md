@@ -1,6 +1,6 @@
 # Microsoft Teams
 
-Checked: 2026-11-13 · Sources: the connection service's Microsoft Teams tool
+Checked: 2026-11-14 · Sources: the connection service's Microsoft Teams tool
 definitions as planque reads them (237 tools), and Microsoft Teams' API
 documentation (messages, channels, chats, teams, throttling, errors).
 
@@ -24,17 +24,17 @@ Read means it changes nothing in Teams. The catalog's entries give no
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `MICROSOFT_TEAMS_LIST_USER_JOINED_TEAMS` | Lists the teams the person belongs to | read | team ids, names, links |
+| `MICROSOFT_TEAMS_LIST_USER_JOINED_TEAMS` | Lists the teams the person belongs to | read | team ids, names |
 | `MICROSOFT_TEAMS_TEAMS_LIST_CHANNELS` | Lists a team's channels | read | channel ids, names, links |
 | `MICROSOFT_TEAMS_GET_CHANNEL` | Reads one channel | read | the channel's id, its link |
 | `MICROSOFT_TEAMS_TEAMS_LIST_CHANNEL_MESSAGES` | Lists the first messages of a channel's threads | read | message ids, links |
 | `MICROSOFT_TEAMS_LIST_MESSAGE_REPLIES` | Lists the replies in one thread | read | reply ids, the thread's id |
 | `MICROSOFT_TEAMS_GET_CHANNEL_MESSAGE` | Reads one channel message | read | the message's id, its link |
 | `MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS` | Lists the person's one-to-one, group and meeting chats | read | chat ids, links |
-| `MICROSOFT_TEAMS_GET_CHAT_MESSAGE` | Reads one chat message | read | the message's id, its chat id, its link |
+| `MICROSOFT_TEAMS_GET_CHAT_MESSAGE` | Reads one chat message | read | the message's id, its chat id |
 | `MICROSOFT_TEAMS_TEAMS_POST_CHANNEL_MESSAGE` | Starts a new thread in a channel | write, outside | the new message's id and link |
 | `MICROSOFT_TEAMS_POST_MESSAGE_REPLY` | Replies in a channel thread | write, outside | the reply's id and link |
-| `MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE` | Sends a message in an existing chat | write, outside | the new message's id and link |
+| `MICROSOFT_TEAMS_TEAMS_POST_CHAT_MESSAGE` | Sends a message in an existing chat | write, outside | the new message's id |
 | `MICROSOFT_TEAMS_SEND_MESSAGE_TO_SELF` | Sends a note to the person's own chat | write | not documented |
 
 **What to keep:** the team id and channel id the job posts to; the id of a
@@ -51,7 +51,21 @@ A note to self is the gentlest way to report.
 ## Don't offer
 
 - Deleting, archiving or cloning teams and channels, and removing members:
-  they change the organization's workspace for everyone.
+  they change the organization's workspace for everyone. The same goes for
+  creating or changing teams, channels and tabs (`MICROSOFT_TEAMS_CREATE_TEAM`,
+  `MICROSOFT_TEAMS_CREATE_CHANNEL`, `MICROSOFT_TEAMS_UPDATE_TEAM`,
+  `MICROSOFT_TEAMS_UPDATE_CHANNEL`, `MICROSOFT_TEAMS_ADD_TAB`,
+  `MICROSOFT_TEAMS_UPDATE_TAB`, `MICROSOFT_TEAMS_DELETE_TAB`) and a channel's
+  email address (`MICROSOFT_TEAMS_PROVISION_CHANNEL_EMAIL`,
+  `MICROSOFT_TEAMS_REMOVE_CHANNEL_EMAIL`).
+- Deleting or editing messages (`MICROSOFT_TEAMS_DELETE_SOFT_MESSAGE`,
+  `MICROSOFT_TEAMS_UPDATE_CHANNEL_MESSAGE`,
+  `MICROSOFT_TEAMS_UPDATE_CHAT_MESSAGE`): people may have read them already.
+- Acting as the person beyond one message: new chats or meetings
+  (`MICROSOFT_TEAMS_TEAMS_CREATE_CHAT`, `MICROSOFT_TEAMS_CREATE_MEETING`),
+  alerts (`MICROSOFT_TEAMS_SEND_ACTIVITY_NOTIFICATION`), presence
+  (`MICROSOFT_TEAMS_SET_PRESENCE*`) and hiding chats
+  (`MICROSOFT_TEAMS_HIDE_CHAT_FOR_USER`).
 - Membership and admin tools (adding people to teams, chats or groups;
   listing directory roles, licences or app grants).
 - Meeting recordings and transcripts: sensitive, and not needed for
@@ -64,15 +78,14 @@ A note to self is the gentlest way to report.
 
 - **A work or school account** with Teams is needed. Sending isn't
   supported for personal accounts.
-- **Rate, per message thread:** about one post a second in any one channel
+- **Rate:** about one post a second in any one channel
   or chat, and about one a second for one person. Reading a channel's
   messages is also held to about one call a second per channel. A job that
   posts to many places paces itself.
-- **Polling:** Teams allows checking the same thing for changes only once a
-  day. A taf that runs every few minutes reads with a date range rather than
-  re-reading everything.
-- **Throttling can come early** under heavy load, even below the listed
-  limits. Wait, and try again more slowly.
+- **Polling:** Microsoft allows checking the same thing for changes only
+  once a day. Schedule a job that reads Teams daily; one that must react
+  within minutes isn't a fit for this app.
+- **When throttled,** wait the time given, then try again more slowly.
 
 ## When it fails
 
