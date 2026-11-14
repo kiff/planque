@@ -1,6 +1,6 @@
 # Figma
 
-Checked: 2026-11-13 · Sources: the connection service's Figma tool
+Checked: 2026-11-14 · Sources: the connection service's Figma tool
 definitions as planque reads them (52 tools, [generated](generated/figma.md)),
 and Figma's REST API reference.
 
@@ -30,7 +30,7 @@ and Figma's REST API reference.
 ids of the frames the job exports. A team's id is in the team page's link:
 the API can't list the owner's teams, so ask for that link once.
 
-**Exported images are links that expire** after some days. Download what
+**Exported images are links that expire** after 30 days. Download what
 needs keeping.
 
 ## Don't offer
@@ -46,8 +46,12 @@ needs keeping.
 ## Access and plans
 
 - **Reading files and comments works on any plan,** for files the owner can
-  open.
-- **Library analytics, variables and activity logs** need Figma's top plans.
+  open, but reading files and exporting are capped: about 6 calls a month for
+  a file on the free Starter plan, and about 20 a month on a view or collab
+  seat. Offer file jobs only to an owner with a full or dev seat on a paid
+  plan.
+- **Library analytics, variables and activity logs** need Figma's Enterprise
+  plan; activity logs also need an organisation admin.
 - **Rate:** Figma limits calls per minute by plan, and image exports are
   heavier: exporting many frames at once should be split into small batches.
 - **Big files** answer slowly when read whole; read the frames the job needs.

@@ -1,6 +1,6 @@
 # Google Super
 
-Checked: 2026-11-13 · Sources: the connection service's Google Super tool
+Checked: 2026-11-14 · Sources: the connection service's Google Super tool
 definitions as planque reads them (541 tools, [generated](generated/googlesuper.md)),
 and Google's API references for the apps it spans.
 
@@ -60,7 +60,12 @@ Everything each app's guide says not to offer, and in particular:
 - deleting tools, of any app;
 - sharing and permissions (Drive, Calendar);
 - Gmail settings and forwarding;
-- Google Cloud and admin tools that come with it (projects, billing, users).
+- Google Ads changes of any kind (campaigns, budgets, bids, ads, accounts):
+  they spend the owner's money;
+- sending people's emails or other customer data to Ads or Analytics
+  audiences;
+- Analytics account and property admin, and shared drive admin (create,
+  hide, change, delete).
 
 ## Access and plans
 
