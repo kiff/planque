@@ -12,7 +12,8 @@ and Wise's API reference.
   set up. It stays active until the owner deletes it there.
 - **Ask for a read-only token.** Wise lets the owner set a token's access
   to read only or full when making it, and change it later. Ask for read
-  only when the job only reads, which is every tool here. Treat a
+  only when the job only reads. Pricing a quote is a write; whether a
+  read-only token allows it isn't checked here. Treat a
   full-access token as able to move money, keep any token to this one
   connection, and the owner can delete it in Wise when the job ends.
 - **The tools only read and quote.** None moves money: there's no transfer
