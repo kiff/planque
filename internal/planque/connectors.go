@@ -1302,10 +1302,9 @@ func reconnectRefusal(r *http.Request, g *Grant, why error, signedAs string) err
 		lang = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	c := words.Connection(lang)
+	// The account to use is only ever the one kept for this connection when
+	// it was signed out, never the refused sign-in's.
 	app, want := vendorName(g), label(g.ReconnectName)
-	if g.Connector != nil && want == "" && g.Status != StatusNeedsReconnect {
-		want = label(g.Connector.AccountName)
-	}
 	switch {
 	case why == errAccountUnknown && want == "":
 		return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.CantSignInAgainF, app, app)}
