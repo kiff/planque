@@ -2069,6 +2069,15 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		if g.Reconnect {
+			// Signed in again: the same grant, connected with what it had.
+			if err := s.reconnectConnector(r.Context(), g); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, s.view(r, g))
+			return
+		}
 		if err := s.list(r.Context(), g, ""); err != nil {
 			s.fail(w, r, err)
 			return
