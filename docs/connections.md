@@ -454,6 +454,34 @@ supported; a different client id requires a new connection. Exchanges,
 refreshes and revocations all use the approved endpoints. Vendor calls
 retain exact-call permit verification and the existing outcome handling.
 
+### Gmail with tafs's own Google client
+
+`deploy/apps.json` defines `gmail`, a REST application signing in with
+tafs's own Google OAuth client, and `deploy/catalog.json` offers it as
+`gmail-google@1`. A new Gmail connection asked for by that entry uses this
+client. Gmail connections made through the managed connector keep working
+as they are, and a request for the managed Gmail still reuses them. When a
+tool search finds both, `gmail-google@1` is listed first.
+
+The client's `client_id` and `client_secret` live only in Secrets Manager.
+`deploy/aws.sh` takes the secret's name from `PLANQUE_GMAIL_SECRET`,
+resolves its exact ARN, grants `GetSecretValue` on that ARN alone and sets
+`PLANQUE_APP_SECRETS` to `{"gmail": "<arn>"}`. Without that setting no app
+secret is configured, and a request for the entry is refused as unavailable
+unless credentials were provisioned through `appcredentials.Sealed`.
+
+The client's authorized redirect URI is `<PLANQUE_BASE_URL>/oauth/callback`.
+The sign-in asks for `gmail.readonly` and `gmail.compose`, with PKCE,
+`access_type=offline` and `prompt=consent` so that Google returns a refresh
+token. Both are Google "restricted" scopes: until Google verifies the app,
+its Testing-mode limits apply (only listed test users can sign in, and
+their refresh tokens expire after seven days).
+
+The reviewed operations, under `/gmail/v1/users/me`, are: list and read
+messages, read a thread, list labels, list drafts, and create, update and
+send a draft. A draft's message is Gmail's `raw` field: the whole RFC 2822
+message, base64url-encoded.
+
 ## Connection profiles and device approval
 
 A grant request, or the request that chooses its tools, may include a

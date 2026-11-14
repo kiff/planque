@@ -3,6 +3,7 @@ package planque
 import (
 	"cmp"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -64,14 +65,13 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			apps = append(apps, a)
 		}
 	}
-	tools, byTool := []foundTool{}, []foundTool{}
+	tools, byApp, byTool := []foundTool{}, []foundTool{}, []foundTool{}
 	if r.URL.Query().Get("cursor") == "" && len(apps) == 0 {
 		states, err := s.entryStates(r.Context(), tenant)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		var byApp []foundTool
 		byApp, byTool = s.reviewedTools(q, states)
 		tools = append(tools, byApp...)
 	}
@@ -89,6 +89,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "the connection catalog is unavailable")
 		return
 	}
+	managed := map[string]bool{}
 	for _, t := range found.Tools {
 		app, ok := found.Apps[t.Toolkit]
 		// The managed connector's Stripe and Qonto aren't offered: each is
@@ -96,11 +97,22 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		if !ok || directEntryFor(t.Toolkit) != "" {
 			continue
 		}
+		managed[strings.ToLower(t.Toolkit)] = true
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
 			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.ReadOnly})
 	}
-	// A reviewed entry found by a tool's words alone comes after the provider's apps.
-	tools = append(tools, byTool...)
+	// A reviewed entry found by a tool's words alone comes after the provider's
+	// apps, unless the provider found the same app (Gmail by its reviewed
+	// entry, beside the managed Gmail): then the reviewed entry comes first.
+	var lead, after []foundTool
+	for _, t := range byTool {
+		if managed[strings.ToLower(t.App)] {
+			lead = append(lead, t)
+		} else {
+			after = append(after, t)
+		}
+	}
+	tools = slices.Concat(byApp, lead, tools[len(byApp):], after)
 	writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "next_cursor": found.Next, "skipped": found.Skipped})
 }
 

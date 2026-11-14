@@ -1,0 +1,152 @@
+{
+  "gmail": {
+    "name": "Gmail",
+    "kind": "rest_oauth_app",
+    "server": "https://gmail.googleapis.com",
+    "source": "https://developers.google.com/workspace/gmail/api/reference/rest",
+    "oauth": {
+      "issuer": "https://accounts.google.com",
+      "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_endpoint": "https://oauth2.googleapis.com/token",
+      "revocation_endpoint": "https://oauth2.googleapis.com/revoke",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.compose"
+      ],
+      "no_resource_parameter": true,
+      "authorization_params": {
+        "access_type": "offline",
+        "prompt": "consent"
+      }
+    },
+    "token_endpoint_auth_method": "client_secret_post",
+    "permission_words": [
+      "Read your email and its labels",
+      "Write drafts in your Gmail and send them"
+    ],
+    "operations": {
+      "version": "v1",
+      "title": "Gmail API",
+      "operations": [
+        {
+          "name": "listMessages",
+          "method": "GET",
+          "path": "/gmail/v1/users/me/messages",
+          "summary": "users.messages.list",
+          "read_only": true,
+          "params": [
+            {"name": "q", "in": "query"},
+            {"name": "labelIds", "in": "query"},
+            {"name": "maxResults", "in": "query"},
+            {"name": "pageToken", "in": "query"}
+          ],
+          "input_schema": {"type": "object", "properties": {
+            "q": {"type": "string", "description": "Gmail search, as in the search box"},
+            "labelIds": {"type": "array", "items": {"type": "string"}},
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 500},
+            "pageToken": {"type": "string"}
+          }}
+        },
+        {
+          "name": "getMessage",
+          "method": "GET",
+          "path": "/gmail/v1/users/me/messages/{id}",
+          "summary": "users.messages.get",
+          "read_only": true,
+          "params": [
+            {"name": "id", "in": "path", "required": true},
+            {"name": "format", "in": "query"},
+            {"name": "metadataHeaders", "in": "query"}
+          ],
+          "input_schema": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "format": {"type": "string", "enum": ["minimal", "full", "raw", "metadata"]},
+            "metadataHeaders": {"type": "array", "items": {"type": "string"}}
+          }, "required": ["id"]}
+        },
+        {
+          "name": "getThread",
+          "method": "GET",
+          "path": "/gmail/v1/users/me/threads/{id}",
+          "summary": "users.threads.get",
+          "read_only": true,
+          "params": [
+            {"name": "id", "in": "path", "required": true},
+            {"name": "format", "in": "query"},
+            {"name": "metadataHeaders", "in": "query"}
+          ],
+          "input_schema": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "format": {"type": "string", "enum": ["minimal", "full", "metadata"]},
+            "metadataHeaders": {"type": "array", "items": {"type": "string"}}
+          }, "required": ["id"]}
+        },
+        {
+          "name": "listLabels",
+          "method": "GET",
+          "path": "/gmail/v1/users/me/labels",
+          "summary": "users.labels.list",
+          "read_only": true,
+          "input_schema": {"type": "object", "properties": {}}
+        },
+        {
+          "name": "listDrafts",
+          "method": "GET",
+          "path": "/gmail/v1/users/me/drafts",
+          "summary": "users.drafts.list",
+          "read_only": true,
+          "params": [
+            {"name": "q", "in": "query"},
+            {"name": "maxResults", "in": "query"},
+            {"name": "pageToken", "in": "query"}
+          ],
+          "input_schema": {"type": "object", "properties": {
+            "q": {"type": "string", "description": "Gmail search, as in the search box"},
+            "maxResults": {"type": "integer", "minimum": 1, "maximum": 500},
+            "pageToken": {"type": "string"}
+          }}
+        },
+        {
+          "name": "createDraft",
+          "method": "POST",
+          "path": "/gmail/v1/users/me/drafts",
+          "summary": "users.drafts.create",
+          "body": "fields",
+          "input_schema": {"type": "object", "properties": {
+            "message": {"type": "object", "properties": {
+              "raw": {"type": "string", "description": "The whole RFC 2822 message, base64url encoded"},
+              "threadId": {"type": "string"}
+            }, "required": ["raw"]}
+          }, "required": ["message"]}
+        },
+        {
+          "name": "updateDraft",
+          "method": "PUT",
+          "path": "/gmail/v1/users/me/drafts/{id}",
+          "summary": "users.drafts.update",
+          "params": [
+            {"name": "id", "in": "path", "required": true}
+          ],
+          "body": "fields",
+          "input_schema": {"type": "object", "properties": {
+            "id": {"type": "string"},
+            "message": {"type": "object", "properties": {
+              "raw": {"type": "string", "description": "The whole RFC 2822 message, base64url encoded"},
+              "threadId": {"type": "string"}
+            }, "required": ["raw"]}
+          }, "required": ["id", "message"]}
+        },
+        {
+          "name": "sendDraft",
+          "method": "POST",
+          "path": "/gmail/v1/users/me/drafts/send",
+          "summary": "users.drafts.send",
+          "body": "fields",
+          "input_schema": {"type": "object", "properties": {
+            "id": {"type": "string"}
+          }, "required": ["id"]}
+        }
+      ]
+    }
+  }
+}

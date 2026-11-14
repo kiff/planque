@@ -11,6 +11,8 @@ import (
 	"testing"
 )
 
+const gmailARN = "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/apps/gmail-GmAiLx"
+
 // Run the actual deployment functions against a synthetic AWS command. This
 // verifies the generated policy/environment without touching an AWS account.
 func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
@@ -30,11 +32,11 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "gmail"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
-unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED
+unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED PLANQUE_GMAIL_SECRET
 export PLANQUE_APP_RETURN=https://app.example/confirm
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
@@ -49,6 +51,7 @@ aws() {
    if [[ "$1" == --secret-id ]]; then
     if [[ "$2" == demo/doors/handoff ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu
     elif [[ "$2" == demo/kiff/events ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv
+    elif [[ "$2" == demo/apps/gmail ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/apps/gmail-GmAiLx
     else echo "$connector_arn"; fi
     return
    fi
@@ -76,6 +79,8 @@ aws() {
 				script += `current_env='{"PLANQUE_BROWSER_URL":"http://worker.demo.internal:8787","PLANQUE_BROWSER_KEY":"k","PLANQUE_STALE":"x"}'` + "\n"
 			case "kiff_events":
 				script += "export PLANQUE_KIFF_EVENT_URL=https://api.example/v1/planque/refund-events PLANQUE_KIFF_EVENT_SECRET=demo/kiff/events\n"
+			case "gmail":
+				script += "export PLANQUE_GMAIL_SECRET=demo/apps/gmail\n"
 			case "kiff_events_half":
 				script += "export PLANQUE_KIFF_EVENT_URL=https://api.example/v1/planque/refund-events\n"
 			case "switches_kept":
@@ -124,7 +129,8 @@ aws() {
 						granted++
 						if action != "secretsmanager:GetSecretValue" || (stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" &&
 							!(scenario == "handoff" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu") &&
-							!(scenario == "kiff_events" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv")) {
+							!(scenario == "kiff_events" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv") &&
+							!(scenario == "gmail" && stmt.Resource == gmailARN)) {
 							t.Fatal("secret permission was broader than the exact configured resource")
 						}
 					}
@@ -164,14 +170,26 @@ aws() {
 			} else if env.Variables["PLANQUE_KIFF_EVENT_URL"] != "" || env.Variables["PLANQUE_KIFF_EVENT_SECRET"] != "" {
 				t.Fatal("KIFF's event settings appeared from nowhere")
 			}
+			// The registered apps ship with every deployment of planque; Gmail's
+			// client secret is mapped, and readable, only when it is named.
+			if apps := env.Variables["PLANQUE_APPS_FILE"]; apps != "/var/task/apps.json" && scenario != "fake" || apps != "" && scenario == "fake" {
+				t.Fatalf("the registered apps file: %q", apps)
+			}
+			if scenario == "gmail" {
+				if granted != 2 || env.Variables["PLANQUE_APP_SECRETS"] != `{"gmail": "`+gmailARN+`"}` {
+					t.Fatalf("Gmail's client secret was not mapped or granted alone: %d %q", granted, env.Variables["PLANQUE_APP_SECRETS"])
+				}
+			} else if env.Variables["PLANQUE_APP_SECRETS"] != "" {
+				t.Fatal("app secrets appeared from nowhere")
+			}
 			if scenario == "kiff_events" {
 				// Checked above, with the connector's secret beside KIFF's.
 			} else if scenario == "handoff" {
 				if granted != 2 || env.Variables["PLANQUE_DOOR_SECRET"] != "demo/doors/handoff" || env.Variables["PLANQUE_DOOR_URL"] != "https://receiver.example/v1/doors/planque" {
 					t.Fatal("handoff secret or fixed receiver was not configured")
 				}
-			} else if scenario == "enabled" || scenario == "browser" || strings.HasPrefix(scenario, "switches_") {
-				if granted != 1 || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "demo/connectors/composio" {
+			} else if scenario == "enabled" || scenario == "browser" || scenario == "gmail" || strings.HasPrefix(scenario, "switches_") {
+				if granted != 1 && scenario != "gmail" || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "demo/connectors/composio" {
 					t.Fatal("managed connector was not configured")
 				}
 			} else if granted != 0 || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "" {
@@ -274,14 +292,13 @@ aws() {
 
 // Every PLANQUE_ setting the server reads is named by the deploy script, so
 // a rerun neither drops nor forgets one. The ones left out run planque
-// locally, or (PLANQUE_APP_SECRETS) need each secret granted, which the
-// script doesn't do: it isn't set on the function.
+// locally.
 func TestDeploymentNamesEverySettingTheServerReads(t *testing.T) {
 	script, err := os.ReadFile("../../deploy/aws.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	notByTheScript := map[string]bool{"PLANQUE_ADDR": true, "PLANQUE_LOCAL_KEY": true, "PLANQUE_APPS_FILE": true, "PLANQUE_APP_SECRETS": true}
+	notByTheScript := map[string]bool{"PLANQUE_ADDR": true, "PLANQUE_LOCAL_KEY": true}
 	src, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)

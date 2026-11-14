@@ -396,5 +396,133 @@
         }
       ]
     }
+  },
+  "gmail-google@1": {
+    "vendor": "Gmail",
+    "title": "Gmail: read mail, write and send drafts",
+    "application": "gmail",
+    "tools": [
+      {
+        "tool": "listMessages",
+        "name": "gmail_list_messages",
+        "title": "Find messages",
+        "read_only": true
+      },
+      {
+        "tool": "getMessage",
+        "name": "gmail_get_message",
+        "title": "Read one message",
+        "read_only": true
+      },
+      {
+        "tool": "getThread",
+        "name": "gmail_get_thread",
+        "title": "Read one conversation",
+        "read_only": true
+      },
+      {
+        "tool": "listLabels",
+        "name": "gmail_list_labels",
+        "title": "List the labels",
+        "read_only": true
+      },
+      {
+        "tool": "listDrafts",
+        "name": "gmail_list_drafts",
+        "title": "List the drafts",
+        "read_only": true
+      },
+      {
+        "tool": "createDraft",
+        "name": "gmail_create_draft",
+        "title": "Write a draft"
+      },
+      {
+        "tool": "updateDraft",
+        "name": "gmail_update_draft",
+        "title": "Change a draft"
+      },
+      {
+        "tool": "sendDraft",
+        "name": "gmail_send_draft",
+        "title": "Send a draft"
+      }
+    ],
+    "profile": {
+      "v": "kiff.profile.v1",
+      "vendor": "Gmail",
+      "transport": "rest",
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "catalog_entry": "gmail-google@1",
+      "test_proven": false,
+      "operations": [
+        {
+          "tool": "gmail_list_messages",
+          "title": "Find messages",
+          "kind": "read"
+        },
+        {
+          "tool": "gmail_get_message",
+          "title": "Read one message",
+          "kind": "read",
+          "resource": {
+            "arg": "id",
+            "noun": "message"
+          }
+        },
+        {
+          "tool": "gmail_get_thread",
+          "title": "Read one conversation",
+          "kind": "read",
+          "resource": {
+            "arg": "id",
+            "noun": "conversation"
+          }
+        },
+        {
+          "tool": "gmail_list_labels",
+          "title": "List the labels",
+          "kind": "read"
+        },
+        {
+          "tool": "gmail_list_drafts",
+          "title": "List the drafts",
+          "kind": "read"
+        },
+        {
+          "tool": "gmail_create_draft",
+          "title": "Write a draft",
+          "kind": "write",
+          "effect": "none_until_approved",
+          "shape": "single"
+        },
+        {
+          "tool": "gmail_update_draft",
+          "title": "Change a draft",
+          "kind": "write",
+          "effect": "none_until_approved",
+          "shape": "single",
+          "resource": {
+            "arg": "id",
+            "noun": "draft"
+          }
+        },
+        {
+          "tool": "gmail_send_draft",
+          "title": "Send a draft",
+          "kind": "write",
+          "effect": "sends",
+          "shape": "single",
+          "resource": {
+            "arg": "id",
+            "noun": "draft",
+            "outside": true
+          }
+        }
+      ]
+    }
   }
 }

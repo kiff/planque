@@ -28,7 +28,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 	e := newInProcessEnv(t)
 	e.enrol()
-	if e.s.CatalogEntries, err = DecodeCatalog(conf, nil); err != nil {
+	if e.s.CatalogEntries, err = DecodeCatalog(conf, shippedApps(t)); err != nil {
 		t.Fatal(err)
 	}
 	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}

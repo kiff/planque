@@ -35,6 +35,13 @@
 # (PLANQUE_CATALOG_FILE). Each key entry pins its description's SHA-256; the
 # descriptions it names live in deploy/specs.
 #
+# deploy/apps.json, the registered vendor apps (Gmail with tafs's own
+# Google client), ships with it too (PLANQUE_APPS_FILE). PLANQUE_GMAIL_SECRET
+# optionally names the Secrets Manager secret holding that client's
+# {client_id, client_secret}: its exact ARN is resolved as the connector's
+# is, the function may read that one secret, and PLANQUE_APP_SECRETS maps
+# gmail to it. Without it, no app secret is configured.
+#
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
 # FAKEVENDOR=1 deploys the fake vendor (an MCP server behind its own OAuth,
@@ -76,7 +83,9 @@ build() {
     cp "$ROOT/deploy/server-apps.json" "$out/server-apps.json"
     # The reviewed vendor catalog, read at start too.
     cp "$ROOT/deploy/catalog.json" "$out/catalog.json"
-    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json)
+    # The registered apps the catalog's entries may name.
+    cp "$ROOT/deploy/apps.json" "$out/apps.json"
+    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json apps.json)
   else
     (cd "$out" && zip -q function.zip bootstrap)
   fi
@@ -104,12 +113,14 @@ role() {
       return 1
     fi
     local secret_reference
-    for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}" "${PLANQUE_KIFF_EVENT_SECRET:-}"; do
+    GMAIL_SECRET_ARN=""
+    for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}" "${PLANQUE_KIFF_EVENT_SECRET:-}" "${PLANQUE_GMAIL_SECRET:-}"; do
       [[ -z "$secret_reference" ]] && continue
       local connector_secret
       connector_secret=$(aws secretsmanager describe-secret --secret-id "$secret_reference" --query ARN)
       [[ "$connector_secret" == arn:aws:secretsmanager:"$REGION":"$ACCOUNT":secret:* ]] || { echo "the configured connector secret could not be resolved" >&2; return 1; }
       stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"$connector_secret\"}"
+      if [[ "$secret_reference" == "${PLANQUE_GMAIL_SECRET:-}" ]]; then GMAIL_SECRET_ARN=$connector_secret; fi
     done
   fi
   aws iam put-role-policy --role-name "$ROLE" --policy-name "$ROLE" \
@@ -178,7 +189,8 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # ("v1", "false") to turn it off. cmd/planque checks every PLANQUE_
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
-    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json"}
+    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json"}
+if sys.argv[4]: v["PLANQUE_APP_SECRETS"]=json.dumps({"gmail": sys.argv[4]})
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
@@ -186,7 +198,7 @@ for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","
     if now.get(k) and not v.get(k): v[k]=now[k]
 for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
-print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
+print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS" "${GMAIL_SECRET_ARN:-}"
   fi
 }
 
