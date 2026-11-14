@@ -79,6 +79,9 @@ type connectorFixture struct {
 	granted                   string
 	search                    bool
 	searchScopes, replyScopes []string
+	// searchDescribed describes the search's q, as a provider's read does,
+	// so it reads as read-only.
+	searchDescribed bool
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -274,8 +277,12 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			items := tool
 			if f.search {
 				searchScopes, _ := json.Marshal(f.searchScopes)
+				searchQ := ""
+				if f.searchDescribed {
+					searchQ = `,"description":"Words to search the tickets for"`
+				}
 				items += `,{"slug":"DESK_DEMO_SEARCH","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Search tickets","tags":["readOnlyHint"],"scopes":` + string(searchScopes) +
-					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"}},"additionalProperties":false}}`
+					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"` + searchQ + `}},"additionalProperties":false}}`
 			}
 			body = `{"items":[` + items + `]}`
 		} else {
@@ -1562,5 +1569,41 @@ func TestARefusedNarrowedSignInIsLoggedWithTheProvidersReason(t *testing.T) {
 	}
 	if strings.Contains(out["error"].(string), "Custom scopes") {
 		t.Fatalf("the provider's words reached the person: %v", out)
+	}
+}
+
+// The body Coach's connect sends for an app's catalog entry, setup reads
+// and all (name-the-tools@13), is taken, never a 400 on setup_reads: the
+// reads are planned tools like the rest, so the sign-in is narrowed to
+// what they all need, here a read-only scope (14 Nov: Gmail's connect was
+// refused for setup_reads, and its retry, with no tools, asked for full
+// mail), and they can be bound once signed in.
+func TestAManagedConnectTakesItsSetupReadsAsPlannedTools(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	const mail = "https://mail.google.com/"
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"the read as a tool", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_SEARCH"}}},
+		{"the read as a setup read", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "setup_reads": []string{"desk_demo_search"}}},
+		{"both, as name-the-tools sends them", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_SEARCH"}, "setup_reads": []string{"DESK_DEMO_SEARCH"}}},
+	} {
+		e, f := newConnectorFixture(t)
+		f.managed, f.search, f.noRecommend, f.searchDescribed = true, true, true, true
+		f.ceiling = []string{mail, g + "gmail.modify", g + "gmail.readonly", g + "userinfo.email"}
+		f.searchScopes = []string{mail, g + "gmail.modify", g + "gmail.readonly"}
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", c.body, nil, "k_setup")
+		if st != 201 {
+			t.Fatalf("%s: %d %v", c.name, st, out)
+		}
+		gr, _ := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+		conn := gr.Request.Connector
+		if !slices.Equal(conn.AskedTools, []string{"DESK_DEMO_SEARCH"}) || conn.UsualAccess || len(gr.Request.Tools) != 0 {
+			t.Fatalf("%s: asked %v, usual %v, granted %v", c.name, conn.AskedTools, conn.UsualAccess, gr.Request.Tools)
+		}
+		if len(f.scopedMade) != 1 || !strings.HasSuffix(f.scopedMade[0], `["`+g+`gmail.readonly"]`) {
+			t.Fatalf("%s: the sign-in asks for %v, want gmail.readonly alone", c.name, f.scopedMade)
+		}
 	}
 }
