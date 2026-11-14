@@ -49,7 +49,9 @@ how many, and the first message is shown to the owner.
 ## Don't offer
 
 - Marketing messages to lists (`WHATSAPP_SEND_MARKETING_MESSAGE`): each one
-  is charged, and they reach people who didn't write first.
+  is charged, and WhatsApp's policy requires the customer's opt-in before a
+  business writes to them first.
+- Messaging anyone who hasn't opted in to hear from the business.
 - Account, number and template administration: registering or removing
   numbers, creating or deleting templates, business solutions, groups,
   blocking users, flows.

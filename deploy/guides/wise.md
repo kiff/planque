@@ -10,6 +10,10 @@ and Wise's API reference.
   The owner makes it in Wise's account settings (Accounting integrations,
   Developer tools, API tokens), on the website, with 2-step verification
   set up. It stays active until the owner deletes it there.
+- **Treat the token as able to move money.** Wise documents a personal
+  token as reaching quotes, recipients and transfers, and no read-only
+  setting for it. Paste one only for a job that needs Wise, keep it to the
+  one connection, and the owner can delete it in Wise when the job ends.
 - **The tools only read and quote.** None moves money: there's no transfer
   in this app, by design.
 - **One approval for the key, one for the tools and the Card.**
@@ -38,6 +42,8 @@ nothing. The owner makes any transfer in Wise.
 
 - Any job that sends money. None of these tools makes or funds a transfer,
   and a taf never asks for one.
+- Asking for a token for a job that doesn't need Wise: the token itself can
+  create transfers, even though the taf's tools can't.
 
 ## Access and plans
 
@@ -53,7 +59,7 @@ nothing. The owner makes any transfer in Wise.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| The token is refused (401) | Wrong, or deleted in Wise | "Wise didn't accept the token. Make a new one in Wise's settings and paste it again." |
+| The token is refused (401) | Wrong, or deleted in Wise | "Wise didn't accept the token. If you still want this job, make a new one in Wise's settings and paste it again; nothing was moved." |
 | Refused (403) | The token can't reach this, or Wise wants a stronger check | "Wise doesn't let this connection do that step, or wants a stronger check that only you can give in Wise. The taf will do without it." |
 | A quote is refused | A currency pair or amount Wise doesn't take | "Wise can't price that: the currency or amount isn't supported." |
 | Too many calls | Over Wise's rate | "Wise asked us to slow down. The taf will try again in a minute." |
