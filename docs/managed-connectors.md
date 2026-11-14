@@ -99,10 +99,12 @@ The account-authenticated catalog endpoints include upstream discovery:
    this way a day (429 after). Every grant view says who holds the sign-in
    (`custody`: `provider` here, `planque` for a sign-in planque holds). It returns
    a pending grant and no sign-in link (`needs_key: false`). Its text names
-   the app and the taf. For `API_KEY` it says the owner will enter their app
-   key on the connection service's page, the service keeps it and the taf
-   never sees it; `BEARER_TOKEN` says the same about a token. OAuth keeps its
-   sign-in wording. The config ID and scheme are part of the signed request,
+   the app and the taf, and says who keeps the sign-in in plain words, never a
+   service's name: "Your <app> sign-in is kept by our sign-in partner; the
+   taf never sees it" (the owner signs these words, so a third party keeping
+   it is said before the approval). For `API_KEY` it says the owner will enter
+   their app key on our sign-in partner's page, which keeps it, and the taf
+   never sees it; `BEARER_TOKEN` says the same about a token. The config ID and scheme are part of the signed request,
    so later catalog changes cannot rewrite an existing grant's words. If an
    app has several enabled configs, the adapter selects the lowest ID in
    lexical order, independently of page ordering, and pins that config.
@@ -120,17 +122,21 @@ The account-authenticated catalog endpoints include upstream discovery:
    account's on-demand set-ups for the day, as setting up an app does. Slugs
    are compared in upper case, as the provider names them. The scopes and the tools are
    in the signed request (`asked_tools`, `scopes`), the words say "<app> is
-   asked only for what this taf uses: …", and the grant binds only those
+   asked only for what this taf's actions need.", and the grant binds only those
    tools later (409 for another: a new connection asks for it).
 
    When the provider can't narrow it (no ceiling, a tool outside it, its
    recommendation failing, an operator's own sign-in, or the account's
    set-ups for the day used), the sign-in asks
    for the app's usual access, recorded as `usual_access` so a later
-   narrowing can replace it, and the words say it plainly: "<app> will ask
-   for more access than this taf uses. The taf can still only use: …". KIFF's
-   Card stays the boundary either way: the taf calls only the tools its Card
-   grants. A reused sign-in carries its narrowing to the new grant.
+   narrowing can replace it, and the words say it plainly, with why: "<app>
+   will ask for more access than this taf uses, because its sign-in can't be
+   narrowed to this taf's actions.", and the card ends "Sign in, then approve
+   its actions: the taf gets only those, nothing before." Neither names the tools: the asked ones are the provider's names
+   ("Fetch message by thread id"), and the actions to approve come next, each
+   by the title the taf's request gives it. KIFF's Card stays the boundary
+   either way: the taf calls only the tools its Card grants. A reused sign-in
+   carries its narrowing to the new grant.
 3. The owner's device signs `/approve` with that grant's digest. Only then
    is a scoped hosted sign-in created: `/tool_router/session` pins the approved
    config through `auth_configs`, and `/tool_router/session/{id}/link` creates

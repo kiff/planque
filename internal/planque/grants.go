@@ -176,7 +176,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Agent  string `json:"agent"`
 		// AgentName is the taf's name for people ("Overdue invoice
 		// reminders"), optional: the words name the taf by it, never by its
-		// agent id, which goes under Details (kiff/tafs#476).
+		// agent id (kiff/tafs#476).
 		AgentName string         `json:"agent_name"`
 		Tools     *[]ToolRequest `json:"tools"`
 		// An API-key grant (kiff/planque#64): its kind and the API it calls.
@@ -692,8 +692,8 @@ func texts(build func(w words.Approval) string) (string, map[string]string) {
 }
 
 // tafWords names the taf for the owner: its name when the request gave one,
-// else "this taf", never its agent id, which goes under Details
-// (requestTerms, kiff/tafs#476: the owner read "for the taf reminders-5mgnsmce").
+// else "this taf", never its agent id, which no card shows
+// (kiff/tafs#476: the owner read "for the taf reminders-5mgnsmce").
 func tafWords(w words.Approval, q Request) string {
 	if q.AgentName != "" {
 		return q.AgentName
@@ -927,8 +927,9 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 		out = append(out, line)
 	}
 	// Then the ids the words don't name (kiff/tafs#476): for a managed
-	// connection its account and each action's exact version, and the
-	// taf's agent.
+	// connection its account and each action's exact version. Never the
+	// taf's agent id: the words name the taf, and an id means nothing to
+	// the owner (it stays in the request the phone signs).
 	if q.Connector != nil {
 		if q.Connector.Account != "" {
 			out = append(out, "Only the connected account "+q.Connector.Account)
@@ -936,9 +937,6 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 		for _, t := range q.Connector.Tools {
 			out = append(out, t.Name+" ("+t.Slug+", "+t.Version+")")
 		}
-	}
-	if q.Agent != "" {
-		out = append(out, "For the taf's agent "+q.Agent)
 	}
 	return out
 }
