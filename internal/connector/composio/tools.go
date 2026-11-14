@@ -28,6 +28,7 @@ type wireTool struct {
 	Tags       []string        `json:"tags"`
 	Scopes     []string        `json:"scopes"`
 	Deprecated bool            `json:"is_deprecated"`
+	Output     json.RawMessage `json:"output_parameters"`
 }
 
 func (w wireTool) tool() (connector.Tool, error) {
@@ -36,6 +37,9 @@ func (w wireTool) tool() (connector.Tool, error) {
 		return connector.Tool{}, err
 	}
 	t := connector.Tool{Slug: w.Slug, Toolkit: w.Toolkit.Slug, Version: w.Version, Name: w.Name, Description: w.Description, InputSchema: schema, Scopes: w.Scopes}
+	if len(w.Output) > 0 && len(w.Output) <= 256<<10 && json.Valid(w.Output) {
+		t.Output = w.Output
+	}
 	// Read-only only when the provider tags it so and nothing about it says
 	// it can change things (connector.MayChange): unknown means a write.
 	for _, tag := range w.Tags {

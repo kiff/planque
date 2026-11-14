@@ -67,6 +67,13 @@ type Server struct {
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
+	// CatalogOperators may draft, review, publish and retire the catalog
+	// kept as data (catalog_store.go), by their credential and device.
+	CatalogOperators map[string]CatalogOperator
+	catalogCache     catalogCache
+	// described keeps each pinned description's parse (describeEntry), so a
+	// read of a revision never downloads and parses it twice.
+	described describedCache
 	// ServerApps is the reviewed list of which app a vendor's own server
 	// is: its server, and the catalog entry it belongs to (entry.go).
 	ServerApps map[string]string
@@ -144,9 +151,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
+	// The catalog kept as data, for its operators (catalog_store.go).
+	mux.HandleFunc("GET /v1/catalog-entries", s.listCatalogEntries)
+	mux.HandleFunc("POST /v1/catalog-entries", s.draftCatalogEntry)
+	mux.HandleFunc("GET /v1/catalog-entries/{id}", s.getCatalogEntry)
+	mux.HandleFunc("PUT /v1/catalog-entries/{id}", s.changeCatalogEntry)
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/review", s.reviewCatalogEntry)
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/publish", s.signCatalogEntry("publish"))
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/retire", s.signCatalogEntry("retire"))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/tools", s.searchTools)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/{entry}/events", s.catalogEvents)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/{entry}/guide", s.catalogGuide)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/catalog/{entry}/grants", s.refusalsLogged(s.requestCatalogGrant))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants", s.refusalsLogged(s.requestGrant))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/api/operations", s.refusalsLogged(s.apiOperations))
@@ -159,6 +175,7 @@ func (s *Server) Handler() http.Handler {
 		writeErr(w, http.StatusGone, "reading what a sign-in covers was removed: nothing is read through a vendor's tools before the owner approves them. Ask the owner which account and mode it is")
 	})
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/tools", s.setTools)
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/tools", s.withdrawTools)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/read", s.setupRead)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/key", s.signed(s.giveKey))
@@ -223,6 +240,9 @@ func (e apiError) Error() string { return e.msg }
 type apiCoded struct {
 	apiError
 	code string
+	// words, when set, is the person's line, in their language: the apps
+	// show it as sent, never a line of their own for the status.
+	words string
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -237,9 +257,18 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
+	var rf *toolRefusal
+	if errors.As(err, &rf) {
+		writeRefusal(w, rf)
+		return
+	}
 	var ce apiCoded
 	if errors.As(err, &ce) {
-		writeJSON(w, ce.status, map[string]string{"error": ce.msg, "code": ce.code})
+		body := map[string]string{"error": ce.msg, "code": ce.code}
+		if ce.words != "" {
+			body["words"] = ce.words
+		}
+		writeJSON(w, ce.status, body)
 		return
 	}
 	var ae apiError
@@ -348,8 +377,9 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 	// Signed together with another request (kiff.requests.v1): the phone
 	// signed this request's message's hash beside the other's, once, with
 	// its approval key. The use is this request's alone.
-	var own string
+	var own, request string
 	if sg.With != "" {
+		request = string(msg)
 		sum := sha256.Sum256(msg)
 		own = hex.EncodeToString(sum[:])
 		if own == sg.With {
@@ -357,7 +387,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 		}
 		msg = device.RequestsMessage(tenant, sg.At, own, sg.With)
 	}
-	a := Approval{Message: string(msg), Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
+	a := Approval{Message: string(msg), Request: request, Body: string(body), Signature: sg.Signature, SignedAt: sg.At, ApprovedAt: s.now().UTC()}
 	// What the replay record names as the signer, with the message.
 	if sg.Device == "" {
 		return Approval{}, apiError{http.StatusUnauthorized, "this device isn't known to KIFF: sign in to KIFF on it again"}
@@ -436,16 +466,16 @@ func keyFits(kind string, v kiff.Verified, window string, windowRequired bool) e
 		return nil
 	}
 	if kind == kindCritical {
-		return apiCoded{apiError{http.StatusForbidden, "this widens what a taf may do: sign it with the phone's approval key, behind its fingerprint or face"}, "critical_key_required"}
+		return apiCoded{apiError{http.StatusForbidden, "this widens what a taf may do: sign it with the phone's approval key, behind its fingerprint or face"}, "critical_key_required", ""}
 	}
 	if window != "" {
 		if v.Window == nil || !v.Window.Open || v.Window.ID != window {
-			return apiCoded{apiError{http.StatusForbidden, "the approval window this was signed in isn't open: open one with the phone's approval key, behind its fingerprint, and sign it again"}, "window_required"}
+			return apiCoded{apiError{http.StatusForbidden, "the approval window this was signed in isn't open: open one with the phone's approval key, behind its fingerprint, and sign it again"}, "window_required", ""}
 		}
 		return nil
 	}
 	if windowRequired {
-		return apiCoded{apiError{http.StatusForbidden, "this needs the phone's approval key, or its device key inside an open approval window: open one, behind the fingerprint, and sign it again"}, "window_required"}
+		return apiCoded{apiError{http.StatusForbidden, "this needs the phone's approval key, or its device key inside an open approval window: open one, behind the fingerprint, and sign it again"}, "window_required", ""}
 	}
 	return nil
 }

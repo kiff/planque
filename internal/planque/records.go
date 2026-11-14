@@ -120,6 +120,12 @@ type Request struct {
 	// Reuse names a connected grant whose sign-in (or key) this one uses:
 	// approving it needs no second sign-in (kiff/planque#36).
 	Reuse string `json:"reuse,omitempty"`
+	// SetupReads names, by the vendor's tool name, the read-only tools a
+	// catalog entry's first request (tools: [], connect first) lets Setup
+	// read: the owner approves them with the sign-in, and they're connected
+	// once the catalog read at sign-in shows each, read-only. Left out when
+	// empty, so a request without them signs as before.
+	SetupReads []string `json:"setup_reads,omitempty"`
 	// Application is the exact registered app configuration approved for
 	// this grant. It contains public facts and a client id, never a secret.
 	Application *ApplicationApproval `json:"application,omitempty"`
@@ -151,16 +157,21 @@ type APIRequest struct {
 // kiff/planque#12 by a phone enrolled with its key name that key, and are
 // kept as they were recorded.
 type Approval struct {
-	DeviceKey   []byte    `json:"device_key,omitempty"`
-	DeviceID    string    `json:"device_id,omitempty"`
-	Subject     string    `json:"subject,omitempty"`
-	DeviceName  string    `json:"device_name,omitempty"` // as KIFF names it, for the owner to read
-	Fingerprint string    `json:"fingerprint"`           // the key's fingerprint, or KIFF's device id
-	Message     string    `json:"message"`               // the exact text signed
-	Body        string    `json:"body"`                  // the request body its hash covers
-	Signature   string    `json:"signature"`
-	SignedAt    string    `json:"signed_at"`
-	ApprovedAt  time.Time `json:"approved_at"`
+	DeviceKey   []byte `json:"device_key,omitempty"`
+	DeviceID    string `json:"device_id,omitempty"`
+	Subject     string `json:"subject,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"` // as KIFF names it, for the owner to read
+	Fingerprint string `json:"fingerprint"`           // the key's fingerprint, or KIFF's device id
+	Message     string `json:"message"`               // the exact text signed
+	// Request is this request's own message when it was signed together
+	// with another (kiff.requests.v1): Message names its SHA-256 beside the
+	// other's, so a check of what was approved (KIFF's, for Setup's reads)
+	// reads it here. Empty for a request signed alone.
+	Request    string    `json:"request,omitempty"`
+	Body       string    `json:"body"` // the request body its hash covers
+	Signature  string    `json:"signature"`
+	SignedAt   string    `json:"signed_at"`
+	ApprovedAt time.Time `json:"approved_at"`
 	// Key is which key signed, as KIFF says it (kiff/tafs#494): "device" or
 	// "critical" (the approval key, behind the fingerprint); empty before
 	// KIFF said. Window is the approval window a device-key signature was
@@ -224,6 +235,10 @@ type CatalogTool struct {
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 	ReadOnly    bool            `json:"read_only,omitempty"` // the server's readOnlyHint
+	// Returns are the ids and links a call gives back, by their path in
+	// its answer (data.id, data.spreadsheetUrl), when the vendor describes
+	// its answer: what a taf keeps to use next time, rather than search.
+	Returns []string `json:"returns,omitempty"`
 	// Method and Path are an API-key grant's operation: what a call sends.
 	Method string `json:"method,omitempty"`
 	Path   string `json:"path,omitempty"`
@@ -305,6 +320,10 @@ type Grant struct {
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.
 	Reconnect bool `json:"reconnect,omitempty"`
+	// ReconnectName is the vendor account a managed app's signed-out
+	// connection was on, as the provider named it: its new sign-in reconnects
+	// the same grant only on that same account.
+	ReconnectName string `json:"reconnect_name,omitempty"`
 	// SignedOutAt is when the vendor last ended its sign-in: KIFF is told
 	// of each sign-out once, by it.
 	SignedOutAt time.Time `json:"signed_out_at,omitzero"`
@@ -358,6 +377,14 @@ type Grant struct {
 	// is usable: the relay refuses every call until the grant is connected.
 	// Its Tools and Transport are what was registered.
 	Declared bool `json:"declared,omitempty"`
+	// Pending are a connected grant's added tools, declared in KIFF while the
+	// addition waits for the owner's approval, so the taf's Card can be
+	// drafted over them and signed with that approval (tools_and_cards). The
+	// relay lists them and refuses every call of them until approved; with
+	// the approval they join Tools, their registration and PendingTransport
+	// unchanged. The addition ending unapproved takes them out of KIFF.
+	Pending          []GrantedTool `json:"pending,omitempty"`
+	PendingTransport string        `json:"pending_transport,omitempty"`
 	// Renewal is a new sign-in the owner approved for a connected grant
 	// (gap 13 of kiff/tafs#476): its tools keep working with the sign-in in
 	// use until the approving device confirms the new one, which then

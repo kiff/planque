@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -175,7 +176,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Agent  string `json:"agent"`
 		// AgentName is the taf's name for people ("Overdue invoice
 		// reminders"), optional: the words name the taf by it, never by its
-		// agent id, which goes under Details (kiff/tafs#476).
+		// agent id (kiff/tafs#476).
 		AgentName string         `json:"agent_name"`
 		Tools     *[]ToolRequest `json:"tools"`
 		// An API-key grant (kiff/planque#64): its kind and the API it calls.
@@ -187,6 +188,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Profile     json.RawMessage `json:"profile"`
 		// A browser grant (kiff/planque#86): its sites and currency.
 		Browser *BrowserRequest `json:"browser"`
+		// SetupReads is for a catalog entry's first request alone.
+		SetupReads []string `json:"setup_reads"`
 	}
 	fromCatalog := entry != nil
 	if entry == nil {
@@ -219,11 +222,15 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			// Tools, optional, are the entry's tools the taf will use, as
 			// the tools search names them: only those are asked for.
 			Tools []string `json:"tools"`
+			// SetupReads, optional, for an entry connected first: the
+			// vendor's read-only tools Setup reads, approved with the sign-in.
+			SetupReads []string `json:"setup_reads"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
+		req.SetupReads = ask.SetupReads
 		tools, prof, err := entryTools(entry, ask.Tools)
 		if err != nil {
 			s.fail(w, r, err)
@@ -235,6 +242,20 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
 		return
+	}
+	if req.SetupReads != nil {
+		// Only an entry whose tools come from its server's list once signed
+		// in: planque knows that server, so the reads' names are checked
+		// against what it lists. A bare server's catalog is unknown before
+		// the sign-in: it connects first, then asks for its reads.
+		if !fromCatalog || entry == nil || len(entry.Tools) != 0 || entry.Kind != "" || entry.Server == "" || len(*req.Tools) != 0 {
+			writeErr(w, http.StatusBadRequest, "setup_reads goes on a catalog entry's first request, connected first (tools: []): a server connects first, then asks for its reads with its tools")
+			return
+		}
+		if msg := setupReadNames(req.SetupReads); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 	if req.AgentName != "" && label(req.AgentName) != req.AgentName {
 		writeErr(w, http.StatusBadRequest, "agent_name is the taf's name, on one line, at most "+strconv.Itoa(MaxLabel)+" characters")
@@ -262,8 +283,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if msg := checkTools(req.Agent, *req.Tools); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	if r := checkTools(req.Agent, *req.Tools); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if msg := oneOfWithoutKey(req.Kind, *req.Tools); msg != "" {
@@ -323,7 +344,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		// A managed app's sign-in, reused for another taf (kiff/tafs#476, gap 2).
 		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Request.Connector != nil {
 			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Server != "" || req.API != nil || req.Kind != "" ||
-				req.Application != "" || len(req.Profile) > 0 || req.Browser != nil || len(*req.Tools) > 0, from)
+				req.Application != "" || len(req.Profile) > 0 || req.Browser != nil || len(*req.Tools) > 0, from, false)
 			return
 		}
 	}
@@ -355,8 +376,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 				s.fail(w, r, err)
 				return
 			}
-			if msg := apiToolsCheck(snap, *req.Tools); msg != "" {
-				writeErr(w, http.StatusBadRequest, msg)
+			if r := apiToolsCheck(snap, *req.Tools); r != nil {
+				writeRefusal(w, r)
 				return
 			}
 		}
@@ -453,7 +474,8 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, AgentName: req.AgentName, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
-			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser},
+			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser,
+			SetupReads: slices.Clone(req.SetupReads)},
 		Audience: s.BaseURL + "/mcp/" + url.PathEscape(tenant) + "/" + id}
 	if entry != nil {
 		g.Request.CatalogEntry = entry.ID
@@ -514,7 +536,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 // from the app's catalog (POST …/tools), and the owner approves them on
 // their device: nothing is granted before that, and no second sign-in or
 // key is asked for. The sign-in stays while either connection uses it.
-func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant) {
+//
+// fromCatalog answers as a catalog request does ({grant, needs_key}): the
+// app was asked for by its entry, and the account already holds its sign-in.
+func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant, fromCatalog bool) {
 	switch {
 	case more:
 		writeErr(w, http.StatusBadRequest, "reusing a managed app's sign-in takes agent, agent_name and tools: [] alone: pick its tools from the catalog once it's listed")
@@ -566,15 +591,22 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("reuses", from.ID))
+	if fromCatalog {
+		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": false})
+		return
+	}
 	writeJSON(w, http.StatusCreated, s.view(r, g))
 }
 
-func checkTools(agent string, tools []ToolRequest) string {
+// checkTools says what is wrong with a request's agent and tools, or nil.
+func checkTools(agent string, tools []ToolRequest) *toolRefusal {
 	if strings.TrimSpace(agent) == "" {
-		return "agent is required: the KIFF agent of the taf that will use the account"
+		return &toolRefusal{Code: refAgentRequired, Field: "agent", Want: "the KIFF agent's id",
+			Msg: "agent is required: the KIFF agent of the taf that will use the account"}
 	}
 	if len(tools) > 20 {
-		return "tools may name at most 20 of the server's tools"
+		return &toolRefusal{Code: refTooManyTools, Field: "tools", Want: "at most 20 tools",
+			Msg: "tools may name at most 20 of the server's tools"}
 	}
 	seen := map[string]bool{}
 	// A title names its tool on the owner's approval and Card: two alike
@@ -585,32 +617,42 @@ func checkTools(agent string, tools []ToolRequest) string {
 		if name == "" {
 			name = t.Tool
 		}
+		ref := func(code, field, want, msg string) *toolRefusal {
+			return &toolRefusal{Code: code, Tool: name, Field: field, Want: want, Msg: msg}
+		}
 		switch {
 		case !toolName.MatchString(t.Tool) || !toolName.MatchString(name):
-			return "tool names must start with a letter and use letters, digits and underscores"
+			field := "name"
+			if !toolName.MatchString(t.Tool) {
+				field = "tool"
+			}
+			return ref(refToolName, field, "letters, digits and underscores, starting with a letter",
+				"tool names must start with a letter and use letters, digits and underscores")
 		case seen[name]:
-			return "tool " + name + " is asked for twice"
+			return ref(refToolTwice, "name", "each tool once", "tool "+name+" is asked for twice")
 		case (t.AmountArg != "" || t.AmountPath != "") && t.ReadOnly:
-			return "a tool that moves an amount is not read-only: " + t.Tool
+			return ref(refReadOnlyMovesAmount, "read_only", "read_only false", "a tool that moves an amount is not read-only: "+t.Tool)
 		case t.AmountArg == IdempotencyArg:
-			return IdempotencyArg + " is planque's own argument"
+			return ref(refIdempotencyReserved, "amount_argument", "", IdempotencyArg+" is planque's own argument")
 		case t.Title != "" && label(t.Title) != t.Title:
-			return "a tool's title is what it does in the owner's words, on one line, at most 100 characters: " + name
+			return ref(refToolTitle, "title", "one line, at most 100 characters",
+				"a tool's title is what it does in the owner's words, on one line, at most 100 characters: "+name)
 		case t.Title != "" && titled[strings.ToLower(t.Title)] != "":
-			return "tool " + name + " has the same title as " + titled[strings.ToLower(t.Title)] + ": give each tool its own"
+			return ref(refTitleTwice, "title", "a title of its own",
+				"tool "+name+" has the same title as "+titled[strings.ToLower(t.Title)]+": give each tool its own")
 		case t.SetupReads && !t.ReadOnly:
-			return "setup_reads is only for a read-only tool: " + name
+			return ref(refSetupReadsNotRead, "setup_reads", "a read-only tool", "setup_reads is only for a read-only tool: "+name)
 		}
 		if t.Title != "" {
 			titled[strings.ToLower(t.Title)] = name
 		}
-		if msg := checkNarrowing(t); msg != "" {
-			return msg
+		if r := checkNarrowing(t); r != nil {
+			return r
 		}
 		seen[name] = true
 	}
-	if msg := checkOneOf(tools); msg != "" {
-		return msg
+	if r := checkOneOf(tools); r != nil {
+		return r
 	}
 	return checkLookups(tools)
 }
@@ -650,8 +692,8 @@ func texts(build func(w words.Approval) string) (string, map[string]string) {
 }
 
 // tafWords names the taf for the owner: its name when the request gave one,
-// else "this taf", never its agent id, which goes under Details
-// (requestTerms, kiff/tafs#476: the owner read "for the taf reminders-5mgnsmce").
+// else "this taf", never its agent id, which no card shows
+// (kiff/tafs#476: the owner read "for the taf reminders-5mgnsmce").
 func tafWords(w words.Approval, q Request) string {
 	if q.AgentName != "" {
 		return q.AgentName
@@ -674,8 +716,43 @@ func requestText(w words.Approval, q Request, held bool, account string, catalog
 	return connectionText(w, q, held, account, catalog...) + appWords(w, q)
 }
 
+// accountLabel is the account g acts in, as the owner's text and every view
+// name it: a managed app's account by the name the provider shows, never the
+// provider's id for the connection (ca_…), which means nothing to a person.
+func accountLabel(g *Grant) string {
+	if g.Request.Connector != nil {
+		if g.Connector != nil {
+			return g.Connector.AccountName
+		}
+		return ""
+	}
+	return g.Account
+}
+
+// connectionTitle is g's name for people: its app, and its account when
+// known ("Gmail · Demo Shop"), never a provider's id.
+func connectionTitle(g *Grant) string {
+	if a := label(accountLabel(g)); a != "" {
+		return vendorName(g) + " · " + a
+	}
+	return vendorName(g)
+}
+
+// sinceOf is the day g was asked for, as YYYY-MM-DD, or "".
+func sinceOf(g *Grant) string {
+	if len(g.Request.CreatedAt) >= 10 {
+		return g.Request.CreatedAt[:10]
+	}
+	return ""
+}
+
 func connectionText(w words.Approval, q Request, held bool, account string, catalog ...CatalogTool) string {
 	if q.Connector != nil {
+		// A managed app's sign-in reused: the account it's in, by its name,
+		// so an owner who holds two can say it's the other one.
+		if q.Reuse != "" && account != "" {
+			return fmt.Sprintf(w.SignedInToF, account) + connectorText(w, q)
+		}
 		return connectorText(w, q)
 	}
 	if q.Kind == KindBrowser {
@@ -685,7 +762,7 @@ func connectionText(w words.Approval, q Request, held bool, account string, cata
 		return apiKeyText(w, q, held, account, catalog...)
 	}
 	if len(q.Tools) == 0 {
-		return fmt.Sprintf(w.DiscoverF, hostOf(q.Server), tafWords(w, q), hostOf(q.SignInAt))
+		return fmt.Sprintf(w.DiscoverF, hostOf(q.Server), tafWords(w, q), hostOf(q.SignInAt)) + setupReadWords(w, q.SetupReads)
 	}
 	return toolLines(w, q, held, account, catalog...) + w.ConnectionVault
 }
@@ -736,14 +813,67 @@ func toolLines(w words.Approval, q Request, held bool, account string, catalog .
 			reads = append(reads, toolTitle(t, catalog...))
 		}
 	}
+	b.WriteString(setupReadWords(w, reads))
+	return b.String()
+}
+
+// setupReadWords says, once for all of them, what Setup reads through the
+// connection.
+func setupReadWords(w words.Approval, reads []string) string {
 	switch len(reads) {
 	case 0:
+		return ""
 	case 1:
-		fmt.Fprintf(&b, w.SetupReadF, reads[0], SetupReadsPerDay)
+		return fmt.Sprintf(w.SetupReadF, reads[0], SetupReadsPerDay)
 	default:
-		fmt.Fprintf(&b, w.SetupReadsF, strings.Join(reads[:len(reads)-1], ", ")+" "+w.And+" "+reads[len(reads)-1], SetupReadsPerDay)
+		return fmt.Sprintf(w.SetupReadsF, strings.Join(reads[:len(reads)-1], ", ")+" "+w.And+" "+reads[len(reads)-1], SetupReadsPerDay)
 	}
-	return b.String()
+}
+
+// setupReadNames says what's wrong with the setup reads a first request
+// names, or "".
+func setupReadNames(names []string) string {
+	if len(names) == 0 || len(names) > 10 {
+		return "setup_reads names 1 to 10 of the vendor's read-only tools, by the name it lists"
+	}
+	for i, n := range names {
+		if strings.TrimSpace(n) != n || n == "" || len(n) > 128 || slices.Contains(names[:i], n) {
+			return "setup_reads names each tool once, by the name the vendor lists: " + strconv.Quote(n) + " isn't one"
+		}
+	}
+	return ""
+}
+
+// connectSetupReads connects the setup reads a first request named, once
+// the sign-in's catalog is read: each must be listed, read-only, or none is
+// connected and the grant stays listed, its reads asked again with its
+// tools (the two steps of a server). The owner approved them with the
+// sign-in, so no second approval is asked.
+func (s *Server) connectSetupReads(ctx context.Context, g *Grant, access string) error {
+	var tools []ToolRequest
+	for _, name := range g.Request.SetupReads {
+		i := slices.IndexFunc(g.Catalog, func(c CatalogTool) bool { return c.Name == name })
+		why := ""
+		switch {
+		case i < 0:
+			why = hostOf(g.Request.Server) + " lists no tool named " + name
+		case !g.Catalog[i].ReadOnly:
+			why = notReadOnly(g, name)
+		}
+		if why != "" {
+			g.event(s.now(), "Setup's reads asked with the sign-in weren't connected: "+why+"; ask for them with the taf's tools")
+			return s.saveGrant(ctx, g)
+		}
+		tools = append(tools, ToolRequest{Tool: name, Name: toolKey(name, g.ID), Title: cmp.Or(g.Catalog[i].Title, name), ReadOnly: true, SetupReads: true})
+	}
+	if err := s.freeNames(ctx, g.Tenant, g.ID, nil, tools); err != nil {
+		return err
+	}
+	// The request's tools are the reads it named, as approved; its digest
+	// stays the one the owner signed.
+	g.Request.Tools = tools
+	g.event(s.now(), "Setup's reads, approved with the sign-in, are connected now: "+strings.Join(g.Request.SetupReads, ", "))
+	return s.connect(ctx, g, access)
 }
 
 // apiKeyText is what the owner reads for an API-key grant: the key they give
@@ -797,8 +927,9 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 		out = append(out, line)
 	}
 	// Then the ids the words don't name (kiff/tafs#476): for a managed
-	// connection its account and each action's exact version, and the
-	// taf's agent.
+	// connection its account and each action's exact version. Never the
+	// taf's agent id: the words name the taf, and an id means nothing to
+	// the owner (it stays in the request the phone signs).
 	if q.Connector != nil {
 		if q.Connector.Account != "" {
 			out = append(out, "Only the connected account "+q.Connector.Account)
@@ -806,9 +937,6 @@ func requestTerms(q Request, catalog ...CatalogTool) []string {
 		for _, t := range q.Connector.Tools {
 			out = append(out, t.Name+" ("+t.Slug+", "+t.Version+")")
 		}
-	}
-	if q.Agent != "" {
-		out = append(out, "For the taf's agent "+q.Agent)
 	}
 	return out
 }
@@ -915,6 +1043,11 @@ type grantView struct {
 	// Vendor is the vendor's name for people: what its server calls itself,
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
+	// Title names the connection for people, the same in every app: its app
+	// and, when known, its account ("Gmail · Demo Shop"); Since is the day it
+	// was asked for (2026-11-13), for the app to say in its own words.
+	Title  string `json:"title"`
+	Since  string `json:"since,omitempty"`
 	Status string `json:"status"`
 	// Entry is the catalog entry for the grant's app: the one its request
 	// names, else the one planque recorded or finds for it (entry.go), empty
@@ -969,6 +1102,12 @@ type grantView struct {
 	// ModeWords is Mode in the owner's words, so every app says the same,
 	// planque's rule for an unknown mode included.
 	ModeWords string `json:"mode_words,omitempty"`
+	// UsedBy, Health and Actions are the connection as the owner's list
+	// shows it (connection_rows.go): the tafs that use it by their names,
+	// its health in plain words, and only the actions that can work for it.
+	UsedBy  []string           `json:"used_by"`
+	Health  *connectionHealth  `json:"health,omitempty"`
+	Actions []connectionAction `json:"actions"`
 }
 
 // Who holds a grant's sign-in.
@@ -998,7 +1137,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -1025,7 +1164,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	for _, t := range g.Tools {
 		v.Tools = append(v.Tools, t.Name)
 	}
-	v.Declared = g.Declared && g.Status == StatusPending
+	v.Declared = (g.Declared || len(g.Pending) > 0) && g.Status == StatusPending
 	if a := g.Approval; a != nil {
 		v.Approval = &approvalView{Fingerprint: a.Fingerprint, DeviceKey: a.DeviceKey, DeviceID: a.DeviceID, Message: a.Message,
 			Body: a.Body, Signature: a.Signature, SignedAt: a.SignedAt, ApprovedAt: a.ApprovedAt, Lang: a.Lang, Text: a.Text}
@@ -1035,6 +1174,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.Digest, v.DigestV = d, 2
 		}
 	}
+	s.fillRow(r, g, &v, time.Time{}, false)
 	return v
 }
 
@@ -1255,8 +1395,8 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	req.Tools = all[len(has):]
 	originalNames := toolNames(req.Tools)
 
-	if msg := checkTools(g.Request.Agent, req.Tools); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	if r := checkTools(g.Request.Agent, req.Tools); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if msg := oneOfWithoutKey(g.Request.Kind, req.Tools); msg != "" {
@@ -1327,6 +1467,20 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	if adding && g.Status == StatusConnected {
 		g.ConnectedProfile = slices.Clone(g.Request.Profile)
 	}
+	// Tools revised before their approval: what was declared for them goes, and the new ones are declared below.
+	// It goes before the grant is saved: if the save fails, the record still names tools KIFF no longer has,
+	// which is harmless, since taking them out again treats KIFF's "not found" as done.
+	if adding && g.Status == StatusPending {
+		if err := s.undeclareAddition(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	} else if g.Declared && g.SignedIn {
+		if err := s.undeclare(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	if g.Request.Connector != nil {
 		if err := bindConnectorTools(g, all); err != nil {
 			s.fail(w, r, err)
@@ -1336,7 +1490,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	g.Request.Profile = req.Profile
 	if !adding {
 		g.Request.Tools = req.Tools
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
 		g.Status, g.Approval = StatusPending, nil
 		g.event(s.now(), "tools set by "+me.AgentID+"; waiting for the owner's approval")
 	} else {
@@ -1348,7 +1502,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		// it will be: the approval signs all of it. The earlier approval
 		// stays on the grant until this one replaces it.
 		g.Text, g.Texts = texts(func(w words.Approval) string {
-			return additionText(w, req.Tools, g.Connected, g.Catalog) + requestText(w, g.Request, true, g.Account, g.Catalog...)
+			return additionText(w, req.Tools, g.Connected, g.Catalog) + requestText(w, g.Request, true, accountLabel(g), g.Catalog...)
 		})
 		g.Status, g.HeldUntil = StatusPending, s.now().Add(holdTTL).UTC()
 		g.event(s.now(), fmt.Sprintf("%d tools added by %s; waiting for the owner's approval; its %d tools keep working meanwhile", len(req.Tools), me.AgentID, len(g.Connected)))
@@ -1360,6 +1514,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	// The tools in KIFF while they wait, so the Card can be drafted over them and signed with this approval.
+	if adding {
+		s.declareAddition(r.Context(), g)
+	} else {
+		s.declareFirst(r.Context(), g)
 	}
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
@@ -1391,24 +1551,7 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	if g.Status == StatusPending && g.Connected != nil && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
 		// Tools added to a connected grant and never approved: they go, and
 		// the grant stays connected with what it had. Its sign-in is in use.
-		was := *g
-		g.Request.Tools, g.Connected = g.Connected, nil
-		g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
-		if g.Request.Connector != nil {
-			if err := bindConnectorTools(g, g.Request.Tools); err != nil {
-				*g = was
-				return false, err
-			}
-		}
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
-		if g.Digest, err = digest(g.Request); err != nil {
-			*g = was
-			return false, err
-		}
-		g.Status, g.HeldUntil = StatusConnected, time.Time{}
-		g.event(s.now(), "the added tools were not approved within a day; what it had stays connected")
-		if err := s.saveGrant(ctx, g); err != nil {
-			*g = was
+		if err := s.dropAddition(ctx, g, "the added tools were not approved within a day; what it had stays connected"); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -1456,6 +1599,10 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		return true, nil
 	default:
 		return false, nil
+	}
+	// Tools declared while they waited leave KIFF before the sign-in goes.
+	if err := s.undeclare(ctx, g); err != nil {
+		return false, err
 	}
 	if err := s.revokeNow(ctx, g); err != nil {
 		return false, err
@@ -1671,7 +1818,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		}
 		if re != nil && re.Refused() {
 			// The vendor doesn't let planque's client sign in: nothing the owner can do now, and trying again won't help.
-			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client"})
+			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client", ""})
 			return
 		}
 		writeErr(w, http.StatusBadGateway, "Couldn't register with "+host+": "+err.Error())
@@ -1722,7 +1869,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status,
-		"sign_in_url": oauth.AuthURL(g.Vendor, clientID, s.redirect(), state, pkce.Challenge), "expires_at": exp.UTC()})
+		"sign_in_url": oauth.AuthURL(g.Vendor, clientID, s.redirect(), state, pkce.Challenge), "app_name": s.appName(g), "expires_at": exp.UTC()})
 }
 
 // ClientName is the name a vendor shows the owner when it asks them to
@@ -1950,6 +2097,15 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		if g.Reconnect {
+			// Signed in again: the same grant, connected with what it had.
+			if err := s.reconnectConnector(r, g); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, s.view(r, g))
+			return
+		}
 		if err := s.list(r.Context(), g, ""); err != nil {
 			s.fail(w, r, err)
 			return
@@ -1982,6 +2138,13 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		if err := s.list(r.Context(), g, tok.Access); err != nil {
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
+		}
+		if len(g.Request.SetupReads) > 0 {
+			if err := s.connectSetupReads(r.Context(), g, tok.Access); err != nil {
+				s.log().WarnContext(r.Context(), "setup reads not connected", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				writeErr(w, http.StatusBadGateway, cmp.Or(g.Reason, err.Error()))
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
@@ -2181,11 +2344,11 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
-	g.VendorName = label(server.Label())
+	g.VendorName = s.serverVendorName(g, server)
 	g.Catalog = nil
 	for _, t := range listed {
 		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t)})
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
 	}
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
@@ -2204,7 +2367,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
-	if n := label(server.Label()); n != "" {
+	if n := s.serverVendorName(g, server); n != "" {
 		g.VendorName = n
 	}
 	g.Tools = nil
@@ -2313,7 +2476,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 		}
 		g.Request.Tools, g.Connected, g.Tools, g.Transports, g.Approval = had, nil, hadTools, hadTransports, hadApproval
 		g.Request.Profile, g.ConnectedProfile, g.ProfileRevision = hadProfile, nil, hadRevision
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account, g.Catalog...) })
+		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
 		if d, err := digest(g.Request); err == nil {
 			g.Digest = d
 		}
@@ -2323,6 +2486,36 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 			return err
 		}
 		return errors.New(reason)
+	}
+	// Declared while it waited (tools_and_cards): the same registration serves them now, as for a key grant.
+	if pending, transport := g.Pending, g.PendingTransport; len(pending) > 0 && sameNames(pending, g.Request.Tools[len(had):]) {
+		g.Tools = append(slices.Clone(hadTools), pending...)
+		g.Transports = append(slices.Clone(hadTransports), transport)
+		g.Pending, g.PendingTransport = nil, ""
+		g.Connected, g.Status, g.HeldUntil = nil, StatusConnected, time.Time{}
+		if err := s.saveGrant(ctx, g); err != nil {
+			g.Connected, g.Tools, g.Transports, g.Approval, g.Pending, g.PendingTransport = had, hadTools, hadTransports, hadApproval, pending, transport
+			return err
+		}
+		key, err := s.connectorKey(ctx, g.Tenant)
+		if err != nil {
+			return back(nil, "the KIFF connector key could not be opened")
+		}
+		if err := s.applyProfile(ctx, key, g); err != nil {
+			return back(toolNamesOf(pending), "KIFF did not apply the approved profile: "+err.Error())
+		}
+		var titles []string
+		for _, t := range pending {
+			titles = append(titles, toolTitle(t.ToolRequest, CatalogTool{Name: t.Tool, Title: t.Title}))
+		}
+		g.ConnectedProfile = nil
+		g.event(s.now(), "Added in KIFF: "+strings.Join(titles, ", ")+" (declared while it waited)")
+		s.setupReads(ctx, key, g)
+		return s.saveGrant(ctx, g)
+	}
+	// Declared for another set of tools than the one approved: that declaration goes first.
+	if err := s.undeclareAddition(ctx, g); err != nil {
+		return back(nil, err.Error())
 	}
 	listed, _, err := s.vendorTools(ctx, g, access)
 	if err != nil {
@@ -2394,12 +2587,143 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 	}
 	req := kiff.SetupReads{Agent: reader, Grant: g.ID, Tools: tools}
 	req.Approval.DeviceID, req.Approval.Message, req.Approval.Body, req.Approval.Signature = g.Approval.DeviceID, g.Approval.Message, g.Approval.Body, g.Approval.Signature
+	// Signed together with the Card (key_and_cards, tools_and_cards): the approve's own message, which the signed one names.
+	req.Approval.Request = g.Approval.Request
 	if err := s.KIFF.IssueSetupReads(ctx, key, req); err != nil {
 		s.log().WarnContext(ctx, "setup reads not issued", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "Setup's reads weren't set up in KIFF: "+err.Error())
 		return
 	}
 	g.event(s.now(), fmt.Sprintf("Setup reads through KIFF, on its own Card: at most %d reads a day", SetupReadsPerDay))
+}
+
+// dropAddition ends an addition nobody approved: its declared tools leave
+// KIFF, and the grant is connected with what it had, its sign-in in use. An
+// error leaves g as it was.
+func (s *Server) dropAddition(ctx context.Context, g *Grant, why string) error {
+	was := *g
+	if err := s.undeclareAddition(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	g.Request.Tools, g.Connected = g.Connected, nil
+	g.Request.Profile, g.ConnectedProfile = g.ConnectedProfile, nil
+	if g.Request.Connector != nil {
+		if err := bindConnectorTools(g, g.Request.Tools); err != nil {
+			*g = was
+			return err
+		}
+	}
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, accountLabel(g), g.Catalog...) })
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		*g = was
+		return err
+	}
+	g.Status, g.HeldUntil = StatusConnected, time.Time{}
+	g.event(s.now(), why)
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	return nil
+}
+
+// withdrawTools ends the tools waiting for the owner's approval on a
+// signed-in grant, when the owner declined them: what was declared for them
+// leaves KIFF at once, rather than after its day. An addition leaves the
+// grant connected with what it had; first tools leave it listed. Only the
+// agent that may set the grant's tools withdraws them; it takes access
+// away, never adds any.
+func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	g, err := s.loadGrant(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, errNotFound) {
+		writeErr(w, http.StatusNotFound, "no such grant")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !mayAct(me, g) {
+		writeErr(w, http.StatusForbidden, "only the agent that may set this grant's tools may withdraw them")
+		return
+	}
+	if _, err := s.expire(r.Context(), g); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	switch {
+	case g.Status == StatusPending && g.Connected != nil:
+		if err := s.dropAddition(r.Context(), g, "the added tools were declined; what it had stays connected"); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	case g.Status == StatusPending && g.SignedIn && g.Declared:
+		// A grant's first tools, declined: they leave KIFF, and the grant
+		// is listed again with its sign-in held, for other tools or its end.
+		if err := s.dropFirstTools(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	case g.Status == StatusPending && !g.SignedIn && g.Declared:
+		// A key grant declined before its key: its declared tools leave KIFF,
+		// and the request ends, as one nobody signed does. No key was given,
+		// so there's nothing to revoke.
+		was := *g
+		if err := s.undeclare(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		g.HeldUntil = time.Time{}
+		g.Status, g.Reason = StatusFailed, "declined: the owner didn't give the key"
+		g.event(s.now(), "failed: "+g.Reason+"; its declared tools left KIFF")
+		if err := s.saveGrant(r.Context(), g); err != nil {
+			*g = was
+			s.fail(w, r, err)
+			return
+		}
+	default:
+		writeErr(w, http.StatusConflict, "no tools wait for the owner's approval on this grant; it's "+g.Status)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(r, g))
+}
+
+// dropFirstTools ends a signed-in grant's first tools, declined before the
+// owner approved them: they leave KIFF, and the grant is listed again, its
+// sign-in held until its deadline. An error leaves g as it was.
+func (s *Server) dropFirstTools(ctx context.Context, g *Grant) error {
+	was := *g
+	if err := s.undeclare(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	g.Request.Tools, g.Request.Profile = []ToolRequest{}, nil
+	if c := g.Request.Connector; c != nil {
+		conn := *c
+		conn.Tools, conn.Account = nil, ""
+		g.Request.Connector = &conn
+	}
+	g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, false, "") })
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		*g = was
+		return err
+	}
+	g.Status = StatusListed
+	g.event(s.now(), "its tools were declined; it's listed again, its sign-in held")
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return err
+	}
+	return nil
 }
 
 // SetupReadsPerDay is what KIFF's Card for Setup's reads allows
@@ -2592,7 +2916,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	if key, err := s.connectorKey(r.Context(), g.Tenant); err != nil {
 		problems = append(problems, "the KIFF connector key could not be opened")
 	} else {
-		for _, t := range g.Tools {
+		for _, t := range g.inKIFF() {
 			if err := s.KIFF.Disconnect(r.Context(), key, t.Name); err != nil {
 				problems = append(problems, "KIFF kept "+t.Name+": "+err.Error())
 			}
@@ -2600,6 +2924,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
+	g.Pending, g.PendingTransport = nil, ""
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
 	switch {
 	case g.keptFor > 0:
@@ -2636,6 +2961,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		return nil, err
 	}
 	out := []grantView{}
+	uses := s.lastUses(ctx, tenant)
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -2646,7 +2972,9 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		out = append(out, s.view(r, &g))
+		v := s.view(r, &g)
+		s.fillRow(r, &g, &v, uses[g.ID], true)
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -2790,8 +3118,13 @@ type grantAPI struct {
 // connection only, as the grant's own view says them; a vendor's own
 // sign-in has no mode planque knows.
 type connection struct {
-	Agent     string    `json:"agent"`
+	Agent string `json:"agent"`
+	// AgentName is the taf's name the request gave, so the caller can tell
+	// two agents' connections apart by the taf they were asked for.
+	AgentName string    `json:"agent_name,omitempty"`
 	Vendor    string    `json:"vendor"`
+	Title     string    `json:"title"`
+	Since     string    `json:"since,omitempty"`
 	Kind      string    `json:"kind"`
 	Server    string    `json:"server,omitempty"`
 	Entry     string    `json:"entry,omitempty"`
@@ -2802,7 +3135,7 @@ type connection struct {
 }
 
 func connectionOf(g *Grant) connection {
-	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Kind: connectionKind(g), Status: g.Status}
+	c := connection{Agent: g.Request.Agent, AgentName: label(g.Request.AgentName), Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
 	switch c.Kind {
 	case KindVendorSignIn:
 		c.Server = g.Request.Server
@@ -2952,6 +3285,11 @@ func label(s string) string {
 // vendorName is the vendor as the owner reads it: its own name, else the
 // host of its server.
 func vendorName(g *Grant) string {
+	// A vendor's own reviewed server is called by its app's name, a grant
+	// stored with its server's own name ("stripe-mcp") too.
+	if n := builtinVendor(g.Request.CatalogEntry); n != "" {
+		return n
+	}
 	if g.VendorName != "" {
 		return g.VendorName
 	}

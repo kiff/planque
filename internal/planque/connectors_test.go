@@ -31,9 +31,15 @@ import (
 // The real adapter and real planque/KIFF handlers run in process. Only the
 // upstream service is synthetic; assertions inspect the outgoing wire request.
 type connectorFixture struct {
-	mu                                sync.Mutex
-	t                                 *testing.T
-	user, callback, accountStatus     string
+	mu                            sync.Mutex
+	t                             *testing.T
+	user, callback, accountStatus string
+	// accountDown makes the provider fail to answer a connected account's read (503).
+	accountDown bool
+	// accountName, when set, is the vendor account's name the provider shows (else "Demo Shop").
+	accountName string
+	// noName: the provider shows no name for the vendor account.
+	noName                            bool
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
@@ -63,6 +69,12 @@ type connectorFixture struct {
 	setUps  []string
 	sent    map[string]json.RawMessage
 	aliases map[string]bool // names already used, refused again as upstream does
+	// granted, when set, is the scope the vendor granted, as the provider
+	// keeps it on the connected account; search adds a search tool to the
+	// catalog, needing searchScopes, and replyScopes are the reply's.
+	granted                   string
+	search                    bool
+	searchScopes, replyScopes []string
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -176,14 +188,23 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		f.revocations++
 		f.revoked = append(f.revoked, strings.TrimPrefix(path, "/connected_accounts/"))
 		body = `{"success":true,"revoke_job_id":"job_demo"}`
+	case strings.HasPrefix(path, "/connected_accounts/account_demo") && f.accountDown:
+		return profileResponse(http.StatusServiceUnavailable, `{"error":{"message":"unavailable"}}`), nil
 	case strings.HasPrefix(path, "/connected_accounts/account_demo"):
 		user := f.user
 		if f.foreign {
 			user = "another_owner"
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
+		data := map[string]any{"displayName": cmp.Or(f.accountName, "Demo Shop"), "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		if f.noName {
+			delete(data, "displayName")
+		}
+		if f.granted != "" {
+			data["scope"] = f.granted
+		}
 		b, _ := json.Marshal(map[string]any{"id": strings.TrimPrefix(path, "/connected_accounts/"), "user_id": user, "status": f.accountStatus, "toolkit": map[string]string{"slug": "desk_demo"},
-			"data": map[string]any{"displayName": "Demo Shop", "livemode": "REDACTED", "stripe_user_id": "REDACTED"}})
+			"data": data})
 		body = string(b)
 	case path == "/tools" && r.URL.Query().Get("query") != "":
 		// A search by words: a tool of a set-up app, one of an app that needs setup,
@@ -239,9 +260,17 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.changed {
 			schema = `{"type":"object","properties":{"other":{"type":"number"}}}`
 		}
-		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","input_parameters":` + schema + `}`
+		replyScopes, _ := json.Marshal(f.replyScopes)
+		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","scopes":` + string(replyScopes) + `,"input_parameters":` + schema +
+			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}}}}}`
 		if path == "/tools" {
-			body = `{"items":[` + tool + `]}`
+			items := tool
+			if f.search {
+				searchScopes, _ := json.Marshal(f.searchScopes)
+				items += `,{"slug":"DESK_DEMO_SEARCH","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Search tickets","tags":["readOnlyHint"],"scopes":` + string(searchScopes) +
+					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"}},"additionalProperties":false}}`
+			}
+			body = `{"items":[` + items + `]}`
 		} else {
 			if r.URL.Query().Get("version") != "20261101_00" {
 				f.t.Error("version was not pinned")
@@ -257,7 +286,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		f.executions++
 		_ = json.NewDecoder(r.Body).Decode(&f.sent)
-		if len(f.sent) != 4 || string(f.sent["connected_account_id"]) != `"account_demo"` || string(f.sent["version"]) != `"20261101_00"` {
+		if len(f.sent) != 4 || !strings.HasPrefix(string(f.sent["connected_account_id"]), `"account_demo`) || string(f.sent["version"]) != `"20261101_00"` {
 			f.t.Error("execution did not bind the approved account and version")
 		}
 		if f.lost {
@@ -298,9 +327,16 @@ func newConnectorFixture(t *testing.T) (*env, *connectorFixture) {
 	e.s.Connectors = map[string]connector.Provider{"composio": &composio.Client{HTTP: &http.Client{Transport: f}, Secret: func(context.Context) (string, error) { return "synthetic-project-key", nil }}}
 	return e, f
 }
+
+// requestConnector asks for a sign-in of its own, even when the account holds
+// one to the app (new_sign_in): a test of a held sign-in reused asks without it.
 func requestConnector(t *testing.T, e *env) map[string]any {
 	t.Helper()
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+	ask := map[string]any{"agent": "agt_taf", "new_sign_in": true}
+	if e.tafName != "" {
+		ask["agent_name"] = e.tafName
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", ask, nil, "k_setup")
 	if st != 201 || out["needs_key"] != false {
 		t.Fatalf("request: %d %v", st, out)
 	}
@@ -605,7 +641,8 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	if !slices.Equal(f.scopedMade, []string{`planque-scoped-desk_demo-` + scopedSuffix([]string{"tickets.read"}) + `: ["tickets.read"]`}) {
 		t.Fatalf("scoped sign-ins made: %v", f.scopedMade)
 	}
-	if words := v["text"].(string); !strings.Contains(words, " Support desk is asked only for what this taf uses: List tickets.") {
+	// No provider's tool name ("List tickets" from DESK_DEMO_LIST_TICKETS): the actions come next, by their titles.
+	if words := v["text"].(string); !strings.Contains(words, " Support desk is asked only for what this taf's actions need. ") || strings.Contains(words, "List tickets") {
 		t.Fatalf("words: %q", words)
 	}
 	// The scopes are what the owner signs.
@@ -688,7 +725,9 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 			if c := g.Request.Connector; !c.UsualAccess || c.Scopes != nil || c.AuthConfig != "ac_desk_demo" || len(f.scopedMade) != 0 {
 				t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
 			}
-			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses. The taf can still only use: Reply.") {
+			// Why it asks for more, and that the taf gets only what's approved; no provider's tool name.
+			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions. Sign in, then approve its actions: the taf gets only those, nothing before.") ||
+				strings.Contains(words, "Reply.") {
 				t.Fatalf("words: %q", words)
 			}
 		})
@@ -803,7 +842,8 @@ func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
 
 // A managed connection's words name the app by its title and the taf by its
 // name, and no connection provider: what the owner reads and signs. Without a
-// name, the taf is named by its agent; a name that isn't one line is refused.
+// name, it's "this taf", and no card shows its agent id; a name that isn't one
+// line is refused.
 func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	e, _ := newConnectorFixture(t)
 	path := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
@@ -816,10 +856,10 @@ func TestConnectorGrantWordsNameTheAppAndTheTaf(t *testing.T) {
 	if vendor == "" || !strings.HasPrefix(text, "Connect "+vendor+" for Refunds. ") || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "desk_demo") {
 		t.Fatalf("words: %q (vendor %q)", text, vendor)
 	}
-	// Without a name, "this taf": its agent id is under Details, never in the words (kiff/tafs#476).
+	// Without a name, "this taf": its agent id is in neither the words nor Details (kiff/tafs#476).
 	st, out = e.do("POST", path, map[string]string{"agent": "agt_taf"}, nil, "k_setup")
 	if g, _ := out["grant"].(map[string]any); st != 201 || !strings.Contains(g["text"].(string), " for this taf. ") || strings.Contains(g["text"].(string), "agt_taf") ||
-		!slices.Contains(g["terms"].([]any), any("For the taf's agent agt_taf")) {
+		strings.Contains(mustJSONString(g["terms"]), "agt_taf") {
 		t.Fatalf("without a name: %d %v", st, out)
 	}
 	if st, out := e.do("POST", path, map[string]string{"agent": "agt_taf", "agent_name": "Refunds\nand more"}, nil, "k_setup"); st != 400 {
@@ -866,7 +906,7 @@ func TestConnectorAnyAppIsSetUpOnTheOwnersPick(t *testing.T) {
 		t.Fatalf("on demand: %d %v", st, out)
 	}
 	g := out["grant"].(map[string]any)
-	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. Your sign-in to Not set up stays with the connection service") {
+	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. Your Not set up sign-in is kept by our sign-in partner; the taf never sees it.") {
 		t.Fatalf("the on-demand grant: %v", g)
 	}
 	if st, out := e.do("POST", catalog+"/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_other"}, nil, "k_setup"); st != 201 || out["grant"].(map[string]any)["on_demand"] != true {
@@ -1203,7 +1243,7 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	}
 	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_refunds", "agent_name": "Refund requests", "tools": []any{}}, nil, "k_setup")
 	if st != 201 || out["status"] != StatusListed || out["signed_in"] != true ||
-		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in or key.") {
+		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in. Our sign-in partner keeps it; the taf never sees it.") {
 		t.Fatalf("reuse: %d %v", st, out)
 	}
 	id := out["id"].(string)
@@ -1296,4 +1336,26 @@ func TestConnectorCallbackAnswersThePersonWithAPage(t *testing.T) {
 	// The link worked once: the same callback again is a used link, as a page.
 	st, ct, body = page(u.RequestURI(), "")
 	isPage("used", st, ct, body, "This sign-in link is unknown, expired or already used.")
+}
+
+// The sign-in link comes with the app's name as people name it, so the app's
+// card says "Sign in to <app>" and never the provider's host the link goes
+// through.
+func TestASignInLinkNamesTheApp(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	v := requestConnector(t, e)
+	path := "/v1/accounts/" + tenant + "/grants/" + v["id"].(string)
+	st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+	if st != 200 || out["sign_in_url"] == nil {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, _ := url.Parse(out["sign_in_url"].(string))
+	name, _ := out["app_name"].(string)
+	if name == "" || name != e.s.appName(g) || name != g.VendorName || strings.Contains(name, link.Host) {
+		t.Fatalf("app_name %q: want the app's own name (%q), not the link's host %q", name, g.VendorName, link.Host)
+	}
 }

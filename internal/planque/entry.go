@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kiff/planque/internal/appconfig"
+	"github.com/kiff/planque/internal/mcp"
 )
 
 // telegramEntry is how an app knows a Telegram bot grant: it has no catalog
@@ -69,7 +70,7 @@ func (s *Server) deriveEntry(g *Grant) string {
 		return entry
 	}
 	match := ""
-	for id, e := range s.CatalogEntries {
+	for id, e := range s.catalogEntries() {
 		ef, server := s.entryReach(e)
 		if ef != family || !sameServer(server, r.Server) {
 			continue
@@ -87,6 +88,44 @@ func (s *Server) deriveEntry(g *Grant) string {
 // alone; a row that's an origin names every path on it, since a vendor's MCP
 // host is its own. Two rows that match with different apps make it unclear:
 // listed, with no entry, so nothing else is guessed instead.
+// entryVendor is the name people read for a reviewed catalog entry
+// ("Stripe"), or "" for none.
+func (s *Server) entryVendor(id string) string {
+	if n := builtinVendor(id); n != "" || id == "" {
+		return n
+	}
+	if e, ok := s.catalogEntries()[id]; ok {
+		if v := label(e.Vendor); v != "" {
+			return v
+		}
+		return label(e.Title)
+	}
+	return ""
+}
+
+// builtinVendor is the name people read for planque's own reviewed
+// entries, or "".
+func builtinVendor(id string) string {
+	switch id {
+	case StripeEntry:
+		return stripeVendor
+	case QontoEntry:
+		return qontoVendor
+	}
+	return ""
+}
+
+// serverVendorName is what a server's connection is called: its reviewed
+// app's name when the grant is that app's ("Stripe"), else what the server
+// calls itself. A server's own name is often its package's ("stripe-mcp"),
+// never what the owner knows the app by.
+func (s *Server) serverVendorName(g *Grant, server mcp.Server) string {
+	if n := s.entryVendor(g.Request.CatalogEntry); n != "" {
+		return n
+	}
+	return label(server.Label())
+}
+
 func (s *Server) serverApp(server string) (entry string, listed bool) {
 	conflict := false
 	for row, app := range s.ServerApps {

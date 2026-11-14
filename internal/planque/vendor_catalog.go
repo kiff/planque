@@ -90,8 +90,8 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	if _, err := deriveProfileFields(e.Profile, tools, true); err != nil {
 		return err
 	}
-	if msg := checkTools("catalog", tools); msg != "" {
-		return errors.New(msg)
+	if r := checkTools("catalog", tools); r != nil {
+		return errors.New(r.Msg)
 	}
 	if msg := oneOfWithoutKey(e.Kind, tools); msg != "" {
 		return errors.New(msg)
@@ -110,8 +110,8 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 		server, header = app.Server, app.VersionHeader
 		if app.Kind == appconfig.REST {
 			api = &APIRequest{}
-			if msg := apiToolsCheck(app.Snapshot, tools); msg != "" {
-				return errors.New(msg)
+			if r := apiToolsCheck(app.Snapshot, tools); r != nil {
+				return errors.New(r.Msg)
 			}
 		}
 	case e.Kind == KindAPIKey:
@@ -161,7 +161,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	for id, e := range s.CatalogEntries {
+	for id, e := range newestRevisions(s.catalogEntries()) {
 		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title), q) {
 			continue
 		}
@@ -319,7 +319,7 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		s.requestGrantFrom(w, r, &CatalogEntry{ID: BrowserEntry, Vendor: browserVendor, Title: "Use websites", Kind: KindBrowser})
 		return
 	}
-	entry, ok := s.CatalogEntries[id]
+	entry, ok := s.catalogEntries()[id]
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {
 			switch directEntryFor(toolkit) {

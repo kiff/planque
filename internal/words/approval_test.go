@@ -85,3 +85,38 @@ func TestTafAndCardStayNames(t *testing.T) {
 		t.Error("a language planque doesn't speak isn't English")
 	}
 }
+
+// A managed app's approval card, in every language, says who keeps the
+// sign-in (our sign-in partner, a third party: the owner signs these words)
+// with no internal name ("the connection service"), says why when the app asks for more
+// than the taf uses, and
+// names no tools (they come next, by their titles): the format takes the app
+// alone.
+func TestTheConnectCardNamesNoServiceAndSaysWhy(t *testing.T) {
+	service := regexp.MustCompile(`(?i)connection service|Verbindungsdienst|service de connexion|servicio de conexión|servizio di collegamento|serviço de ligação|koppelingsdienst|usług[ai]? połączeń|usłudze połączeń`)
+	partner := map[string]*regexp.Regexp{"en": regexp.MustCompile(`sign-in partner`), "de": regexp.MustCompile(`Anmeldepartner`), "fr": regexp.MustCompile(`partenaire de connexion`),
+		"es": regexp.MustCompile(`socio de inicio de sesión`), "it": regexp.MustCompile(`partner di accesso`), "pt": regexp.MustCompile(`parceiro de início de sessão`),
+		"nl": regexp.MustCompile(`inlogpartner`), "pl": regexp.MustCompile(`partner\w* logowania`)}
+	why := map[string]string{"en": "because", "de": "weil", "fr": "car", "es": "porque", "it": "perché", "pt": "porque", "nl": "omdat", "pl": "bo"}
+	for _, lang := range Languages {
+		a := approvals[lang]
+		for _, s := range []string{a.ConnectTitledF, a.ConnectReusedF, a.ReusedNext, a.EnterKeyF, a.EnterTokenF, a.SignInThenChoose, a.MoreAccessF, a.OnlyWhatItUsesF} {
+			if service.MatchString(s) {
+				t.Errorf("%s names the service: %q", lang, s)
+			}
+		}
+		for _, s := range []string{a.ConnectTitledF, a.ConnectReusedF, a.EnterKeyF, a.EnterTokenF} {
+			if !partner[lang].MatchString(s) {
+				t.Errorf("%s doesn't say who keeps the sign-in: %q", lang, s)
+			}
+		}
+		if !strings.Contains(a.MoreAccessF, " "+why[lang]+" ") {
+			t.Errorf("%s doesn't say why: %q", lang, a.MoreAccessF)
+		}
+		for _, f := range []string{a.MoreAccessF, a.OnlyWhatItUsesF} {
+			if got := args(f); !slices.Equal(got, []string{"1"}) {
+				t.Errorf("%s takes %v, not the app alone: %q", lang, got, f)
+			}
+		}
+	}
+}

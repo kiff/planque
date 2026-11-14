@@ -117,3 +117,33 @@ func TestOnlyAKeyGrantAskedWithItsToolsIsDeclared(t *testing.T) {
 		t.Fatalf("declared: %v", e.kiff.Connections(tenant))
 	}
 }
+
+// A key grant declined before its key withdraws its declarations at once,
+// rather than after its deadline: nothing is left in KIFF, the request ends
+// failed, and a second withdrawal finds nothing waiting.
+func TestADeclaredKeyGrantDeclinedLeavesNothingInKIFF(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	st, out := e.askAPIGrant(v, apiTools, nil)
+	if st != 201 || out["declared"] != true {
+		t.Fatalf("ask: %d %v", st, out)
+	}
+	acct := "/v1/accounts/" + tenant + "/grants/" + out["id"].(string)
+	if st, out := e.do("DELETE", acct+"/tools", nil, nil, "k_other"); st == 200 {
+		t.Fatalf("another account's agent withdrew it: %v", out)
+	}
+	st, out = e.do("DELETE", acct+"/tools", nil, nil, "k_setup")
+	if st != 200 || out["status"] != StatusFailed || out["declared"] == true {
+		t.Fatalf("decline: %d %v", st, out)
+	}
+	if c := e.kiff.Connections(tenant); len(c) != 0 {
+		t.Fatalf("still in KIFF: %v", c)
+	}
+	if st, _ := e.do("DELETE", acct+"/tools", nil, nil, "k_setup"); st != 409 {
+		t.Fatalf("declined again: %d", st)
+	}
+	if st, _ := e.giveKey(out["id"].(string), out["digest"].(string), v.key); st == 200 {
+		t.Fatal("a key was taken for a declined request")
+	}
+}

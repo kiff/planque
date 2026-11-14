@@ -71,6 +71,9 @@ type ConnectorState struct {
 	Revocation *connector.Revocation `json:"revocation,omitempty"`
 	// AccountName is the vendor account's name as the provider shows it.
 	AccountName string `json:"account_name,omitempty"`
+	// Granted are the scopes the vendor granted the sign-in, as the
+	// provider last reported them; empty when it doesn't.
+	Granted []string `json:"granted,omitempty"`
 	// Mode is the vendor account's mode, "live" or "test", as the objects
 	// permitted calls returned said it (their "livemode"), and when: live
 	// wins, so once any live object is seen it stays live. Empty is
@@ -347,7 +350,8 @@ func (s *Server) checkConnector(ctx context.Context, g *Grant) error {
 		return connector.ErrAccount
 	}
 	id := s.connectorIdentity(g)
-	if id.User != g.Connector.User || g.Connector.Account == "" || g.Request.Connector.Account != "" && g.Request.Connector.Account != g.Connector.Account {
+	// A reconnect's new sign-in is on a new provider account until it's confirmed (reconnectConnector).
+	if id.User != g.Connector.User || g.Connector.Account == "" || !g.Reconnect && g.Request.Connector.Account != "" && g.Request.Connector.Account != g.Connector.Account {
 		return connector.ErrAccount
 	}
 	a, err := p.Account(ctx, g.Connector.Account)
@@ -357,7 +361,31 @@ func (s *Server) checkConnector(ctx context.Context, g *Grant) error {
 	if a.ID != g.Connector.Account || !a.Matches(id) {
 		return connector.ErrAccount
 	}
+	if len(a.Scopes) > 0 {
+		g.Connector.Granted = a.Scopes
+	}
+	if a.Name != "" && g.Connector.AccountName == "" {
+		g.Connector.AccountName = a.Name
+	}
 	return nil
+}
+
+// grantedScopes are the scopes g's sign-in has: those the vendor granted,
+// when the provider reports them, else those a narrowed sign-in asked for;
+// nil when neither is known (the app's usual access).
+func grantedScopes(g *Grant) []string {
+	if g.Connector != nil && len(g.Connector.Granted) > 0 {
+		return g.Connector.Granted
+	}
+	if g.Request.Connector != nil {
+		return g.Request.Connector.Scopes
+	}
+	return nil
+}
+
+// uncoveredWords says, in plain words, why t can't run on g's sign-in.
+func uncoveredWords(g *Grant, t connector.Tool) string {
+	return vendorName(g) + " is only partly signed in: " + label(t.Name) + " needs access its sign-in didn't give, so it can't be used on this connection"
 }
 
 func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, providerID, toolkit string) {
@@ -392,6 +420,9 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// Tools, optional, are the provider's tools the taf will use, as the
 		// tools search names them: the sign-in asks only for what they need.
 		Tools []string `json:"tools"`
+		// NewSignIn asks for a sign-in of its own even when the account
+		// holds one to this app: another account at the app, say.
+		NewSignIn bool `json:"new_sign_in"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
@@ -405,13 +436,46 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := checkTools(ask.Agent, nil); msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+	for _, t := range ask.Tools {
+		if connector.NeverServed(toolkit, t) {
+			writeRefusal(w, notServed(t, "tools"))
+			return
+		}
+	}
+	if r := checkTools(ask.Agent, nil); r != nil {
+		writeRefusal(w, r)
 		return
 	}
 	if ask.AgentName != "" && label(ask.AgentName) != ask.AgentName {
 		writeErr(w, http.StatusBadRequest, "agent_name is the taf's name, on one line, at most "+strconv.Itoa(MaxLabel)+" characters")
 		return
+	}
+	// An app the account already holds a sign-in to, covering what the taf
+	// asks for: that sign-in is reused, with no browser and no new sign-in.
+	// The new connection is listed with no tools, and gets only those the
+	// owner approves for the new taf, never the other connection's.
+	if !ask.NewSignIn {
+		held, err := s.heldSignIn(r.Context(), tenant, providerID, toolkit, ask.Tools)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		// Checked with the provider first: one that doesn't answer ACTIVE now, or can't be checked, isn't
+		// reused (fail closed), and the owner is asked to sign in, never told "no second sign-in" over a
+		// sign-in the vendor no longer takes. One the provider says is gone is marked so (sign in again).
+		if held != nil {
+			if err := s.checkConnector(r.Context(), held); err != nil {
+				s.log().WarnContext(r.Context(), "held sign-in not reused", slog.String("grant", held.ID), slog.String("err", err.Error()))
+				if errors.Is(err, connector.ErrAccount) {
+					s.signInRefused(r.Context(), held, vendorName(held)+" no longer accepts this sign-in")
+				}
+				held = nil
+			}
+		}
+		if held != nil {
+			s.reuseConnector(w, r, tenant, me.AgentID, ask.Agent, ask.AgentName, false, held, true)
+			return
+		}
 	}
 	app, err := p.App(r.Context(), toolkit)
 	if errors.Is(err, connector.ErrNotSetUp) {
@@ -546,6 +610,23 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		s.resumeConnectorSignIn(w, r, sr, g, p)
 		return
 	}
+	// Signed out (the vendor no longer takes its sign-in): Sign in again on the
+	// connection itself. A new sign-in for this same grant, which keeps its
+	// tools, its registration in KIFF and the taf's Card; confirmed only on the
+	// same vendor account (reconnectConnector).
+	if g.Connector != nil && g.Status == StatusNeedsReconnect {
+		prev := *g.Connector
+		// The provider shows no vendor id, only the account's name: with no
+		// name kept, no new sign-in could be shown to be the same account.
+		if prev.AccountName == "" {
+			s.log().InfoContext(r.Context(), "sign in again refused: no account name kept", slog.String("grant", g.ID))
+			s.fail(w, r, reconnectRefusal(r, g, errAccountUnknown, ""))
+			return
+		}
+		g.Reconnect, g.ReconnectName, g.Reason = true, prev.AccountName, ""
+		s.startConnectorSignIn(w, r, sr.approval, g, p, "a new sign-in was approved "+sr.approval.Who()+" to reconnect")
+		return
+	}
 	// A replacement account always needs a fresh grant and tool approval.
 	// Never swap accounts underneath an already approved profile.
 	if g.Connector != nil {
@@ -557,7 +638,9 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 
 // startConnectorSignIn opens a sign-in at the provider for g and answers
 // with its link, for the approving device: g waits approved until the
-// sign-in's deadline. It says whether it did; when not, it answered why.
+// sign-in's deadline. app_name is the app the owner signs in to, as people
+// name it ("Google Sheets"), so the app's card says that and never the
+// provider's host the link goes through. It says whether it did; when not, it answered why.
 func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a Approval, g *Grant, p connector.Provider, what string) bool {
 	if s.AppReturn == "" {
 		writeErr(w, http.StatusServiceUnavailable, "sign-in confirmation is not configured")
@@ -589,7 +672,7 @@ func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a 
 		s.fail(w, r, err)
 		return false
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "expires_at": exp.UTC()})
+	writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "sign_in_url": auth.URL, "app_name": s.appName(g), "expires_at": exp.UTC()})
 	return true
 }
 
@@ -732,6 +815,10 @@ func (s *Server) connectorTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.S
 	listed := make([]mcpTool, 0, len(definitions))
 	aliases := map[string]bool{}
 	for _, t := range definitions {
+		// One approved before planque stopped serving it isn't listed; the rest still are.
+		if connector.NeverServed(t.Toolkit, t.Slug) {
+			continue
+		}
 		if t.Validate() != nil || t.Toolkit != g.Request.Connector.Toolkit || aliases[t.Alias()] {
 			return nil, mcp.Server{}, connector.ErrDefinition
 		}
@@ -765,18 +852,32 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 		return
 	}
 	tools := make([]CatalogTool, 0, len(page.Items))
+	// A tool the sign-in's scopes don't let run is never offered: it's
+	// listed apart, with why, so the taf's Card never grants it.
+	type unusable struct {
+		Name  string `json:"name"`
+		Title string `json:"title"`
+		Why   string `json:"why"`
+	}
+	unusables := []unusable{}
+	granted := grantedScopes(g)
 	for _, t := range page.Items {
 		if t.Validate() != nil || t.Toolkit != g.Request.Connector.Toolkit {
 			s.fail(w, r, connector.ErrDefinition)
 			return
 		}
+		// Kept either way, so a tool chosen that it can't run is refused with why.
 		if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: connectorToolKey(g, t.Alias()), TTL: s.now().Add(holdTTL).Unix()}, t, store.Cond{}); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly})
+		if !t.Covered(granted) {
+			unusables = append(unusables, unusable{Name: t.Alias(), Title: label(t.Name), Why: uncoveredWords(g, t)})
+			continue
+		}
+		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "next_cursor": page.Next, "skipped": page.Skipped})
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
 func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []ToolRequest) error {
 	if err := s.checkConnector(ctx, g); err != nil {
@@ -785,10 +886,16 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 	g.Catalog = nil
 	g.Connector.Tools = nil
 	for _, ask := range tools {
+		if slug, ok := connector.NeverServedAlias(g.Request.Connector.Toolkit, ask.Tool); ok {
+			return notServed(slug, "tool")
+		}
 		var definition connector.Tool
 		it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), connectorToolKey(g, ask.Tool), &definition)
 		if err != nil || it.TTL <= s.now().Unix() || definition.Alias() != ask.Tool || definition.Toolkit != g.Request.Connector.Toolkit {
 			return apiError{http.StatusBadRequest, "read the app's tool catalog before selecting this action"}
+		}
+		if !definition.Covered(grantedScopes(g)) {
+			return apiError{http.StatusConflict, uncoveredWords(g, definition) + ": choose the tools its catalog offers"}
 		}
 		g.Connector.Tools = append(g.Connector.Tools, definition)
 		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
@@ -823,12 +930,20 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 				}
 			}
 		}
+		// One the grant holds from before planque stopped serving it isn't bound again.
+		if found != nil && connector.NeverServed(found.Toolkit, found.Slug) {
+			return notServed(found.Slug, "tool")
+		}
 		if found == nil || found.Validate() != nil || found.Toolkit != g.Request.Connector.Toolkit {
 			return connector.ErrDefinition
 		}
 		// A sign-in narrowed to the tools the taf asked for serves only those.
 		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
 			return errOutsideSignIn(c.Title, found.Name)
+		}
+		// Nor one its scopes don't let run: the Card would grant a tool the vendor refuses.
+		if !found.Covered(grantedScopes(g)) {
+			return apiError{http.StatusConflict, uncoveredWords(g, *found) + ": choose the tools its catalog offers"}
 		}
 		definitions = append(definitions, *found)
 	}
@@ -855,6 +970,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
 		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
 	}
+	// Approved before planque stopped serving it: never sent, whatever the grant holds.
+	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {
+		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it can't be undone.")
+	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {
 		// The provider's definition of an approved tool was read and changed:
@@ -863,6 +982,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		// (ErrDefinition alone) pauses nothing: it's "Not sent" below.
 		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
 		return OpNotSent, refusal(CodeOperationChanged, "Not sent: "+why+".")
+	}
+	if errors.Is(err, connector.ErrAccount) {
+		// The provider says the sign-in isn't active now (expired, revoked): every connection on it signs in again.
+		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
 	}
 	if err != nil {
 		// Every error here is before the provider ran the action: a refusal
@@ -877,6 +1000,14 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		return OpNotSent, refusal(code, "Not sent: "+err.Error())
 	}
 	s.noteAccount(ctx, g, result)
+	if result.Refused && result.Status == http.StatusUnauthorized {
+		// The vendor refused the sign-in itself (401) behind a status the provider still calls active: an
+		// access its refresh can't renew. Every connection on that sign-in signs in again, and it's never reused.
+		// The person reads plain words; the vendor's own body stays in the log.
+		s.log().WarnContext(ctx, "vendor refused the sign-in", slog.String("grant", g.ID), slog.String("vendor_said", result.Reason))
+		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
+		return OpDone, toolResult(signInExpiredWords(vendorName(g)), true)
+	}
 	if result.Unknown {
 		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
@@ -956,31 +1087,17 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 
 // scopeWords is what the sign-in asks the vendor for, when the taf named its
 // tools (gap 5 of kiff/tafs#476): only what they need, or, when that couldn't
-// be narrowed, the app's usual access, said plainly. Nothing otherwise.
+// be narrowed, more, said with why. Nothing otherwise. The tools aren't named
+// here: the asked ones are the provider's names ("Fetch message by thread
+// id"), and the actions to approve come next, by the titles the taf gives them.
 func scopeWords(w words.Approval, c *ConnectorRequest) string {
 	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {
 		return ""
 	}
-	tools := toolWords(c.Toolkit, c.AskedTools)
 	if c.UsualAccess {
-		return fmt.Sprintf(w.MoreAccessF, c.Title, tools)
+		return fmt.Sprintf(w.MoreAccessF, c.Title)
 	}
-	return fmt.Sprintf(w.OnlyWhatItUsesF, c.Title, tools)
-}
-
-// toolWords names a provider's tools as people read them: "List events" for
-// GOOGLECALENDAR_LIST_EVENTS.
-func toolWords(toolkit string, slugs []string) string {
-	names := make([]string, 0, len(slugs))
-	for _, slug := range slugs {
-		words := strings.TrimPrefix(strings.ToUpper(slug), strings.ToUpper(toolkit)+"_")
-		words = strings.ToLower(strings.ReplaceAll(words, "_", " "))
-		if words != "" {
-			words = strings.ToUpper(words[:1]) + words[1:]
-		}
-		names = append(names, words)
-	}
-	return strings.Join(names, ", ")
+	return fmt.Sprintf(w.OnlyWhatItUsesF, c.Title)
 }
 
 // checkAskedTools says what's wrong with the tools a connection is asked for
@@ -1000,6 +1117,10 @@ func checkAskedTools(tools []string) string {
 // connectorTool is a provider's tool slug.
 var connectorTool = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{0,127}$`)
 
+// legacySignInThenChoose ends the words of a grant made before titles, as
+// they were signed.
+const legacySignInThenChoose = " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
+
 // connectorText is what the owner reads and signs for a managed connection.
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
@@ -1011,7 +1132,7 @@ func connectorText(w words.Approval, q Request) string {
 		// for, in the English it was signed in.
 		text := "Connect " + c.Toolkit + " through " + c.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
 		if len(q.Tools) == 0 {
-			return text + english.SignInThenChoose
+			return text + legacySignInThenChoose
 		}
 		text += " Use only connected account " + c.Account + ". Approve these exact versioned actions:"
 		for _, t := range c.Tools {
@@ -1024,11 +1145,14 @@ func connectorText(w words.Approval, q Request) string {
 	if q.Reuse != "" {
 		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
 		text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		// Nothing more is asked of the app: the held sign-in's own tools, or a
+		// wider ask, aren't this taf's, so they're never listed as if they were.
 		if len(q.Tools) == 0 {
-			return text + scopeWords(w, c) + w.ReusedNext
+			return text + w.ReusedNext
 		}
+	} else {
+		text += scopeWords(w, c)
 	}
-	text += scopeWords(w, c)
 	if q.Reuse == "" {
 		switch c.AuthScheme {
 		case "API_KEY":
@@ -1043,8 +1167,209 @@ func connectorText(w words.Approval, q Request) string {
 	// The account's id, and each action's exact version, are under Details
 	// (requestTerms): the words name them as people do (kiff/tafs#476).
 	text += fmt.Sprintf(w.OnlyYourAccountF, c.Title)
-	for _, t := range c.Tools {
-		text += " " + t.Name + "."
+	// Each action by the title the taf's request gives it, in the owner's
+	// words, the same the card's own lines use: one list, from one source.
+	// A definition with no matching titled tool keeps the provider's name.
+	for i, t := range c.Tools {
+		name := t.Name
+		if i < len(q.Tools) && q.Tools[i].Tool == t.Alias() && strings.TrimSpace(q.Tools[i].Title) != "" {
+			name = label(q.Tools[i].Title)
+		}
+		text += " " + name + "."
 	}
 	return text
+}
+
+// heldSignIn is the account's connected grant to the provider's app whose
+// sign-in covers the tools asked, the latest asked if several, or nil. A
+// sign-in narrowed to some tools covers only those: asked with none, a
+// narrowed one isn't reused, since what the taf needs isn't known. Its
+// scopes granted, when known, must let each tool asked run.
+func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string) (*Grant, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	var best *Grant
+	var definitions map[string]connector.Tool
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil {
+			continue
+		}
+		c := g.Request.Connector
+		if c == nil || c.Provider != providerID || c.Toolkit != toolkit || g.Status != StatusConnected || !g.SignedIn ||
+			g.Connector == nil || g.Connector.Account == "" {
+			continue
+		}
+		if !(c.UsualAccess || len(c.AskedTools) == 0) {
+			if len(asked) == 0 || slices.ContainsFunc(asked, func(t string) bool { return !slices.Contains(c.AskedTools, t) }) {
+				continue
+			}
+		}
+		// What the vendor granted, when known, must let each tool asked run:
+		// a sign-in granted less isn't reused for a tool it can't serve.
+		if len(g.Connector.Granted) > 0 && len(asked) > 0 {
+			if definitions == nil {
+				if definitions, err = s.toolDefinitions(ctx, providerID, toolkit, asked); err != nil {
+					return nil, err
+				}
+			}
+			if slices.ContainsFunc(asked, func(slug string) bool {
+				d, ok := definitions[slug]
+				return !ok || !d.Covered(g.Connector.Granted)
+			}) {
+				continue
+			}
+		}
+		if best == nil || g.Request.CreatedAt > best.Request.CreatedAt {
+			best = &g
+		}
+	}
+	return best, nil
+}
+
+// toolDefinitions are the provider's definitions of the app's tools named,
+// by slug, read from its tool list (at most ten pages); one it doesn't list
+// is left out.
+func (s *Server) toolDefinitions(ctx context.Context, providerID, toolkit string, slugs []string) (map[string]connector.Tool, error) {
+	p := s.Connectors[providerID]
+	if p == nil {
+		return nil, connector.ErrUnavailable
+	}
+	out := map[string]connector.Tool{}
+	cursor := ""
+	for range 10 {
+		page, err := p.Tools(ctx, toolkit, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range page.Items {
+			if slices.Contains(slugs, t.Slug) && t.Toolkit == toolkit {
+				out[t.Slug] = t
+			}
+		}
+		if len(out) == len(slugs) || page.Next == "" {
+			break
+		}
+		cursor = page.Next
+	}
+	return out, nil
+}
+
+// signInRefused marks every connected grant on g's managed sign-in (the same
+// provider account, on g's account) signed out: the owner signs in again,
+// Connect apps says so instead of "Connected", the held sign-in is never
+// reused, and KIFF is told, as for a vendor that refused a refresh. Best
+// effort: a grant that can't be saved stays as it was, for the next call.
+func (s *Server) signInRefused(ctx context.Context, g *Grant, why string) {
+	if g.Connector == nil || g.Connector.Account == "" {
+		return
+	}
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	if err != nil {
+		s.log().WarnContext(ctx, "sign-in refused: the account's connections couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return
+	}
+	for _, it := range items {
+		var other Grant
+		if json.Unmarshal(it.Doc, &other) != nil || other.Connector == nil || other.Connector.Account != g.Connector.Account || other.Status != StatusConnected {
+			continue
+		}
+		if err := s.signOut(ctx, &other, why, "refresh_refused"); err != nil {
+			s.log().WarnContext(ctx, "sign-in refused: a connection wasn't marked", slog.String("grant", other.ID), slog.String("err", err.Error()))
+		}
+	}
+}
+
+// errOtherAccount: a reconnect's sign-in was to another vendor account.
+var errOtherAccount = apiError{http.StatusConflict, "that sign-in is to another account than this connection's: sign in again to the same account, or remove access and connect the other one"}
+
+// errAccountUnknown: a reconnect whose account can't be compared, because
+// the provider showed no name for this connection's account or the new one.
+var errAccountUnknown = apiError{http.StatusConflict, "this sign-in can't be shown to be on this connection's own account, so it can't sign in again here: remove access and connect the app again"}
+
+// reconnectConnector finishes a signed-out managed connection's new sign-in,
+// once the approving device confirmed it: only on the same vendor account,
+// the grant is bound to the new provider account and connected again, with
+// its tools, its registration in KIFF and the taf's Card as they were.
+// Fail closed: the provider shows no vendor id, only the account's name, so
+// a sign-in whose name is missing (or was never kept for this connection)
+// is refused like another account's. Refused, that sign-in is revoked and
+// the connection waits signed out.
+// Codes the apps act on, for a refused new sign-in on a signed-out connection.
+const (
+	CodeOtherAccount   = "other_account"
+	CodeAccountUnknown = "account_unknown"
+)
+
+// reconnectRefusal is a refused reconnect as the owner's app reads it: a
+// code, and words in the owner's language naming the account to sign in
+// with, the connection's own (theirs, kept on the grant). signedAs is the
+// account the refused sign-in was to, when the provider named it.
+func reconnectRefusal(r *http.Request, g *Grant, why error, signedAs string) error {
+	lang := "en"
+	if r != nil {
+		lang = words.Pick("", r.Header.Get("Accept-Language"))
+	}
+	c := words.Connection(lang)
+	// The account to use is only ever the one kept for this connection when
+	// it was signed out, never the refused sign-in's.
+	app, want := vendorName(g), label(g.ReconnectName)
+	switch {
+	case why == errAccountUnknown && want == "":
+		return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.CantSignInAgainF, app, app)}
+	case label(signedAs) != "":
+		return apiCoded{errOtherAccount, CodeOtherAccount, fmt.Sprintf(c.OtherAccountF, app, label(signedAs), want)}
+	}
+	return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.OtherAccountAnyF, app, want)}
+}
+
+func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
+	ctx := r.Context()
+	refused := error(nil)
+	switch {
+	case g.ReconnectName == "" || g.Connector.AccountName == "":
+		refused = errAccountUnknown
+	case g.Connector.AccountName != g.ReconnectName:
+		refused = errOtherAccount
+	}
+	if refused != nil {
+		// Said to the owner with a code and their words, and logged: never a
+		// refusal the app can only read as "it changed". The log names the
+		// grant and the code, never an account.
+		answer := reconnectRefusal(r, g, refused, g.Connector.AccountName)
+		code := CodeAccountUnknown
+		if refused == errOtherAccount {
+			code = CodeOtherAccount
+		}
+		s.log().InfoContext(ctx, "sign in again refused", slog.String("grant", g.ID), slog.String("code", code))
+		if p, err := s.provider(g); err == nil {
+			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
+				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+			}
+		}
+		g.Status, g.Reconnect = StatusNeedsReconnect, false
+		g.event(s.now(), "the new sign-in couldn't be shown to be on this connection's account; not reconnected")
+		if err := s.saveGrant(ctx, g); err != nil {
+			return err
+		}
+		return answer
+	}
+	g.Request.Connector.Account = g.Connector.Account
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		return err
+	}
+	g.Status, g.Reconnect, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", time.Time{}
+	g.SignedOutAt = time.Time{}
+	g.event(s.now(), "signed in again on "+g.Connector.AccountName+": connected with the same tools and Card")
+	return s.saveGrant(ctx, g)
+}
+
+// signInExpiredWords is what a call refused for its sign-in says, in plain
+// words, for the taf to tell the owner: what happened, that nothing was done,
+// and where to sign in again. Never the vendor's own error body.
+func signInExpiredWords(vendor string) string {
+	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner taps Connect again on this taf to sign in to " + vendor + " again."
 }

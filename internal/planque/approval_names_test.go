@@ -9,9 +9,10 @@ import (
 	"github.com/kiff/planque/internal/profile"
 )
 
-// What the owner reads names the taf by its name, else "this taf": its agent
-// id is under Details, with the other ids (kiff/tafs#476). A request without
-// a name keeps its encoding, so its digest is as before.
+// What the owner reads names the taf by its name, else "this taf", and no
+// card shows its agent id, Details included (kiff/tafs#476): it's only in the
+// request the phone signs. A request without a name keeps its encoding, so
+// its digest is as before.
 func TestApprovalWordsNameTheTafNotItsAgent(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
@@ -31,8 +32,11 @@ func TestApprovalWordsNameTheTafNotItsAgent(t *testing.T) {
 	if !strings.Contains(text, " for Overdue invoice reminders.\n") || strings.Contains(text, "agt_reminders_5m") {
 		t.Fatalf("named: %q", text)
 	}
-	if !slices.Contains(out["terms"].([]any), any("For the taf's agent agt_reminders_5m")) {
-		t.Fatalf("terms: %v", out["terms"])
+	if terms := mustJSONString(out["terms"]); strings.Contains(terms, "agt_reminders_5m") {
+		t.Fatalf("Details show the agent id: %s", terms)
+	}
+	if out["request"].(map[string]any)["agent"] != "agt_reminders_5m" {
+		t.Fatalf("the agent isn't in the signed request: %v", out["request"])
 	}
 	if out["request"].(map[string]any)["agent_name"] != "Overdue invoice reminders" {
 		t.Fatalf("the name isn't in the signed request: %v", out["request"])
@@ -98,7 +102,8 @@ func TestManagedActionsAreNamedInWords(t *testing.T) {
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
 	action := g.Request.Connector.Tools[0]
 	text := out["text"].(string)
-	if !strings.Contains(text, " Use only your connected Support desk account. Approve these actions: "+action.Name+".") {
+	// Each action by the title the request gave it, as the card's own lines name it: one list, one source.
+	if !strings.Contains(text, " Use only your connected Support desk account. Approve these actions: Reply ticket.") || strings.Contains(text, action.Name) {
 		t.Fatalf("text: %q", text)
 	}
 	for _, id := range []string{g.Request.Connector.Account, action.Slug, action.Version, "agt_taf"} {
@@ -107,9 +112,12 @@ func TestManagedActionsAreNamedInWords(t *testing.T) {
 		}
 	}
 	terms := out["terms"].([]any)
-	for _, want := range []string{"Only the connected account " + g.Request.Connector.Account, action.Name + " (" + action.Slug + ", " + action.Version + ")", "For the taf's agent agt_taf"} {
+	for _, want := range []string{"Only the connected account " + g.Request.Connector.Account, action.Name + " (" + action.Slug + ", " + action.Version + ")"} {
 		if !slices.Contains(terms, any(want)) {
 			t.Errorf("terms lack %q: %v", want, terms)
 		}
+	}
+	if s := mustJSONString(terms); strings.Contains(s, "agt_taf") {
+		t.Errorf("Details show the agent id: %s", s)
 	}
 }

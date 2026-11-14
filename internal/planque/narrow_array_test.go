@@ -26,7 +26,7 @@ func draftInvoice() ToolRequest {
 // arguments, and the agent sees the reviewed schema for it.
 func TestAnArrayArgumentIsSentWithItsFixedArguments(t *testing.T) {
 	tool := draftInvoice()
-	if msg := checkNarrowing(tool); msg != "" {
+	if msg := checkNarrowing(tool); msg != nil {
 		t.Fatal(msg)
 	}
 	line := map[string]any{"title": "Pose", "quantity": "2", "vat_rate": "0.2", "unit_price": map[string]any{"value": "120.00", "currency": "EUR"}}
@@ -100,7 +100,7 @@ func TestAnArrayArgumentsSchemaIsChecked(t *testing.T) {
 		"a scalar with schema": {Argument{Path: "n", Type: "string", Schema: lines}, "only an array argument"},
 	} {
 		tool := ToolRequest{Tool: "create", Fixed: map[string]json.RawMessage{"status": json.RawMessage(`"draft"`)}, Arguments: map[string]Argument{"items": c.arg}}
-		if msg := checkNarrowing(tool); !strings.Contains(msg, c.want) {
+		if msg := checkNarrowing(tool); msg == nil || !strings.Contains(msg.Msg, c.want) {
 			t.Errorf("%s: %q, want %q", name, msg, c.want)
 		}
 	}
