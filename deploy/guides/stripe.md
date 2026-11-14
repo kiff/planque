@@ -79,7 +79,7 @@ the owner asked for reminders, and say each one waits for their yes.
   `PostInvoicesInvoiceMarkUncollectible`, `DeleteInvoicesInvoice`,
   `PostInvoicesInvoiceFinalize` or `PostCreditNotesIdVoid`: they charge,
   settle, void, write off, delete or finalize an invoice, or void a credit
-  note.
+  note. planque refuses each (`tool_not_served`).
 
 ## Access and plans
 

@@ -57,6 +57,13 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 	arg := func(code, name, want, msg string) *toolRefusal {
 		return &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
 	}
+	// A broad write narrowed to an operation that moves money or closes a bill for good (voiding,
+	// paying, writing off, deleting or finalizing a bill or a credit):
+	// refused before anything is asked, as a managed app's never-served tool.
+	if d, op, write, ok := narrowedTo(t); ok && write && neverSent(t.Tool, op) {
+		return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: d.OpArg, Want: "another operation",
+			Msg: fmt.Sprintf("%s: planque never narrows %s to %s: it moves money or closes a bill for good (voiding, paying, writing off, deleting or finalizing a bill or a credit), so it is refused; leave it out", tool, t.Tool, strings.TrimSpace(op))}
+	}
 	paths := map[string]bool{}
 	// In a set order, so a request names the same pin each time.
 	for _, p := range slices.Sorted(maps.Keys(t.Fixed)) {

@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -36,10 +37,70 @@ type describer struct {
 	// them. Stripe refuses stripe_api_details without stripe_context or
 	// without livemode.
 	Context []string
+	// Never are the operations a broad write is never narrowed to, and a
+	// call through it never sends: each voids, deletes, finalizes, pays or
+	// writes off a bill or a credit, and none can be taken back. As a
+	// managed app's never-served tools (connector.NeverServedTools).
+	Never []string
 }
 
 var describers = []describer{{Tool: "stripe_api_details", OpArg: "stripe_api_operation_id", Params: narrowedParams,
-	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context", "livemode"}}}
+	Writes: []string{"stripe_api_write"}, Reads: []string{"stripe_api_read"}, Context: []string{"stripe_context", "livemode"},
+	Never: []string{
+		"PostInvoicesInvoiceVoid",              // voids an invoice
+		"PostInvoicesInvoicePay",               // charges the customer now
+		"PostInvoicesInvoiceMarkUncollectible", // writes the debt off
+		"DeleteInvoicesInvoice",                // deletes a draft
+		"PostInvoicesInvoiceFinalize",          // makes a draft a bill the customer owes
+		"PostInvoicesInvoiceAttachPayment",     // pays an invoice with a payment
+		"PostCreditNotesIdVoid",                // voids a credit note
+		"PostBillingCreditGrantsIdVoid",        // voids a credit grant
+	}}}
+
+// neverSent says planque never sends op through tool, a vendor's broad
+// write (describer.Never). Matched without case or surrounding spaces, so
+// no spelling of one gets through.
+func neverSent(tool, op string) bool {
+	op = strings.TrimSpace(op)
+	for _, d := range describers {
+		if slices.Contains(d.Writes, tool) && slices.ContainsFunc(d.Never, func(n string) bool { return strings.EqualFold(n, op) }) {
+			return true
+		}
+	}
+	return false
+}
+
+// neverSentCall says why planque never sends a call through tool, a
+// vendor's broad write, or "": it names an operation that moves money or closes a bill for good
+// (the pinned one of a narrowed tool, or the one the taf set on a broad
+// one). It fails closed: arguments that aren't an object, or an operation
+// that isn't one string, are never sent either, so the guard never rests on
+// how the vendor reads them. A call that names no operation is left to the
+// vendor, which refuses it.
+func neverSentCall(tool string, vendorArgs json.RawMessage) string {
+	for _, d := range describers {
+		if !slices.Contains(d.Writes, tool) {
+			continue
+		}
+		var args map[string]json.RawMessage
+		if json.Unmarshal(vendorArgs, &args) != nil || args == nil {
+			return "planque never sends a call through " + tool + " whose arguments aren't an object"
+		}
+		raw, named := args[d.OpArg]
+		if !named {
+			return ""
+		}
+		var op string
+		// null decodes to "" without an error: it names no operation, and it isn't one string either.
+		if json.Unmarshal(raw, &op) != nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return "planque never sends a call through " + tool + " whose " + d.OpArg + " isn't one operation's id"
+		}
+		if neverSent(tool, op) {
+			return "planque never sends " + strings.TrimSpace(op) + " through " + tool + ", since it moves money or closes a bill for good"
+		}
+	}
+	return ""
+}
 
 // narrowedTo is the describer of t and the operation t pins, when t is a
 // broad tool narrowed to one operation; write says t writes.

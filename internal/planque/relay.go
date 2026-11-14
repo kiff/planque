@@ -63,7 +63,7 @@ const (
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
 	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
 	CodeWaitsForApproval  = "waits_for_approval"     // an addition's tool, declared, and the owner hasn't approved it yet
-	CodeToolNotServed     = "tool_not_served"        // a managed app's tool planque never serves (connector.NeverServed)
+	CodeToolNotServed     = "tool_not_served"        // a managed app's tool planque never serves (connector.NeverServed), or a broad write's operation (describer.Never)
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
@@ -288,6 +288,12 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	vendorArgs, err = profileMarker(g, name, p.Op, vendorArgs)
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
+	}
+	// An operation that moves money or closes a bill for good, through a vendor's broad write:
+	// never sent, whether a grant from before pins it or the taf set it on
+	// a broad tool (describer.Never); nor one it can't read as one id.
+	if why := neverSentCall(tool.Tool, vendorArgs); why != "" {
+		return s.finish(ctx, claim, op, OpNotSent, refusal(CodeToolNotServed, "Not sent: "+why+"."))
 	}
 
 	if g.Request.Connector != nil {
