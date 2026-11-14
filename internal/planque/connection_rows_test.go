@@ -138,9 +138,11 @@ func TestAWorkingConnectionSaysWhoUsesItAndWhenAndOffersOnlyRemove(t *testing.T)
 	if h := health(listRow(t, e, g.ID, "Europe/Paris")); h["words"] != want || h["at"] == nil {
 		t.Fatalf("health after a call: %v, want %q", h, want)
 	}
-	// No zone named: the time is said in UTC, and says so.
-	if h := health(listRow(t, e, g.ID, "")); h["words"] != "Working · last used "+e.s.now().UTC().Format("15:04")+" UTC" {
-		t.Fatalf("health with no zone: %v", h)
+	// No zone named, or "Local" (the server's own): the time is said in UTC, and says so.
+	for _, zone := range []string{"", "Local"} {
+		if h := health(listRow(t, e, g.ID, zone)); h["words"] != "Working · last used "+e.s.now().UTC().Format("15:04")+" UTC" {
+			t.Fatalf("health with zone %q: %v", zone, h)
+		}
 	}
 }
 
@@ -174,8 +176,12 @@ func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
 		t.Fatalf("sign in again: %v", a)
 	}
 	h := health(row)
-	if h["state"] != HealthSignedOut || h["ok"] != false || !strings.HasPrefix(h["words"].(string), vendor+"'s sign-in expired on ") || h["at"] == nil {
+	if h["state"] != HealthSignedOut || h["ok"] != false || !strings.HasPrefix(h["words"].(string), vendor+"'s sign-in expired on ") || strings.HasSuffix(h["words"].(string), "UTC") || h["at"] == nil {
 		t.Fatalf("health: %v", h)
+	}
+	// A day said in UTC, with no zone named, says so too.
+	if w := health(listRow(t, e, g.ID, ""))["words"].(string); !strings.HasSuffix(w, " UTC") {
+		t.Fatalf("a day with no zone: %s", w)
 	}
 	if u := row["used_by"].([]any); len(u) != 1 || u[0] != g.Request.AgentName {
 		t.Fatalf("used by: %v", u)

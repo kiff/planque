@@ -113,7 +113,8 @@ func (s *Server) lastUses(ctx context.Context, tenant string) map[string]time.Ti
 // and whether it named one; UTC when not.
 func ownerZone(r *http.Request) (*time.Location, bool) {
 	if r != nil {
-		if z := strings.TrimSpace(r.Header.Get("X-Time-Zone")); z != "" && len(z) <= 64 {
+		// "Local" would be the server's own zone, never the owner's.
+		if z := strings.TrimSpace(r.Header.Get("X-Time-Zone")); z != "" && len(z) <= 64 && !strings.EqualFold(z, "Local") {
 			if loc, err := time.LoadLocation(z); err == nil {
 				return loc, true
 			}
@@ -135,15 +136,20 @@ type rowContext struct {
 
 func (rc rowContext) when(t time.Time) string {
 	c := words.Connection(rc.lang)
-	s := c.When(t.In(rc.zone), rc.now.In(rc.zone))
-	if !rc.named && !strings.ContainsAny(s, " .") {
-		s += " UTC"
-	}
-	return s
+	return rc.utc(c.When(t.In(rc.zone), rc.now.In(rc.zone)))
 }
 
 func (rc rowContext) day(t time.Time) string {
-	return words.Connection(rc.lang).Day(t.In(rc.zone))
+	return rc.utc(words.Connection(rc.lang).Day(t.In(rc.zone)))
+}
+
+// utc marks a time or day said in UTC because the app named no zone, so it
+// never reads as the owner's own.
+func (rc rowContext) utc(s string) string {
+	if !rc.named {
+		return s + " UTC"
+	}
+	return s
 }
 
 // usedBy is the tafs that use g, by their names: its own taf, while g gives
