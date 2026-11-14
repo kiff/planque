@@ -89,6 +89,8 @@ until then it is taken as before, for apps from before the window. Each
 grant's approval records which key signed (`key`: `device` or `critical`)
 and the window, so an audit tells a tap from a fingerprint.
 
+**A refusal a person reads carries `words`.** Beside `error` (for the log and the agent) and `code`, a refusal the owner's app shows has `words`: the person's line, in the language asked, which the app draws as sent, never a line of its own for the status. A signed-out managed connection's new sign-in refused at confirm answers 409 with `code` `other_account` (the sign-in was to another account: the words name it, and the account the taf uses) or `account_unknown` (the provider named no account for it); one with no account name kept answers `account_unknown` at approve, saying to remove access and connect again. Either way nothing changed: that sign-in is revoked and the connection stays signed out.
+
 **KIFF keeps the devices.** planque keeps none: it asks
 KIFF's `POST /v1/devices/verify`, with the account's connector key, whether
 device `d` signed those bytes and whether its person may connect tools
