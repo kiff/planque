@@ -26,6 +26,10 @@
 //	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
 //	PLANQUE_SIGNIN_READER_SHA256 optional: the hex SHA-256 of the one key that
 //	                   reads an app's managed sign-in state; unset, no one can
+//	PLANQUE_DESCRIBER_SERVERS optional JSON map of HTTPS servers, besides
+//	                   Stripe's own, to the describing tools their first
+//	                   request gets with its sign-in: the Eval's vendor, which
+//	                   serves Stripe's tools on a host we run; not secret
 //	PLANQUE_CATALOG_OPERATORS optional JSON list of the catalog's operators:
 //	                   {id, token_sha256, device_key}; unset, the catalog kept
 //	                   as data can't be drafted or published
@@ -158,6 +162,13 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	var describerServers map[string][]string
+	if raw := os.Getenv("PLANQUE_DESCRIBER_SERVERS"); raw != "" {
+		var err error
+		if describerServers, err = planque.DecodeDescriberServers([]byte(raw)); err != nil {
+			return nil, err
+		}
+	}
 	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
 	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
 		var references map[string]string
@@ -245,6 +256,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		CatalogEntries:         catalog,
 		CatalogOperators:       operators,
 		ServerApps:             serverApps,
+		DescriberServers:       describerServers,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,
 	}, nil

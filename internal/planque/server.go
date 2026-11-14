@@ -77,8 +77,12 @@ type Server struct {
 	// ServerApps is the reviewed list of which app a vendor's own server
 	// is: its server, and the catalog entry it belongs to (entry.go).
 	ServerApps map[string]string
-	Connectors map[string]connector.Provider
-	DoorSink   door.Sink
+	// DescriberServers are the servers, besides Stripe's own, whose first
+	// request gets these describing tools as setup reads with its sign-in
+	// (PLANQUE_DESCRIBER_SERVERS): the Eval's vendor, on a host we run.
+	DescriberServers map[string][]string
+	Connectors       map[string]connector.Provider
+	DoorSink         door.Sink
 	// EventSink takes app events for tafs (planque.event.v1); nil, no app
 	// event can be approved.
 	EventSink door.EventSink
