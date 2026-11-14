@@ -9,6 +9,7 @@ import (
 
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/profile"
 )
 
 // neverServe makes the fixture app's tools named never served, beside the
@@ -97,5 +98,44 @@ func TestACallToANeverServedToolIsNotSent(t *testing.T) {
 	}
 	if listed, _, err := e.s.connectorTools(ctx, g); err != nil || len(listed) != 0 {
 		t.Fatalf("still listed: %v %v", listed, err)
+	}
+}
+
+// A connection that holds a tool from before planque stopped serving it
+// takes no new tool until that one is removed: adding any is refused with
+// tool_not_served, naming the held tool, and the connection stays as it was.
+// Category: money guard
+// Attack: adding a served tool to re-bind a held never-served one
+// Refused: 400 tool_not_served; nothing bound
+func TestAddingToAConnectionHoldingANeverServedToolIsRefused(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	g := connectConnector(t, e, f)
+	path := "/v1/accounts/" + tenant + "/grants/" + g.ID
+	f.search = true
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	search := connector.Tool{Toolkit: "desk_demo", Slug: "DESK_DEMO_SEARCH"}.Alias()
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
+		Operations: []profile.Operation{{Tool: "search_tickets", Title: "Search tickets", Kind: "write", Effect: profile.EffectSends, Shape: "single"}}}
+	add := func() (int, map[string]any) {
+		return e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: search, Title: "Search tickets", Name: "search_tickets"}}, "profile": p}, nil, "k_setup")
+	}
+
+	neverServe(t, "DESK_DEMO_REPLY")
+	st, out := add()
+	if st != 400 || out["code"] != refToolNotServed || out["tool"] != "DESK_DEMO_REPLY" || out["field"] != "tool" {
+		t.Fatalf("added beside a held never-served tool: %d %v", st, out)
+	}
+	if held, _ := e.s.loadGrant(ctx, tenant, g.ID); held.Status != StatusConnected || len(held.Request.Tools) != 1 || len(held.Request.Connector.Tools) != 1 {
+		t.Fatalf("changed by a refused addition: %s %v", held.Status, held.Request.Tools)
+	}
+
+	// Negative: with the held tool served again, the same addition is taken.
+	neverServe(t)
+	if st, out := add(); st != 200 || out["status"] != StatusPending {
+		t.Fatalf("added beside served tools: %d %v", st, out)
 	}
 }

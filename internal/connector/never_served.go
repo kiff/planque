@@ -3,12 +3,12 @@ package connector
 import "strings"
 
 // NeverServedTools are the tools planque never serves for a managed app, by
-// the app's slug (lower case) and then the tool's: each one undoes a bill,
-// writes a debt off, deletes one, makes one owed or charges the customer,
-// and none can be taken back. Like the platform's meta tools (Validate),
-// they never come back from a search or an app's tools, can't be asked for
-// or chosen, and a call to one is never sent, even on a connection that
-// holds it from before. Keyed by app, so another app's tool of the same
+// the app's slug (lower case) and then the tool's: each one moves money or
+// closes a bill for good (it voids a bill, writes a debt off, deletes one,
+// makes one owed or charges the customer). Like the platform's meta tools
+// (Validate), they never come back from a search or an app's tools, can't
+// be asked for or chosen, and a call to one is never sent, even on a
+// connection that holds it from before. Keyed by app, so another app's tool of the same
 // name is served as it is. Tests may swap it; nothing else changes it.
 var NeverServedTools = map[string][]string{
 	"stripe": {

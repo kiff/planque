@@ -14,7 +14,7 @@ malformed execution answer remains unknown and is never automatically
 sent again. A refusal provides no proof that the action had no effect.
 
 Some of an app's tools are never served, however a taf asks: those that
-can't be undone, listed per app in `connector.NeverServedTools` (for Stripe,
+move money or close a bill for good, listed per app in `connector.NeverServedTools` (for Stripe,
 voiding, deleting, finalizing or paying an invoice, voiding a credit note or
 credit grant, and marking an invoice uncollectible). Like the meta tools,
 they never come back from the tools search, an app's catalog or the

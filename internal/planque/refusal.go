@@ -66,5 +66,5 @@ const (
 // tool and field where the request named it.
 func notServed(slug, field string) *toolRefusal {
 	return &toolRefusal{Code: refToolNotServed, Tool: slug, Field: field, Want: "another of the app's tools",
-		Msg: slug + " is never served: what it does can't be undone (voiding, deleting, finalizing, paying or writing off a bill), so planque refuses it on this app; leave it out"}
+		Msg: slug + " is never served: it moves money or closes a bill for good (voiding, deleting, finalizing, paying or writing off), so planque refuses it on this app; leave it out"}
 }
