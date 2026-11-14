@@ -152,6 +152,9 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("User-agent: *\nDisallow: /\n"))
 	})
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
+	// The one-time clean-up of stored answers alone, for a schedule more
+	// frequent than the sweep's while it runs (sweep.go).
+	mux.HandleFunc("POST /v1/sweep/answers", s.sweepAnswersOnce)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)

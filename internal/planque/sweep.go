@@ -232,3 +232,17 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"ended": n})
 }
+
+// sweepAnswersOnce runs only the one-time clean-up of the answers kept
+// before answerTTL (CleanStoredAnswers), at its own pace and budget: a
+// schedule can call it more often than the hourly sweep until it logs
+// "stored answers cleaned once" (14 Nov: about 5,700 records left at one
+// sweep an hour). Once done, it does nothing; done says so.
+func (s *Server) sweepAnswersOnce(w http.ResponseWriter, r *http.Request) {
+	dropped, indexed, err := s.CleanStoredAnswers(r.Context())
+	if err != nil {
+		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
+	}
+	_, done, _ := s.KV.Get(r.Context(), onceAnswers.PK, onceAnswers.SK)
+	writeJSON(w, http.StatusOK, map[string]any{"dropped": dropped, "indexed": indexed, "done": done})
+}
