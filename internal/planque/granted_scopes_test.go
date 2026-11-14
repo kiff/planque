@@ -40,7 +40,7 @@ func TestAManagedAppOffersOnlyWhatItsSignInLetsRun(t *testing.T) {
 		t.Fatalf("the offered tool: %v", reply)
 	}
 	// What it gives back, from the provider's description of its answer: what a taf keeps.
-	if r, _ := reply["returns"].([]any); len(r) != 2 || r[0] != "data.ticket_id" || r[1] != "data.url" {
+	if r, _ := reply["returns"].([]any); len(r) != 2 || r[0] != "ticket_id" || r[1] != "url" {
 		t.Fatalf("the reply's returns: %v", reply["returns"])
 	}
 	if why, _ := search["why"].(string); !strings.Contains(why, "only partly signed in: Search tickets needs access its sign-in didn't give") {

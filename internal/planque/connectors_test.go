@@ -262,7 +262,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		replyScopes, _ := json.Marshal(f.replyScopes)
 		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","scopes":` + string(replyScopes) + `,"input_parameters":` + schema +
-			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}}}}}`
+			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}},"error":{"type":"string"},"successful":{"type":"boolean"}}}}`
 		if path == "/tools" {
 			items := tool
 			if f.search {
@@ -292,7 +292,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.lost {
 			return nil, errors.New("synthetic lost answer")
 		}
-		body = `{"data":{"id":"reply_demo"},"successful":true}`
+		body = `{"data":{"id":"reply_demo","ticket_id":"ticket_demo","url":"https://desk.example/t/ticket_demo","status":"answered"},"successful":true}`
 		if f.executeBody != "" {
 			return profileResponse(cmp.Or(f.executeStatus, 200), f.executeBody), nil
 		}
@@ -1482,5 +1482,52 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
 		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
 		t.Fatalf("an unknown slug: %d %v", st, out)
+	}
+}
+
+// A path the catalog's returns name is found in the answer a call relays
+// (14 Nov: a check drafted from "data.messages" read nothing, since the
+// relay carries the provider's data alone). The path the returns named
+// before, under data., isn't: the regression this guards.
+func TestAToolsReturnsNameWhatItsRelayedAnswerHas(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_returns"}`)
+	p := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_returns", Args: args})
+	res := e.s.call(ctx, g, "reply_ticket", args, p)
+	var answer struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	b, _ := json.Marshal(res)
+	if err := json.Unmarshal(b, &answer); err != nil || len(answer.Content) == 0 {
+		t.Fatalf("answer: %s", b)
+	}
+	var relayed map[string]any
+	if err := json.Unmarshal([]byte(answer.Content[0].Text), &relayed); err != nil {
+		t.Fatalf("the relayed answer isn't JSON: %q", answer.Content[0].Text)
+	}
+	at := func(path string) bool {
+		var node any = relayed
+		for _, k := range strings.Split(path, ".") {
+			m, ok := node.(map[string]any)
+			if !ok {
+				return false
+			}
+			if node, ok = m[k]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	for _, path := range []string{"ticket_id", "url"} {
+		if !at(path) {
+			t.Errorf("the returns' %q isn't in the relayed answer %v", path, relayed)
+		}
+	}
+	if at("data.ticket_id") {
+		t.Errorf("the relayed answer still has data.: %v", relayed)
 	}
 }
