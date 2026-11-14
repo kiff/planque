@@ -15,7 +15,12 @@ import (
 
 const maxPathParts = 4
 
-var argTypes = []string{"string", "integer", "number", "boolean", "array"}
+var argTypes = []string{"string", "integer", "number", "boolean", "array", "object"}
+
+// argTypeWant is what an argument_type refusal asks for: both ways to give a
+// vendor's object (a sheet row's values, column → text), so a retry works
+// whichever one the taf picks.
+const argTypeWant = `string, integer, number, boolean, array or object. An object names each field it may set: {"path": "values", "type": "object", "schema": {"type": "object", "properties": {"Status": {"type": "string"}}}}. Or name each field as its own argument at its path: {"status": {"path": "values.Status", "type": "string"}}`
 
 func pathParts(p string) ([]string, bool) {
 	parts := strings.Split(p, ".")
@@ -77,11 +82,13 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 		case !toolName.MatchString(name) || name == IdempotencyArg:
 			return arg(refArgumentName, name, "letters, digits and underscores, starting with a letter", "argument "+name+" is not a valid name")
 		case !slices.Contains(argTypes, a.Type):
-			return arg(refArgumentType, name, "string, integer, number, boolean or array", "argument "+name+" must be a string, integer, number, boolean or array")
+			return arg(refArgumentType, name, argTypeWant, "argument "+name+" must be a "+argTypeWant)
 		case a.Type == "array" && checkShape(a.Schema, true) != "":
 			return arg(refArgumentSchema, name, "an array of plain values, of rows of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
-		case a.Type != "array" && len(a.Schema) > 0:
-			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array argument has a schema")
+		case a.Type == "object" && checkObject(a.Schema) != "":
+			return arg(refArgumentSchema, name, objectWant, "argument "+name+"'s schema: "+checkObject(a.Schema))
+		case a.Type != "array" && a.Type != "object" && len(a.Schema) > 0:
+			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array or object argument has a schema")
 		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
 			return arg(refArgumentOneOf, name, "a string argument's {tool, path}", "argument "+name+"'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values")
 		}
@@ -220,9 +227,12 @@ func (t ToolRequest) schemaOver(vendor json.RawMessage) json.RawMessage {
 	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 		a := t.Arguments[name]
 		p := map[string]any{"type": a.Type}
-		if a.Type == "array" {
+		if a.Type == "array" || a.Type == "object" {
 			p = map[string]any{}
 			_ = json.Unmarshal(a.Schema, &p)
+			if a.Type == "object" {
+				p["additionalProperties"] = false // as planque checks it: only the fields it names
+			}
 		} else if e := vendorEnum(vendor, a.Path, a.Type); e != nil {
 			p["enum"] = e
 		}
@@ -251,7 +261,7 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 			if !ok {
 				return nil, fmt.Errorf("argument %s is not part of this grant", name)
 			}
-			if a.Type == "array" {
+			if a.Type == "array" || a.Type == "object" {
 				if why := fits(v, a.Schema, name); why != "" {
 					return nil, fmt.Errorf("argument %s", why)
 				}
@@ -367,7 +377,14 @@ func narrowingText(t ToolRequest, catalog ...CatalogTool) string {
 	if len(t.Arguments) == 0 {
 		return s + "; the taf sets nothing)"
 	}
-	return s + "; the taf sets only " + strings.Join(slices.Sorted(maps.Keys(t.Arguments)), ", ") + ")"
+	var sets []string
+	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+		if fields := objectFields(t.Arguments[name]); len(fields) > 0 {
+			name += " (" + strings.Join(fields, ", ") + ")"
+		}
+		sets = append(sets, name)
+	}
+	return s + "; the taf sets only " + strings.Join(sets, ", ") + ")"
 }
 
 // argDescription is the vendor's description of the argument at a dotted
@@ -534,7 +551,7 @@ var annotations = []string{"title", "default", "examples", "example", "$comment"
 // KIFF, shown to the owner and signed is the normalised schema.
 func normaliseArguments(t ToolRequest) {
 	for name, a := range t.Arguments {
-		if a.Type == "array" && len(a.Schema) > 0 {
+		if (a.Type == "array" || a.Type == "object") && len(a.Schema) > 0 {
 			a.Schema = normaliseSchema(a.Schema)
 			t.Arguments[name] = a
 		}
@@ -699,6 +716,67 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 		return "type " + s.Type + " isn't one an argument can have"
 	}
 	return ""
+}
+
+// objectWant is what an object argument's schema must be.
+const objectWant = `an object naming each field it may set, each a string, integer, number, boolean or array: {"type": "object", "properties": {"Status": {"type": "string"}}}`
+
+// checkObject says what is wrong with an object argument's schema, or "":
+// an object naming its fields (a field it doesn't name is refused, written
+// or not), each a plain value or an array as an array argument's schema is.
+// Never an object in it: a nested object's fields are arguments of their own,
+// at their paths.
+func checkObject(raw json.RawMessage) string {
+	var s shape
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if len(raw) == 0 || dec.Decode(&s) != nil {
+		return "it must be a JSON Schema of type, properties, required, items, enum, maxLength, maxItems and description only"
+	}
+	if s.Type != "object" {
+		return "an object argument's schema is an object"
+	}
+	if s.AdditionalProperties != nil && *s.AdditionalProperties {
+		return "an object takes only the fields it names"
+	}
+	if len(s.Properties) == 0 {
+		return "an object names its fields"
+	}
+	for _, r := range s.Required {
+		if _, ok := s.Properties[r]; !ok {
+			return "required field " + r + " isn't one of its fields"
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		var f shape
+		_ = json.Unmarshal(s.Properties[name], &f)
+		var why string
+		switch f.Type {
+		case "array":
+			why = checkShape(s.Properties[name], true)
+		case "object":
+			why = "a field is never an object: name its fields as arguments of their own, at their paths (" + name + ".Field)"
+		default: // a plain value; anything else is refused as no argument's type
+			why = checkShapeAt(s.Properties[name], false, 1)
+		}
+		if why != "" {
+			return name + ": " + why
+		}
+	}
+	return ""
+}
+
+// objectFields are an object argument's field names, in order; nil for any
+// other argument.
+func objectFields(a Argument) []string {
+	if a.Type != "object" {
+		return nil
+	}
+	var s shape
+	if json.Unmarshal(a.Schema, &s) != nil {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(s.Properties))
 }
 
 // fits says how v doesn't fit a reviewed schema, naming where (at), or ""
