@@ -1,6 +1,6 @@
 # Calendly
 
-Checked: 2026-11-13 · Sources: the connection service's Calendly tool
+Checked: 2026-11-14 · Sources: the connection service's Calendly tool
 definitions as planque reads them (53 tools), and Calendly's developer
 documentation (rate limits, frequently asked questions).
 
@@ -34,7 +34,7 @@ no `returns` paths today; the ids below are those Calendly's answers carry
 | `CALENDLY_GET_EVENT_INVITEE` | Reads one guest of a meeting | read | the invitee's link |
 | `CALENDLY_LIST_EVENT_TYPE_AVAILABLE_TIMES` | Lists open slots for one kind of meeting | read | start times, booking urls |
 | `CALENDLY_LIST_USER_BUSY_TIMES` | Lists when the person is busy | read | busy periods |
-| `CALENDLY_CREATE_SINGLE_USE_SCHEDULING_LINK` | Makes a booking link that works for a set number of bookings | write | the link's url |
+| `CALENDLY_CREATE_SINGLE_USE_SCHEDULING_LINK` | Makes a booking link that works for one booking | write | the link's url |
 | `CALENDLY_POST_INVITEE` | Books a slot for a guest | write, outside | the invitee's link, the event's link |
 | `CALENDLY_CANCEL_SCHEDULED_EVENT` | Cancels a booked meeting, with a reason | write, outside | the cancellation |
 
@@ -53,8 +53,8 @@ waits for the owner's yes.
 - Rescheduling: Calendly's API has no way to move a meeting. A taf can send
   the guest's reschedule link, or cancel on the owner's yes.
 - Deleting data (`CALENDLY_DELETE_INVITEE_DATA`,
-  `CALENDLY_DELETE_SCHEDULED_EVENT_DATA`): permanent, and for privacy
-  requests only.
+  `CALENDLY_DELETE_SCHEDULED_EVENT_DATA`): they remove guests' or
+  meetings' data across the whole organization.
 - Organization admin (`CALENDLY_ORGANIZATION_INVITATION`,
   `CALENDLY_REMOVE_USER_FROM_ORGANIZATION`,
   `CALENDLY_DELETE_ORGANIZATION_MEMBERSHIP`): they change who is on the

@@ -1,6 +1,6 @@
 # Attio
 
-Checked: 2026-11-13 · Sources: the connection service's Attio tool
+Checked: 2026-11-14 · Sources: the connection service's Attio tool
 definitions as planque reads them (105 tools), and Attio's REST API
 documentation (authentication, rate limits, pagination, records, notes,
 tasks).
@@ -8,10 +8,9 @@ tasks).
 ## How it connects
 
 - **A sign-in to Attio**, held by the connection service; the taf never sees
-  a password or token. The sign-in is for one Attio workspace, the one the
-  owner picks on Attio's page. planque's catalog lists the tools and, with a
-  known sign-in, puts the ones its access doesn't cover under `unusable`,
-  with why.
+  a password or token. The sign-in is for one Attio workspace. planque's
+  catalog lists the tools and, with a known sign-in, puts the ones its
+  access doesn't cover under `unusable`, with why.
 - **Access is per area:** records, lists, notes, tasks, comments, meetings
   and workspace members each have their own read or read-and-write access.
   Most record tools also need to read the workspace's object setup. Ask for
@@ -65,18 +64,20 @@ only. Offer a write only for what the owner asked to change.
 
 - Deleting tools (records, people, companies, deals, notes, tasks, list
   entries, comments): deleted records can't be brought back by the taf.
-- Merging records (`ATTIO_MERGE_RECORDS`): it can't be undone.
+- Merging records (`ATTIO_MERGE_RECORDS`): the two records it joins can't
+  be read or changed afterwards.
 - Overwriting tools (`ATTIO_PUT_V2_OBJECTS_OBJECT_RECORDS_RECORD_ID`,
-  `ATTIO_PUT_V2_LISTS_LIST_ENTRIES_ENTRY_ID`): they clear any value not sent.
-  Use the update tools, which change only what's given.
+  `ATTIO_PUT_V2_LISTS_LIST_ENTRIES_ENTRY_ID`): a field that holds several
+  values keeps only the ones sent. Use the update tools, which add to them.
 - Workspace setup (creating or changing objects, attributes, options,
   statuses or lists) and webhooks: they change Attio for the whole team.
 - Call recordings: they hold people's voices, which a job rarely needs.
 
 ## Access and plans
 
-- **Rate:** Attio allows about 100 reads and 25 writes a second. A write that also creates linked records counts each one.
-  When over, Attio says when to try again, usually within a second.
+- **Rate:** Attio allows about 100 reads and 25 writes a second. A write
+  that also creates linked records counts each one. When over, Attio says
+  when to try again, usually within a second.
 - **Paging:** lists come a page at a time; a taf keeps asking until a page
   comes back short.
 - **Plans:** we found no plan limit on the tools above in Attio's API
