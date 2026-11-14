@@ -1,7 +1,7 @@
 # Sevdesk
 
-Checked: 2026-11-13 · Sources: the connection service's Sevdesk tool
-definitions as planque reads them (135 tools), and Sevdesk's published API
+Checked: 2026-11-14 · Sources: the connection service's Sevdesk tool
+definitions as planque reads them (134 tools), and Sevdesk's published API
 description (its OpenAPI file and the guides inside it).
 
 ## How it connects
