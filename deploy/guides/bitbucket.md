@@ -1,13 +1,13 @@
 # Bitbucket
 
-Checked: 2026-11-13 · Sources: the Bitbucket tool definitions as planque
-reads them (116 tools, generated/bitbucket.md), Atlassian's Bitbucket Cloud
+Checked: 2026-11-14 · Sources: the Bitbucket tool definitions as planque
+reads them (116 tools, generated/bitbucket.md), Bitbucket Cloud's
 REST API reference (authentication, scopes, pagination, error layout) and
 its API request limits page.
 
 ## How it connects
 
-- **A sign-in to Bitbucket** with the owner's Atlassian account, held by the
+- **A sign-in to Bitbucket** with the owner's account, held by the
   connection service; the taf never sees a password or token. The catalog
   lists the tools and, with a known sign-in, puts the ones its access doesn't
   cover under `unusable`, with why.
@@ -76,7 +76,9 @@ for it, and show each one to the owner first.
   repositories doesn't let a taf see pull requests. Reading pull requests
   also lets it comment on them; opening a pull request needs the right to
   write pull requests, which also lets it write to the repository.
-- **Issues have their own access,** apart from repositories.
+- **Issues:** repository read access already lets a taf view the issue
+  tracker, open issues and comment on them. Changing an issue's state or
+  deleting it needs separate issue write access.
 - **Rate:** Bitbucket counts calls per user over a rolling hour. Reading
   repository data allows about 1,000 calls an hour for a signed-in user,
   file downloads 5,000, archives 1,500. Without a sign-in, only 60 an hour

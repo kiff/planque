@@ -1,6 +1,6 @@
 # Slackbot
 
-Checked: 2026-11-13 · Sources: the connection service's Slackbot tool
+Checked: 2026-11-14 · Sources: the connection service's Slackbot tool
 definitions as planque reads them (105 tools, [generated](generated/slackbot.md)),
 and Slack's API reference.
 
@@ -20,23 +20,23 @@ app's name, and it sees only the channels it's been added to.
 
 - **A sign-in to one Slack workspace,** which installs the app, held by the
   connection service. A workspace can require an admin to approve the app.
-- **Then the owner adds the app to each channel** it should read or post in
-  (`/invite @app` in the channel). Until then it can't see the channel.
+- **Then the owner adds the app to each channel** it should read or post
+  in. A bot reads only the conversations it's a member of.
 - **One approval for the sign-in, one for the tools and the Card.**
 
 ## Tools a job usually needs
 
-| Tool | What it does | Read or write | Keep |
+| Tool | What it does | Read or write | Returns |
 |---|---|---|---|
 | `SLACKBOT_FIND_CHANNELS` | Finds channels by name | read | **the channel's id** |
-| `SLACKBOT_LIST_CONVERSATIONS` | Lists the channels the app is in | read | channel ids |
+| `SLACKBOT_LIST_CONVERSATIONS` | Lists the workspace's channels | read | channel ids |
 | `SLACKBOT_FETCH_CONVERSATION_HISTORY` | Reads a channel's messages in a time window | read | message timestamps |
-| `SLACKBOT_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION` | Reads a thread's replies | read | |
+| `SLACKBOT_FETCH_MESSAGE_THREAD_FROM_A_CONVERSATION` | Reads a thread's replies | read | not checked here |
 | `SLACKBOT_FIND_USER_BY_EMAIL_ADDRESS` | Finds a person by email | read | the person's id |
 | `SLACKBOT_SEND_MESSAGE` | Posts a message, or a reply in a thread | write, visible to others | **the message's timestamp** |
-| `SLACKBOT_SEND_EPHEMERAL_MESSAGE` | Posts a message only one person sees | write | |
+| `SLACKBOT_SEND_EPHEMERAL_MESSAGE` | Posts a message only one person sees | write | not checked here |
 | `SLACKBOT_SCHEDULE_MESSAGE` | Posts at a set time | write | the scheduled message's id |
-| `SLACKBOT_UPLOAD_OR_CREATE_A_FILE_IN_SLACK` | Posts a file | write, visible to others | |
+| `SLACKBOT_UPLOAD_OR_CREATE_A_FILE_IN_SLACK` | Posts a file | write, visible to others | not checked here |
 
 **What to keep:** the channel's id and each message's timestamp, as in
 [Slack's guide](slack.md).
@@ -51,11 +51,14 @@ app's name, and it sees only the channels it's been added to.
 
 ## Access and plans
 
-- **On Slack's free plan,** only the last 90 days of messages can be read.
-- **Rate:** about one message a second per channel; reading history is
-  limited more tightly for apps outside Slack's marketplace.
-- **A bot can't read direct messages between people,** nor channels it
-  wasn't added to.
+- **On Slack's free plan,** only the last 90 days of messages and files
+  can be read; older ones are deleted after a year.
+- **Rate:** about one message a second per channel, with a workspace-wide
+  limit too. For apps outside Slack's marketplace, newly installed, reading
+  a channel's history or a thread is held to 1 call a minute and 15
+  messages a call.
+- **A bot reads only conversations it's a member of,** so not direct
+  messages between people, nor channels it wasn't added to.
 
 ## When it fails
 
@@ -65,6 +68,7 @@ app's name, and it sees only the channels it's been added to.
 | Refused for missing access (`missing_scope`) | The install didn't give this access | "The Slack app is only partly set up: this step needs access it wasn't given. Sign in again and allow it." |
 | Too many calls (`ratelimited`) | Over Slack's limit | "Slack asked us to slow down. The taf will continue in a minute." |
 | Admin approval needed | The workspace restricts apps | "Your Slack admin needs to approve this app." |
-| The install no longer works (`invalid_auth`, `token_revoked`) | Removed from the workspace | "The Slack app was removed. Sign in again to reinstall it." |
+| The install no longer works (`invalid_auth`, `token_revoked`) | The app was removed, or the token isn't valid any more | "The Slack app was removed. Sign in again to reinstall it." |
 
-After any refusal the taf stops that step and says so.
+After any refusal the taf stops that step and says so. A refused read never
+leads to a write.
