@@ -420,6 +420,13 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// Tools, optional, are the provider's tools the taf will use, as the
 		// tools search names them: the sign-in asks only for what they need.
 		Tools []string `json:"tools"`
+		// SetupReads, optional, are the provider's reads Setup will make
+		// to set the taf up, as a server connect names them: on an app's
+		// entry they're planned tools like the rest, so the sign-in covers
+		// them and they can be bound later (14 Nov: refused as an unknown
+		// field, and Coach's retry left the tools out, so the sign-in asked
+		// for full mail).
+		SetupReads []string `json:"setup_reads"`
 		// NewSignIn asks for a sign-in of its own even when the account
 		// holds one to this app: another account at the app, say.
 		NewSignIn bool `json:"new_sign_in"`
@@ -431,6 +438,11 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	// Provider slugs are upper case: one asked in lower case is the same tool.
 	for i, t := range ask.Tools {
 		ask.Tools[i] = strings.ToUpper(strings.TrimSpace(t))
+	}
+	for _, t := range ask.SetupReads {
+		if t = strings.ToUpper(strings.TrimSpace(t)); !slices.Contains(ask.Tools, t) {
+			ask.Tools = append(ask.Tools, t)
+		}
 	}
 	if msg := checkAskedTools(ask.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
