@@ -76,10 +76,8 @@ the owner asked for reminders, and say each one waits for their yes.
 - Cancelling subscriptions, closing disputes, or payouts: they move money or
   end a customer's service, and need their own review.
 - A refund in live mode, until the live entry is reviewed.
-- `stripe_api_write` narrowed to `PostInvoicesInvoiceVoid`,
-  `PostInvoicesInvoicePay`, `PostInvoicesInvoiceMarkUncollectible`,
-  `DeleteInvoicesInvoice` or `PostInvoicesInvoiceFinalize`: they charge,
-  void, write off, delete or finalize an invoice.
+- `stripe_api_write` narrowed to voiding, paying, finalizing, deleting or
+  writing off an invoice: planque refuses it (`tool_not_served`).
 
 ## Access and plans
 

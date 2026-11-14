@@ -24,6 +24,16 @@ it on a grant, is a 400 with `code` `tool_not_served` and `tool` its slug
 longer lists it, and a call to it is not sent (`tool_not_served`); adding
 tools to that connection is refused the same way until it's removed.
 
+The same goes for a vendor's own server, where one broad tool writes to any
+operation (Stripe's `stripe_api_write`): the operations it's never narrowed
+to are in each describer's `Never` (for Stripe, voiding, paying, finalizing,
+deleting or marking an invoice uncollectible, attaching a payment to one,
+and voiding a credit note or credit grant). Narrowing it to one is a 400
+with `code` `tool_not_served`, `tool` the tool's name and `field` the
+operation's argument, before anything is read. A call through it that names
+one, pinned on a connection from before or set by the taf on a broad tool,
+in any spelling, is not sent (`tool_not_served`).
+
 Project credentials are injected server-side. `SecretFromStore` reads one
 operator-configured secret containing `api_key`, with a one-minute cache.
 No request can choose a secret reference. Credential requests follow no
