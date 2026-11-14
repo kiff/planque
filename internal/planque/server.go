@@ -81,8 +81,8 @@ type Server struct {
 	// request gets these describing tools as setup reads with its sign-in
 	// (PLANQUE_DESCRIBER_SERVERS): the Eval's vendor, on a host we run.
 	DescriberServers map[string][]string
-	Connectors map[string]connector.Provider
-	DoorSink   door.Sink
+	Connectors       map[string]connector.Provider
+	DoorSink         door.Sink
 	// EventSink takes app events for tafs (planque.event.v1); nil, no app
 	// event can be approved.
 	EventSink door.EventSink
