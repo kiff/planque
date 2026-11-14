@@ -1,6 +1,6 @@
 # Linear
 
-Checked: 2026-11-13 · Sources: the connection service's Linear tool
+Checked: 2026-11-14 · Sources: the connection service's Linear tool
 definitions as planque reads them (47 tools), and Linear's developer
 documentation (rate limits, sign-in, the API's answers, paging and
 filtering).
@@ -36,8 +36,8 @@ the answer's fields.
 | `LINEAR_LIST_ISSUES_BY_TEAM_ID` | Lists one team's issues, a page at a time | read | issues, a page cursor |
 | `LINEAR_SEARCH_ISSUES` | Finds issues by words | read | issues, a page cursor |
 | `LINEAR_GET_LINEAR_ISSUE` | Reads one issue | read | not documented |
-| `LINEAR_LIST_COMMENTS` | Lists comments, a page at a time | read | comments, a page cursor |
-| `LINEAR_CREATE_LINEAR_ISSUE` | Opens an issue in a team | write | the new issue's id and title |
+| `LINEAR_LIST_COMMENTS` | Lists comments across the workspace, a page at a time (it can't pick one issue) | read | comments, a page cursor |
+| `LINEAR_CREATE_LINEAR_ISSUE` | Opens an issue in a team | write | not documented |
 | `LINEAR_UPDATE_ISSUE` | Changes an issue's state, assignee, labels, due date or text | write | not documented |
 | `LINEAR_CREATE_LINEAR_COMMENT` | Comments on an issue | write | not documented |
 

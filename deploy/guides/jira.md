@@ -1,6 +1,6 @@
 # Jira
 
-Checked: 2026-11-13 · Sources: the connection service's Jira tool
+Checked: 2026-11-14 · Sources: the connection service's Jira tool
 definitions as planque reads them (166 tools), and Jira's REST API
 documentation (its published API description, rate limiting, and sign-in
 for outside apps).
@@ -60,9 +60,14 @@ assignments notify other people in Jira.
 - Deleting tools (`JIRA_DELETE_ISSUE`, `JIRA_DELETE_COMMENT`,
   `JIRA_DELETE_ATTACHMENT`, `JIRA_DELETE_WORKLOG` and the rest): they can't
   be undone from the taf.
-- Configuration and admin tools: creating issue types, link types, statuses,
-  project roles, workflows or custom field contexts. They change how Jira
-  works for everyone.
+- Configuration and admin tools: creating projects, issue types, link
+  types, statuses, workflows, custom fields or screens
+  (`JIRA_CREATE_PROJECT`, `JIRA_CREATE_CUSTOM_FIELD`, `JIRA_CREATE_SCREEN*`).
+  They change how Jira works for everyone.
+- Group and role membership (`JIRA_CREATE_GROUP`, `JIRA_ADD_USER_TO_GROUP`,
+  `JIRA_REMOVE_USER_FROM_GROUP`, `JIRA_ADD_USERS_TO_PROJECT_ROLE`,
+  `JIRA_REMOVE_USER_FROM_PROJECT_ROLE`): it changes who can see what.
+- `JIRA_SEND_NOTIFICATION_FOR_ISSUE`: it emails people directly.
 - Bulk tools (`JIRA_BULK_CREATE_ISSUE`, `JIRA_BULK_MOVE_ISSUES`): one
   mistake repeats across many issues.
 
@@ -73,7 +78,7 @@ assignments notify other people in Jira.
 - **Rate:** Jira counts calls in points per hour. An app's default
   allowance is 65,000 points an hour, shared by every site the app reaches
   and reset on the hour. A read
-  costs 1 point; reading users and permissions costs 2. There's also a
+  costs 1 point, plus more for each user or permission it returns. There's also a
   per-second limit per site and kind of call (about 100 reads a second).
 - **One issue at a time:** at most 20 changes in 2 seconds, and 100 in 30
   seconds, on the same issue.

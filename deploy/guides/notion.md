@@ -1,6 +1,6 @@
 # Notion
 
-Checked: 2026-11-13 · Sources: the connection service's Notion tool
+Checked: 2026-11-14 · Sources: the connection service's Notion tool
 definitions as planque reads them (56 tools), and Notion's API reference
 (request limits, status codes, authorization).
 
@@ -50,10 +50,12 @@ what a person wrote.
 ## Don't offer
 
 - Deleting and archiving (`NOTION_DELETE_BLOCK`, `NOTION_ARCHIVE_NOTION_PAGE`,
-  and `NOTION_UPDATE_ROW_DATABASE` with its delete option): they take
-  content away from the team.
-- Replacing a page's content (`NOTION_UPDATE_PAGE_MARKDOWN` in replace mode):
-  it overwrites what people wrote.
+  and `NOTION_UPDATE_ROW_DATABASE` or `NOTION_UPDATE_PAGE` with their delete
+  or archive option): they take content away from the team.
+- Rewriting what people wrote (`NOTION_UPDATE_PAGE_MARKDOWN`,
+  `NOTION_UPDATE_BLOCK`), except on pages the taf made.
+- Many rows at once (`NOTION_UPSERT_ROW_DATABASE`), and new databases or
+  copies (`NOTION_CREATE_DATABASE`, `NOTION_DUPLICATE_PAGE`).
 - Changing a database's columns or views (`NOTION_UPDATE_SCHEMA_DATABASE`,
   `NOTION_CREATE_VIEW`, `NOTION_UPDATE_VIEW`, `NOTION_DELETE_VIEW`): it
   changes the table for everyone who uses it.
@@ -77,8 +79,9 @@ what a person wrote.
 - **Size per request:** at most 100 blocks in one append, about 1,000
   elements and 500 KB in all, and 2,000 characters in one piece of text.
   Long content goes in several calls.
-- **A workspace's plan** can cap how much content it holds. When the cap is
-  reached, writes are refused until the owner upgrades or frees space.
+- **Block cap:** on a Free workspace with more than one member, some
+  connections can add at most 1,000 blocks in its lifetime. Deleting doesn't
+  give any back; only upgrading lifts it. Reads and edits still work.
 
 ## When it fails
 

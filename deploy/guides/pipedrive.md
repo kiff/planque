@@ -1,6 +1,6 @@
 # Pipedrive
 
-Checked: 2026-11-13 · Sources: the connection service's Pipedrive tool
+Checked: 2026-11-14 · Sources: the connection service's Pipedrive tool
 definitions as planque reads them, and Pipedrive's API documentation (rate
 limits, status codes, sign-in, and its published API description).
 
@@ -28,8 +28,8 @@ answers carry.
 | `PIPEDRIVE_SEARCH_ORGANIZATIONS` | Finds companies by name | read | organization ids |
 | `PIPEDRIVE_SEARCH_DEALS` | Finds deals by title or text | read | deal ids, their stage, person and organization |
 | `PIPEDRIVE_GET_DEAL` | Reads one deal | read | the deal's id, stage, pipeline, person and organization ids |
-| `PIPEDRIVE_GET_ALL_DEALS_BETA` | Lists deals, by stage, status or owner, a page at a time | read | deal ids, a cursor for the next page |
-| `PIPEDRIVE_GET_ALL_ACTIVITIES_BETA` | Lists calls, meetings and to-dos, by date or done | read | activity ids with their deal and person ids, a cursor |
+| `PIPEDRIVE_LIST_DEALS` | Lists deals, by stage, status, owner or filter, a page at a time | read | deal ids, a cursor for the next page |
+| `PIPEDRIVE_LIST_ACTIVITIES` | Lists calls, meetings and to-dos, by deal, lead or done | read | activity ids with their deal and person ids, a cursor |
 | `PIPEDRIVE_GET_ALL_LEADS` | Lists leads not yet turned into deals | read | lead ids, their person and organization ids |
 | `PIPEDRIVE_ADD_A_PERSON` | Adds a person | write | the person's id |
 | `PIPEDRIVE_ADD_LEAD` | Adds a lead, linked to a person or organization | write | the lead's id |
@@ -62,6 +62,13 @@ offer it only when asked, and each change waits for the owner's yes.
   `PIPEDRIVE_ADD_STAGE`), custom fields (`PIPEDRIVE_ADD_PERSON_FIELD`),
   saved filters, activity types and lead labels. They change Pipedrive for
   the whole team.
+- Users, roles and teams (`PIPEDRIVE_ADD_USER`, `PIPEDRIVE_UPDATE_USER*`,
+  `PIPEDRIVE_ADD_ROLE*`, `PIPEDRIVE_ADD_OR_UPDATE_ROLE_SETTING`,
+  `PIPEDRIVE_ADD_TEAM_USERS`, `PIPEDRIVE_DELETE_TEAM_USERS`,
+  `PIPEDRIVE_UPDATE_PIPELINE_VISIBILITY_FOR_ROLE`) and webhooks
+  (`PIPEDRIVE_CREATE_WEBHOOK`, `PIPEDRIVE_DELETE_WEBHOOK`): they change who
+  sees what, or send data elsewhere.
+- Bulk deletes (`PIPEDRIVE_DELETE_*_BULK`): one call removes many records.
 - Turning deals into leads or back (`PIPEDRIVE_CONVERT_DEAL_TO_LEAD`,
   `PIPEDRIVE_CONVERT_LEAD_TO_DEAL`) unless the owner asks.
 
@@ -69,19 +76,21 @@ offer it only when asked, and each change waits for the owner's yes.
 
 - **A daily budget, per company:** Pipedrive gives each company a number of
   call tokens a day, set by its plan and its number of seats, and shared by
-  every app. Each call costs tokens; a search costs more than a read of one
-  record. When the day's budget is spent, calls are refused until the next
-  day. Pipedrive's admins get an email at 75% and 100%.
+  all its users and connections. Each call costs tokens; a search costs more than a read of one
+  record. When the day's budget is spent, calls are refused until midnight
+  in Pipedrive's server time zone. Pipedrive's admins get an email at 75% and 100%.
 - **Bursts:** calls are also limited over any two seconds, more on higher
   plans. Searches are limited to 10 every two seconds on every plan.
-- **A job that runs every hour** should list what changed since the last
-  run, not read everything again.
+- **A job that runs every hour** should narrow each list (a stage, a
+  filter, a deal) and keep the ids it already handled, not read everything
+  again.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused, not allowed (403) | The sign-in didn't give this area, or the account hit a usage limit | "Pipedrive is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, not allowed (403) | The sign-in didn't give this area | "Pipedrive is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, limit reached (403) | The account has reached its plan's limit for that kind of record | "Your Pipedrive account has reached its limit for this kind of record. Nothing was added." |
 | Too many calls (429) | Over the two-second limit, or the day's budget is spent | "Pipedrive asked us to slow down. The taf will try again shortly, or tomorrow if today's allowance is used up." |
 | Account not open (402) | The trial ended, or payment details are missing | "Your Pipedrive account isn't active right now. Nothing was changed." |
 | The sign-in no longer works (401) | The sign-in ended, or was removed | "Pipedrive needs you to sign in again. Nothing was changed." |

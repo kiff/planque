@@ -1,6 +1,6 @@
 # Google Drive
 
-Checked: 2026-11-13 · Sources: the connection service's Google Drive tool
+Checked: 2026-11-14 · Sources: the connection service's Google Drive tool
 definitions as planque reads them (92 tools, [generated](generated/googledrive.md)),
 Google's Drive API reference, and a test run on a phone on 13 Nov 2026.
 
@@ -24,7 +24,8 @@ Drive access comes in two widths, and a job should ask for the narrowest:
 
 A search on narrow access finds only the taf's own files. A Sheets sign-in
 on 13 Nov 2026 couldn't search at all for this reason. Keep the id of every
-file the taf makes, and ask the owner for a link to anything else.
+file the taf makes. A link from the owner doesn't open a file on narrow
+access; for files the owner already has, the sign-in needs the whole Drive.
 
 ## Tools a job usually needs
 
@@ -48,11 +49,14 @@ makes a second folder with that name.
 ## Don't offer
 
 - Sharing (`GOOGLEDRIVE_CREATE_PERMISSION`, `GOOGLEDRIVE_UPDATE_PERMISSION`,
-  `GOOGLEDRIVE_CREATE_PERMISSIONS_BATCH`): it decides who outside can see
+  `GOOGLEDRIVE_PATCH_PERMISSION`, `GOOGLEDRIVE_DELETE_PERMISSION`,
+  `GOOGLEDRIVE_CREATE_PERMISSIONS_BATCH`), and publishing a revision
+  (`GOOGLEDRIVE_UPDATE_FILE_REVISION_METADATA`): it decides who outside can see
   the owner's files. Offer it only for a job that is about sharing, with each
   share shown to the owner first.
 - Deleting for good (`GOOGLEDRIVE_GOOGLE_DRIVE_DELETE_FOLDER_OR_FILE_ACTION`,
-  `GOOGLEDRIVE_DELETE_REVISION`): it skips the bin. Use the bin instead.
+  `GOOGLEDRIVE_DELETE_REVISION`, `GOOGLEDRIVE_EMPTY_TRASH`): it skips the
+  bin. Use the bin instead.
 - Shared drives (create, delete, hide), and the change feeds and watches:
   they act on the whole Drive, beyond one job's files.
 
@@ -62,8 +66,8 @@ makes a second folder with that name.
   upload fails when it's full.
 - **A business account's admin** can block outside apps, or block sharing
   outside the business.
-- **Size:** a simple upload is fine up to a few MB; larger files go by
-  resumable upload, which the taf does in parts.
+- **Size:** `GOOGLEDRIVE_UPLOAD_FILE` is for files up to 5 MB; larger ones
+  need a resumable upload. An export is limited to 10 MB.
 - **Rate:** Google allows many reads a minute per user, and fewer writes. A
   job moving hundreds of files should pause between batches.
 
@@ -71,7 +75,7 @@ makes a second folder with that name.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403, "insufficient scopes") | The sign-in only covers the taf's own files, and this one isn't | "I can only see the files I made in your Drive. Send me the file's link, or sign in again and allow access to your Drive." |
+| Refused for missing access (403, "insufficient scopes") | The sign-in only covers the taf's own files, and this one isn't | "I can only see the files I made in your Drive. To use your other files, sign in again and allow access to your whole Drive." |
 | The file isn't found (404) | It's deleted, or not visible on this access | "I can't open that file. It may have been deleted, or it isn't shared with this account." |
 | Drive is full (403, storage quota) | The owner's storage is used up | "Your Google storage is full, so the file wasn't saved. Free some space or add storage." |
 | Too many calls (403 rate limit, or 429) | Over Google's limit | "Google Drive asked us to slow down. The taf will continue in a minute." |
