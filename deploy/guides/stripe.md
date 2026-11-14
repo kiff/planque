@@ -18,8 +18,6 @@ reference and operation ids, invoicing docs and published server tools.
 
 ## Tools a job usually needs
 
-The direct connection narrows Stripe's general tools to named operations.
-
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
 | `stripe_api_details` | Describes one Stripe operation's fields, before a call | read | the fields |
@@ -77,9 +75,11 @@ the owner asked for reminders, and say each one waits for their yes.
   end a customer's service, and need their own review.
 - A refund in live mode, until the live entry is reviewed.
 - `stripe_api_write` narrowed to `PostInvoicesInvoiceVoid`,
-  `PostInvoicesInvoicePay`, `PostInvoicesInvoiceMarkUncollectible`,
-  `DeleteInvoicesInvoice` or `PostInvoicesInvoiceFinalize`: they charge,
-  void, write off, delete or finalize an invoice.
+  `PostInvoicesInvoicePay`, `PostInvoicesInvoiceAttachPayment`,
+  `PostInvoicesInvoiceMarkUncollectible`, `DeleteInvoicesInvoice`,
+  `PostInvoicesInvoiceFinalize` or `PostCreditNotesIdVoid`: they charge,
+  settle, void, write off, delete or finalize an invoice, or void a credit
+  note.
 
 ## Access and plans
 

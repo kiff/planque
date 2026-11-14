@@ -990,7 +990,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	}
 	// Approved before planque stopped serving it: never sent, whatever the grant holds.
 	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {
-		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it can't be undone.")
+		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it moves money or closes a bill for good.")
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {
