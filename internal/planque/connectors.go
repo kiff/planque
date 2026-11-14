@@ -1155,7 +1155,12 @@ const legacySignInThenChoose = " Sign in and confirm on this device, then choose
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
 // signed with.
-func connectorText(w words.Approval, q Request) string {
+func connectorText(w words.Approval, q Request) string { return connectorTextSaid(w, q, false) }
+
+// connectorTextSaid is connectorText; reusedSaid: the words before it
+// already say the sign-in is reused (the account's line, "no second
+// sign-in"), so a reused sign-in's own sentence doesn't say it twice.
+func connectorTextSaid(w words.Approval, q Request, reusedSaid bool) string {
 	c := q.Connector
 	if c.Title == "" {
 		// Made before titles: kept as signed, for the agent it was asked
@@ -1173,8 +1178,11 @@ func connectorText(w words.Approval, q Request) string {
 	taf := tafWords(w, q)
 	text := fmt.Sprintf(w.ConnectTitledF, c.Title, taf)
 	if q.Reuse != "" {
-		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
-		text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2),
+		// said once (14 Nov: the owner's card said "no second sign-in" twice).
+		if !reusedSaid {
+			text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		}
 		// Nothing more is asked of the app: the held sign-in's own tools, or a
 		// wider ask, aren't this taf's, so they're never listed as if they were.
 		if len(q.Tools) == 0 {

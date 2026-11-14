@@ -1343,8 +1343,9 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
 			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
 	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
-	if st != 200 || out["status"] != StatusPending || !strings.Contains(out["text"].(string), "with the sign-in you already have there") ||
-		!strings.Contains(out["text"].(string), "Approve these actions: ") {
+	// The account's line says the sign-in is reused, once: "no second sign-in" is never said twice (14 Nov).
+	if text := out["text"].(string); st != 200 || out["status"] != StatusPending || !strings.HasPrefix(text, "You're already signed in, to the account Demo Shop: no second sign-in.") ||
+		strings.Count(text, "no second sign-in") != 1 || strings.Contains(text, "with the sign-in you already have there") || !strings.Contains(text, "Approve these actions: ") {
 		t.Fatalf("tools: %d %v", st, out)
 	}
 	g, _ = e.s.loadGrant(ctx, tenant, id)
