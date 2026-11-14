@@ -56,8 +56,11 @@ reads planque's text. For example:
 `{"error": "linkedin_post: fixed argument \"author\"'s value isn't JSON: …", "code": "pin_shape", "tool": "linkedin_post", "field": "author", "want": "dotted path → JSON value"}`.
 The codes: `agent_required`, `too_many_tools`, `tool_name`, `tool_twice`,
 `tool_title`, `title_twice`, `read_only_moves_amount`,
-`idempotency_reserved`, `setup_reads_not_read` (the request and its
-tools); `pin_shape`, `argument_name`, `argument_type`, `argument_schema`,
+`idempotency_reserved`, `setup_reads_not_read`, `setup_reads_alone`
+(setting tools that are all `setup_reads`: they go in the request that sets
+the taf's tools, approved once with its Card; a vendor's describing tool,
+`stripe_api_details`, alone is still taken, as a narrowed write needs it
+approved first) (the request and its tools); `pin_shape`, `argument_name`, `argument_type`, `argument_schema`,
 `argument_one_of`, `argument_path`, `argument_overlap`, `amount_argument`,
 `resource_argument` (a tool's pins and arguments); `lookup` (a
 `unit_lookup` or `amount_lookup`), `one_of` (an argument's `one_of` read);
