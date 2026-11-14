@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -52,6 +54,8 @@ type connectorFixture struct {
 	// set, is its managed scope ceiling, always is what it always asks, and
 	// setUpFails fails an app's set-up at the provider, its answer naming the project key.
 	setUpFails bool
+	// scopedFails refuses a scoped sign-in's set-up (403), its answer naming the project key.
+	scopedFails bool
 	// noRecommend fails the scope recommendation (gap 5 of kiff/tafs#476).
 	managed     bool
 	ceiling     []string
@@ -114,6 +118,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			Config map[string]any `json:"auth_config"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if name, _ := in.Config["name"].(string); strings.HasPrefix(name, "planque-scoped-") && f.scopedFails {
+			return profileResponse(403, `{"error":{"message":"Custom scopes need your own auth config for key synthetic-project-key"}}`), nil
+		}
 		if name, _ := in.Config["name"].(string); strings.HasPrefix(name, "planque-scoped-") {
 			// A scoped sign-in: the managed kind, named, asking for the scopes given and nothing of ours.
 			creds, _ := in.Config["credentials"].(map[string]any)
@@ -1482,5 +1489,31 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
 		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
 		t.Fatalf("an unknown slug: %d %v", st, out)
+	}
+}
+
+// A narrowed sign-in the provider refuses is logged with the provider's own
+// reason, its key never (14 Nov: a 403 on the set-up of Gmail's narrowed
+// sign-in was logged as "composio: POST /auth_configs: 403" alone).
+func TestARefusedNarrowedSignInIsLoggedWithTheProvidersReason(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	e, f := newConnectorFixture(t)
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	f.managed, f.scopedFails = true, true
+	f.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "userinfo.email"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 503 || !strings.Contains(out["error"].(string), "without asking for personal data") {
+		t.Fatalf("a narrowed sign-in the provider refused: %d %v", st, out)
+	}
+	got := logs.String()
+	if !strings.Contains(got, `"msg":"sign-in not set up without personal data"`) || !strings.Contains(got, `"reason":"Custom scopes need your own auth config for key [redacted]"`) {
+		t.Fatalf("the provider's reason isn't logged: %s", got)
+	}
+	if strings.Contains(got, "synthetic-project-key") {
+		t.Fatalf("the project key reached the log: %s", got)
+	}
+	if strings.Contains(out["error"].(string), "Custom scopes") {
+		t.Fatalf("the provider's words reached the person: %v", out)
 	}
 }
