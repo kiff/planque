@@ -1,9 +1,8 @@
 # Stripe
 
 Checked: 2026-11-14 · Sources: planque's direct Stripe connection and its
-reviewed refund entry (`docs/managed-connectors.md`), the managed app's
-invoice tools, Stripe's API reference and invoicing docs, and Stripe's
-published server tools.
+reviewed refund entry (`docs/managed-connectors.md`), Stripe's API
+reference and operation ids, invoicing docs and published server tools.
 
 ## How it connects
 
@@ -12,9 +11,8 @@ published server tools.
 - **One account per connection.** If the sign-in reaches exactly one account,
   planque sets it. With several, or none, planque refuses the tools and the
   owner signs in again choosing one account.
-- **Stripe also appears as a managed app** in the catalog ([generated](generated/stripe.md),
-  428 tools). The refunds job doesn't use it: it uses Stripe's own server,
-  above, narrowed to the operations below.
+- **No new managed Stripe connection:** every job uses Stripe's own
+  server, narrowed to named operations.
 - **Refunds are a reviewed entry** (`stripe-refunds@1`), switched on per
   deployment, and **test mode only** for now: a live object is refused.
 
@@ -39,14 +37,19 @@ KIFF's Card caps refunds in euros; a refund in another currency is refused.
 
 ## Invoices: chasing overdue ones
 
-Invoices go through the managed app's tools ([generated](generated/stripe.md)),
-not the refund entry above.
+On a direct connection of their own, not the refunds one, with Coach's
+profile. Connect `stripe_api_details` first (a setup read), then each tool
+below, its `fixed_arguments` pinning `stripe_api_operation_id`, account and
+`livemode`; the send once that read is approved.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `STRIPE_LIST_INVOICES` | Lists invoices, newest first, filtered to status `open` (and collection method `send_invoice`); 10 a page unless asked, at most 100 | read | invoice ids, due dates, amounts left to pay, the last id to page from |
-| `STRIPE_GET_INVOICES_INVOICE` | Reads one invoice | read | its status, due date, amount left, customer, collection method |
-| `STRIPE_SEND_INVOICE` | Emails the invoice to its customer now, outside Stripe's own schedule | write, reaches the customer | the invoice |
+| `stripe_api_read` (`GetInvoices`) | Lists invoices, newest first, `status` pinned to `open` (and `collection_method` to `send_invoice`); at most 100 a page | read | invoice ids, due dates, amounts left to pay, the last id to page from |
+| `stripe_api_read` (`GetInvoicesInvoice`) | Reads one invoice | read | its status, due date, amount left, customer, collection method |
+| `stripe_api_write` (`PostInvoicesInvoiceSend`) | Emails the invoice to its customer now, outside Stripe's own schedule | write, reaches the customer | the invoice |
+
+**Sending may be refused:** Stripe's published list has no "send an
+invoice", and planque refuses an undescribed operation.
 
 **Overdue** means `open` with a due date in the past.
 
@@ -73,18 +76,10 @@ the owner asked for reminders, and say each one waits for their yes.
 - Cancelling subscriptions, closing disputes, or payouts: they move money or
   end a customer's service, and need their own review.
 - A refund in live mode, until the live entry is reviewed.
-- `STRIPE_POST_V1_INVOICES_SEND_VOID_AN_INVOICE`: its name says "send", but
-  it voids the invoice, and that can't be undone.
-- The other void tools (`STRIPE_VOID_INVOICE`, `STRIPE_POST_INVOICES_INVOICE_VOID`,
-  `STRIPE_POST_V1_INVOICES_VOID_AN_INVOICE`,
-  `STRIPE_POST_V1_INVOICES_FINALIZE_VOID_AN_INVOICE`,
-  `STRIPE_DELETE_V1_INVOICES_VOID_AN_INVOICE`, `STRIPE_VOID_CREDIT_NOTE`,
-  `STRIPE_POST_BILLING_CREDIT_GRANTS_VOID_CREDIT_GRANT`): they cancel a bill
-  or a credit for good.
-- `STRIPE_DELETE_INVOICE`: it deletes a draft for good.
-- `STRIPE_FINALIZE_INVOICE`: it turns a draft into a bill the customer owes.
-- `STRIPE_PAY_INVOICE`: it charges the customer's saved payment method now.
-- `STRIPE_MARK_INVOICE_UNCOLLECTIBLE`: it writes the debt off.
+- `stripe_api_write` narrowed to `PostInvoicesInvoiceVoid`,
+  `PostInvoicesInvoicePay`, `PostInvoicesInvoiceMarkUncollectible`,
+  `DeleteInvoicesInvoice` or `PostInvoicesInvoiceFinalize`: they charge,
+  void, write off, delete or finalize an invoice.
 
 ## Access and plans
 
@@ -114,6 +109,7 @@ the owner asked for reminders, and say each one waits for their yes.
 | The invoice is no longer open | It was paid, voided or written off since the list | "That invoice is already paid or closed, so no reminder went out." |
 | Charged automatically | Its collection method isn't `send_invoice`: don't send | "Stripe charges that customer's card automatically, so I didn't send a reminder for it." |
 | Sent, but no email arrived | A test-mode invoice | "That's a test invoice, so Stripe didn't email anyone." |
+| The send is refused | Stripe's server doesn't offer it | "Stripe doesn't let this taf send invoices. It can list overdue ones for you." |
 
 After any refusal the taf stops that step and says so. A refused refund is
 never tried again with a different amount.
