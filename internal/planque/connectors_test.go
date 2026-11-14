@@ -734,6 +734,87 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 	}
 }
 
+// A sign-in that can't be narrowed, for an app whose usual sign-in asks for
+// personal data (14 Nov: Gmail's asked for a date of birth, addresses, phone
+// numbers and contacts), asks for the app's access less that data: its own
+// sign-in, recorded in the signed request, and still said to be more than
+// the taf uses.
+func TestAWideSignInLeavesOutPersonalDataAndSaysItsWide(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	e, f := newConnectorFixture(t)
+	f.managed, f.noRecommend = true, true
+	f.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "contacts.readonly", g + "userinfo.email"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	v := out["grant"].(map[string]any)
+	gr, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+	c := gr.Request.Connector
+	if !c.UsualAccess || c.AuthConfig == "ac_desk_demo" || len(f.scopedMade) != 1 || !slices.Equal(c.Scopes, []string{g + "gmail.modify", g + "userinfo.email"}) {
+		t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
+	}
+	if strings.Contains(f.scopedMade[0], "birthday") || strings.Contains(f.scopedMade[0], "contacts") {
+		t.Fatalf("the sign-in asks for personal data: %v", f.scopedMade)
+	}
+	if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions.") {
+		t.Fatalf("words: %q", words)
+	}
+	// A tool that runs on contacts alone, added later, isn't covered by what the
+	// sign-in asked: it's refused as only partly signed in, never approved to fail.
+	if (connector.Tool{Scopes: []string{g + "contacts.readonly"}}).Covered(grantedScopes(gr)) {
+		t.Fatal("a contacts-only tool reads as covered by a sign-in that left contacts out")
+	}
+	if !(connector.Tool{Scopes: []string{g + "gmail.modify"}}).Covered(grantedScopes(gr)) {
+		t.Fatal("a Gmail tool reads as uncovered")
+	}
+
+	// Asked with a tool that runs on contacts alone, the sign-in keeps one contact scope, read-only.
+	e2, f2 := newConnectorFixture(t)
+	f2.managed, f2.noRecommend, f2.search = true, true, true
+	f2.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "contacts", g + "contacts.readonly", g + "userinfo.email"}
+	f2.searchScopes = []string{g + "contacts", g + "contacts.readonly"}
+	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY", "DESK_DEMO_SEARCH"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request with a contacts tool: %d %v", st, out)
+	}
+	g2, _ := e2.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if c := g2.Request.Connector; !c.UsualAccess || !slices.Equal(c.Scopes, []string{g + "contacts.readonly", g + "gmail.modify", g + "userinfo.email"}) {
+		t.Fatalf("with a contacts tool: %+v", c)
+	}
+}
+
+// When no sign-in without personal data can be set up (the account's set-ups
+// for the day used), nothing is asked: never the usual sign-in instead, and
+// the words say why and when to try again. A request with no tools named
+// leaves the personal data out too.
+func TestNoSignInWithPersonalDataIsEverTheFallback(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	personal := []string{g + "gmail.modify", g + "user.birthday.read", g + "userinfo.email"}
+	e, f := newConnectorFixture(t)
+	f.managed, f.noRecommend, f.ceiling = true, true, personal
+	for i := 1; i <= onDemandADay; i++ {
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+			t.Fatalf("set-up %d: %d %v", i, st, out)
+		}
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 429 || !strings.Contains(out["error"].(string), "can't be connected without asking for personal data this taf doesn't use. Try again tomorrow.") || len(f.scopedMade) != 0 {
+		t.Fatalf("with the day used: %d %v (made %v)", st, out, f.scopedMade)
+	}
+	// No tools named: the sign-in still leaves the personal data out.
+	e2, f2 := newConnectorFixture(t)
+	f2.managed, f2.ceiling = true, personal
+	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("no tools: %d %v", st, out)
+	}
+	gr, _ := e2.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if c := gr.Request.Connector; !slices.Equal(c.Scopes, []string{g + "gmail.modify", g + "userinfo.email"}) || len(f2.scopedMade) != 1 || strings.Contains(f2.scopedMade[0], "birthday") {
+		t.Fatalf("no tools: %+v, made %v", c, f2.scopedMade)
+	}
+}
+
 // A new scoped sign-in is a set-up at the provider, so it counts against the
 // account's day as setting up an app does: after it, one set-up fewer is left.
 func TestANewScopedSignInCountsAsASetUp(t *testing.T) {
@@ -1357,5 +1438,48 @@ func TestASignInLinkNamesTheApp(t *testing.T) {
 	name, _ := out["app_name"].(string)
 	if name == "" || name != e.s.appName(g) || name != g.VendorName || strings.Contains(name, link.Host) {
 		t.Fatalf("app_name %q: want the app's own name (%q), not the link's host %q", name, g.VendorName, link.Host)
+	}
+}
+
+// A managed app's catalog names each tool's provider slug beside its name,
+// and setting tools takes the slug as well as the name: the app's guide and
+// a search give the slug, which the catalog lists under another name (14 Nov,
+// Gmail: Coach looked up GMAIL_FETCH_EMAILS and the setup read as failed).
+func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	id := listConnector(t, e, f)
+	path := "/v1/accounts/" + tenant + "/grants/" + id
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	first := catalog["tools"].([]any)[0].(map[string]any)
+	name, slug := first["name"].(string), first["slug"].(string)
+	if slug == "" || slug == name || !strings.HasPrefix(name, "connector_") {
+		t.Fatalf("the catalog's tool: %v", first)
+	}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	for _, asked := range []string{slug, strings.ToLower(slug)} {
+		st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("set tools by %q: %d %v", asked, st, out)
+		}
+		g, _ := e.s.loadGrant(context.Background(), tenant, id)
+		if len(g.Request.Tools) != 1 || g.Request.Tools[0].Tool != name || len(g.Request.Connector.Tools) != 1 || g.Request.Connector.Tools[0].Slug != slug {
+			t.Fatalf("by %q, the request: %+v", asked, g.Request.Tools)
+		}
+	}
+	// A never-served tool stays refused by its slug, in any case, as by its name:
+	// the slug is mapped to the catalog's name before the never-served check.
+	neverServe(t, "DESK_DEMO_SEARCH")
+	for _, asked := range []string{"DESK_DEMO_SEARCH", "desk_demo_search", connector.Tool{Toolkit: "desk_demo", Slug: "DESK_DEMO_SEARCH"}.Alias()} {
+		if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Search tickets", Name: "search_tickets", ReadOnly: true}}, "profile": p}, nil, "k_setup"); st != 400 || out["code"] != refToolNotServed {
+			t.Fatalf("a never-served tool by %q: %d %v", asked, st, out)
+		}
+	}
+	// A slug the catalog doesn't hold is refused as before, in Coach's own words.
+	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
+		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
+		t.Fatalf("an unknown slug: %d %v", st, out)
 	}
 }

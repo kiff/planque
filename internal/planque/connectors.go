@@ -529,20 +529,38 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		onDemand = ok && held.AuthConfig != "" && held.AuthConfig == app.AuthConfig
 	}
 	conn := &ConnectorRequest{Provider: providerID, Toolkit: toolkit, Title: label(app.Name), AuthConfig: app.AuthConfig, AuthScheme: app.AuthScheme}
-	if len(ask.Tools) > 0 {
+	{
 		// The narrowest sign-in for the taf's tools (gap 5 of kiff/tafs#476).
 		// The Card stays the boundary: a taf calls only the tools its Card
 		// grants, whatever the scopes. So when the provider can't narrow the
 		// sign-in, or the account's set-ups for the day are used, it asks for
 		// the app's usual access, and says so.
-		conn.AskedTools = slices.Clone(ask.Tools)
+		if len(ask.Tools) > 0 {
+			conn.AskedTools = slices.Clone(ask.Tools)
+		}
 		budget := connector.Allowance{
 			Take:     func(ctx context.Context) error { return s.takeAllowance(ctx, tenant) },
 			GiveBack: func(ctx context.Context) { s.giveBackAllowance(ctx, tenant) },
 		}
 		scoped, err := p.Scope(r.Context(), app, ask.Tools, budget)
+		// The usual sign-in would ask for personal data the taf doesn't use,
+		// and none without it can be set up now: nothing is asked (the owner,
+		// 14 Nov: "very intrusive"). It isn't the usual sign-in instead.
+		if errors.Is(err, connector.ErrPersonal) {
+			s.log().WarnContext(r.Context(), "sign-in not set up without personal data", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+			if errors.Is(err, errAllowance) {
+				writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today, and "+label(app.Name)+" can't be connected without asking for personal data this taf doesn't use. Try again tomorrow.")
+				return
+			}
+			writeErr(w, http.StatusServiceUnavailable, label(app.Name)+" can't be connected right now without asking for personal data this taf doesn't use. Try again later.")
+			return
+		}
 		if err == nil {
 			conn.AuthConfig, conn.Scopes = scoped.AuthConfig, scoped.Scopes
+			// Wide: the app's usual access less personal data, still more
+			// than the tools use, and said so; it covers the app's tools as
+			// the usual one does.
+			conn.UsualAccess = scoped.Wide
 		} else {
 			conn.UsualAccess = true
 			if !errors.Is(err, connector.ErrUnscoped) {
@@ -856,6 +874,7 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 	// listed apart, with why, so the taf's Card never grants it.
 	type unusable struct {
 		Name  string `json:"name"`
+		Slug  string `json:"slug,omitempty"`
 		Title string `json:"title"`
 		Why   string `json:"why"`
 	}
@@ -872,13 +891,24 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 			return
 		}
 		if !t.Covered(granted) {
-			unusables = append(unusables, unusable{Name: t.Alias(), Title: label(t.Name), Why: uncoveredWords(g, t)})
+			unusables = append(unusables, unusable{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Why: uncoveredWords(g, t)})
 			continue
 		}
-		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
+		tools = append(tools, CatalogTool{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
+
+// connectorToolName is a managed app's tool as planque names it: a name
+// from its catalog as it is, or its provider's slug (GMAIL_FETCH_EMAILS, as
+// its guide and a search give it) as the name the catalog lists it by.
+func connectorToolName(toolkit, name string) string {
+	if strings.HasPrefix(name, "connector_") || !connectorTool.MatchString(name) {
+		return name
+	}
+	return connector.Tool{Toolkit: toolkit, Slug: strings.ToUpper(name)}.Alias()
+}
+
 func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []ToolRequest) error {
 	if err := s.checkConnector(ctx, g); err != nil {
 		return err
@@ -898,7 +928,7 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 			return apiError{http.StatusConflict, uncoveredWords(g, definition) + ": choose the tools its catalog offers"}
 		}
 		g.Connector.Tools = append(g.Connector.Tools, definition)
-		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
+		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Slug: definition.Slug, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
 	}
 	return nil
 }
@@ -938,7 +968,7 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 			return connector.ErrDefinition
 		}
 		// A sign-in narrowed to the tools the taf asked for serves only those.
-		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
+		if c := g.Request.Connector; len(c.Scopes) > 0 && !c.UsualAccess && !slices.Contains(c.AskedTools, found.Slug) {
 			return errOutsideSignIn(c.Title, found.Name)
 		}
 		// Nor one its scopes don't let run: the Card would grant a tool the vendor refuses.
@@ -972,7 +1002,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	}
 	// Approved before planque stopped serving it: never sent, whatever the grant holds.
 	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {
-		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it can't be undone.")
+		return OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never serves "+t.Connector.Slug+", since it moves money or closes a bill for good.")
 	}
 	result, err := p.Execute(ctx, s.connectorIdentity(g), g.Request.Connector.Account, *t.Connector, args, live)
 	if errors.Is(err, connector.ErrChanged) {

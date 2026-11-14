@@ -599,7 +599,13 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 }
 
 // checkTools says what is wrong with a request's agent and tools, or nil.
+// It first normalises each array argument's schema in place
+// (normaliseArguments), so the request stored, shown and signed after it
+// carries the schema checked.
 func checkTools(agent string, tools []ToolRequest) *toolRefusal {
+	for _, t := range tools {
+		normaliseArguments(t)
+	}
 	if strings.TrimSpace(agent) == "" {
 		return &toolRefusal{Code: refAgentRequired, Field: "agent", Want: "the KIFF agent's id",
 			Msg: "agent is required: the KIFF agent of the taf that will use the account"}
@@ -1349,6 +1355,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		reviewed = true
 	}
 	if g.Request.Connector != nil {
+		// A tool asked by its provider's slug is the one the catalog lists.
+		for i := range req.Tools {
+			req.Tools[i].Tool = connectorToolName(g.Request.Connector.Toolkit, req.Tools[i].Tool)
+		}
 		if err := s.selectConnectorTools(r.Context(), g, req.Tools); err != nil {
 			s.fail(w, r, err)
 			return

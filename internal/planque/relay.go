@@ -289,7 +289,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if err != nil {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 	}
-	// An operation that can't be undone, through a vendor's broad write:
+	// An operation that moves money or closes a bill for good, through a vendor's broad write:
 	// never sent, whether a grant from before pins it or the taf set it on
 	// a broad tool (describer.Never); nor one it can't read as one id.
 	if why := neverSentCall(tool.Tool, vendorArgs); why != "" {

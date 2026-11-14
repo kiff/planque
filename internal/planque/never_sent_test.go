@@ -32,7 +32,7 @@ func TestStripesNeverSentOperations(t *testing.T) {
 	}
 }
 
-// A broad write narrowed to an operation that can't be undone is refused
+// A broad write narrowed to an operation that moves money or closes a bill for good is refused
 // with tool_not_served before anything is asked or read: on a new grant, as
 // an addition to a connected one, in any spelling. Narrowing to a refund, a
 // read of invoices, or the describing tool goes on as before.
@@ -47,7 +47,7 @@ func TestABroadWriteIsNeverNarrowedToAnOperationThatCantBeUndone(t *testing.T) {
 		t.Helper()
 		msg, _ := out["error"].(string)
 		if st != 400 || out["code"] != refToolNotServed || out["tool"] != "chase_ef56" || out["field"] != "stripe_api_operation_id" ||
-			!strings.Contains(msg, "planque never narrows stripe_api_write to "+strings.TrimSpace(op)) || !strings.Contains(msg, "can't be undone") {
+			!strings.Contains(msg, "planque never narrows stripe_api_write to "+strings.TrimSpace(op)) || !strings.Contains(msg, "moves money or closes a bill for good") {
 			t.Errorf("%s %q: %d %v", what, op, st, out)
 		}
 	}
@@ -99,7 +99,7 @@ func TestABroadWriteIsNeverNarrowedToAnOperationThatCantBeUndone(t *testing.T) {
 	}
 }
 
-// A call through a broad write that names an operation that can't be undone
+// A call through a broad write that names an operation that moves money or closes a bill for good
 // is never sent: on a broad tool, where the taf sets the operation, and on a
 // narrowed one a grant from before pins to it. Other operations are sent.
 func TestACallToAnOperationThatCantBeUndoneIsNotSent(t *testing.T) {
@@ -153,7 +153,7 @@ func TestACallToAnOperationThatCantBeUndoneIsNotSent(t *testing.T) {
 		t.Errorf("a read: %q", why)
 	}
 
-	// A narrowed write pinned, before this check, to an operation that can't be undone.
+	// A narrowed write pinned, before this check, to an operation that moves money or closes a bill for good.
 	g, err := e.s.loadGrant(ctx, tenant, id)
 	if err != nil {
 		t.Fatal(err)

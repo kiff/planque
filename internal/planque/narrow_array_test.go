@@ -92,7 +92,7 @@ func TestAnArrayArgumentsSchemaIsChecked(t *testing.T) {
 	}{
 		"no schema":            {Argument{Path: "items", Type: "array"}, "schema"},
 		"not an array":         {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)}, "is an array"},
-		"items not objects":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"string"}}`)}, "items are objects"},
+		"items not objects":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"array","items":{"type":"string"}}}`)}, "items are objects or plain values"},
 		"open fields":          {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":true}}`)}, "only the fields it names"},
 		"an object unnamed":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object"}}`)}, "names its fields"},
 		"a keyword unchecked":  {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string","pattern":"x"}}}}`)}, "JSON Schema of"},

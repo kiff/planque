@@ -71,7 +71,7 @@ func neverSent(tool, op string) bool {
 }
 
 // neverSentCall says why planque never sends a call through tool, a
-// vendor's broad write, or "": it names an operation that can't be undone
+// vendor's broad write, or "": it names an operation that moves money or closes a bill for good
 // (the pinned one of a narrowed tool, or the one the taf set on a broad
 // one). It fails closed: arguments that aren't an object, or an operation
 // that isn't one string, are never sent either, so the guard never rests on
@@ -96,7 +96,7 @@ func neverSentCall(tool string, vendorArgs json.RawMessage) string {
 			return "planque never sends a call through " + tool + " whose " + d.OpArg + " isn't one operation's id"
 		}
 		if neverSent(tool, op) {
-			return "planque never sends " + strings.TrimSpace(op) + " through " + tool + ", since it can't be undone"
+			return "planque never sends " + strings.TrimSpace(op) + " through " + tool + ", since it moves money or closes a bill for good"
 		}
 	}
 	return ""

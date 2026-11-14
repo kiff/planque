@@ -18,8 +18,6 @@ reference and operation ids, invoicing docs and published server tools.
 
 ## Tools a job usually needs
 
-The direct connection narrows Stripe's general tools to named operations.
-
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
 | `stripe_api_details` | Describes one Stripe operation's fields, before a call | read | the fields |
@@ -76,8 +74,12 @@ the owner asked for reminders, and say each one waits for their yes.
 - Cancelling subscriptions, closing disputes, or payouts: they move money or
   end a customer's service, and need their own review.
 - A refund in live mode, until the live entry is reviewed.
-- `stripe_api_write` narrowed to voiding, paying, finalizing, deleting or
-  writing off an invoice: planque refuses it (`tool_not_served`).
+- `stripe_api_write` narrowed to `PostInvoicesInvoiceVoid`,
+  `PostInvoicesInvoicePay`, `PostInvoicesInvoiceAttachPayment`,
+  `PostInvoicesInvoiceMarkUncollectible`, `DeleteInvoicesInvoice`,
+  `PostInvoicesInvoiceFinalize` or `PostCreditNotesIdVoid`: they charge,
+  settle, void, write off, delete or finalize an invoice, or void a credit
+  note. planque refuses each (`tool_not_served`).
 
 ## Access and plans
 

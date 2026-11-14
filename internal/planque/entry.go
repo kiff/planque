@@ -104,8 +104,13 @@ func (s *Server) entryVendor(id string) string {
 }
 
 // builtinVendor is the name people read for planque's own reviewed
-// entries, or "".
+// entries, or "": by their own id ("stripe"), or by the managed app's id
+// the reviewed server list gives a vendor's own server
+// ("connector:<provider>:stripe" for mcp.stripe.com).
 func builtinVendor(id string) string {
+	if _, toolkit, ok := connectorEntry(id); ok {
+		id = directEntryFor(toolkit)
+	}
 	switch id {
 	case StripeEntry:
 		return stripeVendor

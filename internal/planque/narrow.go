@@ -57,12 +57,12 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 	arg := func(code, name, want, msg string) *toolRefusal {
 		return &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
 	}
-	// A broad write narrowed to an operation that can't be undone (voiding,
+	// A broad write narrowed to an operation that moves money or closes a bill for good (voiding,
 	// paying, writing off, deleting or finalizing a bill or a credit):
 	// refused before anything is asked, as a managed app's never-served tool.
 	if d, op, write, ok := narrowedTo(t); ok && write && neverSent(t.Tool, op) {
 		return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: d.OpArg, Want: "another operation",
-			Msg: fmt.Sprintf("%s: planque never narrows %s to %s: what it does can't be undone (voiding, paying, writing off, deleting or finalizing a bill or a credit), so it is refused; leave it out", tool, t.Tool, strings.TrimSpace(op))}
+			Msg: fmt.Sprintf("%s: planque never narrows %s to %s: it moves money or closes a bill for good (voiding, paying, writing off, deleting or finalizing a bill or a credit), so it is refused; leave it out", tool, t.Tool, strings.TrimSpace(op))}
 	}
 	paths := map[string]bool{}
 	// In a set order, so a request names the same pin each time.
@@ -79,7 +79,7 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 		case !slices.Contains(argTypes, a.Type):
 			return arg(refArgumentType, name, "string, integer, number, boolean or array", "argument "+name+" must be a string, integer, number, boolean or array")
 		case a.Type == "array" && checkShape(a.Schema, true) != "":
-			return arg(refArgumentSchema, name, "an array of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
+			return arg(refArgumentSchema, name, "an array of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
 		case a.Type != "array" && len(a.Schema) > 0:
 			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array argument has a schema")
 		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
@@ -514,6 +514,130 @@ type shape struct {
 
 const maxShapeDepth = 4
 
+// itemTypes are what an array argument's items may be: objects naming their
+// fields, or plain values (a draft's cc addresses), which have no fields to
+// hide and are checked as a plain argument is.
+var itemTypes = []string{"object", "string", "integer", "number", "boolean"}
+
+// annotations are JSON Schema keywords that describe a value without
+// restricting what planque lets through: a provider's generated schema
+// carries them (an email draft's cc has a title, a default and examples), and
+// an agent copies them into an argument's schema. format is one: planque has
+// never checked it (fits doesn't), and the vendor still checks its own.
+var annotations = []string{"title", "default", "examples", "example", "$comment", "deprecated", "readOnly", "writeOnly", "nullable", "format"}
+
+// normaliseArguments puts each array argument's schema in the form planque
+// checks and keeps (normaliseSchema), in place: what is stored, declared in
+// KIFF, shown to the owner and signed is the normalised schema.
+func normaliseArguments(t ToolRequest) {
+	for name, a := range t.Arguments {
+		if a.Type == "array" && len(a.Schema) > 0 {
+			a.Schema = normaliseSchema(a.Schema)
+			t.Arguments[name] = a
+		}
+	}
+}
+
+// normaliseSchema drops a schema's annotations, at every level, and reads an
+// optional value written as anyOf (or oneOf) of it and {"type": "null"} as
+// the value alone: the argument is optional already when not required, and
+// planque refuses a null. Nothing that restricts a value is dropped; any other
+// anyOf, oneOf or keyword stays, for checkShape to refuse. The schema is
+// rewritten only when something was dropped, else returned as it came.
+func normaliseSchema(raw json.RawMessage) json.RawMessage {
+	var m map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if dec.Decode(&m) != nil || m == nil || !normaliseNode(m, 0) {
+		return raw
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
+}
+
+func normaliseNode(m map[string]any, depth int) bool {
+	if depth > 2*maxShapeDepth {
+		return false // refused as too deep anyway
+	}
+	changed := false
+	for _, k := range []string{"anyOf", "oneOf"} {
+		if x := optionalOf(m[k]); x != nil && !overlaps(m, x, k) {
+			delete(m, k)
+			for kx, v := range x {
+				if _, ok := m[kx]; !ok || kx != "description" {
+					m[kx] = v // the outer description, when both have one
+				}
+			}
+			changed = true
+		}
+	}
+	for _, k := range annotations {
+		if _, ok := m[k]; ok {
+			delete(m, k)
+			changed = true
+		}
+	}
+	if props, ok := m["properties"].(map[string]any); ok {
+		for _, p := range props {
+			if pm, ok := p.(map[string]any); ok && normaliseNode(pm, depth+1) {
+				changed = true
+			}
+		}
+	}
+	if items, ok := m["items"].(map[string]any); ok && normaliseNode(items, depth+1) {
+		changed = true
+	}
+	return changed
+}
+
+// optionalOf is X when alts is exactly [X, {"type": "null"}] (in either
+// order, annotations aside), else nil.
+func optionalOf(alts any) map[string]any {
+	list, ok := alts.([]any)
+	if !ok || len(list) != 2 {
+		return nil
+	}
+	for i, alt := range list {
+		if isNull(alt) {
+			x, _ := list[1-i].(map[string]any)
+			if isNull(x) {
+				return nil
+			}
+			return x
+		}
+	}
+	return nil
+}
+
+// isNull reports whether v is the schema {"type": "null"}, annotations aside.
+func isNull(v any) bool {
+	m, ok := v.(map[string]any)
+	if !ok || m["type"] != "null" {
+		return false
+	}
+	for k := range m {
+		if k != "type" && !slices.Contains(annotations, k) {
+			return false
+		}
+	}
+	return true
+}
+
+// overlaps reports whether x sets a keyword m sets too, its words
+// (description, annotations) and the anyOf being read aside: then neither
+// can be taken for the other, and the anyOf stays, to be refused.
+func overlaps(m, x map[string]any, of string) bool {
+	for k := range x {
+		if _, ok := m[k]; ok && k != of && k != "description" && !slices.Contains(annotations, k) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkShape says what is wrong with a reviewed schema, or "": only the
 // keywords shape has, an array at the top (top) with object items, every
 // object naming its fields, and at most maxShapeDepth levels.
@@ -541,8 +665,8 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 	case "array":
 		if top {
 			var it shape
-			if json.Unmarshal(s.Items, &it) != nil || it.Type != "object" {
-				return "its items are objects"
+			if json.Unmarshal(s.Items, &it) != nil || !slices.Contains(itemTypes, it.Type) {
+				return "its items are objects or plain values (string, integer, number or boolean)"
 			}
 		}
 		return checkShapeAt(s.Items, false, depth+1)
