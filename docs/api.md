@@ -124,7 +124,10 @@ addresses, checked when each connection is made.
 fetch), the relay's audience, the account, the tool, the RFC 8785 hash of
 the arguments, and a lifetime of at most 60 seconds. Each operation runs
 at most once: a replay gets the first answer, and a call whose answer was
-lost is never sent again.
+lost is never sent again. The vendor's answer is kept 24 hours, then
+dropped by the hourly sweep: the operation's record keeps only its outcome
+(done, not sent, unknown), and a later replay is told the call was answered
+once, never sent again.
 
 **Narrowing a vendor tool.** Some vendors offer one broad tool that writes to
 any endpoint of their API. A grant

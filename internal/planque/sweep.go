@@ -203,6 +203,16 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cleanTriggers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
+	// Once: the answers kept before answerTTL, dropped or given their expiry.
+	if _, _, err := s.CleanStoredAnswers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
+	}
+	// Vendors' answers past answerTTL: each record keeps its outcome alone.
+	if dropped, err := s.SweepAnswers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: answers not all dropped yet", slog.String("err", err.Error()))
+	} else if dropped > 0 {
+		s.log().InfoContext(r.Context(), "sweep dropped answers", slog.Int("dropped", dropped))
+	}
 	// Sign-ins kept for another connection that no live grant uses now.
 	if revoked, err := s.SweepKept(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: kept sign-ins not all revoked yet", slog.String("err", err.Error()))

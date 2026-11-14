@@ -52,6 +52,9 @@ type KV interface {
 	// QueryTo lists the items under pk whose SK is at most maxSK, in SK
 	// order: reading a range never costs more than the range.
 	QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error)
+	// Scan lists the items of every pk whose SK starts with prefix: the
+	// whole table is read, so it's only for a one-time clean-up.
+	Scan(ctx context.Context, prefix string) ([]Item, error)
 }
 
 // Memory is KV in one process.
@@ -119,12 +122,17 @@ func (m *Memory) QueryTo(_ context.Context, pk, maxSK string) ([]Item, error) {
 	return m.list(pk, func(sk string) bool { return sk <= maxSK }), nil
 }
 
+func (m *Memory) Scan(_ context.Context, prefix string) ([]Item, error) {
+	return m.list("", func(sk string) bool { return strings.HasPrefix(sk, prefix) }), nil
+}
+
+// list lists pk's items that keep takes; with pk "", every pk's.
 func (m *Memory) list(pk string, keep func(sk string) bool) []Item {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Item
 	for k, it := range m.items {
-		if k[0] == pk && keep(k[1]) && m.live(it) {
+		if (pk == "" || k[0] == pk) && keep(k[1]) && m.live(it) {
 			out = append(out, it)
 		}
 	}
@@ -279,13 +287,26 @@ func (d *Dynamo) QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error) 
 	return d.query(ctx, "pk = :pk AND sk <= :max", av{":pk": av{"S": pk}, ":max": av{"S": maxSK}})
 }
 
+func (d *Dynamo) Scan(ctx context.Context, prefix string) ([]Item, error) {
+	return d.pages(ctx, "Scan", av{"TableName": d.Table, "ConsistentRead": true,
+		"FilterExpression": "begins_with(sk, :p)", "ExpressionAttributeValues": av{":p": av{"S": prefix}}})
+}
+
 // query reads every page of a key condition, in SK order.
 func (d *Dynamo) query(ctx context.Context, cond string, values av) ([]Item, error) {
+	return d.pages(ctx, "Query", av{"TableName": d.Table, "ConsistentRead": true,
+		"KeyConditionExpression": cond, "ExpressionAttributeValues": values})
+}
+
+// pages reads every page of a Query or a Scan.
+func (d *Dynamo) pages(ctx context.Context, action string, base av) ([]Item, error) {
 	var items []Item
 	var start json.RawMessage
 	for {
-		in := av{"TableName": d.Table, "ConsistentRead": true,
-			"KeyConditionExpression": cond, "ExpressionAttributeValues": values}
+		in := av{}
+		for k, v := range base {
+			in[k] = v
+		}
 		if start != nil {
 			in["ExclusiveStartKey"] = start
 		}
@@ -293,7 +314,7 @@ func (d *Dynamo) query(ctx context.Context, cond string, values av) ([]Item, err
 			Items            []map[string]attr `json:"Items"`
 			LastEvaluatedKey json.RawMessage   `json:"LastEvaluatedKey"`
 		}
-		if err := d.read(ctx, "Query", in, &out); err != nil {
+		if err := d.read(ctx, action, in, &out); err != nil {
 			return nil, err
 		}
 		for _, m := range out.Items {

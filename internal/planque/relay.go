@@ -383,6 +383,11 @@ func (s *Server) finish(ctx context.Context, claim store.Item, op operation, sta
 		// as a stand-in, as it was returned once.
 		op.Result, _ = json.Marshal(toolResult("Answered once; the answer was too large to keep. Nothing new was sent; read again with a new call.", false))
 	}
+	if err := s.keepAnswer(ctx, claim, &op); err != nil {
+		// Kept as the outcome alone, never as an answer the sweep can't find.
+		s.log().ErrorContext(ctx, "answer not kept", slog.String("op", claim.SK), slog.String("err", err.Error()))
+		dropAnswer(&op)
+	}
 	it := claim
 	it.Ver, it.Lease = claim.Ver+1, 0
 	if err := putDoc(ctx, s.KV, it, op, store.Cond{Ver: &claim.Ver}); err != nil {
@@ -398,6 +403,9 @@ func (s *Server) recorded(ctx context.Context, g *Grant, it store.Item, op opera
 	}
 	switch op.State {
 	case OpDone, OpNotSent, OpUnknown:
+		if s.answerExpired(op) {
+			dropAnswer(&op)
+		}
 		return op.Result
 	}
 	if it.Lease > s.now().UnixMilli() {
