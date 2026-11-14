@@ -136,15 +136,10 @@ The account-authenticated catalog endpoints include upstream discovery:
    taf's tools (`tools`, the provider's slugs, as the tools search names
    them). For an app on the provider's own sign-in, planque reads that
    sign-in's scope ceiling and the scopes it always asks (the app's
-   `composio_managed_auth` and `auth_config_details`), takes each tool's
-   narrowest scope among those it lists within the ceiling, by a reviewed
-   order of Google's scopes (`breadth`: for each app, read-only first, full
-   access last; a read takes a read-only scope when it lists one, a write
-   never does, whatever its list says), and pins a managed sign-in that asks
-   only for those (`credentials.scopes`). When a tool lists none of those (or
-   only personal ones), or the tools can't be read, it asks the provider for
+   `composio_managed_auth` and `auth_config_details`), asks the provider for
    the tools' least-privilege scopes within the ceiling
-   (`toolkits/{slug}/scopes/recommended`) instead. It is made once per app and
+   (`toolkits/{slug}/scopes/recommended`), and pins a managed sign-in that
+   asks only for those (`credentials.scopes`). It is made once per app and
    scope set, named `planque-scoped-<app>-<hash>`, found again by that name,
    and never chosen as an app's usual sign-in. A new one counts against the
    account's on-demand set-ups for the day, as setting up an app does. Slugs
