@@ -1,6 +1,6 @@
 # Moneybird
 
-Checked: 2026-11-13 · Sources: the connection service's Moneybird tool
+Checked: 2026-11-14 · Sources: the connection service's Moneybird tool
 definitions as planque reads them (32 tools), and Moneybird's API
 documentation (introduction, authentication, contacts, sales invoices).
 
@@ -86,7 +86,7 @@ with the owner's yes for each payment.
 |---|---|---|
 | The sign-in no longer works (401) | Access was revoked, or the sign-in is invalid | "Moneybird needs you to sign in again. Nothing was changed in your books." |
 | Account limit reached (402) | The Moneybird account hit its plan's limit | "Your Moneybird account has reached its limit, so the taf can't add more. Check your plan in Moneybird." |
-| Refused, blocked (403) | Moneybird has blocked the calling address | "Moneybird is refusing the taf's requests right now. The taf has stopped; this needs Moneybird's support." |
+| Refused, blocked (403) | Moneybird has blocked the calling address | "Moneybird is refusing the taf's requests right now. The taf has stopped." |
 | A step's area isn't covered | The sign-in didn't include that area (bank or settings, say) | "Moneybird is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Not found (404) | The contact or invoice was deleted, or a draft was looked up by number | "That record isn't in Moneybird any more. The taf will skip it." |
 | Rejected (422) | A required field is missing or a value isn't valid | "Moneybird didn't accept that invoice: some details are missing or wrong. The taf has stopped and will show you what it tried." |
