@@ -137,8 +137,17 @@ approves it anew: a grant from `@1` stays as it was.
 **Array arguments** (`narrow.go`): a narrowed tool's argument may be
 `"type": "array"` with a `schema`, a JSON Schema of `type`, `properties`,
 `required`, `items`, `enum`, `maxLength`, `maxItems` and `description` only.
-Its items are objects, and every object names its fields. The agent sees that
-schema. A call whose value has a field the schema doesn't name, the wrong kind
+Its items are objects, each naming its fields, or plain values (strings,
+integers, numbers or booleans: a draft's cc addresses). Annotations a
+provider's generated schema carries (`title`, `default`, `examples`,
+`example`, `$comment`, `deprecated`, `readOnly`, `writeOnly`, `nullable`,
+`format`, which planque never checked) are dropped at every level, and an
+optional value written as `anyOf` (or `oneOf`) of it and `{"type": "null"}`
+is read as the value alone, before the schema is checked: the request is
+stored, declared and signed without them. Any other keyword (`pattern`,
+`minimum`, `minItems`, `const`, `$ref`, another `anyOf`) restricts or can't
+be checked, so it is refused (`argument_schema`), never dropped. The agent
+sees that schema. A call whose value has a field the schema doesn't name, the wrong kind
 of value, a value outside its list, or a missing required field is refused.
 
 **The vendor's allowed values** (`narrow.go`, `schemaOver`): a narrowed
