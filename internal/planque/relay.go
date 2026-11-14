@@ -291,9 +291,9 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	// An operation that can't be undone, through a vendor's broad write:
 	// never sent, whether a grant from before pins it or the taf set it on
-	// a broad tool (describer.Never).
-	if never := neverSentCall(tool.Tool, vendorArgs); never != "" {
-		return s.finish(ctx, claim, op, OpNotSent, refusal(CodeToolNotServed, "Not sent: planque never sends "+never+" through "+tool.Tool+", since it can't be undone."))
+	// a broad tool (describer.Never); nor one it can't read as one id.
+	if why := neverSentCall(tool.Tool, vendorArgs); why != "" {
+		return s.finish(ctx, claim, op, OpNotSent, refusal(CodeToolNotServed, "Not sent: "+why+"."))
 	}
 
 	if g.Request.Connector != nil {

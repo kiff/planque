@@ -133,6 +133,26 @@ func TestACallToAnOperationThatCantBeUndoneIsNotSent(t *testing.T) {
 		t.Fatalf("the send: %s (%d calls, was %d)", res, e.vendor.CallCount(), before)
 	}
 
+	// Fails closed: an operation that isn't one string is never sent either.
+	for _, op := range []any{[]any{"PostInvoicesInvoiceVoid"}, map[string]any{"id": "PostInvoicesInvoicePay"}, 42, nil} {
+		before := e.vendor.CallCount()
+		res, err := e.kiff.Call(ctx, "k_taf", "stripe_write", map[string]any{"stripe_api_operation_id": op})
+		if err != nil || !strings.Contains(string(res.Result), "Not sent: planque never sends a call through stripe_api_write whose stripe_api_operation_id isn't one operation's id") ||
+			!strings.Contains(string(res.Result), CodeToolNotServed) || e.vendor.CallCount() != before {
+			t.Errorf("operation %v: %s (%d calls, was %d)", op, res.Result, e.vendor.CallCount(), before)
+		}
+	}
+	// Unit: arguments that aren't an object, and no operation at all (left to the vendor).
+	if why := neverSentCall("stripe_api_write", json.RawMessage(`["x"]`)); !strings.Contains(why, "whose arguments aren't an object") {
+		t.Errorf("not an object: %q", why)
+	}
+	if why := neverSentCall("stripe_api_write", json.RawMessage(`{"parameters":{}}`)); why != "" {
+		t.Errorf("no operation: %q", why)
+	}
+	if why := neverSentCall("stripe_api_read", json.RawMessage(`["x"]`)); why != "" {
+		t.Errorf("a read: %q", why)
+	}
+
 	// A narrowed write pinned, before this check, to an operation that can't be undone.
 	g, err := e.s.loadGrant(ctx, tenant, id)
 	if err != nil {

@@ -32,7 +32,9 @@ and voiding a credit note or credit grant). Narrowing it to one is a 400
 with `code` `tool_not_served`, `tool` the tool's name and `field` the
 operation's argument, before anything is read. A call through it that names
 one, pinned on a connection from before or set by the taf on a broad tool,
-in any spelling, is not sent (`tool_not_served`).
+in any spelling, is not sent (`tool_not_served`). It fails closed: a call
+whose arguments aren't an object, or whose operation isn't one string, is
+not sent either.
 
 Project credentials are injected server-side. `SecretFromStore` reads one
 operator-configured secret containing `api_key`, with a one-minute cache.

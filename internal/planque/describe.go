@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -69,21 +70,33 @@ func neverSent(tool, op string) bool {
 	return false
 }
 
-// neverSentCall is the operation a call's vendor arguments name through
-// tool, a vendor's broad write, that planque never sends, or "": the pinned
-// operation of a narrowed tool, or the one the taf set on a broad one.
+// neverSentCall says why planque never sends a call through tool, a
+// vendor's broad write, or "": it names an operation that can't be undone
+// (the pinned one of a narrowed tool, or the one the taf set on a broad
+// one). It fails closed: arguments that aren't an object, or an operation
+// that isn't one string, are never sent either, so the guard never rests on
+// how the vendor reads them. A call that names no operation is left to the
+// vendor, which refuses it.
 func neverSentCall(tool string, vendorArgs json.RawMessage) string {
 	for _, d := range describers {
 		if !slices.Contains(d.Writes, tool) {
 			continue
 		}
 		var args map[string]json.RawMessage
-		var op string
-		if json.Unmarshal(vendorArgs, &args) != nil || json.Unmarshal(args[d.OpArg], &op) != nil {
+		if json.Unmarshal(vendorArgs, &args) != nil || args == nil {
+			return "planque never sends a call through " + tool + " whose arguments aren't an object"
+		}
+		raw, named := args[d.OpArg]
+		if !named {
 			return ""
 		}
+		var op string
+		// null decodes to "" without an error: it names no operation, and it isn't one string either.
+		if json.Unmarshal(raw, &op) != nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return "planque never sends a call through " + tool + " whose " + d.OpArg + " isn't one operation's id"
+		}
 		if neverSent(tool, op) {
-			return strings.TrimSpace(op)
+			return "planque never sends " + strings.TrimSpace(op) + " through " + tool + ", since it can't be undone"
 		}
 	}
 	return ""
