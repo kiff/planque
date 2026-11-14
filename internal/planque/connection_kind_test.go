@@ -172,10 +172,10 @@ func TestTheAccountsConnectionsSayEachKind(t *testing.T) {
 func TestTheAccountsConnectionsNameTheirTaf(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
-	e.tafName = "Unanswered customer emails"
+	e.tafName = "Weekly news digest"
 	connectConnector(t, e, f)
 	st, cs := e.connections("k_person")
-	if st != 200 || len(cs) != 1 || cs[0]["agent_name"] != "Unanswered customer emails" {
+	if st != 200 || len(cs) != 1 || cs[0]["agent_name"] != "Weekly news digest" {
 		t.Fatalf("connections: %d %v", st, cs)
 	}
 }

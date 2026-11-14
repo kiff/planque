@@ -108,7 +108,7 @@ func TestAnUnfinishedConnectionOffersOnlyToRemoveIt(t *testing.T) {
 // confirm names what stops. Before any call it says it isn't used yet.
 func TestAWorkingConnectionSaysWhoUsesItAndWhenAndOffersOnlyRemove(t *testing.T) {
 	e, f := newConnectorFixture(t)
-	e.tafName = "Unanswered customer emails"
+	e.tafName = "Weekly news digest"
 	g := connectConnector(t, e, f)
 	taf, vendor := g.Request.AgentName, vendorName(g)
 	if taf == "" {
@@ -164,7 +164,7 @@ func TestAFailedCallIsntALastUse(t *testing.T) {
 // owner's language too.
 func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
 	e, f := newConnectorFixture(t)
-	e.tafName = "Unanswered customer emails"
+	e.tafName = "Weekly news digest"
 	g := connectConnector(t, e, f)
 	signOut401(t, e, f, g)
 	vendor := vendorName(g)
