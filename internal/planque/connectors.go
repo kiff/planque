@@ -610,6 +610,12 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	// same vendor account (reconnectConnector).
 	if g.Connector != nil && g.Status == StatusNeedsReconnect {
 		prev := *g.Connector
+		// The provider shows no vendor id, only the account's name: with no
+		// name kept, no new sign-in could be shown to be the same account.
+		if prev.AccountName == "" {
+			s.fail(w, r, errAccountUnknown)
+			return
+		}
 		g.Reconnect, g.ReconnectName, g.Reason = true, prev.AccountName, ""
 		s.startConnectorSignIn(w, r, sr.approval, g, p, "a new sign-in was approved "+sr.approval.Who()+" to reconnect")
 		return
@@ -1257,25 +1263,38 @@ func (s *Server) signInRefused(ctx context.Context, g *Grant, why string) {
 // errOtherAccount: a reconnect's sign-in was to another vendor account.
 var errOtherAccount = apiError{http.StatusConflict, "that sign-in is to another account than this connection's: sign in again to the same account, or remove access and connect the other one"}
 
+// errAccountUnknown: a reconnect whose account can't be compared, because
+// the provider showed no name for this connection's account or the new one.
+var errAccountUnknown = apiError{http.StatusConflict, "planque can't tell that a new sign-in is to this connection's own account, so it can't sign in again here: remove access and connect the app again"}
+
 // reconnectConnector finishes a signed-out managed connection's new sign-in,
-// once the approving device confirmed it: on the same vendor account as the
-// provider names it (when it names one), the grant is bound to the new
-// provider account and connected again, with its tools, its registration in
-// KIFF and the taf's Card as they were. Another account connects nothing:
-// that sign-in is revoked, and the connection waits signed out.
+// once the approving device confirmed it: only on the same vendor account,
+// the grant is bound to the new provider account and connected again, with
+// its tools, its registration in KIFF and the taf's Card as they were.
+// Fail closed: the provider shows no vendor id, only the account's name, so
+// a sign-in whose name is missing (or was never kept for this connection)
+// is refused like another account's. Refused, that sign-in is revoked and
+// the connection waits signed out.
 func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
-	if g.ReconnectName != "" && g.Connector.AccountName != "" && g.Connector.AccountName != g.ReconnectName {
+	refused := error(nil)
+	switch {
+	case g.ReconnectName == "" || g.Connector.AccountName == "":
+		refused = errAccountUnknown
+	case g.Connector.AccountName != g.ReconnectName:
+		refused = errOtherAccount
+	}
+	if refused != nil {
 		if p, err := s.provider(g); err == nil {
 			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
-				s.log().WarnContext(ctx, "reconnect to another account not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
 			}
 		}
 		g.Status, g.Reconnect = StatusNeedsReconnect, false
-		g.event(s.now(), "the new sign-in was to another account; not reconnected")
+		g.event(s.now(), "the new sign-in couldn't be shown to be on this connection's account; not reconnected")
 		if err := s.saveGrant(ctx, g); err != nil {
 			return err
 		}
-		return errOtherAccount
+		return refused
 	}
 	g.Request.Connector.Account = g.Connector.Account
 	var err error
@@ -1284,7 +1303,7 @@ func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
 	}
 	g.Status, g.Reconnect, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", time.Time{}
 	g.SignedOutAt = time.Time{}
-	g.event(s.now(), "signed in again: connected with the same tools and Card")
+	g.event(s.now(), "signed in again on "+g.Connector.AccountName+": connected with the same tools and Card")
 	return s.saveGrant(ctx, g)
 }
 

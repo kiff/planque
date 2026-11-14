@@ -199,3 +199,59 @@ func TestAReconnectToAnotherAccountConnectsNothing(t *testing.T) {
 		t.Fatalf("after another account: %s, bound %q, revoked %d→%d", g.Status, g.Request.Connector.Account, revoked, len(f.revoked))
 	}
 }
+
+// A reconnect fails closed when the account can't be compared: the provider
+// shows no vendor id, only the account's name, so a new sign-in that comes
+// back with no name is refused like another account's, and a connection
+// whose account never had a name isn't offered a new sign-in at all.
+// Category: authority
+// Attack: Sign in again with another account the provider shows no name for, so the name check is skipped
+// Refused: 409 at the confirm, that sign-in revoked, the connection still signed out; or 409 at approve, nothing opened
+func TestAReconnectWhoseAccountCantBeComparedConnectsNothing(t *testing.T) {
+	t.Run("the new sign-in has no name", func(t *testing.T) {
+		e, f := newConnectorFixture(t)
+		ctx := context.Background()
+		f.distinct = true
+		first := connectConnector(t, e, f)
+		signOut401(t, e, f, first)
+		g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+		path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+		e.at(time.Minute)
+		e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+		if st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, ""); st != 200 {
+			t.Fatalf("sign in again: %d %v", st, out)
+		}
+		f.noName = true
+		code := e.signIn(f.callback + "&status=ACTIVE")
+		revoked := len(f.revoked)
+		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 409 || !strings.Contains(mustJSONString(out), "can't tell") {
+			t.Fatalf("confirm with no name: %d %v", st, out)
+		}
+		g, _ = e.s.loadGrant(ctx, tenant, first.ID)
+		if g.Status != StatusNeedsReconnect || g.Request.Connector.Account != first.Connector.Account || len(f.revoked) != revoked+1 {
+			t.Fatalf("after no name: %s, bound %q, revoked %d→%d", g.Status, g.Request.Connector.Account, revoked, len(f.revoked))
+		}
+	})
+	t.Run("the connection never had a name", func(t *testing.T) {
+		e, f := newConnectorFixture(t)
+		ctx := context.Background()
+		f.distinct = true
+		f.noName = true
+		first := connectConnector(t, e, f)
+		if first.Connector.AccountName != "" {
+			t.Fatalf("named %q", first.Connector.AccountName)
+		}
+		signOut401(t, e, f, first)
+		g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+		path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+		e.at(time.Minute)
+		e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+		f.noName = false
+		if st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, ""); st != 409 || out["sign_in_url"] != nil || !strings.Contains(mustJSONString(out), "remove access and connect") {
+			t.Fatalf("sign in again with no name kept: %d %v", st, out)
+		}
+		if g, _ = e.s.loadGrant(ctx, tenant, first.ID); g.Status != StatusNeedsReconnect || g.Reconnect {
+			t.Fatalf("after approve: %s, reconnect %v", g.Status, g.Reconnect)
+		}
+	})
+}

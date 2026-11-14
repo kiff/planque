@@ -37,7 +37,9 @@ type connectorFixture struct {
 	// accountDown makes the provider fail to answer a connected account's read (503).
 	accountDown bool
 	// accountName, when set, is the vendor account's name the provider shows (else "Demo Shop").
-	accountName                       string
+	accountName string
+	// noName: the provider shows no name for the vendor account.
+	noName                            bool
 	authScheme, authConfig            string
 	links                             int
 	foreign, changed, lost, strayLink bool
@@ -195,6 +197,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		// As the provider shows a vendor account: its name readable, its id and mode redacted.
 		data := map[string]any{"displayName": cmp.Or(f.accountName, "Demo Shop"), "livemode": "REDACTED", "stripe_user_id": "REDACTED"}
+		if f.noName {
+			delete(data, "displayName")
+		}
 		if f.granted != "" {
 			data["scope"] = f.granted
 		}
