@@ -125,23 +125,83 @@ func (s *Server) dropDue(ctx context.Context, tenant, sk string) (int, error) {
 // answerTTL existed as done.
 var onceAnswers = store.Item{PK: "ONCE", SK: "answers-24h"}
 
+// cleanProgress is where the one-time clean-up stands between sweeps: the
+// next page's cursor, and whether this pass skipped a record (a write in
+// between), so the pass is run again rather than marked done.
+var cleanProgress = store.Item{PK: "ONCE", SK: "answers-24h-progress"}
+
+type progress struct {
+	Cursor  string `json:"cursor,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+}
+
+// cleanPage and cleanBudget bound one sweep's share of the clean-up: pages
+// of about cleanPage records, read for at most cleanBudget, so a sweep ends
+// well inside the function's time limit and the next one carries on from
+// the saved cursor.
+var (
+	cleanPage   = 200
+	cleanBudget = 15 * time.Second
+)
+
 // CleanStoredAnswers is the one-time clean-up of the answers kept before
 // answerTTL, which the owner approved: a record's answer older than a day is
 // dropped as the sweep would drop it, and a younger one gets its expiry and
 // its entry. Every record keeps its outcome, its arguments' hash and its
-// state, all the replay guard reads. It runs from the sweep until it has
-// finished once, then never again; a record it couldn't save (a write in
-// between) leaves the marker unwritten, so the next sweep runs it again. It
-// logs counts only.
+// state, all the replay guard reads. It reads the table page by page within
+// cleanBudget and saves its cursor, so each sweep carries on where the last
+// stopped. A pass that skipped a record (a write in between) starts again;
+// one that skipped none marks it done, and it never runs again. It logs
+// counts only.
 func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, err error) {
 	if _, ok, err := s.KV.Get(ctx, onceAnswers.PK, onceAnswers.SK); err != nil || ok {
 		return 0, 0, err
 	}
-	items, err := s.KV.Scan(ctx, "OP#")
-	if err != nil {
+	var at progress
+	if _, err := getDoc(ctx, s.KV, cleanProgress.PK, cleanProgress.SK, &at); err != nil && !errors.Is(err, errNotFound) {
 		return 0, 0, err
 	}
-	skipped := 0
+	begun := time.Now()
+	for {
+		items, next, err := s.KV.ScanPage(ctx, "OP#", at.Cursor, cleanPage)
+		if err != nil {
+			return dropped, indexed, err
+		}
+		d, i, skipped, err := s.cleanItems(ctx, items)
+		dropped, indexed = dropped+d, indexed+i
+		if err != nil {
+			return dropped, indexed, err
+		}
+		at.Cursor, at.Skipped = next, at.Skipped || skipped > 0
+		if next == "" {
+			break
+		}
+		if err := putDoc(ctx, s.KV, cleanProgress, at, store.Cond{}); err != nil {
+			return dropped, indexed, err
+		}
+		if time.Since(begun) > cleanBudget {
+			s.log().InfoContext(ctx, "stored answers: the clean-up carries on at the next sweep", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
+			return dropped, indexed, nil
+		}
+	}
+	if at.Skipped {
+		// A pass that skipped a record runs again from the start.
+		if err := putDoc(ctx, s.KV, cleanProgress, progress{}, store.Cond{}); err != nil {
+			return dropped, indexed, err
+		}
+		s.log().InfoContext(ctx, "stored answers: some records changed during the clean-up; it runs again", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
+		return dropped, indexed, nil
+	}
+	if err := putDoc(ctx, s.KV, onceAnswers, map[string]string{"at": s.now().UTC().Format(time.RFC3339)}, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
+		return dropped, indexed, err
+	}
+	_, _, _ = s.KV.Delete(ctx, cleanProgress.PK, cleanProgress.SK)
+	s.log().InfoContext(ctx, "stored answers cleaned once", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
+	return dropped, indexed, nil
+}
+
+// cleanItems drops or indexes the kept answers among items.
+func (s *Server) cleanItems(ctx context.Context, items []store.Item) (dropped, indexed, skipped int, err error) {
 	for _, it := range items {
 		if !strings.HasPrefix(it.PK, "TENANT#") {
 			continue
@@ -158,29 +218,21 @@ func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, 
 			op.ResultUntil = until.UTC()
 			due := store.Item{PK: pkAnswerDue, SK: dueSK(until, strings.TrimPrefix(it.PK, "TENANT#"), it.SK), Doc: []byte("{}"), TTL: until.Add(7 * 24 * time.Hour).Unix()}
 			if err := s.KV.Put(ctx, due, store.Cond{}); err != nil {
-				return dropped, indexed, err
+				return dropped, indexed, skipped, err
 			}
 		} else {
 			dropAnswer(&op)
 		}
 		switch err := putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver}); {
 		case errors.Is(err, store.ErrCondition):
-			skipped++ // written in between: the next run reads it again
+			skipped++ // written in between: the pass runs again
 		case err != nil:
-			return dropped, indexed, err
+			return dropped, indexed, skipped, err
 		case young:
 			indexed++
 		default:
 			dropped++
 		}
 	}
-	if skipped > 0 {
-		s.log().InfoContext(ctx, "stored answers: some records changed during the clean-up; it runs again", slog.Int("skipped", skipped))
-		return dropped, indexed, nil
-	}
-	if err := putDoc(ctx, s.KV, onceAnswers, map[string]string{"at": s.now().UTC().Format(time.RFC3339)}, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
-		return dropped, indexed, err
-	}
-	s.log().InfoContext(ctx, "stored answers cleaned once", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
-	return dropped, indexed, nil
+	return dropped, indexed, skipped, nil
 }

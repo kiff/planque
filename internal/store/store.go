@@ -52,9 +52,12 @@ type KV interface {
 	// QueryTo lists the items under pk whose SK is at most maxSK, in SK
 	// order: reading a range never costs more than the range.
 	QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error)
-	// Scan lists the items of every pk whose SK starts with prefix: the
-	// whole table is read, so it's only for a one-time clean-up.
-	Scan(ctx context.Context, prefix string) ([]Item, error)
+	// ScanPage lists, across every pk, up to about limit items whose SK
+	// starts with prefix, from start ("" for the first page), and the
+	// cursor of the next page ("" once there's none). The whole table is
+	// read page by page, so it's only for a one-time clean-up, which keeps
+	// the cursor between runs.
+	ScanPage(ctx context.Context, prefix, start string, limit int) (items []Item, next string, err error)
 }
 
 // Memory is KV in one process.
@@ -122,8 +125,21 @@ func (m *Memory) QueryTo(_ context.Context, pk, maxSK string) ([]Item, error) {
 	return m.list(pk, func(sk string) bool { return sk <= maxSK }), nil
 }
 
-func (m *Memory) Scan(_ context.Context, prefix string) ([]Item, error) {
-	return m.list("", func(sk string) bool { return strings.HasPrefix(sk, prefix) }), nil
+func (m *Memory) ScanPage(_ context.Context, prefix, start string, limit int) ([]Item, string, error) {
+	all := m.list("", func(sk string) bool { return strings.HasPrefix(sk, prefix) })
+	slices.SortFunc(all, func(a, b Item) int { return strings.Compare(a.PK+"\x00"+a.SK, b.PK+"\x00"+b.SK) })
+	var out []Item
+	for _, it := range all {
+		if start != "" && it.PK+"\x00"+it.SK <= start {
+			continue
+		}
+		if limit > 0 && len(out) == limit {
+			last := out[len(out)-1]
+			return out, last.PK + "\x00" + last.SK, nil
+		}
+		out = append(out, it)
+	}
+	return out, "", nil
 }
 
 // list lists pk's items that keep takes; with pk "", every pk's.
@@ -145,6 +161,8 @@ type Dynamo struct {
 	Table string
 	API   *awsapi.Client
 	Now   func() time.Time
+	// Backoff, when set, replaces the pause before a throttled read's try n.
+	Backoff func(n int) time.Duration
 }
 
 type av map[string]any
@@ -209,18 +227,53 @@ const readTries = 3
 // (an EOF, a reset): reading twice changes nothing. An answer from DynamoDB,
 // or the request's context ending, is final. Writes are never resent here: a
 // conditional write whose answer was lost may already have landed.
+//
+// A read DynamoDB throttled (ThrottlingException,
+// ProvisionedThroughputExceededException) is sent again after a growing
+// pause, up to throttleTries times: on-demand tables throttle a burst above
+// what they have warmed up to, and reading again changes nothing.
 func (d *Dynamo) read(ctx context.Context, action string, in, out any) error {
 	var err error
-	for try := 0; try < readTries; try++ {
+	dropped, throttled := 0, 0
+	for {
 		if err = d.API.Do(ctx, action, in, out); err == nil || ctx.Err() != nil {
 			return err
 		}
 		var answered *awsapi.Error
-		if errors.As(err, &answered) {
+		if !errors.As(err, &answered) {
+			if dropped++; dropped >= readTries {
+				return err
+			}
+			continue
+		}
+		if !throttling(answered) {
 			return err
 		}
+		if throttled++; throttled >= throttleTries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(d.backoff(throttled)):
+		}
 	}
-	return err
+}
+
+// throttleTries is how many times a throttled read is sent at most.
+const throttleTries = 6
+
+func throttling(e *awsapi.Error) bool {
+	return e.Type == "ThrottlingException" || e.Type == "ProvisionedThroughputExceededException"
+}
+
+// backoff is the pause before a throttled read's try n (1, 2, …): 200 ms,
+// doubling, at most 5 s, or Backoff's when set (tests).
+func (d *Dynamo) backoff(n int) time.Duration {
+	if d.Backoff != nil {
+		return d.Backoff(n)
+	}
+	return min(200*time.Millisecond<<(n-1), 5*time.Second)
 }
 
 func (d *Dynamo) Get(ctx context.Context, pk, sk string) (Item, bool, error) {
@@ -287,9 +340,33 @@ func (d *Dynamo) QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error) 
 	return d.query(ctx, "pk = :pk AND sk <= :max", av{":pk": av{"S": pk}, ":max": av{"S": maxSK}})
 }
 
-func (d *Dynamo) Scan(ctx context.Context, prefix string) ([]Item, error) {
-	return d.pages(ctx, "Scan", av{"TableName": d.Table, "ConsistentRead": true,
-		"FilterExpression": "begins_with(sk, :p)", "ExpressionAttributeValues": av{":p": av{"S": prefix}}})
+// ScanPage reads one page, eventually consistent: the clean-up it serves
+// writes each record under its version, so a stale read only skips a write.
+func (d *Dynamo) ScanPage(ctx context.Context, prefix, start string, limit int) ([]Item, string, error) {
+	in := av{"TableName": d.Table, "FilterExpression": "begins_with(sk, :p)", "ExpressionAttributeValues": av{":p": av{"S": prefix}}}
+	if limit > 0 {
+		in["Limit"] = limit
+	}
+	if start != "" {
+		in["ExclusiveStartKey"] = json.RawMessage(start)
+	}
+	var out struct {
+		Items            []map[string]attr `json:"Items"`
+		LastEvaluatedKey json.RawMessage   `json:"LastEvaluatedKey"`
+	}
+	if err := d.read(ctx, "Scan", in, &out); err != nil {
+		return nil, "", err
+	}
+	var items []Item
+	for _, m := range out.Items {
+		if it := decode(m); d.live(it) {
+			items = append(items, it)
+		}
+	}
+	if len(out.LastEvaluatedKey) == 0 || string(out.LastEvaluatedKey) == "null" {
+		return items, "", nil
+	}
+	return items, string(out.LastEvaluatedKey), nil
 }
 
 // query reads every page of a key condition, in SK order.
