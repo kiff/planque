@@ -90,6 +90,11 @@ type Scoped struct {
 	// Scopes are what it asks for, sorted: the tools' least-privilege scopes
 	// and the ones the provider always asks (a refresh, who you are).
 	Scopes []string
+	// Wide: it couldn't be narrowed to the tools, so it asks for the app's
+	// usual access less the personal data no tool of the app needs (a date
+	// of birth, addresses, phone numbers, contacts): more than the tools
+	// use, said so to the owner, never the usual sign-in's personal data.
+	Wide bool
 }
 
 // ErrUnscoped: the provider can't narrow the app's sign-in to the tools (its

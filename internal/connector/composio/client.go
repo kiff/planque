@@ -485,25 +485,69 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 		} `json:"scopes"`
 	}
 	body := map[string]any{"tools": tools, "auth_scheme": "OAUTH2", "available_scopes": ceiling}
-	// A tool its ceiling can't cover (scope_not_available), or the beta failing: the usual sign-in.
+	// A tool its ceiling can't cover (scope_not_available), or the beta
+	// failing: wide, the app's usual access less the personal data its
+	// usual sign-in asks for (14 Nov: a drafts-only Gmail taf's sign-in
+	// asked for a date of birth, addresses, phone numbers and contacts).
 	if _, err := c.request(ctx, "POST", "/toolkits/"+app.Slug+"/scopes/recommended", nil, body, &rec); err != nil {
-		return connector.Scoped{}, connector.ErrUnscoped
+		return c.wide(ctx, app, ceiling, always, budget)
 	}
 	least := cleanScopes(rec.Scopes.Least)
 	if len(least) == 0 || slices.ContainsFunc(least, func(s string) bool { return !slices.Contains(ceiling, s) }) {
+		return c.wide(ctx, app, ceiling, always, budget)
+	}
+	id, err := c.pin(ctx, app, least, budget)
+	if err != nil {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
-	sum := sha256.Sum256([]byte(strings.Join(least, " ")))
-	name := scopedPrefix + strings.ToLower(app.Slug) + "-" + hex.EncodeToString(sum[:8])
-	asked := cleanScopes(append(slices.Clone(least), always...))
-	if _, err := c.signInSetUp(ctx); err != nil {
+	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...))}, nil
+}
+
+// wide is app's sign-in when it can't be narrowed to the tools: its managed
+// ceiling less the personal scopes (personalScope), pinned as a sign-in of
+// its own, and said to be wide. ErrUnscoped when that leaves out nothing
+// (the usual sign-in is then as narrow) or nothing is left.
+func (c *Client) wide(ctx context.Context, app connector.App, ceiling, always []string, budget connector.Allowance) (connector.Scoped, error) {
+	plain := slices.DeleteFunc(slices.Clone(ceiling), personalScope)
+	if len(plain) == 0 || len(plain) == len(ceiling) {
 		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	id, err := c.pin(ctx, app, plain, budget)
+	if err != nil {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(plain), slices.DeleteFunc(slices.Clone(always), personalScope)...)), Wide: true}, nil
+}
+
+// personal are the scopes that read a person's own data and no app's tool
+// needs to sign in: Google's People scopes for a date of birth, addresses,
+// phone numbers, other email addresses, gender, organisation, age range,
+// language, contacts and the directory. The account's own address
+// (userinfo.email, openid) is never among them.
+var personal = []string{"user.birthday.read", "user.addresses.read", "user.phonenumbers.read", "user.emails.read",
+	"user.gender.read", "user.organization.read", "profile.agerange.read", "profile.language.read",
+	"contacts", "contacts.readonly", "contacts.other.readonly", "directory.readonly"}
+
+// personalScope says s reads a person's own data (personal), in Google's URL form.
+func personalScope(s string) bool {
+	name, ok := strings.CutPrefix(s, "https://www.googleapis.com/auth/")
+	return ok && slices.Contains(personal, name)
+}
+
+// pin is the managed sign-in to app asking for scopes, made once per app
+// and scope set and found again by its name. A new one is paid from the
+// allowance first.
+func (c *Client) pin(ctx context.Context, app connector.App, scopes []string, budget connector.Allowance) (string, error) {
+	sum := sha256.Sum256([]byte(strings.Join(scopes, " ")))
+	name := scopedPrefix + strings.ToLower(app.Slug) + "-" + hex.EncodeToString(sum[:8])
+	if _, err := c.signInSetUp(ctx); err != nil {
+		return "", err
 	}
 	c.mu.Lock()
 	made, ok := c.scoped[name]
 	c.mu.Unlock()
 	if ok {
-		return connector.Scoped{AuthConfig: made.ID, Scopes: asked}, nil
+		return made.ID, nil
 	}
 	var out struct {
 		Toolkit struct {
@@ -518,7 +562,7 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	// A new sign-in at the provider costs the account as an on-demand set-up does.
 	if budget.Take != nil {
 		if err := budget.Take(ctx); err != nil {
-			return connector.Scoped{}, connector.ErrUnscoped
+			return "", err
 		}
 	}
 	giveBack := func() {
@@ -526,14 +570,14 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 			budget.GiveBack(ctx)
 		}
 	}
-	config := map[string]any{"type": "use_composio_managed_auth", "name": name, "credentials": map[string]any{"scopes": least}}
+	config := map[string]any{"type": "use_composio_managed_auth", "name": name, "credentials": map[string]any{"scopes": scopes}}
 	if _, err := c.request(ctx, "POST", "/auth_configs", nil, map[string]any{"toolkit": map[string]string{"slug": app.Slug}, "auth_config": config}, &out); err != nil {
 		giveBack()
-		return connector.Scoped{}, connector.ErrUnscoped
+		return "", err
 	}
 	if !strings.EqualFold(out.Toolkit.Slug, app.Slug) || !out.Config.Managed || !identifier.MatchString(out.Config.ID) || !strings.EqualFold(out.Config.Scheme, "OAUTH2") {
 		giveBack()
-		return connector.Scoped{}, connector.ErrUnscoped
+		return "", connector.ErrUnscoped
 	}
 	c.mu.Lock()
 	next := make(map[string]authConfig, len(c.scoped)+1)
@@ -543,7 +587,7 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	next[name] = authConfig{ID: out.Config.ID, Scheme: "OAUTH2", Managed: true}
 	c.scoped = next
 	c.mu.Unlock()
-	return connector.Scoped{AuthConfig: out.Config.ID, Scopes: asked}, nil
+	return out.Config.ID, nil
 }
 
 // cleanScopes is scopes trimmed, without empty or repeated ones, sorted.

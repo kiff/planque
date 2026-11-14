@@ -543,6 +543,10 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		scoped, err := p.Scope(r.Context(), app, ask.Tools, budget)
 		if err == nil {
 			conn.AuthConfig, conn.Scopes = scoped.AuthConfig, scoped.Scopes
+			// Wide: the app's usual access less personal data, still more
+			// than the tools use, and said so; it covers the app's tools as
+			// the usual one does.
+			conn.UsualAccess = scoped.Wide
 		} else {
 			conn.UsualAccess = true
 			if !errors.Is(err, connector.ErrUnscoped) {
@@ -938,7 +942,7 @@ func bindConnectorTools(g *Grant, requested []ToolRequest) error {
 			return connector.ErrDefinition
 		}
 		// A sign-in narrowed to the tools the taf asked for serves only those.
-		if c := g.Request.Connector; len(c.Scopes) > 0 && !slices.Contains(c.AskedTools, found.Slug) {
+		if c := g.Request.Connector; len(c.Scopes) > 0 && !c.UsualAccess && !slices.Contains(c.AskedTools, found.Slug) {
 			return errOutsideSignIn(c.Title, found.Name)
 		}
 		// Nor one its scopes don't let run: the Card would grant a tool the vendor refuses.

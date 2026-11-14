@@ -734,6 +734,34 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 	}
 }
 
+// A sign-in that can't be narrowed, for an app whose usual sign-in asks for
+// personal data (14 Nov: Gmail's asked for a date of birth, addresses, phone
+// numbers and contacts), asks for the app's access less that data: its own
+// sign-in, recorded in the signed request, and still said to be more than
+// the taf uses.
+func TestAWideSignInLeavesOutPersonalDataAndSaysItsWide(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	e, f := newConnectorFixture(t)
+	f.managed, f.noRecommend = true, true
+	f.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "contacts.readonly", g + "userinfo.email"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	v := out["grant"].(map[string]any)
+	gr, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+	c := gr.Request.Connector
+	if !c.UsualAccess || c.AuthConfig == "ac_desk_demo" || len(f.scopedMade) != 1 || !slices.Equal(c.Scopes, []string{g + "gmail.modify", g + "userinfo.email"}) {
+		t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
+	}
+	if strings.Contains(f.scopedMade[0], "birthday") || strings.Contains(f.scopedMade[0], "contacts") {
+		t.Fatalf("the sign-in asks for personal data: %v", f.scopedMade)
+	}
+	if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions.") {
+		t.Fatalf("words: %q", words)
+	}
+}
+
 // A new scoped sign-in is a set-up at the provider, so it counts against the
 // account's day as setting up an app does: after it, one set-up fewer is left.
 func TestANewScopedSignInCountsAsASetUp(t *testing.T) {
