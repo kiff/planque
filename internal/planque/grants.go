@@ -1820,7 +1820,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		}
 		if re != nil && re.Refused() {
 			// The vendor doesn't let planque's client sign in: nothing the owner can do now, and trying again won't help.
-			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client"})
+			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client", ""})
 			return
 		}
 		writeErr(w, http.StatusBadGateway, "Couldn't register with "+host+": "+err.Error())
@@ -2101,7 +2101,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 		g.SignedIn = true
 		if g.Reconnect {
 			// Signed in again: the same grant, connected with what it had.
-			if err := s.reconnectConnector(r.Context(), g); err != nil {
+			if err := s.reconnectConnector(r, g); err != nil {
 				s.fail(w, r, err)
 				return
 			}

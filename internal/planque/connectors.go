@@ -613,7 +613,8 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		// The provider shows no vendor id, only the account's name: with no
 		// name kept, no new sign-in could be shown to be the same account.
 		if prev.AccountName == "" {
-			s.fail(w, r, errAccountUnknown)
+			s.log().InfoContext(r.Context(), "sign in again refused: no account name kept", slog.String("grant", g.ID))
+			s.fail(w, r, reconnectRefusal(r, g, errAccountUnknown, ""))
 			return
 		}
 		g.Reconnect, g.ReconnectName, g.Reason = true, prev.AccountName, ""
@@ -1285,7 +1286,37 @@ var errAccountUnknown = apiError{http.StatusConflict, "this sign-in can't be sho
 // a sign-in whose name is missing (or was never kept for this connection)
 // is refused like another account's. Refused, that sign-in is revoked and
 // the connection waits signed out.
-func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
+// Codes the apps act on, for a refused new sign-in on a signed-out connection.
+const (
+	CodeOtherAccount   = "other_account"
+	CodeAccountUnknown = "account_unknown"
+)
+
+// reconnectRefusal is a refused reconnect as the owner's app reads it: a
+// code, and words in the owner's language naming the account to sign in
+// with, the connection's own (theirs, kept on the grant). signedAs is the
+// account the refused sign-in was to, when the provider named it.
+func reconnectRefusal(r *http.Request, g *Grant, why error, signedAs string) error {
+	lang := "en"
+	if r != nil {
+		lang = words.Pick("", r.Header.Get("Accept-Language"))
+	}
+	c := words.Connection(lang)
+	app, want := vendorName(g), label(g.ReconnectName)
+	if g.Connector != nil && want == "" && g.Status != StatusNeedsReconnect {
+		want = label(g.Connector.AccountName)
+	}
+	switch {
+	case why == errAccountUnknown && want == "":
+		return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.CantSignInAgainF, app, app)}
+	case label(signedAs) != "":
+		return apiCoded{errOtherAccount, CodeOtherAccount, fmt.Sprintf(c.OtherAccountF, app, label(signedAs), want)}
+	}
+	return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.OtherAccountAnyF, app, want)}
+}
+
+func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
+	ctx := r.Context()
 	refused := error(nil)
 	switch {
 	case g.ReconnectName == "" || g.Connector.AccountName == "":
@@ -1294,6 +1325,15 @@ func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
 		refused = errOtherAccount
 	}
 	if refused != nil {
+		// Said to the owner with a code and their words, and logged: never a
+		// refusal the app can only read as "it changed". The log names the
+		// grant and the code, never an account.
+		answer := reconnectRefusal(r, g, refused, g.Connector.AccountName)
+		code := CodeAccountUnknown
+		if refused == errOtherAccount {
+			code = CodeOtherAccount
+		}
+		s.log().InfoContext(ctx, "sign in again refused", slog.String("grant", g.ID), slog.String("code", code))
 		if p, err := s.provider(g); err == nil {
 			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
 				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
@@ -1304,7 +1344,7 @@ func (s *Server) reconnectConnector(ctx context.Context, g *Grant) error {
 		if err := s.saveGrant(ctx, g); err != nil {
 			return err
 		}
-		return refused
+		return answer
 	}
 	g.Request.Connector.Account = g.Connector.Account
 	var err error

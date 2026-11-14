@@ -255,3 +255,59 @@ func TestAReconnectWhoseAccountCantBeComparedConnectsNothing(t *testing.T) {
 		}
 	})
 }
+
+// A refused new sign-in reaches the owner's app with a code and words that
+// name the account to sign in with, never only a 409 an app can read as "it
+// changed" (which looped the owner back to the same step). In their language.
+func TestARefusedReconnectSaysWhichAccountToSignInWith(t *testing.T) {
+	refused := func(t *testing.T, lang string, setup func(f *connectorFixture)) map[string]any {
+		e, f := newConnectorFixture(t)
+		ctx := context.Background()
+		f.distinct = true
+		first := connectConnector(t, e, f)
+		signOut401(t, e, f, first)
+		g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+		path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+		e.at(time.Minute)
+		e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+		if st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, ""); st != 200 {
+			t.Fatalf("sign in again: %d %v", st, out)
+		}
+		setup(f)
+		code := e.signIn(f.callback + "&status=ACTIVE")
+		e.lang = lang
+		st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, "")
+		if st != 409 {
+			t.Fatalf("confirm: %d %v", st, out)
+		}
+		return out
+	}
+	out := refused(t, "", func(f *connectorFixture) { f.accountName = "Another Shop" })
+	if w, _ := out["words"].(string); out["code"] != CodeOtherAccount || !strings.Contains(w, " as Another Shop, which isn't this connection's account, so nothing changed. Sign in again as Demo Shop, the account this taf uses.") {
+		t.Fatalf("another account's words: %s", w)
+	}
+	out = refused(t, "", func(f *connectorFixture) { f.noName = true })
+	if out["code"] != CodeAccountUnknown || !strings.Contains(out["words"].(string), "Sign in again as Demo Shop") {
+		t.Fatalf("no name: %v", out)
+	}
+	out = refused(t, "fr", func(f *connectorFixture) { f.accountName = "Another Shop" })
+	if w, _ := out["words"].(string); !strings.Contains(w, "en tant que Another Shop") || !strings.Contains(w, "Reconnectez-vous en tant que Demo Shop") {
+		t.Fatalf("fr: %v", out)
+	}
+}
+
+// A connection that never kept its account's name says, at approve, to
+// remove access and connect again: coded, in words, nothing opened.
+func TestSignInAgainWithNoNameKeptSaysToConnectAgain(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	f.distinct, f.noName = true, true
+	first := connectConnector(t, e, f)
+	signOut401(t, e, f, first)
+	g, _ := e.s.loadGrant(context.Background(), tenant, first.ID)
+	e.at(time.Minute)
+	e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+first.ID+"/approve", reapprove(g), e.phone, "")
+	if st != 409 || out["code"] != CodeAccountUnknown || !strings.Contains(out["words"].(string), "remove access, then connect") {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+}

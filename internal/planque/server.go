@@ -225,6 +225,9 @@ func (e apiError) Error() string { return e.msg }
 type apiCoded struct {
 	apiError
 	code string
+	// words, when set, is the person's line, in their language: the apps
+	// show it as sent, never a line of their own for the status.
+	words string
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -246,7 +249,11 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	var ce apiCoded
 	if errors.As(err, &ce) {
-		writeJSON(w, ce.status, map[string]string{"error": ce.msg, "code": ce.code})
+		body := map[string]string{"error": ce.msg, "code": ce.code}
+		if ce.words != "" {
+			body["words"] = ce.words
+		}
+		writeJSON(w, ce.status, body)
 		return
 	}
 	var ae apiError
@@ -444,16 +451,16 @@ func keyFits(kind string, v kiff.Verified, window string, windowRequired bool) e
 		return nil
 	}
 	if kind == kindCritical {
-		return apiCoded{apiError{http.StatusForbidden, "this widens what a taf may do: sign it with the phone's approval key, behind its fingerprint or face"}, "critical_key_required"}
+		return apiCoded{apiError{http.StatusForbidden, "this widens what a taf may do: sign it with the phone's approval key, behind its fingerprint or face"}, "critical_key_required", ""}
 	}
 	if window != "" {
 		if v.Window == nil || !v.Window.Open || v.Window.ID != window {
-			return apiCoded{apiError{http.StatusForbidden, "the approval window this was signed in isn't open: open one with the phone's approval key, behind its fingerprint, and sign it again"}, "window_required"}
+			return apiCoded{apiError{http.StatusForbidden, "the approval window this was signed in isn't open: open one with the phone's approval key, behind its fingerprint, and sign it again"}, "window_required", ""}
 		}
 		return nil
 	}
 	if windowRequired {
-		return apiCoded{apiError{http.StatusForbidden, "this needs the phone's approval key, or its device key inside an open approval window: open one, behind the fingerprint, and sign it again"}, "window_required"}
+		return apiCoded{apiError{http.StatusForbidden, "this needs the phone's approval key, or its device key inside an open approval window: open one, behind the fingerprint, and sign it again"}, "window_required", ""}
 	}
 	return nil
 }
