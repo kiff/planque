@@ -48,8 +48,10 @@ type Approval struct {
 	FirstToolsF string // the tools
 	AddedToolsF string // the tools
 
-	// A managed app's connection. No internal names, and no provider's
-	// tool names: the actions are named, by their titles, on the next card.
+	// A managed app's connection. Who keeps the sign-in, plainly (our sign-in
+	// partner: the owner signs these words), with no internal names, and no
+	// provider's tool names: the actions are named, by their titles, on the
+	// next card.
 	ConnectTitledF   string // the app, the taf
 	ConnectReusedF   string // the app, the taf
 	ReusedNext       string

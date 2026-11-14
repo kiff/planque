@@ -906,7 +906,7 @@ func TestConnectorAnyAppIsSetUpOnTheOwnersPick(t *testing.T) {
 		t.Fatalf("on demand: %d %v", st, out)
 	}
 	g := out["grant"].(map[string]any)
-	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. The taf never sees your Not set up sign-in.") {
+	if g["on_demand"] != true || g["custody"] != "provider" || !strings.HasPrefix(g["text"].(string), "Connect Not set up for Invoices. Your Not set up sign-in is kept by our sign-in partner; the taf never sees it.") {
 		t.Fatalf("the on-demand grant: %v", g)
 	}
 	if st, out := e.do("POST", catalog+"/connector:composio:unset_demo/grants", map[string]string{"agent": "agt_other"}, nil, "k_setup"); st != 201 || out["grant"].(map[string]any)["on_demand"] != true {
@@ -1243,7 +1243,7 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	}
 	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_refunds", "agent_name": "Refund requests", "tools": []any{}}, nil, "k_setup")
 	if st != 201 || out["status"] != StatusListed || out["signed_in"] != true ||
-		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in. The taf never sees it.") {
+		!strings.HasPrefix(out["text"].(string), "Connect Support desk for Refund requests with the sign-in you already have there: no second sign-in. Our sign-in partner keeps it; the taf never sees it.") {
 		t.Fatalf("reuse: %d %v", st, out)
 	}
 	id := out["id"].(string)

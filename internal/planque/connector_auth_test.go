@@ -29,7 +29,7 @@ func TestHostedKeyAppsReturnConnectedThroughTheSignedFlow(t *testing.T) {
 			if scheme == "BEARER_TOKEN" {
 				credential = "token"
 			}
-			want := "Connect Support desk for this taf. You'll enter your Support desk " + credential + " on the sign-in page that opens; the taf never sees it."
+			want := "Connect Support desk for this taf. You'll enter your Support desk " + credential + " on our sign-in partner's page; it keeps the " + credential + ", and the taf never sees it."
 			if text := v["text"].(string); !strings.HasPrefix(text, want) || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "agt_taf") {
 				t.Fatalf("words: %q", text)
 			}
@@ -106,7 +106,7 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 			// With a title and no name, it's "this taf", and today's words: a
 			// grant's own words are the ones kept with it (shown), never made
 			// again for its signature, so a grant asked before keeps its own.
-			prefix = "Connect Support desk for this taf. The taf never sees your Support desk sign-in."
+			prefix = "Connect Support desk for this taf. Your Support desk sign-in is kept by our sign-in partner; the taf never sees it."
 		}
 		old += `}`
 		var binding ConnectorRequest

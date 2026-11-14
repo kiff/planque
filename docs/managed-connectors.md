@@ -99,10 +99,12 @@ The account-authenticated catalog endpoints include upstream discovery:
    this way a day (429 after). Every grant view says who holds the sign-in
    (`custody`: `provider` here, `planque` for a sign-in planque holds). It returns
    a pending grant and no sign-in link (`needs_key: false`). Its text names
-   the app and the taf. For `API_KEY` it says the owner will enter their app
-   key on the connection service's page, the service keeps it and the taf
-   never sees it; `BEARER_TOKEN` says the same about a token. OAuth keeps its
-   sign-in wording. The config ID and scheme are part of the signed request,
+   the app and the taf, and says who keeps the sign-in in plain words, never a
+   service's name: "Your <app> sign-in is kept by our sign-in partner; the
+   taf never sees it" (the owner signs these words, so a third party keeping
+   it is said before the approval). For `API_KEY` it says the owner will enter
+   their app key on our sign-in partner's page, which keeps it, and the taf
+   never sees it; `BEARER_TOKEN` says the same about a token. The config ID and scheme are part of the signed request,
    so later catalog changes cannot rewrite an existing grant's words. If an
    app has several enabled configs, the adapter selects the lowest ID in
    lexical order, independently of page ordering, and pins that config.
