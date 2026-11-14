@@ -54,7 +54,7 @@ posted to the owner alone goes as a direct message to themselves.
 ## Access and plans
 
 - **On Slack's free plan, only the last 90 days** of messages and files can
-  be read, and they're deleted after a year.
+  be read; older ones are deleted after a year.
 - **Rate:** Slack limits each method, roughly from 1 to 100 calls a minute.
   Posting is about one message a second per channel. Reading history is
   limited more tightly for apps outside Slack's marketplace, so a job
