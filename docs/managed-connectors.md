@@ -140,7 +140,11 @@ The account-authenticated catalog endpoints include upstream discovery:
    `composio_managed_auth` and `auth_config_details`), picks each tool's
    narrowest scope from the tool's own list by a reviewed order of Google's
    scopes (`breadth`: read-only before edit before full, for Gmail, Sheets,
-   Docs, Calendar and Drive; a write never takes a read-only scope), and
+   Docs, Calendar and Drive; a write never takes a read-only scope; a read
+   is a tool the provider tags `readOnlyHint`, or one the app's adapted guide
+   marks "read" in its tools table, checked by a person against the vendor's
+   reference: 14 Nov, two Gmail reads the provider didn't tag got full mail;
+   a tool neither says is a read stays a write), and
    only when a tool's list isn't ranked asks the provider for the tools'
    least-privilege scopes within the ceiling
    (`toolkits/{slug}/scopes/recommended`). It pins a managed sign-in that

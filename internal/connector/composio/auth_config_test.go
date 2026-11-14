@@ -267,6 +267,11 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 		"GMAIL_ODD":                tool("GMAIL_ODD", "Does something.", true, "https://example.test/odd"),
 		// A write the provider doesn't tag, listing a read-only scope it can't run on.
 		"GMAIL_SEND_UNTAGGED": tool("GMAIL_SEND_UNTAGGED", "Sends an email.", false, mail, g+"gmail.compose", g+"gmail.readonly"),
+		// Reads and a send the provider doesn't tag (14 Nov): the Gmail guide marks the first two "read" and the
+		// send "write, outside", so only the reads take gmail.readonly.
+		"GMAIL_FETCH_MESSAGE_BY_THREAD_ID": tool("GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "Fetches a thread.", false, mail, g+"gmail.modify", g+"gmail.readonly"),
+		"GMAIL_LIST_LABELS":                tool("GMAIL_LIST_LABELS", "Lists labels.", false, mail, g+"gmail.modify", g+"gmail.readonly"),
+		"GMAIL_SEND_EMAIL":                 tool("GMAIL_SEND_EMAIL", "Sends an email.", false, mail, g+"gmail.compose", g+"gmail.readonly"),
 		// A read whose definition can't be read (no pinned version): the recommendation decides.
 		"GMAIL_FETCH_UNREAD": strings.Replace(tool("GMAIL_FETCH_UNREAD", "Fetches emails.", true, mail, g+"gmail.readonly"), "20300101_00", "latest", 1),
 	}
@@ -326,8 +331,15 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 		{"an untagged write", []string{"GMAIL_SEND_UNTAGGED"}, []string{g + "gmail.compose"}, false},
 		{"a tool the order doesn't rank", []string{"GMAIL_FETCH_EMAILS", "GMAIL_ODD"}, []string{mail}, true},
 		{"full mail recommended for reads", []string{"GMAIL_FETCH_UNREAD", "GMAIL_LIST_THREADS"}, []string{mail}, true},
+		{"reads the guide knows, untagged", []string{"GMAIL_FETCH_EMAILS", "GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "GMAIL_LIST_LABELS"}, []string{g + "gmail.readonly"}, false},
+		{"a send the guide marks a write, untagged", []string{"GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "GMAIL_SEND_EMAIL"}, []string{g + "gmail.compose", g + "gmail.readonly"}, false},
 	} {
+		asked = nil
 		scoped, err := c.Scope(ctx, app, c2.tools, connector.Allowance{})
+		if asked == nil {
+			// A config made by an earlier case for the same scopes is reused: what it holds, less the app's own.
+			asked = slices.DeleteFunc(slices.Clone(scoped.Scopes), func(s string) bool { return s == "openid" })
+		}
 		if err != nil || scoped.Wide != c2.wide || strings.Join(asked, " ") != strings.Join(c2.want, " ") {
 			t.Fatalf("%s: %+v %v, asks %v, want %v (wide %v)", c2.name, scoped, err, asked, c2.want, c2.wide)
 		}
