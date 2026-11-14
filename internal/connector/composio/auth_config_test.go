@@ -150,3 +150,90 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 		t.Fatalf("a scope outside the ceiling was taken: %v", err)
 	}
 }
+
+// A sign-in that can't be narrowed to the tools never asks for the personal
+// data the app's usual one does (14 Nov: a drafts-only Gmail taf's sign-in
+// asked for a date of birth, addresses, phone numbers and contacts): it's
+// the managed ceiling less those, pinned as its own sign-in and said to be
+// wide. The account's own address stays. An app whose ceiling has none of
+// them keeps its usual sign-in.
+func TestAWideSignInNeverAsksForPersonalData(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	ceiling := []string{g + "gmail.modify", g + "gmail.compose", g + "userinfo.email", g + "user.birthday.read", g + "user.addresses.read",
+		g + "user.phonenumbers.read", g + "contacts.readonly", g + "contacts.other.readonly", g + "profile.language.read", g + "user.emails.read"}
+	want := []string{g + "gmail.compose", g + "gmail.modify", g + "userinfo.email"}
+	ceilingJSON, _ := json.Marshal(ceiling)
+	var asked []string
+	made := 0
+	plainKit := false
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			if r.Method == http.MethodPost {
+				made++
+				var body struct {
+					AuthConfig struct {
+						Credentials struct {
+							Scopes []string `json:"scopes"`
+						} `json:"credentials"`
+					} `json:"auth_config"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				asked = body.AuthConfig.Credentials.Scopes
+				return response(200, `{"toolkit":{"slug":"mail"},"auth_config":{"id":"ac_wide","auth_scheme":"OAUTH2","is_composio_managed":true}}`), nil
+			}
+			return response(200, `{"items":[{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"mail"}}]}`), nil
+		case "/api/v3.1/toolkits/mail":
+			available := string(ceilingJSON)
+			if plainKit {
+				available = `["` + g + `gmail.modify","` + g + `userinfo.email"]`
+			}
+			return response(200, `{"slug":"mail","name":"Mail","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":`+available+`}}],`+
+				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":["openid","`+g+`user.birthday.read"]}]}`), nil
+		case "/api/v3.1/toolkits/mail/scopes/recommended":
+			// The recommendation failing (a tool outside the ceiling, the beta down).
+			return response(400, `{"error":{"message":"scope_not_available"}}`), nil
+		case "/api/v3.1/tools":
+			// MAIL_CREATE_DRAFT runs on Gmail's own scope, or on contacts: contacts aren't needed.
+			// MAIL_SEARCH_PEOPLE runs on contacts alone: one stays, the narrowest read-only one.
+			if r.URL.Query().Get("toolkit_slug") != "mail" || r.URL.Query().Get("tool_slugs") == "" {
+				t.Fatalf("the tools asked, listed as: %s", r.URL.RawQuery)
+			}
+			return response(200, `{"items":[{"slug":"MAIL_CREATE_DRAFT","scopes":["`+g+`gmail.compose","`+g+`contacts.readonly"]},`+
+				`{"slug":"MAIL_SEARCH_PEOPLE","scopes":["`+g+`contacts","`+g+`contacts.readonly","`+g+`contacts.other.readonly"]}]}`), nil
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		return nil, nil
+	})
+	ctx := context.Background()
+	app, err := c.App(ctx, "mail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{})
+	if err != nil || !scoped.Wide || scoped.AuthConfig != "ac_wide" || made != 1 {
+		t.Fatalf("wide: %+v %v (made %d)", scoped, err, made)
+	}
+	if strings.Join(asked, " ") != strings.Join(want, " ") {
+		t.Fatalf("the sign-in asks for %v, want %v", asked, want)
+	}
+	for _, s := range scoped.Scopes {
+		if personalScope(s) {
+			t.Fatalf("a personal scope is recorded: %v", scoped.Scopes)
+		}
+	}
+	// Found again by its name, never made twice.
+	if again, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); err != nil || again.AuthConfig != "ac_wide" || made != 1 {
+		t.Fatalf("again: %+v %v (made %d)", again, err, made)
+	}
+	// A tool that runs on contacts alone keeps one contact scope, read-only: the rest stay out.
+	scoped, err = c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT", "MAIL_SEARCH_PEOPLE"}, connector.Allowance{})
+	if err != nil || !scoped.Wide || made != 2 || strings.Join(asked, " ") != strings.Join([]string{g + "contacts.readonly", g + "gmail.compose", g + "gmail.modify", g + "userinfo.email"}, " ") {
+		t.Fatalf("with people search: %+v %v, asks %v (made %d)", scoped, err, asked, made)
+	}
+	// No personal scope in the ceiling: nothing to leave out, the usual sign-in.
+	plainKit = true
+	if _, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) || made != 2 {
+		t.Fatalf("a ceiling with no personal data: %v (made %d)", err, made)
+	}
+}

@@ -734,6 +734,87 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 	}
 }
 
+// A sign-in that can't be narrowed, for an app whose usual sign-in asks for
+// personal data (14 Nov: Gmail's asked for a date of birth, addresses, phone
+// numbers and contacts), asks for the app's access less that data: its own
+// sign-in, recorded in the signed request, and still said to be more than
+// the taf uses.
+func TestAWideSignInLeavesOutPersonalDataAndSaysItsWide(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	e, f := newConnectorFixture(t)
+	f.managed, f.noRecommend = true, true
+	f.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "contacts.readonly", g + "userinfo.email"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	v := out["grant"].(map[string]any)
+	gr, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+	c := gr.Request.Connector
+	if !c.UsualAccess || c.AuthConfig == "ac_desk_demo" || len(f.scopedMade) != 1 || !slices.Equal(c.Scopes, []string{g + "gmail.modify", g + "userinfo.email"}) {
+		t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
+	}
+	if strings.Contains(f.scopedMade[0], "birthday") || strings.Contains(f.scopedMade[0], "contacts") {
+		t.Fatalf("the sign-in asks for personal data: %v", f.scopedMade)
+	}
+	if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions.") {
+		t.Fatalf("words: %q", words)
+	}
+	// A tool that runs on contacts alone, added later, isn't covered by what the
+	// sign-in asked: it's refused as only partly signed in, never approved to fail.
+	if (connector.Tool{Scopes: []string{g + "contacts.readonly"}}).Covered(grantedScopes(gr)) {
+		t.Fatal("a contacts-only tool reads as covered by a sign-in that left contacts out")
+	}
+	if !(connector.Tool{Scopes: []string{g + "gmail.modify"}}).Covered(grantedScopes(gr)) {
+		t.Fatal("a Gmail tool reads as uncovered")
+	}
+
+	// Asked with a tool that runs on contacts alone, the sign-in keeps one contact scope, read-only.
+	e2, f2 := newConnectorFixture(t)
+	f2.managed, f2.noRecommend, f2.search = true, true, true
+	f2.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "contacts", g + "contacts.readonly", g + "userinfo.email"}
+	f2.searchScopes = []string{g + "contacts", g + "contacts.readonly"}
+	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY", "DESK_DEMO_SEARCH"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request with a contacts tool: %d %v", st, out)
+	}
+	g2, _ := e2.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if c := g2.Request.Connector; !c.UsualAccess || !slices.Equal(c.Scopes, []string{g + "contacts.readonly", g + "gmail.modify", g + "userinfo.email"}) {
+		t.Fatalf("with a contacts tool: %+v", c)
+	}
+}
+
+// When no sign-in without personal data can be set up (the account's set-ups
+// for the day used), nothing is asked: never the usual sign-in instead, and
+// the words say why and when to try again. A request with no tools named
+// leaves the personal data out too.
+func TestNoSignInWithPersonalDataIsEverTheFallback(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	personal := []string{g + "gmail.modify", g + "user.birthday.read", g + "userinfo.email"}
+	e, f := newConnectorFixture(t)
+	f.managed, f.noRecommend, f.ceiling = true, true, personal
+	for i := 1; i <= onDemandADay; i++ {
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+			t.Fatalf("set-up %d: %d %v", i, st, out)
+		}
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 429 || !strings.Contains(out["error"].(string), "can't be connected without asking for personal data this taf doesn't use. Try again tomorrow.") || len(f.scopedMade) != 0 {
+		t.Fatalf("with the day used: %d %v (made %v)", st, out, f.scopedMade)
+	}
+	// No tools named: the sign-in still leaves the personal data out.
+	e2, f2 := newConnectorFixture(t)
+	f2.managed, f2.ceiling = true, personal
+	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("no tools: %d %v", st, out)
+	}
+	gr, _ := e2.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if c := gr.Request.Connector; !slices.Equal(c.Scopes, []string{g + "gmail.modify", g + "userinfo.email"}) || len(f2.scopedMade) != 1 || strings.Contains(f2.scopedMade[0], "birthday") {
+		t.Fatalf("no tools: %+v, made %v", c, f2.scopedMade)
+	}
+}
+
 // A new scoped sign-in is a set-up at the provider, so it counts against the
 // account's day as setting up an app does: after it, one set-up fewer is left.
 func TestANewScopedSignInCountsAsASetUp(t *testing.T) {
