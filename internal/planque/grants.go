@@ -3297,7 +3297,9 @@ func label(s string) string {
 func vendorName(g *Grant) string {
 	// A vendor's own reviewed server is called by its app's name, a grant
 	// stored with its server's own name ("stripe-mcp") too.
-	if n := builtinVendor(g.Request.CatalogEntry); n != "" {
+	// Its entry may be the one recorded beside an older request (Grant.Entry),
+	// or none, on Stripe's or Qonto's own server.
+	if n := grantVendor(g, entryOf(g)); n != "" {
 		return n
 	}
 	if g.VendorName != "" {
