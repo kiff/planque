@@ -111,7 +111,7 @@ the owner asked for reminders, and say each one waits for their yes.
 | The sign-in no longer works (401) | The owner disconnected it in Stripe | "Stripe needs you to sign in again. Nothing was refunded." |
 | An invoice isn't found | A wrong id, or an invoice in the other mode | "I can't find that invoice in this Stripe account. Check it, or whether it's a test invoice." |
 | The invoice is no longer open | It was paid, voided or written off since the list | "That invoice is already paid or closed, so no reminder went out." |
-| Charged automatically | Its collection method isn't `send_invoice` | "Stripe charges that customer's card automatically, so there's no invoice email to send. Nothing was sent." |
+| Charged automatically | Its collection method isn't `send_invoice`: don't send | "Stripe charges that customer's card automatically, so I didn't send a reminder for it." |
 | Sent, but no email arrived | A test-mode invoice | "That's a test invoice, so Stripe didn't email anyone." |
 
 After any refusal the taf stops that step and says so. A refused refund is
