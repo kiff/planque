@@ -79,7 +79,7 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 		case !slices.Contains(argTypes, a.Type):
 			return arg(refArgumentType, name, "string, integer, number, boolean or array", "argument "+name+" must be a string, integer, number, boolean or array")
 		case a.Type == "array" && checkShape(a.Schema, true) != "":
-			return arg(refArgumentSchema, name, "an array of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
+			return arg(refArgumentSchema, name, "an array of plain values, of rows of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
 		case a.Type != "array" && len(a.Schema) > 0:
 			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array argument has a schema")
 		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
@@ -519,6 +519,9 @@ const maxShapeDepth = 4
 // hide and are checked as a plain argument is.
 var itemTypes = []string{"object", "string", "integer", "number", "boolean"}
 
+// plainTypes are a row's items: an array argument may also be rows of plain values (a sheet's values), one level deep.
+var plainTypes = []string{"string", "integer", "number", "boolean"}
+
 // annotations are JSON Schema keywords that describe a value without
 // restricting what planque lets through: a provider's generated schema
 // carries them (an email draft's cc has a title, a default and examples), and
@@ -665,8 +668,15 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 	case "array":
 		if top {
 			var it shape
-			if json.Unmarshal(s.Items, &it) != nil || !slices.Contains(itemTypes, it.Type) {
-				return "its items are objects or plain values (string, integer, number or boolean)"
+			if json.Unmarshal(s.Items, &it) != nil || !slices.Contains(itemTypes, it.Type) && it.Type != "array" {
+				return "its items are objects, plain values (string, integer, number or boolean), or rows of plain values"
+			}
+			// A row of plain values (a sheet's values: [["Ana", 12]]): one level, its items plain, never objects or rows.
+			if it.Type == "array" {
+				var cell shape
+				if json.Unmarshal(it.Items, &cell) != nil || !slices.Contains(plainTypes, cell.Type) {
+					return "a row's items are plain values (string, integer, number or boolean), never objects or rows"
+				}
 			}
 		}
 		return checkShapeAt(s.Items, false, depth+1)
