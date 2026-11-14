@@ -1,10 +1,10 @@
 # Salesforce
 
-Checked: 2026-11-13 · Sources: the connection service's Salesforce tool
-definitions as planque reads them, and Salesforce's help articles on API
-access by edition and on the daily request limit. Salesforce's developer
-reference couldn't be read for this check, so what each tool returns is
-marked "not checked".
+Checked: 2026-11-14 · Sources: the connection service's Salesforce tool
+definitions as planque reads them, Salesforce's help articles on API
+access by edition and on the daily request limit, and its REST API and
+limits references. "Not checked" means the reference doesn't say what
+that tool's answer holds.
 
 ## How it connects
 
@@ -23,23 +23,24 @@ marked "not checked".
 ## Tools a job usually needs
 
 Read means it changes nothing in Salesforce. The catalog gives no `returns`
-paths for Salesforce today.
+paths for Salesforce today; the cells below are what Salesforce's REST
+reference shows for reading, finding, adding and changing records.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
 | `SALESFORCE_GET_USER_INFO` | Reads the signed-in user | read | not checked |
-| `SALESFORCE_SEARCH_CONTACTS` | Finds contacts by name, email, phone or company | read | not checked |
-| `SALESFORCE_SEARCH_ACCOUNTS` | Finds companies by name, city or industry | read | not checked |
-| `SALESFORCE_SEARCH_LEADS` | Finds leads by name, email, company or status | read | not checked |
-| `SALESFORCE_SEARCH_OPPORTUNITIES` | Finds deals by company, amount, close date, open or won | read | not checked |
-| `SALESFORCE_GET_OPPORTUNITY` | Reads one deal | read | not checked |
-| `SALESFORCE_SEARCH_TASKS` | Finds follow-ups by contact, company, due date or done | read | not checked |
-| `SALESFORCE_CREATE_CONTACT` | Adds a contact | write | not checked |
-| `SALESFORCE_CREATE_LEAD` | Adds a lead | write | not checked |
-| `SALESFORCE_CREATE_TASK` | Adds a follow-up task | write | not checked |
-| `SALESFORCE_LOG_CALL` | Records a call that happened | write | not checked |
-| `SALESFORCE_CREATE_NOTE` | Adds a note to a record | write | not checked |
-| `SALESFORCE_UPDATE_OPPORTUNITY` | Changes a deal: stage, amount, close date, next step | write | not checked |
+| `SALESFORCE_SEARCH_CONTACTS` | Finds contacts by name, email, phone or company | read | matching records, each with its id |
+| `SALESFORCE_SEARCH_ACCOUNTS` | Finds companies by name, city or industry | read | matching records, each with its id |
+| `SALESFORCE_SEARCH_LEADS` | Finds leads by name, email, company or status | read | matching records, each with its id |
+| `SALESFORCE_SEARCH_OPPORTUNITIES` | Finds deals by company, amount, close date, open or won | read | matching records, each with its id |
+| `SALESFORCE_GET_OPPORTUNITY` | Reads one deal | read | the deal's fields |
+| `SALESFORCE_SEARCH_TASKS` | Finds follow-ups by contact, company, due date or done | read | matching records, each with its id |
+| `SALESFORCE_CREATE_CONTACT` | Adds a contact | write | the new record's id |
+| `SALESFORCE_CREATE_LEAD` | Adds a lead | write | the new record's id |
+| `SALESFORCE_CREATE_TASK` | Adds a follow-up task | write | the new record's id |
+| `SALESFORCE_LOG_CALL` | Records a call that happened | write | the new record's id |
+| `SALESFORCE_CREATE_NOTE` | Adds a note to a record | write | the new record's id |
+| `SALESFORCE_UPDATE_OPPORTUNITY` | Changes a deal: stage, amount, close date, next step | write | nothing when it works; an error when not |
 
 **What to keep:** each record's Salesforce id from the answer, to update
 that same record next time. Never look a record up again by its name: use

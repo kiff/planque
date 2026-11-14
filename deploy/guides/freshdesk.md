@@ -1,6 +1,6 @@
 # Freshdesk
 
-Checked: 2026-11-13 · Sources: the connection service's Freshdesk tool
+Checked: 2026-11-14 · Sources: the connection service's Freshdesk tool
 definitions as planque reads them (184 tools, [generated](generated/freshdesk.md)),
 and Freshdesk's API reference.
 
@@ -18,7 +18,7 @@ and Freshdesk's API reference.
 | Tool | What it does | Read or write | Keep |
 |---|---|---|---|
 | `FRESHDESK_GET_TICKETS` | Lists tickets, newest first, or by a filter | read | ticket ids |
-| `FRESHDESK_GET_SEARCH` | Finds tickets or contacts by fields (status, priority, tag) | read | ticket ids |
+| `FRESHDESK_GET_SEARCH` | Finds tickets by fields (status, priority, tag) | read | ticket ids |
 | `FRESHDESK_VIEW_TICKET` | Reads one ticket | read | the requester's id |
 | `FRESHDESK_LIST_ALL_TICKET_CONVERSATIONS` | Reads a ticket's replies and notes | read | |
 | `FRESHDESK_GET_CONTACT` | Reads a customer | read | |
@@ -41,14 +41,15 @@ never answers twice.
   (`FRESHDESK_DELETE_TICKET`, `FRESHDESK_DELETE_MULTIPLE_TICKETS`,
   `FRESHDESK_HARD_DELETE_CONTACT` and the others).
 - Bulk updates (`FRESHDESK_BULK_UPDATE_TICKETS`) unless the owner saw the list.
+- Merging tickets (`FRESHDESK_MERGE_TICKETS`): it can't be undone.
 - Administration: agents, groups, roles, automation rules, SLA policies,
   ticket fields, mailboxes, forums.
 
 ## Access and plans
 
 - **The free plan has no API access;** paid plans do.
-- **Rate:** per minute, by plan, roughly 200 to 700 calls a minute for the
-  whole account, shared with every other app on it. A list answers 30
+- **Rate:** per minute, by plan, from 100 calls a minute on Growth to 700 on
+  Enterprise, for the whole account, shared with every other app on it. A list answers 30
   tickets a page, at most 100.
 - **Search** answers at most 300 results (10 pages of 30).
 

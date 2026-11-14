@@ -1,6 +1,6 @@
 # Typeform
 
-Checked: 2026-11-13 · Sources: the connection service's Typeform tool
+Checked: 2026-11-14 · Sources: the connection service's Typeform tool
 definitions as planque reads them (35 tools, [generated](generated/typeform.md)),
 and Typeform's API reference.
 
@@ -9,11 +9,14 @@ and Typeform's API reference.
 - **A sign-in to Typeform**, held by the connection service. The catalog
   lists the tools and, with a known sign-in, puts the ones its access doesn't
   cover under `unusable`. Offer only what's under `tools`.
+- **Accounts that keep responses in Typeform's EU data centre** use a
+  separate API address. A connection made to the usual address doesn't
+  reach their forms.
 - **One approval for the sign-in, one for the tools and the Card.**
 
 ## Tools a job usually needs
 
-| Tool | What it does | Read or write | Keep |
+| Tool | What it does | Read or write | Returns |
 |---|---|---|---|
 | `TYPEFORM_LIST_FORMS` | Lists the owner's forms | read | **the form's id** |
 | `TYPEFORM_GET_FORM` | Reads a form's questions | read | each question's ref |
@@ -35,29 +38,30 @@ question doesn't break the taf.
 - `TYPEFORM_DELETE_RESPONSES`: it deletes what people sent, for good.
 - `TYPEFORM_DELETE_FORM`, workspace and theme deletes.
 - `TYPEFORM_UPDATE_FORM` on a live form, unless the job is about editing it:
-  a full update replaces every question, and a question removed takes its
-  answers out of the results.
+  a full update replaces the whole form, and a question left out is deleted
+  with its answers.
 - Webhooks (`TYPEFORM_CREATE_OR_UPDATE_WEBHOOK`): the taf reads on its
   schedule.
 
 ## Access and plans
 
-- **Responses per month are capped by plan** (10 on the free plan, more on
-  paid ones). Beyond the cap, new responses aren't collected, whatever the
-  taf does.
-- **Responses** answer up to 1,000 a page.
-- **Rate:** about 2 calls a second per account.
-- **Partial responses** (people who didn't finish) come back only if asked
-  for and only on some plans.
+- **Responses per month are capped by plan;** each plan has its own limit.
+- **A form with more than 1,000 responses** is read in parts, by date or
+  from the last response handled.
+- **Rate:** 2 calls a second per account.
+- **Partial responses** (people who didn't finish) come back only when
+  asked for. Collecting them on forms with logic or scoring needs one of
+  Typeform's Growth plans.
 
 ## When it fails
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403) | The sign-in didn't give this access, or the form belongs to another workspace | "Typeform is only partly connected, or that form isn't in your workspace." |
-| Not found (404) | A deleted form, or a wrong id | "That form isn't there any more." |
-| Too many calls (429) | Over Typeform's rate | "Typeform asked us to slow down. The taf will continue in a moment." |
-| The sign-in no longer works (401) | Removed, or expired | "Typeform needs you to sign in again." |
+| Refused for missing access | The sign-in didn't give this access, or the form belongs to another workspace | "Typeform is only partly connected, or that form isn't in your workspace." |
+| Not found | A deleted form, or a wrong id | "That form isn't there any more." |
+| Too many calls | Over the 2 calls a second | "Typeform asked us to slow down. The taf will continue in a moment." |
+| The sign-in no longer works (401) | The sign-in isn't accepted any more | "Typeform needs you to sign in again." |
 | No new responses | Nobody answered, or the plan's monthly cap is reached | "No new responses since last time." Say the cap only if Typeform says so. |
 
-After any refusal the taf stops that step and says so.
+After any refusal the taf stops that step and says so. A refused read never
+leads to a write.

@@ -1,6 +1,6 @@
 # Google Tasks
 
-Checked: 2026-11-13 · Sources: the connection service's Google Tasks tool
+Checked: 2026-11-14 · Sources: the connection service's Google Tasks tool
 definitions as planque reads them (16 tools, [generated](generated/googletasks.md)),
 and Google's Tasks API reference.
 
@@ -35,6 +35,8 @@ can't be due at 15:00. A job that needs a time uses Google Calendar.
 
 - `GOOGLETASKS_CLEAR_TASKS`: it hides every completed task in a list at once.
 - `GOOGLETASKS_DELETE_TASK_LIST`: it deletes a list with every task in it.
+- `GOOGLETASKS_DELETE_TASK`: it removes a task the owner may still need;
+  mark it done instead.
 - `GOOGLETASKS_UPDATE_TASK_FULL` and `GOOGLETASKS_UPDATE_TASK_LIST`: they
   replace everything, and a field left out is erased. Use the patch tools.
 - `GOOGLETASKS_BATCH_EXECUTE`, unless the job writes many tasks at once and
@@ -43,10 +45,11 @@ can't be due at 15:00. A job that needs a time uses Google Calendar.
 ## Access and plans
 
 - **No paid plan is needed.** A business admin can block outside apps.
-- **Limits:** about 100,000 tasks in all, and 2,000 lists. Google allows
-  tens of thousands of calls a day; a taf never comes near it.
-- **Assigned tasks** (from a Doc or a Chat space) show in lists but can only
-  be changed where they were assigned.
+- **Limits:** up to 100,000 tasks in all, 20,000 open tasks in one list,
+  and 2,000 lists. Google's daily call allowance is shared by everyone on
+  the same connection, so a taf keeps its calls few.
+- **Assigned tasks** (from a Doc or a Chat space) carry a link back to where
+  they were assigned, and some of their fields can't be changed here.
 
 ## When it fails
 

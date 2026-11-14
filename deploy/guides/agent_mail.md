@@ -1,6 +1,6 @@
 # Agent Mail
 
-Checked: 2026-11-13 · Sources: the connection service's Agent Mail tool
+Checked: 2026-11-14 · Sources: the connection service's Agent Mail tool
 definitions as planque reads them (93 tools), and Agent Mail's API
 documentation (errors, rate limits, drafts, threads, labels).
 
@@ -25,10 +25,10 @@ use next time.
 | `AGENT_MAIL_LIST_INBOXES` | Lists the organization's inboxes | read | each inbox's id and address |
 | `AGENT_MAIL_GET_INBOX` | Reads one inbox's details | read | the inbox id |
 | `AGENT_MAIL_LIST_THREADS` | Lists conversations in an inbox, filtered by label or date, a page at a time | read | thread ids, a page token |
-| `AGENT_MAIL_GET_THREAD` | Reads every message in one conversation | read | message ids, the thread id |
+| `AGENT_MAIL_GET_THREAD` | Reads the messages in one conversation, a page at a time | read | message ids, the thread id, a page token |
 | `AGENT_MAIL_LIST_MESSAGES` | Lists messages in an inbox, filtered by label or date | read | message ids, thread ids, a page token |
 | `AGENT_MAIL_GET_MESSAGE` | Reads one message | read | the message, its thread id, its labels |
-| `AGENT_MAIL_GET_MESSAGE_ATTACHMENT` | Downloads one attachment of a message | read | the file |
+| `AGENT_MAIL_GET_MESSAGE_ATTACHMENT` | Gets one attachment of a message | read | a download link for the file, which expires |
 | `AGENT_MAIL_LIST_DRAFTS` / `AGENT_MAIL_GET_DRAFT` | Lists or reads drafts | read | draft ids |
 | `AGENT_MAIL_CREATE_DRAFT` | Writes a draft, new or as a reply; sends nothing | write | the draft id |
 | `AGENT_MAIL_UPDATE_DRAFT` | Changes a draft's content or labels | write | the draft id |
@@ -57,8 +57,8 @@ sending, and say every send waits for their yes.
   not one job's mail.
 - Webhook tools and allow or block lists: they change what reaches every
   inbox.
-- `AGENT_MAIL_RELEASE_HELD_MESSAGE`: it lets through mail the app held as
-  unsafe. That is the owner's call, in the app.
+- `AGENT_MAIL_RELEASE_HELD_MESSAGE`: it lets through mail the app held
+  back for a security review. That is the owner's call, in the app.
 - `AGENT_MAIL_FORWARD_MESSAGE`: forwarding sends someone's mail to a third
   person; offer it only when the owner named the recipient.
 - `AGENT_MAIL_SEND_EMAIL`: use `AGENT_MAIL_SEND_MESSAGE` or a draft instead.
@@ -88,7 +88,7 @@ sending, and say every send waits for their yes.
 | Refused for missing access (403, missing permission) | The key doesn't allow this action, sending say | "Agent Mail is only partly connected: this step needs access your key doesn't give. Want to add a key that allows it, or do without this step?" |
 | The key no longer works (401, unknown or expired key) | The key was revoked or has expired | "Agent Mail needs a new key. Nothing was sent." |
 | Not found (404) | The message, draft or inbox was deleted, or the key can't see that inbox | "That email or inbox isn't there for this connection. The taf will skip it." |
-| Send refused (403, message rejected) | A block list, a suppressed recipient or an attachment link that can't be fetched | "Agent Mail wouldn't send this one, because of a block list or the recipient. Nothing went out." |
+| Send refused (403, message rejected) | A block list, a recipient missing from an allow list, or an attachment link that can't be fetched | "Agent Mail wouldn't send this one, because of a block or allow list, or an attachment it couldn't fetch. Nothing went out." |
 | Domain not verified (403) | The sending domain's DNS records aren't checked yet | "Your sending domain isn't verified yet in Agent Mail. Finish its setup there, then the taf can send." |
 | Inbox or account suspended (403) | Too many bounces or complaints, or the account is on hold | "Sending is paused on this Agent Mail inbox. Reading still works. Check the inbox's status in Agent Mail." |
 | Too many calls, or the daily cap (429) | Over the rate limit or the plan's sending cap | "Agent Mail asked us to slow down, or today's sending limit is reached. The taf will try again later." |

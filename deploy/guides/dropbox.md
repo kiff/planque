@@ -1,6 +1,6 @@
 # Dropbox
 
-Checked: 2026-11-13 · Sources: the connection service's Dropbox tool
+Checked: 2026-11-14 · Sources: the connection service's Dropbox tool
 definitions as planque reads them (175 tools), Dropbox's API reference
 (the published API spec), its performance, error-handling, OAuth and data
 transport limit pages.
@@ -37,7 +37,7 @@ Dropbox's API reference, since the catalog gives none for this app.
 | `DROPBOX_CREATE_SHARED_LINK` | Makes a link others can open | write, outside | the link's url and id |
 | `DROPBOX_CREATE_FILE_REQUEST` | Opens a page where others can upload into a folder | write, outside | the request's id and url |
 
-**What to keep:** a file's id (it survives renames and moves) and its rev,
+**What to keep:** a file's id and its rev,
 to update that same version later; a list's cursor, to read only what
 changed next time. Never search for what the taf made: use the id it kept.
 
@@ -83,12 +83,12 @@ asked to share; each link is shown to the owner first.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| The sign-in no longer works (401) | The owner removed access, or a team admin suspended the account | "Dropbox needs you to sign in again. Nothing was changed." |
+| The sign-in no longer works (401) | The owner removed access, the sign-in expired, or the account is suspended | "Dropbox needs you to sign in again. Nothing was changed." |
 | Refused for missing access (401, missing scope) | The sign-in didn't give this tool's access | "Dropbox is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Not found (409, path not found) | The file was moved, renamed, deleted or unshared | "That file isn't where it was any more. The taf will skip it." |
 | Conflict on upload (409, conflict) | A file with that name exists | Save under a new name once; else "A file with that name is already there. Nothing was replaced." |
 | No space (409, insufficient space) | The Dropbox is full | "Your Dropbox is full, so the file wasn't saved. Free some space or upgrade, and the taf will try again." |
-| Refused (403), monthly limit | The team used its monthly upload allowance | "Your Dropbox team has used this month's upload allowance. Uploads resume on the 1st; a team admin can check usage in the admin console." |
+| Refused (403), monthly limit | The team used its monthly upload allowance | "Your Dropbox team has used this month's upload allowance. Uploads resume on the 1st of the month." |
 | Too many calls (429) | Too many calls or parallel writes | "Dropbox asked us to slow down. The taf will try again shortly." |
 | Bad input (400) | The tool doesn't fit this account or the input is wrong | "Dropbox didn't accept that step. Nothing was changed." |
 | Server error (500) | A brief fault on Dropbox's side | Try again later; if it repeats, "Dropbox is having trouble right now. The taf will try again later." |

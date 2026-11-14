@@ -69,7 +69,7 @@ func (s *Server) deriveEntry(g *Grant) string {
 		return entry
 	}
 	match := ""
-	for id, e := range s.CatalogEntries {
+	for id, e := range s.catalogEntries() {
 		ef, server := s.entryReach(e)
 		if ef != family || !sameServer(server, r.Server) {
 			continue

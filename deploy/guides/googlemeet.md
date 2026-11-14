@@ -1,6 +1,6 @@
 # Google Meet
 
-Checked: 2026-11-13 · Sources: the connection service's Google Meet tool
+Checked: 2026-11-14 · Sources: the connection service's Google Meet tool
 definitions as planque reads them (25 tools, [generated](generated/googlemeet.md)),
 and Google's Meet API reference.
 
@@ -39,17 +39,19 @@ names who gets the summary, and the Card says so.
 
 - `GOOGLEMEET_END_ACTIVE_CONFERENCE`: it ends a meeting for everyone in it.
 - Member and space changes (`GOOGLEMEET_CREATE_MEMBER`,
+  `GOOGLEMEET_UPDATE_MEMBER`, `GOOGLEMEET_BATCH_UPDATE_MEMBERS`,
   `GOOGLEMEET_DELETE_MEMBER`, `GOOGLEMEET_UPDATE_SPACE`): they decide who can
   join and how.
 
 ## Access and plans
 
 - **Transcripts, recordings and notes** exist only if someone turned them on
-  in the meeting, and only on Google's business plans that include them.
-  On a personal account, a meeting has a list of who joined, and nothing
-  more to read.
-- **Only meetings the owner organised** (or whose recordings were shared with
-  them) can be read.
+  in the meeting, and only on plans that include them: Google's business
+  plans, and for recordings some paid personal storage plans. On a free
+  personal account, a meeting has a list of who joined, and nothing more
+  to read.
+- **The list shows only meetings the owner organised.** A meeting they only
+  joined can be read only by its record id.
 - **Records are kept 30 days** by Google; recordings stay in Drive.
 
 ## When it fails

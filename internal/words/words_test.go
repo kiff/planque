@@ -73,3 +73,31 @@ func TestTheGlossarysConnection(t *testing.T) {
 		}
 	}
 }
+
+// Every language has every connection word, and a format verb where the
+// English has one, so no row reads blank or with a stray %s.
+func TestEveryLanguageHasEveryConnectionWord(t *testing.T) {
+	en := connections["en"]
+	for lang, c := range connections {
+		for name, pair := range map[string][2]string{
+			"SignInAgain": {c.SignInAgain, en.SignInAgain}, "Remove": {c.Remove, en.Remove}, "RemoveUnfinished": {c.RemoveUnfinished, en.RemoveUnfinished},
+			"StopsF": {c.StopsF, en.StopsF}, "NothingStops": {c.NothingStops, en.NothingStops}, "WorkingLastF": {c.WorkingLastF, en.WorkingLastF},
+			"WorkingNotYet": {c.WorkingNotYet, en.WorkingNotYet}, "Working": {c.Working, en.Working}, "ExpiredOnF": {c.ExpiredOnF, en.ExpiredOnF},
+			"ExpiredF": {c.ExpiredF, en.ExpiredF}, "UnfinishedOnF": {c.UnfinishedOnF, en.UnfinishedOnF}, "Unfinished": {c.Unfinished, en.Unfinished},
+			"DayMonthF": {c.DayMonthF, en.DayMonthF}, "OtherAccountF": {c.OtherAccountF, en.OtherAccountF},
+			"OtherAccountAnyF": {c.OtherAccountAnyF, en.OtherAccountAnyF}, "CantSignInAgainF": {c.CantSignInAgainF, en.CantSignInAgainF},
+		} {
+			if pair[0] == "" || strings.Count(pair[0], "%") != strings.Count(pair[1], "%") {
+				t.Errorf("%s %s: %q", lang, name, pair[0])
+			}
+		}
+		for i, m := range c.Months {
+			if m == "" {
+				t.Errorf("%s month %d", lang, i+1)
+			}
+		}
+	}
+	if len(connections) != len(approvals) {
+		t.Errorf("connection words in %d languages, approval words in %d", len(connections), len(approvals))
+	}
+}

@@ -1,6 +1,6 @@
 # Zoho Books
 
-Checked: 2026-11-13 · Sources: the connection service's Zoho Books tool
+Checked: 2026-11-14 · Sources: the connection service's Zoho Books tool
 definitions as planque reads them (270 tools), and Zoho Books' API
 documentation (introduction, sign-in, errors, paging, invoices, contacts,
 customer payments, estimates, items).
@@ -60,8 +60,9 @@ payments by hand can't be done with these tools.
 - Deleting anything (invoices, payments, contacts, attachments, comments):
   it changes the books' history.
 - Voiding or writing off an invoice (`ZOHO_BOOKS_VOID_INVOICE`,
-  `ZOHO_BOOKS_WRITE_OFF_INVOICE`): only the owner or their accountant
-  decides that.
+  `ZOHO_BOOKS_WRITE_OFF_INVOICE`), refunds, vendor payments, applying
+  credits, and recurring invoices (create, stop, resume): only the owner or
+  their accountant decides those.
 - Organization and user admin (`ZOHO_BOOKS_UPDATE_ORGANIZATION`,
   `ZOHO_BOOKS_CREATE_USER`), currencies, taxes, the chart of accounts and
   journals: they change how the whole organization keeps its books.

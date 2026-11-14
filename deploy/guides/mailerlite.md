@@ -1,6 +1,6 @@
 # MailerLite
 
-Checked: 2026-11-13 · Sources: the connection service's MailerLite tool
+Checked: 2026-11-14 · Sources: the connection service's MailerLite tool
 definitions as planque reads them, and MailerLite's API documentation
 (getting started, subscribers, groups, campaigns).
 
@@ -34,7 +34,7 @@ documentation shows in each answer.
 | `MAILERLITE_GET_CAMPAIGNS` | Lists campaigns by status or type | read | campaign ids, statuses, delivery stats |
 | `MAILERLITE_GET_CAMPAIGN` | Reads one campaign | read | the campaign's id, status |
 | `MAILERLITE_CREATE_CAMPAIGN` | Creates a campaign draft; sends nothing | write | the campaign's id, status |
-| `MAILERLITE_UPDATE_CAMPAIGN` | Changes a draft | write | not documented |
+| `MAILERLITE_UPDATE_CAMPAIGN` | Changes a draft | write | the campaign |
 | `MAILERLITE_SEND_OR_SCHEDULE_CAMPAIGN` | Sends a campaign now, or at a set time | write, outside | the campaign's id, status |
 | `MAILERLITE_CANCEL_CAMPAIGN` | Takes a scheduled campaign back to draft, before it starts sending | write | the campaign, as a draft |
 
@@ -53,9 +53,10 @@ has recipients, a designed email and a working unsubscribe link.
 already in the account updates only the fields sent, and leaves the rest and
 the groups alone.
 
-**People who opted out stay out.** A subscriber who unsubscribed, bounced
-or marked a campaign as spam can't be made active again through the API,
-only by signing up again themselves. A taf never tries.
+**People who opted out stay out.** Updating a subscriber who unsubscribed,
+bounced or marked a campaign as spam doesn't make them active again. Adding
+them again with the resubscribe option does, and MailerLite says to use it
+only when the person asked to subscribe again. A taf never tries.
 
 ## Don't offer
 
@@ -73,11 +74,11 @@ only by signing up again themselves. A taf never tries.
 
 ## Access and plans
 
-- **Rate:** 120 calls a minute for the account. Imports, and batches made
+- **Rate:** 120 calls a minute. Imports, and batches made
   only of subscriber adds, have their own limit of 5 a minute. Over a
   limit, MailerLite says how long to wait.
-- **Paging:** subscriber lists come 25 at a time unless asked for more, up
-  to 1,000 a page.
+- **Paging:** the subscriber list comes 25 at a time and a group's
+  subscribers 50 at a time, unless asked for more; up to 1,000 a page.
 - **Plans:** resend and multivariate campaigns need a paid plan or the free
   trial.
 - **A subscriber's email** can change at most once a calendar month.

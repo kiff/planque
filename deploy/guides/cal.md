@@ -1,6 +1,6 @@
 # Cal
 
-Checked: 2026-11-13 · Sources: the Cal tool definitions as planque reads
+Checked: 2026-11-14 · Sources: the Cal tool definitions as planque reads
 them (170 tools, generated/cal.md), and Cal.com's API v2 reference
 (introduction, bookings, slots) and its pricing page.
 
@@ -77,8 +77,8 @@ their yes. A cancelled recurring booking can take every later one with it.
   plan and organisation tools to its organisation plan. Offer them only to
   an owner on that plan; otherwise use the personal tools.
 - **Rate:** Cal limits calls per minute, and each way of connecting has its
-  own limit. It doesn't publish the number for a sign-in, so a job that
-  reads many bookings pages and pauses.
+  own limit (120 a minute for a key by default). It doesn't publish the
+  number for a sign-in, so a job that reads many bookings pages and pauses.
 
 ## When it fails
 
@@ -87,7 +87,7 @@ their yes. A cancelled recurring booking can take every later one with it.
 | The sign-in no longer works | The owner removed access, or the sign-in expired | "Cal needs you to sign in again. Nothing was booked or changed." |
 | Refused for missing access | The sign-in doesn't cover this tool, or the owner's plan doesn't include it | "Cal didn't let us do this with your account. It may need a team plan, or a new sign-in. Want to do without this step?" |
 | A booking isn't found | It was cancelled, or the uid is wrong | "That booking isn't in Cal any more. The taf will skip it." |
-| A booking is refused | The time may no longer be offered, or a required answer is missing | Read the free times again and try once; else "Cal didn't accept that booking. Nothing was booked." |
+| A booking is refused | The time clashes with another booking, or a required answer is missing | Read the free times again and try once; else "Cal didn't accept that booking. Nothing was booked." |
 | Too many calls | Over Cal's per-minute limit | "Cal asked us to slow down. The taf will try again in a minute." |
 
 After any refusal the taf stops that step and says so. A refused read never

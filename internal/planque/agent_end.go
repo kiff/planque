@@ -28,6 +28,13 @@ type keptSignIn struct {
 	Vendor string   `json:"vendor"`
 	Why    string   `json:"why"`
 	UsedBy []string `json:"used_by"`
+	// Grants are the live connections that still hold the sign-in, and
+	// Agents their agents: an app offers to remove the sign-in too only when
+	// none of those agents is a taf the owner still has, by disconnecting
+	// those grants (DELETE …/grants/{id}, signed). The last one gone, the
+	// sign-in is revoked as any is.
+	Grants []string `json:"grants"`
+	Agents []string `json:"agents"`
 }
 
 // appName is g's app as people name it, for words drawn as they are: the
@@ -125,7 +132,7 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 		if g.Status == StatusFailed {
 			continue // it holds no sign-in in use
 		}
-		var usedBy []string
+		var usedBy, grants, agents []string
 		for _, o := range others {
 			if sameSignIn(g, o) {
 				name := o.Request.AgentName
@@ -135,10 +142,14 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 				if !slices.Contains(usedBy, name) {
 					usedBy = append(usedBy, name)
 				}
+				grants = append(grants, o.ID)
+				if !slices.Contains(agents, o.Request.Agent) {
+					agents = append(agents, o.Request.Agent)
+				}
 			}
 		}
 		if len(usedBy) > 0 {
-			kept = append(kept, keptSignIn{Vendor: s.appName(g), Why: "another taf's connection uses the same sign-in", UsedBy: usedBy})
+			kept = append(kept, keptSignIn{Vendor: s.appName(g), Why: "another taf's connection uses the same sign-in", UsedBy: usedBy, Grants: grants, Agents: agents})
 		}
 	}
 	out := map[string]any{"agent": agent, "ended": ended, "kept": kept, "preview": preview}

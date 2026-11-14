@@ -1,6 +1,6 @@
 # Gorgias
 
-Checked: 2026-11-13 · Sources: the connection service's Gorgias tool
+Checked: 2026-11-14 · Sources: the connection service's Gorgias tool
 definitions as planque reads them (51 tools, [generated](generated/gorgias.md)),
 and Gorgias's API reference.
 
@@ -23,7 +23,7 @@ and Gorgias's API reference.
 | `GORGIAS_GET_TICKET` | Reads one ticket | read | the customer's id |
 | `GORGIAS_LIST_MESSAGES` | Reads a ticket's messages | read | |
 | `GORGIAS_GET_CUSTOMER` | Reads a customer, with their shop data | read | |
-| `GORGIAS_LIST_TAGS` | Lists the account's tags | read | tag names |
+| `GORGIAS_LIST_TAGS` | Lists the account's tags | read | tag ids |
 | `GORGIAS_ADD_TICKET_TAGS` | Adds tags to a ticket | write | |
 | `GORGIAS_SEND_TICKET_MESSAGE` | Sends a message on a ticket: to the customer, or an internal note | write, outside if to the customer | the message's id |
 | `GORGIAS_UPDATE_TICKET` | Changes a ticket's status or assignee | write | |
@@ -47,10 +47,10 @@ answered, so it never acts twice.
 
 ## Access and plans
 
-- **API access is on every paid plan;** Gorgias bills by ticket volume, and
-  tickets a taf creates count.
-- **Rate:** about 40 calls every 20 seconds for an account, shared with its
-  other apps. Lists answer pages of up to 100.
+- **Gorgias bills by ticket:** a ticket counts once any message is sent
+  from the helpdesk, so a taf's replies count.
+- **Rate:** about 80 calls every 20 seconds for a signed-in app (every 10
+  seconds on Enterprise accounts). Lists answer pages of up to 100.
 
 ## When it fails
 
