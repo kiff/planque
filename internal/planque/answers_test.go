@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kiff/planque/internal/awsapi"
 	"github.com/kiff/planque/internal/fakes"
 	"github.com/kiff/planque/internal/store"
 )
@@ -171,13 +172,13 @@ type racingKV struct {
 	bump func()
 }
 
-func (r *racingKV) Scan(ctx context.Context, p string) ([]store.Item, error) {
-	items, err := r.KV.Scan(ctx, p)
+func (r *racingKV) ScanPage(ctx context.Context, p, start string, limit int) ([]store.Item, string, error) {
+	items, next, err := r.KV.ScanPage(ctx, p, start, limit)
 	if r.bump != nil {
 		r.bump()
 		r.bump = nil
 	}
-	return items, err
+	return items, next, err
 }
 
 // A record the clean-up couldn't save, old or young, isn't left with its
@@ -222,5 +223,92 @@ func TestTheCleanUpRunsAgainForARecordWrittenInBetween(t *testing.T) {
 		if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); !ok {
 			t.Fatalf("age %v: the second run didn't finish", age)
 		}
+	}
+}
+
+// A table too big for one sweep: each sweep reads what its budget allows,
+// saves its cursor, and the next carries on, until every old answer is gone
+// and the clean-up is marked done.
+func TestTheCleanUpCarriesOnAcrossSweeps(t *testing.T) {
+	page, budget := cleanPage, cleanBudget
+	cleanPage, cleanBudget = 1, 0
+	t.Cleanup(func() { cleanPage, cleanBudget = page, budget })
+	e, _ := newConnectorFixture(t)
+	ctx := context.Background()
+	for _, sk := range []string{"OP#g#a", "OP#g#b", "OP#g#c"} {
+		op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: time.Now().UTC().Add(-72 * time.Hour),
+			Result: json.RawMessage(`{"content":[{"type":"text","text":"customer_secret"}],"isError":false}`)}
+		if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: sk, Ver: 1}, op, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dropped := 0
+	for run := 1; run <= 10; run++ {
+		d, _, err := e.s.CleanStoredAnswers(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dropped += d
+		if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); ok {
+			if run < 3 {
+				t.Fatalf("marked done after %d runs of one record each", run)
+			}
+			break
+		}
+		if run == 10 {
+			t.Fatal("never finished")
+		}
+	}
+	if dropped != 3 {
+		t.Fatalf("dropped %d answers across the runs, want 3", dropped)
+	}
+	for _, sk := range []string{"OP#g#a", "OP#g#b", "OP#g#c"} {
+		var rec operation
+		if _, err := getDoc(ctx, e.kv, tenantPK(tenant), sk, &rec); err != nil || strings.Contains(string(rec.Result), "customer_secret") {
+			t.Fatalf("%s still holds its answer: %v", sk, err)
+		}
+	}
+	if _, ok, _ := e.kv.Get(ctx, cleanProgress.PK, cleanProgress.SK); ok {
+		t.Fatal("the cursor outlived the clean-up")
+	}
+}
+
+// throttledKV answers its first ScanPage as DynamoDB does when a read
+// stayed throttled past its retries.
+type throttledKV struct {
+	store.KV
+	left int
+}
+
+func (k *throttledKV) ScanPage(ctx context.Context, p, start string, limit int) ([]store.Item, string, error) {
+	if k.left > 0 {
+		k.left--
+		return nil, "", &awsapi.Error{Status: 400, Type: "ThrottlingException", Message: "Throughput exceeds the current capacity"}
+	}
+	return k.KV.ScanPage(ctx, p, start, limit)
+}
+
+// A sweep whose scan stayed throttled changes nothing and isn't marked
+// done; the next one finishes and writes the marker.
+func TestAThrottledCleanUpFinishesAtTheNextSweep(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	ctx := context.Background()
+	op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: time.Now().UTC().Add(-72 * time.Hour),
+		Result: json.RawMessage(`{"content":[{"type":"text","text":"customer_secret"}],"isError":false}`)}
+	if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: "OP#g#t", Ver: 1}, op, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.KV = &throttledKV{KV: e.kv, left: 1}
+	if _, _, err := e.s.CleanStoredAnswers(ctx); !awsapi.Is(err, "ThrottlingException") {
+		t.Fatalf("a throttled scan: %v", err)
+	}
+	if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); ok {
+		t.Fatal("marked done though the scan was throttled")
+	}
+	if d, _, err := e.s.CleanStoredAnswers(ctx); err != nil || d != 1 {
+		t.Fatalf("the next sweep: dropped=%d %v", d, err)
+	}
+	if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); !ok {
+		t.Fatal("the next sweep didn't mark it done")
 	}
 }
