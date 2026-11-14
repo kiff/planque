@@ -347,3 +347,16 @@ func (s *Server) fieldsHold(ctx context.Context, g *Grant, i int) (code, why str
 	}
 	return "", ""
 }
+
+// serverDescribers are the describing tools a server's first request gets as
+// setup reads with its sign-in: Stripe's own server's, none for any other.
+func serverDescribers(server string) []string {
+	if !sameServer(server, stripeServer) {
+		return nil
+	}
+	var out []string
+	for _, d := range describers {
+		out = append(out, d.Tool)
+	}
+	return out
+}

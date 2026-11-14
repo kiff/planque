@@ -243,6 +243,18 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
 		return
 	}
+	// Stripe's own server, connected first, gets its describing tool as a
+	// setup read with the sign-in when the request names none: its catalog
+	// isn't known before the sign-in, so the asking agent can't name it, and a
+	// narrowed write needs its fields read before the taf's tools and Card
+	// (the Eval's red 1: one approval for the app, two for the Card). Bound to
+	// Stripe's server, never a tool's name alone: another server listing a
+	// tool by that name gets nothing. Named in the owner's text as any setup
+	// read is; one Stripe doesn't list connects none, and the events say why.
+	if req.SetupReads == nil && req.Tools != nil && len(*req.Tools) == 0 && req.Kind == "" && req.API == nil &&
+		req.Browser == nil && req.Reuse == "" && sameServer(req.Server, stripeServer) {
+		req.SetupReads = serverDescribers(req.Server)
+	}
 	if req.SetupReads != nil {
 		// Only a first request that connects first (tools: []), to a server
 		// whose tools come from its own list once signed in: a catalog entry
