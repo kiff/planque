@@ -1349,6 +1349,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		reviewed = true
 	}
 	if g.Request.Connector != nil {
+		// A tool asked by its provider's slug is the one the catalog lists.
+		for i := range req.Tools {
+			req.Tools[i].Tool = connectorToolName(g.Request.Connector.Toolkit, req.Tools[i].Tool)
+		}
 		if err := s.selectConnectorTools(r.Context(), g, req.Tools); err != nil {
 			s.fail(w, r, err)
 			return

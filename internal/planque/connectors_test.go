@@ -1440,3 +1440,46 @@ func TestASignInLinkNamesTheApp(t *testing.T) {
 		t.Fatalf("app_name %q: want the app's own name (%q), not the link's host %q", name, g.VendorName, link.Host)
 	}
 }
+
+// A managed app's catalog names each tool's provider slug beside its name,
+// and setting tools takes the slug as well as the name: the app's guide and
+// a search give the slug, which the catalog lists under another name (14 Nov,
+// Gmail: Coach looked up GMAIL_FETCH_EMAILS and the setup read as failed).
+func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	id := listConnector(t, e, f)
+	path := "/v1/accounts/" + tenant + "/grants/" + id
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	first := catalog["tools"].([]any)[0].(map[string]any)
+	name, slug := first["name"].(string), first["slug"].(string)
+	if slug == "" || slug == name || !strings.HasPrefix(name, "connector_") {
+		t.Fatalf("the catalog's tool: %v", first)
+	}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	for _, asked := range []string{slug, strings.ToLower(slug)} {
+		st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("set tools by %q: %d %v", asked, st, out)
+		}
+		g, _ := e.s.loadGrant(context.Background(), tenant, id)
+		if len(g.Request.Tools) != 1 || g.Request.Tools[0].Tool != name || len(g.Request.Connector.Tools) != 1 || g.Request.Connector.Tools[0].Slug != slug {
+			t.Fatalf("by %q, the request: %+v", asked, g.Request.Tools)
+		}
+	}
+	// A never-served tool stays refused by its slug, in any case, as by its name:
+	// the slug is mapped to the catalog's name before the never-served check.
+	neverServe(t, "DESK_DEMO_SEARCH")
+	for _, asked := range []string{"DESK_DEMO_SEARCH", "desk_demo_search", connector.Tool{Toolkit: "desk_demo", Slug: "DESK_DEMO_SEARCH"}.Alias()} {
+		if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Search tickets", Name: "search_tickets", ReadOnly: true}}, "profile": p}, nil, "k_setup"); st != 400 || out["code"] != refToolNotServed {
+			t.Fatalf("a never-served tool by %q: %d %v", asked, st, out)
+		}
+	}
+	// A slug the catalog doesn't hold is refused as before, in Coach's own words.
+	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
+		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
+		t.Fatalf("an unknown slug: %d %v", st, out)
+	}
+}

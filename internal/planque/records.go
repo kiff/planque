@@ -230,7 +230,11 @@ type GrantedTool struct {
 // CatalogTool is one tool the vendor's server lists: its own words and
 // arguments, never a value from the account.
 type CatalogTool struct {
-	Name        string          `json:"name"`
+	Name string `json:"name"`
+	// Slug is a managed app's tool as its provider names it
+	// (GMAIL_FETCH_EMAILS): the name its guide, a search and a request's
+	// uses give it. Setting tools takes it as well as Name.
+	Slug        string          `json:"slug,omitempty"`
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
