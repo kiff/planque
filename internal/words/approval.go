@@ -57,7 +57,7 @@ type Approval struct {
 	EnterTokenF      string // the app, the taf
 	SignInThenChoose string
 	OnlyYourAccountF string // the app
-	MoreAccessF      string // the app; says why, and that the taf gets only what's approved
+	MoreAccessF      string // the app; says why (SignInThenChoose says the taf gets only what's approved)
 	OnlyWhatItUsesF  string // the app
 
 	// A registered application.

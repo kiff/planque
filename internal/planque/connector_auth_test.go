@@ -118,7 +118,7 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 			t.Fatalf("older signed fields changed: %s %v", raw, err)
 		}
 		q := Request{Agent: "agt_taf", Connector: &binding}
-		end := " Sign in, then approve its actions; nothing is granted before that."
+		end := " Sign in, then approve its actions: the taf gets only those, nothing before."
 		if title == "" {
 			end = " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
 		}

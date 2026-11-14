@@ -725,8 +725,8 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 			if c := g.Request.Connector; !c.UsualAccess || c.Scopes != nil || c.AuthConfig != "ac_desk_demo" || len(f.scopedMade) != 0 {
 				t.Fatalf("the request: %+v, made %v", c, f.scopedMade)
 			}
-			// Why it asks for more, and what the taf still gets; no provider's tool name.
-			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions; the taf still gets only the actions you approve.") ||
+			// Why it asks for more, and that the taf gets only what's approved; no provider's tool name.
+			if words := v["text"].(string); !strings.Contains(words, " Support desk will ask for more access than this taf uses, because its sign-in can't be narrowed to this taf's actions. Sign in, then approve its actions: the taf gets only those, nothing before.") ||
 				strings.Contains(words, "Reply.") {
 				t.Fatalf("words: %q", words)
 			}

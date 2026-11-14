@@ -88,7 +88,7 @@ func TestTafAndCardStayNames(t *testing.T) {
 
 // A managed app's approval card, in every language, names no internal
 // service ("the connection service"), says why when the app asks for more
-// than the taf uses and that the taf still gets only what's approved, and
+// than the taf uses, and
 // names no tools (they come next, by their titles): the format takes the app
 // alone.
 func TestTheConnectCardNamesNoServiceAndSaysWhy(t *testing.T) {
