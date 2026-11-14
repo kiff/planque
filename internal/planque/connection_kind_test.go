@@ -165,3 +165,17 @@ func TestTheAccountsConnectionsSayEachKind(t *testing.T) {
 		t.Fatalf("after a disconnect: %v", cs)
 	}
 }
+
+// Each connection names the taf it was asked for, by the request's
+// agent_name, so tafs cloud can tell a removed taf's connection from another
+// agent's whose id only looks like it.
+func TestTheAccountsConnectionsNameTheirTaf(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
+	e.tafName = "Weekly news digest"
+	connectConnector(t, e, f)
+	st, cs := e.connections("k_person")
+	if st != 200 || len(cs) != 1 || cs[0]["agent_name"] != "Weekly news digest" {
+		t.Fatalf("connections: %d %v", st, cs)
+	}
+}
