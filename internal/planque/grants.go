@@ -2559,6 +2559,8 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 	}
 	req := kiff.SetupReads{Agent: reader, Grant: g.ID, Tools: tools}
 	req.Approval.DeviceID, req.Approval.Message, req.Approval.Body, req.Approval.Signature = g.Approval.DeviceID, g.Approval.Message, g.Approval.Body, g.Approval.Signature
+	// Signed together with the Card (key_and_cards, tools_and_cards): the approve's own message, which the signed one names.
+	req.Approval.Request = g.Approval.Request
 	if err := s.KIFF.IssueSetupReads(ctx, key, req); err != nil {
 		s.log().WarnContext(ctx, "setup reads not issued", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "Setup's reads weren't set up in KIFF: "+err.Error())

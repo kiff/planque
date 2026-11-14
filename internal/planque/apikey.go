@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -563,6 +564,14 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		if snap, err := s.loadSnapshot(r.Context(), g.Tenant, g.ID); err == nil {
 			withOperations(g, snap)
 			_ = s.saveGrant(r.Context(), g)
+		}
+		// Setup's reads, approved with the key, connect now, as for a sign-in: else Setup's first read is refused.
+		if len(g.Request.SetupReads) > 0 {
+			if err := s.connectSetupReads(r.Context(), g, key); err != nil {
+				s.log().WarnContext(r.Context(), "setup reads not connected", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				writeErr(w, http.StatusBadGateway, cmp.Or(g.Reason, err.Error()))
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return

@@ -14,6 +14,9 @@ type ProfileApproval struct {
 	Body      string `json:"body"`
 	Signature string `json:"signature"`
 	DeviceID  string `json:"device_id"`
+	// Request is base64 of the approve request's own message when Message
+	// is a kiff.requests.v1 one over it and the taf's Card.
+	Request string `json:"request,omitempty"`
 }
 
 type ProfileRevision struct {
