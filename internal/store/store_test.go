@@ -117,7 +117,8 @@ func testDynamo(url string) *Dynamo {
 }
 
 // A throttled read is sent again, page by page, keeping its place; one that
-// stays throttled fails after throttleTries; a write is never resent.
+// stays throttled fails after throttleTries. A throttled write is sent again
+// too: DynamoDB wrote nothing (a write whose answer was lost never is).
 func TestDynamoReadsAgainWhenThrottled(t *testing.T) {
 	var mu sync.Mutex
 	var bodies []map[string]any
@@ -172,13 +173,34 @@ func TestDynamoReadsAgainWhenThrottled(t *testing.T) {
 	mu.Lock()
 	n := len(bodies)
 	mu.Unlock()
-	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}")}, Cond{}); err == nil {
-		t.Fatal("a throttled put succeeded")
+	// A throttle is DynamoDB's answer that nothing was written: a write it
+	// throttled is sent again, a conditional one included, up to throttleTries.
+	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}")}, Cond{}); !awsapi.Is(err, "ThrottlingException") {
+		t.Fatalf("a put throttled every time: %v", err)
+	}
+	mu.Lock()
+	if len(bodies) != n+throttleTries {
+		t.Fatalf("a put throttled every time was sent %d times, want %d", len(bodies)-n, throttleTries)
+	}
+	throttle, n = 1, len(bodies)
+	mu.Unlock()
+	ver := int64(1)
+	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}"), Ver: 2}, Cond{Ver: &ver}); err != nil {
+		t.Fatalf("a conditional put throttled once: %v", err)
+	}
+	mu.Lock()
+	if len(bodies) != n+2 {
+		t.Fatalf("a put throttled once was sent %d times, want 2", len(bodies)-n)
+	}
+	throttle, n = 1, len(bodies)
+	mu.Unlock()
+	if _, _, err := d.Delete(ctx, "pk", "sk"); err != nil {
+		t.Fatalf("a delete throttled once: %v", err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(bodies) != n+1 {
-		t.Fatalf("a throttled write was sent %d times, want once", len(bodies)-n)
+	if len(bodies) != n+2 {
+		t.Fatalf("a delete throttled once was sent %d times, want 2", len(bodies)-n)
 	}
 }
 

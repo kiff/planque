@@ -155,17 +155,17 @@ var (
 // counts only.
 func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, err error) {
 	if _, ok, err := s.KV.Get(ctx, onceAnswers.PK, onceAnswers.SK); err != nil || ok {
-		return 0, 0, err
+		return 0, 0, called("read whether it's done", err)
 	}
 	var at progress
 	if _, err := getDoc(ctx, s.KV, cleanProgress.PK, cleanProgress.SK, &at); err != nil && !errors.Is(err, errNotFound) {
-		return 0, 0, err
+		return 0, 0, called("read its cursor", err)
 	}
 	begun := time.Now()
 	for {
 		items, next, err := s.KV.ScanPage(ctx, "OP#", at.Cursor, cleanPage)
 		if err != nil {
-			return dropped, indexed, err
+			return dropped, indexed, called("scan a page (Scan)", err)
 		}
 		d, i, skipped, err := s.cleanItems(ctx, items)
 		dropped, indexed = dropped+d, indexed+i
@@ -177,7 +177,7 @@ func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, 
 			break
 		}
 		if err := putDoc(ctx, s.KV, cleanProgress, at, store.Cond{}); err != nil {
-			return dropped, indexed, err
+			return dropped, indexed, called("save its cursor (PutItem)", err)
 		}
 		if time.Since(begun) > cleanBudget {
 			s.log().InfoContext(ctx, "stored answers: the clean-up carries on at the next sweep", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
@@ -187,13 +187,13 @@ func (s *Server) CleanStoredAnswers(ctx context.Context) (dropped, indexed int, 
 	if at.Skipped {
 		// A pass that skipped a record runs again from the start.
 		if err := putDoc(ctx, s.KV, cleanProgress, progress{}, store.Cond{}); err != nil {
-			return dropped, indexed, err
+			return dropped, indexed, called("start its pass again (PutItem)", err)
 		}
 		s.log().InfoContext(ctx, "stored answers: some records changed during the clean-up; it runs again", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
 		return dropped, indexed, nil
 	}
 	if err := putDoc(ctx, s.KV, onceAnswers, map[string]string{"at": s.now().UTC().Format(time.RFC3339)}, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
-		return dropped, indexed, err
+		return dropped, indexed, called("mark it done (PutItem)", err)
 	}
 	_, _, _ = s.KV.Delete(ctx, cleanProgress.PK, cleanProgress.SK)
 	s.log().InfoContext(ctx, "stored answers cleaned once", slog.Int("dropped", dropped), slog.Int("indexed", indexed))
@@ -218,7 +218,7 @@ func (s *Server) cleanItems(ctx context.Context, items []store.Item) (dropped, i
 			op.ResultUntil = until.UTC()
 			due := store.Item{PK: pkAnswerDue, SK: dueSK(until, strings.TrimPrefix(it.PK, "TENANT#"), it.SK), Doc: []byte("{}"), TTL: until.Add(7 * 24 * time.Hour).Unix()}
 			if err := s.KV.Put(ctx, due, store.Cond{}); err != nil {
-				return dropped, indexed, skipped, err
+				return dropped, indexed, skipped, called("index an answer's expiry (PutItem)", err)
 			}
 		} else {
 			dropAnswer(&op)
@@ -227,7 +227,7 @@ func (s *Server) cleanItems(ctx context.Context, items []store.Item) (dropped, i
 		case errors.Is(err, store.ErrCondition):
 			skipped++ // written in between: the pass runs again
 		case err != nil:
-			return dropped, indexed, skipped, err
+			return dropped, indexed, skipped, called("save a record (PutItem)", err)
 		case young:
 			indexed++
 		default:
@@ -235,4 +235,13 @@ func (s *Server) cleanItems(ctx context.Context, items []store.Item) (dropped, i
 		}
 	}
 	return dropped, indexed, skipped, nil
+}
+
+// called is err with the clean-up's step that met it, so the sweep's warning
+// says which call stopped it (14 Nov: a throttle logged with no call named).
+func called(step string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("the clean-up couldn't %s: %w", step, err)
 }

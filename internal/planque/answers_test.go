@@ -299,7 +299,8 @@ func TestAThrottledCleanUpFinishesAtTheNextSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.s.KV = &throttledKV{KV: e.kv, left: 1}
-	if _, _, err := e.s.CleanStoredAnswers(ctx); !awsapi.Is(err, "ThrottlingException") {
+	// The warning names the call that stopped it.
+	if _, _, err := e.s.CleanStoredAnswers(ctx); !awsapi.Is(err, "ThrottlingException") || !strings.Contains(err.Error(), "couldn't scan a page (Scan)") {
 		t.Fatalf("a throttled scan: %v", err)
 	}
 	if _, ok, _ := e.kv.Get(ctx, onceAnswers.PK, onceAnswers.SK); ok {
