@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +125,9 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":["offline_access"]}]}`), nil
 		case "/api/v3.1/toolkits/desk/scopes/recommended":
 			return response(200, recommend), nil
+		case "/api/v3.1/tools":
+			// A scope no reviewed order ranks: the recommendation decides.
+			return response(200, `{"items":[{"slug":"DESK_LIST_TICKETS","toolkit":{"slug":"desk"},"version":"20300101_00","description":"Lists tickets.","input_parameters":{"type":"object","properties":{}},"tags":["readOnlyHint"],"scopes":["tickets.read","tickets.write"]}]}`), nil
 		case "/api/v3.1/toolkits/own":
 			return response(200, `{"slug":"own","name":"Own app"}`), nil
 		}
@@ -235,5 +240,98 @@ func TestAWideSignInNeverAsksForPersonalData(t *testing.T) {
 	plainKit = true
 	if _, err := c.Scope(ctx, app, []string{"MAIL_CREATE_DRAFT"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) || made != 2 {
 		t.Fatalf("a ceiling with no personal data: %v (made %d)", err, made)
+	}
+}
+
+// Each tool asks for the narrowest scope it accepts, by the reviewed order,
+// not the provider's recommendation (14 Nov: full mail access for two Gmail
+// reads). A read gets gmail.readonly; a write never a .readonly scope, though
+// the provider lists one for a draft; nothing outside the ceiling; and a
+// tool whose scopes the order doesn't rank leaves it to the recommendation.
+func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	const mail = "https://mail.google.com/"
+	ceiling := []string{mail, g + "gmail.readonly", g + "gmail.compose", g + "gmail.modify", g + "userinfo.email", g + "user.birthday.read"}
+	tool := func(slug, desc string, read bool, scopes ...string) string {
+		tags := `[]`
+		if read {
+			tags = `["readOnlyHint"]`
+		}
+		b, _ := json.Marshal(scopes)
+		return `{"slug":"` + slug + `","name":"` + slug + `","toolkit":{"slug":"gmail"},"version":"20300101_00","description":"` + desc + `","input_parameters":{"type":"object","properties":{}},"tags":` + tags + `,"scopes":` + string(b) + `}`
+	}
+	items := map[string]string{
+		"GMAIL_FETCH_EMAILS":       tool("GMAIL_FETCH_EMAILS", "Fetches emails.", true, mail, g+"gmail.modify", g+"gmail.readonly"),
+		"GMAIL_LIST_THREADS":       tool("GMAIL_LIST_THREADS", "Lists threads.", true, mail, g+"gmail.modify", g+"gmail.readonly"),
+		"GMAIL_CREATE_EMAIL_DRAFT": tool("GMAIL_CREATE_EMAIL_DRAFT", "Creates a draft.", false, mail, g+"gmail.compose", g+"gmail.modify", g+"gmail.readonly", g+"contacts.readonly"),
+		"GMAIL_ODD":                tool("GMAIL_ODD", "Does something.", true, "https://example.test/odd"),
+	}
+	available := ceiling
+	var asked []string
+	made := 0
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			if r.Method == http.MethodPost {
+				made++
+				var body struct {
+					AuthConfig struct {
+						Credentials struct {
+							Scopes []string `json:"scopes"`
+						} `json:"credentials"`
+					} `json:"auth_config"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				asked = body.AuthConfig.Credentials.Scopes
+				return response(200, `{"toolkit":{"slug":"gmail"},"auth_config":{"id":"ac_n`+strconv.Itoa(made)+`","auth_scheme":"OAUTH2","is_composio_managed":true}}`), nil
+			}
+			return response(200, `{"items":[{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"gmail"}}]}`), nil
+		case "/api/v3.1/toolkits/gmail":
+			b, _ := json.Marshal(available)
+			return response(200, `{"slug":"gmail","name":"Gmail","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":`+string(b)+`}}],`+
+				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":["openid"]}]}`), nil
+		case "/api/v3.1/toolkits/gmail/scopes/recommended":
+			// The provider's own recommendation: full mail access.
+			return response(200, `{"scopes":{"least_privilege":["`+mail+`"]}}`), nil
+		case "/api/v3.1/tools":
+			var out []string
+			for _, s := range strings.Split(r.URL.Query().Get("tool_slugs"), ",") {
+				out = append(out, items[s])
+			}
+			return response(200, `{"items":[`+strings.Join(out, ",")+`]}`), nil
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		return nil, nil
+	})
+	ctx := context.Background()
+	app, err := c.App(ctx, "gmail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c2 := range []struct {
+		name  string
+		tools []string
+		want  []string
+	}{
+		{"reads", []string{"GMAIL_FETCH_EMAILS", "GMAIL_LIST_THREADS"}, []string{g + "gmail.readonly"}},
+		{"reads and a draft", []string{"GMAIL_FETCH_EMAILS", "GMAIL_CREATE_EMAIL_DRAFT"}, []string{g + "gmail.compose", g + "gmail.readonly"}},
+		{"a tool the order doesn't rank", []string{"GMAIL_FETCH_EMAILS", "GMAIL_ODD"}, []string{mail}},
+	} {
+		scoped, err := c.Scope(ctx, app, c2.tools, connector.Allowance{})
+		if err != nil || scoped.Wide || strings.Join(asked, " ") != strings.Join(c2.want, " ") {
+			t.Fatalf("%s: %+v %v, asks %v, want %v", c2.name, scoped, err, asked, c2.want)
+		}
+		if !slices.Contains(scoped.Scopes, "openid") {
+			t.Fatalf("%s: the app's required scopes left out: %v", c2.name, scoped.Scopes)
+		}
+	}
+	// Never outside the ceiling: without gmail.readonly in it, a read takes the next it accepts that is.
+	available = []string{mail, g + "gmail.modify", g + "userinfo.email"}
+	c.mu.Lock()
+	c.readAt = time.Time{}
+	c.scoped = nil
+	c.mu.Unlock()
+	if _, err := c.Scope(ctx, app, []string{"GMAIL_FETCH_EMAILS"}, connector.Allowance{}); err != nil || strings.Join(asked, " ") != g+"gmail.modify" {
+		t.Fatalf("a ceiling without gmail.readonly: %v, asks %v", err, asked)
 	}
 }

@@ -137,8 +137,10 @@ approves it anew: a grant from `@1` stays as it was.
 **Array arguments** (`narrow.go`): a narrowed tool's argument may be
 `"type": "array"` with a `schema`, a JSON Schema of `type`, `properties`,
 `required`, `items`, `enum`, `maxLength`, `maxItems` and `description` only.
-Its items are objects, each naming its fields, or plain values (strings,
-integers, numbers or booleans: a draft's cc addresses). Annotations a
+Its items are objects, each naming its fields, plain values (strings,
+integers, numbers or booleans: a draft's cc addresses), or rows of plain
+values, one level deep (a sheet's `values`: `[["Ana", 12]]`), each cell
+checked as a plain value; a row of objects or of rows is refused. Annotations a
 provider's generated schema carries (`title`, `default`, `examples`,
 `example`, `$comment`, `deprecated`, `readOnly`, `writeOnly`, `nullable`,
 `format`, which planque never checked) are dropped at every level, and an

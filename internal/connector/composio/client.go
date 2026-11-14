@@ -486,6 +486,16 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	if len(tools) == 0 {
 		return c.wide(ctx, app, tools, ceiling, always, budget)
 	}
+	// Each tool's narrowest scope, from its own list, when every one is known:
+	// the provider's recommendation can be wider (14 Nov: full mail access for
+	// two Gmail reads that run on gmail.readonly).
+	if least := c.narrowest(ctx, app, tools, ceiling); len(least) > 0 {
+		id, err := c.pin(ctx, app, least, budget)
+		if err != nil {
+			return connector.Scoped{}, unpinned(ceiling, err)
+		}
+		return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(least), always...))}, nil
+	}
 	var rec struct {
 		Scopes struct {
 			Least []string `json:"least_privilege"`
@@ -532,22 +542,20 @@ func (c *Client) wide(ctx context.Context, app connector.App, tools, ceiling, al
 	}
 	// The tools asked, as the provider lists them: only their scopes count
 	// here (each definition is checked when it's bound).
-	var page struct {
-		Items []wireTool `json:"items"`
-	}
-	q := url.Values{"toolkit_slug": {app.Slug}, "tool_slugs": {strings.Join(tools, ",")}, "limit": {"100"}, "include_deprecated": {"false"}}
+	var items []wireTool
 	keep := []string{}
 	if len(tools) > 0 {
-		if _, err := c.request(ctx, "GET", "/tools", q, nil, &page); err != nil {
+		var err error
+		if items, err = c.listed(ctx, app, tools); err != nil {
 			return connector.Scoped{}, unpinned(ceiling, err)
 		}
 	}
 	for _, slug := range tools {
-		i := slices.IndexFunc(page.Items, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
+		i := slices.IndexFunc(items, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
 		if i < 0 {
 			return connector.Scoped{}, unpinned(ceiling, errors.New("the provider didn't list "+slug))
 		}
-		if s := personalOnly(cleanScopes(page.Items[i].Scopes), ceiling); s != "" && !slices.Contains(keep, s) {
+		if s := personalOnly(cleanScopes(items[i].Scopes), ceiling); s != "" && !slices.Contains(keep, s) {
 			keep = append(keep, s)
 		}
 	}
@@ -563,6 +571,78 @@ func (c *Client) wide(ctx context.Context, app connector.App, tools, ceiling, al
 		return connector.Scoped{}, unpinned(ceiling, err)
 	}
 	return connector.Scoped{AuthConfig: id, Scopes: cleanScopes(append(slices.Clone(plain), slices.DeleteFunc(slices.Clone(always), personalScope)...)), Wide: true}, nil
+}
+
+// breadth is the reviewed order of the scopes narrowest picks from, narrowest
+// first: Google's, by what each lets an app do. A scope not here is never
+// picked; drive.file and gmail.metadata aren't here, since a tool listing them
+// may still need more than they give.
+var breadth = []string{
+	"https://www.googleapis.com/auth/gmail.readonly",
+	"https://www.googleapis.com/auth/gmail.compose",
+	"https://www.googleapis.com/auth/gmail.modify",
+	"https://mail.google.com/",
+	"https://www.googleapis.com/auth/spreadsheets.readonly",
+	"https://www.googleapis.com/auth/spreadsheets",
+	"https://www.googleapis.com/auth/documents.readonly",
+	"https://www.googleapis.com/auth/documents",
+	"https://www.googleapis.com/auth/calendar.events.readonly",
+	"https://www.googleapis.com/auth/calendar.readonly",
+	"https://www.googleapis.com/auth/calendar.events",
+	"https://www.googleapis.com/auth/calendar",
+	"https://www.googleapis.com/auth/drive.readonly",
+	"https://www.googleapis.com/auth/drive",
+}
+
+// narrowest is the scopes tools need, each tool's narrowest one by breadth
+// among those it accepts in the ceiling: a read takes a read-only scope when
+// it accepts one; a write never does, whatever its list says (the provider
+// lists gmail.readonly for creating a draft, which it can't). Nil when a
+// tool can't be read, accepts no scope breadth orders, or accepts only
+// personal ones: the recommendation decides then.
+func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceiling []string) []string {
+	listed, err := c.listed(ctx, app, tools)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, slug := range tools {
+		i := slices.IndexFunc(listed, func(w wireTool) bool { return strings.EqualFold(w.Slug, slug) })
+		if i < 0 {
+			return nil
+		}
+		t, err := listed[i].tool()
+		if err != nil {
+			return nil
+		}
+		pick := ""
+		for _, s := range breadth {
+			if !slices.Contains(t.Scopes, s) || !slices.Contains(ceiling, s) || !t.ReadOnly && strings.HasSuffix(s, ".readonly") {
+				continue
+			}
+			pick = s
+			break
+		}
+		if pick == "" {
+			return nil
+		}
+		if !slices.Contains(out, pick) {
+			out = append(out, pick)
+		}
+	}
+	return cleanScopes(out)
+}
+
+// listed is tools as the provider lists them, for their scopes.
+func (c *Client) listed(ctx context.Context, app connector.App, tools []string) ([]wireTool, error) {
+	var page struct {
+		Items []wireTool `json:"items"`
+	}
+	q := url.Values{"toolkit_slug": {app.Slug}, "tool_slugs": {strings.Join(tools, ",")}, "limit": {"100"}, "include_deprecated": {"false"}}
+	if _, err := c.request(ctx, "GET", "/tools", q, nil, &page); err != nil {
+		return nil, err
+	}
+	return page.Items, nil
 }
 
 // personal are the scopes that read a person's own data and no app's tool
