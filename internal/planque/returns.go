@@ -16,7 +16,11 @@ var plainPath = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 // returnsOf are the ids and links a tool's answer gives back, by their
 // path in it, read from the answer's JSON schema (properties, an array's
 // items, three levels down): a property named id, or ending in Id, _id,
-// url, link, or Link. Nil when the schema says nothing of them.
+// url, link, or Link. A schema generated from typed models describes its
+// objects by reference ({"$ref": "#/$defs/…"}, or under "definitions"),
+// and an optional one as anyOf with null: each is followed where it
+// points, within the schema only, so the answer's own properties are read.
+// Nil when the schema says nothing of them.
 func returnsOf(schema json.RawMessage) []string {
 	if len(schema) == 0 {
 		return nil
@@ -25,14 +29,40 @@ func returnsOf(schema json.RawMessage) []string {
 	if json.Unmarshal(schema, &root) != nil {
 		return nil
 	}
+	defs := map[string]map[string]any{}
+	for _, key := range []string{"$defs", "definitions"} {
+		if m, ok := root[key].(map[string]any); ok {
+			for name, d := range m {
+				if dm, ok := d.(map[string]any); ok {
+					defs["#/"+key+"/"+name] = dm
+				}
+			}
+		}
+	}
 	var out []string
-	var walk func(node map[string]any, path string, depth int)
-	walk = func(node map[string]any, path string, depth int) {
-		if depth > 3 || len(out) >= maxReturns {
+	var walk func(node map[string]any, path string, depth int, seen []string)
+	walk = func(node map[string]any, path string, depth int, seen []string) {
+		if node == nil || depth > 3 || len(out) >= maxReturns {
 			return
 		}
+		// A reference is the node it points to; one already on this path
+		// (a model that contains itself) is read once.
+		if ref, ok := node["$ref"].(string); ok {
+			if d, ok := defs[ref]; ok && !slices.Contains(seen, ref) {
+				walk(d, path, depth, append(slices.Clone(seen), ref))
+			}
+		}
+		for _, key := range []string{"anyOf", "oneOf", "allOf"} {
+			if alts, ok := node[key].([]any); ok {
+				for _, a := range alts {
+					if am, ok := a.(map[string]any); ok {
+						walk(am, path, depth, seen)
+					}
+				}
+			}
+		}
 		if items, ok := node["items"].(map[string]any); ok {
-			walk(items, path, depth)
+			walk(items, path, depth, seen)
 		}
 		props, _ := node["properties"].(map[string]any)
 		keys := make([]string, 0, len(props))
@@ -50,15 +80,15 @@ func returnsOf(schema json.RawMessage) []string {
 			if len(p) > 128 || !plainPath.MatchString(p) {
 				continue
 			}
-			if identifying(k) && len(out) < maxReturns {
+			if identifying(k) && len(out) < maxReturns && !slices.Contains(out, p) {
 				out = append(out, p)
 			}
 			if child != nil {
-				walk(child, p, depth+1)
+				walk(child, p, depth+1, seen)
 			}
 		}
 	}
-	walk(root, "", 0)
+	walk(root, "", 0, nil)
 	return out
 }
 
