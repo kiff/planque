@@ -260,7 +260,29 @@ func (d *Dynamo) read(ctx context.Context, action string, in, out any) error {
 	}
 }
 
-// throttleTries is how many times a throttled read is sent at most.
+// write sends a write once, and again only when DynamoDB throttled it: a
+// throttle is its answer that nothing was written, so sending it again can't
+// write twice, a conditional write included. A write whose answer was lost
+// (a dropped connection) is never sent again: it may already have landed.
+func (d *Dynamo) write(ctx context.Context, action string, in, out any) error {
+	for throttled := 0; ; {
+		err := d.API.Do(ctx, action, in, out)
+		var answered *awsapi.Error
+		if err == nil || ctx.Err() != nil || !errors.As(err, &answered) || !throttling(answered) {
+			return err
+		}
+		if throttled++; throttled >= throttleTries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(d.backoff(throttled)):
+		}
+	}
+}
+
+// throttleTries is how many times a throttled read or write is sent at most.
 const throttleTries = 6
 
 func throttling(e *awsapi.Error) bool {
@@ -310,7 +332,7 @@ func (d *Dynamo) Put(ctx context.Context, it Item, c Cond) error {
 		in["ConditionExpression"] = strings.Join(conds, " AND ")
 		in["ExpressionAttributeValues"] = vals
 	}
-	err := d.API.Do(ctx, "PutItem", in, nil)
+	err := d.write(ctx, "PutItem", in, nil)
 	if awsapi.Is(err, "ConditionalCheckFailedException") {
 		return ErrCondition
 	}
@@ -321,7 +343,7 @@ func (d *Dynamo) Delete(ctx context.Context, pk, sk string) (Item, bool, error) 
 	var out struct {
 		Attributes map[string]attr `json:"Attributes"`
 	}
-	err := d.API.Do(ctx, "DeleteItem", av{"TableName": d.Table, "Key": d.key(pk, sk), "ReturnValues": "ALL_OLD"}, &out)
+	err := d.write(ctx, "DeleteItem", av{"TableName": d.Table, "Key": d.key(pk, sk), "ReturnValues": "ALL_OLD"}, &out)
 	if err != nil || out.Attributes == nil {
 		return Item{}, false, err
 	}

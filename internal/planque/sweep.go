@@ -203,10 +203,6 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cleanTriggers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
-	// Once: the answers kept before answerTTL, dropped or given their expiry.
-	if _, _, err := s.CleanStoredAnswers(r.Context()); err != nil {
-		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
-	}
 	// Vendors' answers past answerTTL: each record keeps its outcome alone.
 	if dropped, err := s.SweepAnswers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: answers not all dropped yet", slog.String("err", err.Error()))
@@ -227,6 +223,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	}
 	if n > 0 {
 		s.log().InfoContext(r.Context(), "sweep ended grants", slog.Int("ended", n))
+	}
+	// Once, and last: the answers kept before answerTTL, dropped or given
+	// their expiry. Its writes can wait on a throttled key, so it runs after
+	// the sweep's own work, which a slow clean-up never holds up.
+	if _, _, err := s.CleanStoredAnswers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"ended": n})
 }
