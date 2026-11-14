@@ -96,7 +96,7 @@ role() {
   fi
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
-    stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
+    stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
     # KIFF's receiver and its signing secret go together, as planque checks
     # at start: half of the pair is refused here, before anything changes.
     if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then

@@ -438,19 +438,24 @@ type tokenRecord struct {
 // Operation states: each permit's operation runs at most once.
 const (
 	OpStarted = "started" // claimed; the lease holder may send
-	OpDone    = "done"    // the vendor answered; its answer is kept
+	OpDone    = "done"    // the vendor answered; its answer is kept 24 hours
 	OpNotSent = "not_sent"
 	OpUnknown = "unknown" // sent, the answer was lost: never resent
 )
 
 // operation is one permit's execution, keyed by its op.
 type operation struct {
-	Tool            string                `json:"tool"`
-	ArgsHash        string                `json:"args_sha256"`
-	State           string                `json:"state"`
-	StartedAt       time.Time             `json:"started_at"`
-	Decision        string                `json:"decision,omitempty"`
-	Result          json.RawMessage       `json:"result,omitempty"`
+	Tool      string          `json:"tool"`
+	ArgsHash  string          `json:"args_sha256"`
+	State     string          `json:"state"`
+	StartedAt time.Time       `json:"started_at"`
+	Decision  string          `json:"decision,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	// ResultUntil is when a vendor's answer in Result expires (answerTTL):
+	// past it, Result keeps only the outcome.
+	ResultUntil time.Time `json:"result_until,omitzero"`
+	// AnswerDropped says Result is the outcome alone: the answer is gone.
+	AnswerDropped   bool                  `json:"answer_dropped,omitempty"`
 	Profile         json.RawMessage       `json:"profile,omitempty"`
 	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
 }
