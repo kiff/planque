@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -349,14 +351,50 @@ func (s *Server) fieldsHold(ctx context.Context, g *Grant, i int) (code, why str
 }
 
 // serverDescribers are the describing tools a server's first request gets as
-// setup reads with its sign-in: Stripe's own server's, none for any other.
-func serverDescribers(server string) []string {
-	if !sameServer(server, stripeServer) {
-		return nil
+// setup reads with its sign-in: Stripe's own server's, and a server the
+// deployment names in DescriberServers (the Eval's vendor, which serves
+// Stripe's tools on a host we run); none for any other.
+func (s *Server) serverDescribers(server string) []string {
+	if sameServer(server, stripeServer) {
+		var out []string
+		for _, d := range describers {
+			out = append(out, d.Tool)
+		}
+		return out
 	}
-	var out []string
-	for _, d := range describers {
-		out = append(out, d.Tool)
+	for configured, tools := range s.DescriberServers {
+		if sameServer(server, configured) {
+			return slices.Clone(tools)
+		}
 	}
-	return out
+	return nil
 }
+
+// DecodeDescriberServers reads PLANQUE_DESCRIBER_SERVERS: a JSON object from
+// an HTTPS server, as its first request names it, to the describing tools it
+// gets with its sign-in, each one planque knows (stripe_api_details). Stripe's
+// own server needs no entry. Anything else refuses the whole setting at start.
+func DecodeDescriberServers(raw []byte) (map[string][]string, error) {
+	var m map[string][]string
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	bad := fmt.Errorf("PLANQUE_DESCRIBER_SERVERS must map at most %d HTTPS servers to describing tools planque knows", maxDescriberServers)
+	if dec.Decode(&m) != nil || dec.Decode(new(any)) != io.EOF || len(m) == 0 || len(m) > maxDescriberServers {
+		return nil, bad
+	}
+	for server, tools := range m {
+		u, err := url.Parse(server)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || len(tools) == 0 {
+			return nil, bad
+		}
+		for _, t := range tools {
+			if !slices.ContainsFunc(describers, func(d describer) bool { return d.Tool == t }) {
+				return nil, bad
+			}
+		}
+	}
+	return m, nil
+}
+
+// maxDescriberServers bounds the setting: a few test vendors, not a directory.
+const maxDescriberServers = 10

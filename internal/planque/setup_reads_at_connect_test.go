@@ -193,7 +193,7 @@ func TestStripesServerGetsItsDescriberWithTheSignIn(t *testing.T) {
 	if !slices.Equal(g.Request.SetupReads, []string{"stripe_api_details"}) || !strings.Contains(g.Text, "Setup reads, to set this up: stripe_api_details.") {
 		t.Fatalf("the request: %v\n%s", g.Request.SetupReads, g.Text)
 	}
-	if serverDescribers("https://mcp.stripe.com.example.net") != nil || serverDescribers("https://evil.example/mcp") != nil {
+	if e.s.serverDescribers("https://mcp.stripe.com.example.net") != nil || e.s.serverDescribers("https://evil.example/mcp") != nil {
 		t.Fatal("a server that isn't Stripe's got a describer")
 	}
 	// Another server that lists stripe_api_details: nothing added.
@@ -206,5 +206,49 @@ func TestStripesServerGetsItsDescriberWithTheSignIn(t *testing.T) {
 	g2, _ := e2.s.loadGrant(context.Background(), tenant, out["id"].(string))
 	if len(g2.Request.SetupReads) != 0 || strings.Contains(g2.Text, "stripe_api_details") {
 		t.Fatalf("another server got a read: %v\n%s", g2.Request.SetupReads, g2.Text)
+	}
+}
+
+// A server the deployment names in PLANQUE_DESCRIBER_SERVERS (the Eval's
+// vendor, serving Stripe's tools on a host we run) gets its describing read
+// with the sign-in as Stripe's own does; a server it doesn't name gets
+// nothing, a request that names its reads keeps them, and the setting takes
+// only HTTPS servers and describing tools planque knows.
+func TestADescriberServerFromTheDeploymentGetsItsReadWithTheSignIn(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	server := e.vendor.MCPURL()
+	e.s.DescriberServers = map[string][]string{server: {"stripe_api_details"}}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": server, "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("a named server: %d %v", st, out)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, out["id"].(string))
+	if !slices.Equal(g.Request.SetupReads, []string{"stripe_api_details"}) || !strings.Contains(g.Text, "stripe_api_details") {
+		t.Fatalf("a named server: %v\n%s", g.Request.SetupReads, g.Text)
+	}
+	// Its own reads named: kept as they are.
+	st, out = e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": server, "agent": "agt_taf2", "tools": []any{}, "setup_reads": []string{"list_tickets"}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("reads named: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(context.Background(), tenant, out["id"].(string))
+	if slices.Contains(g.Request.SetupReads, "stripe_api_details") {
+		t.Fatalf("reads named got the describer too: %v", g.Request.SetupReads)
+	}
+	// Another server, not named: nothing.
+	if got := e.s.serverDescribers("https://other.example/mcp"); got != nil {
+		t.Fatalf("a server not named: %v", got)
+	}
+	for _, bad := range []string{
+		`{}`, `[]`, `{"http://plain.example/mcp":["stripe_api_details"]}`, `{"https://x.example/mcp":[]}`,
+		`{"https://x.example/mcp":["read_everything"]}`, `{"https://u:p@x.example/mcp":["stripe_api_details"]}`,
+	} {
+		if _, err := DecodeDescriberServers([]byte(bad)); err == nil {
+			t.Fatalf("taken: %s", bad)
+		}
+	}
+	if m, err := DecodeDescriberServers([]byte(`{"https://eval.example/mcp":["stripe_api_details"]}`)); err != nil || len(m) != 1 {
+		t.Fatalf("a good setting: %v %v", m, err)
 	}
 }

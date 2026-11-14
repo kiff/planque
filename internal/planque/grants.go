@@ -252,8 +252,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	// tool by that name gets nothing. Named in the owner's text as any setup
 	// read is; one Stripe doesn't list connects none, and the events say why.
 	if req.SetupReads == nil && req.Tools != nil && len(*req.Tools) == 0 && req.Kind == "" && req.API == nil &&
-		req.Browser == nil && req.Reuse == "" && sameServer(req.Server, stripeServer) {
-		req.SetupReads = serverDescribers(req.Server)
+		req.Browser == nil && req.Reuse == "" {
+		if reads := s.serverDescribers(req.Server); len(reads) > 0 {
+			req.SetupReads = reads
+		}
 	}
 	if req.SetupReads != nil {
 		// Only a first request that connects first (tools: []), to a server
