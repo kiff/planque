@@ -69,6 +69,11 @@ Everything each app's guide says not to offer, and in particular:
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access its app's guide describes (read-only for reads, then edit,
+  then full), across all the apps the tools touch. The apps with no reviewed
+  order (Tasks, Meet, Photos and the others) ask for what the connection
+  service recommends.
 - **The limits are each app's own,** per user: Gmail's sending caps, Drive's
   storage, Sheets' per-minute writes.
 - **A business admin** can block outside apps, and is more likely to for a

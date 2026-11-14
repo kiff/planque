@@ -14,17 +14,22 @@ Google's Drive API reference, and a test run on a phone on 13 Nov 2026.
 
 ## Two kinds of access
 
-Drive access comes in two widths, and a job should ask for the narrowest:
+What Google's page asks for follows the taf's tools, each at the narrowest
+access it runs on (Google's words, roughly, in quotes):
 
-- **Files the taf made** (or the owner opened with it): enough for a taf that
-  files its own receipts or reports. It can't see anything else in Drive,
-  including files the owner made by hand.
-- **The whole Drive**, read-only or full: needed to find or read files the
-  owner already has.
+- **Reads** (search, list, download, export): **read-only Drive**, "see and
+  download all your Drive files".
+- **Writes** (upload, create, move, share, delete): **full Drive**, "see,
+  edit, create and delete all your Drive files". Access to only the files the
+  taf made is narrower, but planque doesn't ask for it: a tool that lists it
+  may still need more, and the taf then fails on the owner's own files.
+- The tools are named in the connect: a connect that names none asks for the
+  app's widest access, so the taf's planned tools are always named when it
+  connects.
 
-A search on narrow access finds only the taf's own files. A Sheets sign-in
-on 13 Nov 2026 couldn't search at all for this reason. Keep the id of every
-file the taf makes. A link from the owner doesn't open a file on narrow
+A sign-in made on files-the-taf-made access (an older one) finds only the
+taf's own files: a Sheets sign-in on 13 Nov 2026 couldn't search at all for
+this reason. Keep the id of every file the taf makes. A link from the owner doesn't open a file on narrow
 access; for files the owner already has, the sign-in needs the whole Drive.
 
 ## Tools a job usually needs

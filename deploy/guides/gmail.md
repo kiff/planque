@@ -55,9 +55,25 @@ the owner asked for sending, and say every send waits for their yes.
 
 ## Access and plans
 
-- **Reading and drafting** need Gmail read access plus the right to write
-  drafts; sending needs send access. A sign-in made for reading doesn't let
-  the taf send.
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes), and never
+  contacts, birthday, addresses or
+  phone numbers:
+  - **reads only** (search, fetch, threads, labels): read-only Gmail, "view
+    your email messages and settings". A sign-in made for reading doesn't let
+    the taf send;
+  - **drafts, replies, forwards and sends** add compose access, "manage
+    drafts and send emails";
+  - **labels, trash and untrash** take modify access: read and organise mail,
+    but never delete it for good;
+  - **deleting mail for good** (`GMAIL_DELETE_MESSAGE`, `GMAIL_DELETE_THREAD`,
+    `GMAIL_BATCH_DELETE_MESSAGES`) and changing language or POP settings take
+    Google's full mail access ("read, compose, send and permanently delete").
+    Offer these only when the job needs them, and tell the owner before
+    connecting.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **Daily sending caps are Google's:** about 500 recipients a day on a
   personal account. A business (Workspace) account can send about 2,000
   messages a day, to at most 10,000 recipients in all, fewer on a trial

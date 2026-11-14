@@ -45,6 +45,11 @@ names who gets the summary, and the Card says so.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Meet's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **Transcripts, recordings and notes** exist only if someone turned them on
   in the meeting, and only on plans that include them: Google's business
   plans, and for recordings some paid personal storage plans. On a free
