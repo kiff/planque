@@ -224,3 +224,18 @@ func TestTheTafsFirstToolsAfterSetupsReadsArentAnAddition(t *testing.T) {
 		t.Fatalf("after a tool of the taf's own:\n%s", got)
 	}
 }
+
+// A grant asked for with its tools at once takes no more, and its refusal
+// says how to go on in one approval: a new request with every tool the job
+// needs and the taf's Card drafted, never one for the write alone.
+func TestAGrantAskedWithItsToolsAtOnceSaysAskOnceWithTheCard(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/tools",
+		map[string]any{"tools": []any{map[string]any{"tool": "stripe_api_read", "title": "Read from Stripe", "read_only": true}}}, nil, "k_setup")
+	msg, _ := out["error"].(string)
+	if st != 409 || !strings.Contains(msg, "every tool the job needs") || !strings.Contains(msg, "Card drafted in the same approval") ||
+		!strings.Contains(msg, "never a request for one tool alone") || strings.Contains(msg, "connect first") {
+		t.Fatalf("%d %v", st, out)
+	}
+}
