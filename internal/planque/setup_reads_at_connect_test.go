@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -172,5 +173,38 @@ func TestAnEntrysSetupReadsAreNamedOnce(t *testing.T) {
 	g, _ := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
 	if len(g.Request.SetupReads) != 1 || !strings.Contains(g.Text, "Setup reads, to set this up: stripe_api_details.") {
 		t.Fatalf("the request: %v\n%s", g.Request.SetupReads, g.Text)
+	}
+}
+
+// Stripe's own server, connected first with no reads named, gets its
+// describing tool as a setup read with the sign-in: it can't be named before
+// the catalog is listed, and a narrowed write needs it first (the Eval's red 1).
+// Bound to Stripe's server: another server that lists a tool by that name gets
+// nothing, and a request that names its reads keeps them.
+func TestStripesServerGetsItsDescriberWithTheSignIn(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	entry := "/v1/accounts/" + tenant + "/catalog/" + StripeEntry + "/grants"
+	st, out := e.do("POST", entry, map[string]any{"agent": "agt_taf"}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("Stripe, no reads named: %d %v", st, out)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if !slices.Equal(g.Request.SetupReads, []string{"stripe_api_details"}) || !strings.Contains(g.Text, "Setup reads, to set this up: stripe_api_details.") {
+		t.Fatalf("the request: %v\n%s", g.Request.SetupReads, g.Text)
+	}
+	if serverDescribers("https://mcp.stripe.com.example.net") != nil || serverDescribers("https://evil.example/mcp") != nil {
+		t.Fatal("a server that isn't Stripe's got a describer")
+	}
+	// Another server that lists stripe_api_details: nothing added.
+	e2 := newEnv(t)
+	e2.enrol()
+	st, out = e2.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e2.vendor.MCPURL(), "agent": "agt_taf", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("another server: %d %v", st, out)
+	}
+	g2, _ := e2.s.loadGrant(context.Background(), tenant, out["id"].(string))
+	if len(g2.Request.SetupReads) != 0 || strings.Contains(g2.Text, "stripe_api_details") {
+		t.Fatalf("another server got a read: %v\n%s", g2.Request.SetupReads, g2.Text)
 	}
 }
