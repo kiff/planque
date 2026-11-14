@@ -1366,7 +1366,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if g.Request.Connector == nil && len(g.Catalog) == 0 {
-		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it has no catalog to choose from; connect first (request with no tools)")
+		// A tool it lacks, a write most often, comes in one new request with
+		// every tool the job needs and the taf's Card drafted, so the owner
+		// approves once: never a request for the write alone (the Eval's
+		// four approvals for one sheet).
+		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it takes no more: ask one new request naming every tool the job needs, its writes too, with the taf's Card drafted in the same approval, never a request for one tool alone")
 		return
 	}
 	// What it has: on a connected grant, its tools; while an addition waits,
