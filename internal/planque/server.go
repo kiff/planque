@@ -67,6 +67,13 @@ type Server struct {
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
+	// CatalogOperators may draft, review, publish and retire the catalog
+	// kept as data (catalog_store.go), by their credential and device.
+	CatalogOperators map[string]CatalogOperator
+	catalogCache     catalogCache
+	// described keeps each pinned description's parse (describeEntry), so a
+	// read of a revision never downloads and parses it twice.
+	described describedCache
 	// ServerApps is the reviewed list of which app a vendor's own server
 	// is: its server, and the catalog entry it belongs to (entry.go).
 	ServerApps map[string]string
@@ -144,6 +151,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
+	// The catalog kept as data, for its operators (catalog_store.go).
+	mux.HandleFunc("GET /v1/catalog-entries", s.listCatalogEntries)
+	mux.HandleFunc("POST /v1/catalog-entries", s.draftCatalogEntry)
+	mux.HandleFunc("GET /v1/catalog-entries/{id}", s.getCatalogEntry)
+	mux.HandleFunc("PUT /v1/catalog-entries/{id}", s.changeCatalogEntry)
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/review", s.reviewCatalogEntry)
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/publish", s.signCatalogEntry("publish"))
+	mux.HandleFunc("POST /v1/catalog-entries/{id}/retire", s.signCatalogEntry("retire"))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog", s.vendorCatalog)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/tools", s.searchTools)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/catalog/{entry}/events", s.catalogEvents)
