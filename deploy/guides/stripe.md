@@ -80,10 +80,11 @@ the owner asked for reminders, and say each one waits for their yes.
   `STRIPE_POST_V1_INVOICES_FINALIZE_VOID_AN_INVOICE`,
   `STRIPE_DELETE_V1_INVOICES_VOID_AN_INVOICE`, `STRIPE_VOID_CREDIT_NOTE`,
   `STRIPE_POST_BILLING_CREDIT_GRANTS_VOID_CREDIT_GRANT`): they cancel a bill
-  or a credit, and a voided invoice stays void.
+  or a credit for good.
 - `STRIPE_DELETE_INVOICE`: it deletes a draft for good.
-- `STRIPE_FINALIZE_INVOICE`: it turns a draft into a bill the customer owes
-  and locks its amount and customer.
+- `STRIPE_FINALIZE_INVOICE`: it turns a draft into a bill the customer owes.
+- `STRIPE_PAY_INVOICE`: it charges the customer's saved payment method now.
+- `STRIPE_MARK_INVOICE_UNCOLLECTIBLE`: it writes the debt off.
 
 ## Access and plans
 
