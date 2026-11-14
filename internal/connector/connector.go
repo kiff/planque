@@ -125,8 +125,9 @@ type Page[T any] struct {
 	Partial bool `json:"partial,omitempty"`
 }
 
-// Tool is one concrete, versioned upstream action. Platform meta-executors
-// cannot become granted business tools.
+// Tool is one concrete, versioned upstream action. Platform meta-executors,
+// and an app's tools planque never serves (NeverServed), cannot become
+// granted business tools.
 type Tool struct {
 	Slug        string          `json:"slug"`
 	Toolkit     string          `json:"toolkit"`
@@ -170,7 +171,7 @@ func (t Tool) Validate() error {
 	if !slug.MatchString(t.Slug) || !slug.MatchString(t.Toolkit) || !version.MatchString(t.Version) || strings.EqualFold(t.Version, "latest") || len(t.Name) == 0 || !json.Valid(t.InputSchema) {
 		return ErrDefinition
 	}
-	if strings.HasPrefix(strings.ToUpper(t.Slug), "COMPOSIO_") || strings.EqualFold(t.Toolkit, "composio") {
+	if strings.HasPrefix(strings.ToUpper(t.Slug), "COMPOSIO_") || strings.EqualFold(t.Toolkit, "composio") || NeverServed(t.Toolkit, t.Slug) {
 		return ErrDefinition
 	}
 	var schema struct {

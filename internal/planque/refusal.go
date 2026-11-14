@@ -57,4 +57,14 @@ const (
 	refPinUnknown       = "pin_unknown"       // a pin isn't one of the operation's arguments; field = the pin
 	refArgumentUnknown  = "argument_unknown"  // an argument's path isn't one of the operation's arguments
 	refRequiredArgument = "required_argument" // a narrowed tool leaves out an argument the operation requires
+
+	// notServed: a managed app's tool planque never serves (connector.NeverServed)
+	refToolNotServed = "tool_not_served" // tool = its slug; field = "tools" (a catalog request) or "tool" (setting tools)
 )
+
+// notServed refuses a managed app's tool planque never serves, slug the
+// tool and field where the request named it.
+func notServed(slug, field string) *toolRefusal {
+	return &toolRefusal{Code: refToolNotServed, Tool: slug, Field: field, Want: "another of the app's tools",
+		Msg: slug + " is never served: what it does can't be undone (voiding, deleting, finalizing, paying or writing off a bill), so planque refuses it on this app; leave it out"}
+}

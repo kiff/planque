@@ -65,7 +65,8 @@ and, against an API's operations, `no_operation`, `not_a_read`,
 `pin_unknown` (`want` lists the operation's arguments),
 `argument_unknown`, and `required_argument` (`field` is the argument the
 operation requires: pin it in `fixed_arguments`, or name it in
-`arguments`). A code is never renamed or reused.
+`arguments`); `tool_not_served`, a managed app's tool planque never serves
+(`docs/managed-connectors.md`). A code is never renamed or reused.
 
 A signed call carries `Planque-Device-Signature: t=<signed_at>,v1=<sig>,d=<device id>`:
 the device's P-256 key (tafs' `ApprovalSigner`) signs, as base64 DER ECDSA
