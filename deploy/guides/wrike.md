@@ -1,8 +1,9 @@
 # Wrike
 
-Checked: 2026-11-13 · Sources: the connection service's Wrike tool
+Checked: 2026-11-14 · Sources: the connection service's Wrike tool
 definitions as planque reads them (144 tools, [generated](generated/wrike.md)),
-and Wrike's API reference.
+and Wrike's developer documentation (errors, authorisation, ids, tasks and
+comments).
 
 ## How it connects
 
@@ -10,26 +11,30 @@ and Wrike's API reference.
   owner, with their rights in each space. The catalog lists the tools and,
   with a known sign-in, puts the ones its access doesn't cover under
   `unusable`. Offer only what's under `tools`.
+- **Wrike keeps each account's data in one data centre** (the US or the EU),
+  and the sign-in tells the connection which one to use.
 - **One approval for the sign-in, one for the tools and the Card.**
 
 ## Tools a job usually needs
 
-| Tool | What it does | Read or write | Keep |
+| Tool | What it does | Read or write | Returns |
 |---|---|---|---|
-| `WRIKE_GET_FOLDERS` | Lists folders and projects | read | **the folder's id** |
-| `WRIKE_GET_SPACE` | Reads a space | read | |
+| `WRIKE_GET_FOLDERS` | Lists folders and projects | read | **folder ids** |
+| `WRIKE_GET_SPACE` | Reads a space | read | the space |
 | `WRIKE_GET_FOLDERS_TASKS` | Lists the tasks in a folder or project | read | task ids |
 | `WRIKE_FETCH_ALL_TASKS` | Lists tasks across the account, by status, date or person | read | task ids |
-| `WRIKE_GET_TASK_BY_ID` | Reads one task | read | |
-| `WRIKE_CREATE_TASK` | Creates a task in a folder | write | **the task's id** |
-| `WRIKE_MODIFY_TASK` | Changes a task: status, dates, assignees | write | |
+| `WRIKE_GET_TASK_BY_ID` | Reads one task | read | the task, with its id and link |
+| `WRIKE_CREATE_TASK` | Creates a task in a folder | write | **the task's id and link** |
+| `WRIKE_MODIFY_TASK` | Changes a task: status, dates, assignees | write | the task |
 | `WRIKE_CREATE_TASK_COMMENT` | Comments on a task | write, visible to others | the comment's id |
 
 **What to keep:** the folder's id the taf works in, and each task it creates.
-Wrike's ids are long codes, not the numbers in its links; read them once
-from the API.
+Wrike's ids are text of up to 256 characters with no fixed pattern: read
+them from the API and keep them as given.
 
-**Assigning a task notifies the person.** The Card says who.
+**Assignees are people:** the Card says who the taf may assign.
+
+**A comment can be changed only in the 5 minutes after it's posted.**
 
 ## Don't offer
 
@@ -41,10 +46,10 @@ from the API.
 
 ## Access and plans
 
-- **The API is on every plan,** but what a taf sees follows the owner's
-  licence and their access to each space.
-- **Rate:** about 400 calls a minute per user; a list answers up to 1,000
-  items.
+- **What a taf sees follows the owner's access** to each space. Wrike can
+  refuse an action because of the account's licence or quota.
+- **Rate:** 400 calls a minute per address or sign-in. A task list answers
+  up to 1,000 tasks a page, with a token for the next page.
 - **Custom fields and workflows** differ by account: read them before writing
   a status.
 
@@ -52,10 +57,11 @@ from the API.
 
 | What happens | Why | Tell the owner |
 |---|---|---|
-| Refused (403) | The owner can't edit that space or folder | "You don't have edit rights in that Wrike space, so I can't change it." |
-| Not found (404) | A deleted task, or an id from a link rather than the API | "That task isn't there any more." |
-| Refused (400) | A status or field that doesn't exist in this workflow | Read the workflow and try once; else "Wrike didn't accept that change." |
+| Refused (403) | The owner can't reach that item, or the account's licence or quota doesn't allow the action | "Wrike doesn't let your account do that here. Check your access to that space, or your Wrike plan." |
+| Not found (404) | The task was deleted, or the id is wrong | "That task isn't there any more." |
+| Refused (400) | A value or field Wrike doesn't accept, such as a status outside this workflow | Read the workflow and try once; else "Wrike didn't accept that change." |
 | Too many calls (429) | Over Wrike's rate | "Wrike asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Wrike needs you to sign in again." |
+| The sign-in no longer works (401) | The sign-in is invalid or expired | "Wrike needs you to sign in again." |
 
-After any refusal the taf stops that step and says so.
+After any refusal the taf stops that step and says so. A refused read never
+leads to a write.
