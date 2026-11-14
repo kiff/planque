@@ -757,7 +757,8 @@ func connectionText(w words.Approval, q Request, held bool, account string, cata
 		// A managed app's sign-in reused: the account it's in, by its name,
 		// so an owner who holds two can say it's the other one.
 		if q.Reuse != "" && account != "" {
-			return fmt.Sprintf(w.SignedInToF, account) + connectorText(w, q)
+			// Its first line says "no second sign-in": the rest never says it again.
+			return fmt.Sprintf(w.SignedInToF, account) + connectorTextSaid(w, q, true)
 		}
 		return connectorText(w, q)
 	}
