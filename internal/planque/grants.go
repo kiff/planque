@@ -716,8 +716,9 @@ func requestText(w words.Approval, q Request, held bool, account string, catalog
 	return connectionText(w, q, held, account, catalog...) + appWords(w, q)
 }
 
-// accountLabel is the account g acts in, as the owner's text names it: a
-// managed app's account by the name the provider shows, never its id.
+// accountLabel is the account g acts in, as the owner's text and every view
+// name it: a managed app's account by the name the provider shows, never the
+// provider's id for the connection (ca_…), which means nothing to a person.
 func accountLabel(g *Grant) string {
 	if g.Request.Connector != nil {
 		if g.Connector != nil {
@@ -726,6 +727,23 @@ func accountLabel(g *Grant) string {
 		return ""
 	}
 	return g.Account
+}
+
+// connectionTitle is g's name for people: its app, and its account when
+// known ("Gmail · Demo Shop"), never a provider's id.
+func connectionTitle(g *Grant) string {
+	if a := label(accountLabel(g)); a != "" {
+		return vendorName(g) + " · " + a
+	}
+	return vendorName(g)
+}
+
+// sinceOf is the day g was asked for, as YYYY-MM-DD, or "".
+func sinceOf(g *Grant) string {
+	if len(g.Request.CreatedAt) >= 10 {
+		return g.Request.CreatedAt[:10]
+	}
+	return ""
 }
 
 func connectionText(w words.Approval, q Request, held bool, account string, catalog ...CatalogTool) string {
@@ -1027,6 +1045,11 @@ type grantView struct {
 	// Vendor is the vendor's name for people: what its server calls itself,
 	// else its host. The app shows it as it is.
 	Vendor string `json:"vendor"`
+	// Title names the connection for people, the same in every app: its app
+	// and, when known, its account ("Gmail · Demo Shop"); Since is the day it
+	// was asked for (2026-11-13), for the app to say in its own words.
+	Title  string `json:"title"`
+	Since  string `json:"since,omitempty"`
 	Status string `json:"status"`
 	// Entry is the catalog entry for the grant's app: the one its request
 	// names, else the one planque recorded or finds for it (entry.go), empty
@@ -1110,7 +1133,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -3089,6 +3112,8 @@ type grantAPI struct {
 type connection struct {
 	Agent     string    `json:"agent"`
 	Vendor    string    `json:"vendor"`
+	Title     string    `json:"title"`
+	Since     string    `json:"since,omitempty"`
 	Kind      string    `json:"kind"`
 	Server    string    `json:"server,omitempty"`
 	Entry     string    `json:"entry,omitempty"`
@@ -3099,7 +3124,7 @@ type connection struct {
 }
 
 func connectionOf(g *Grant) connection {
-	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Kind: connectionKind(g), Status: g.Status}
+	c := connection{Agent: g.Request.Agent, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
 	switch c.Kind {
 	case KindVendorSignIn:
 		c.Server = g.Request.Server

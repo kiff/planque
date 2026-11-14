@@ -183,8 +183,17 @@ func TestEndingAnAgentKeepsASignInAnotherTafUses(t *testing.T) {
 	if err := e.s.saveGrant(ctx, b); err != nil {
 		t.Fatal(err)
 	}
-	if st, out := e.endAgent(tenant, a.Request.Agent, "s_owner", "?preview=1"); st != 200 || len(out["kept"].([]any)) == 0 {
+	st, out := e.endAgent(tenant, a.Request.Agent, "s_owner", "?preview=1")
+	if st != 200 || len(out["kept"].([]any)) == 0 {
 		t.Fatalf("the preview doesn't say the shared sign-in stays: %d %v", st, out)
+	}
+	// It names the connection still holding the sign-in, and its agent, so an app can offer to remove it too.
+	k := out["kept"].([]any)[0].(map[string]any)
+	if g, _ := k["grants"].([]any); len(g) != 1 || g[0] != b.ID {
+		t.Fatalf("kept grants: %v", k["grants"])
+	}
+	if a, _ := k["agents"].([]any); len(a) != 1 || a[0] != "agt_refunds" {
+		t.Fatalf("kept agents: %v", k["agents"])
 	}
 	if st, out := e.endAgent(tenant, a.Request.Agent, "s_owner", ""); st != 200 {
 		t.Fatalf("end the first agent: %d %v", st, out)

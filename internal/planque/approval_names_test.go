@@ -98,7 +98,8 @@ func TestManagedActionsAreNamedInWords(t *testing.T) {
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
 	action := g.Request.Connector.Tools[0]
 	text := out["text"].(string)
-	if !strings.Contains(text, " Use only your connected Support desk account. Approve these actions: "+action.Name+".") {
+	// Each action by the title the request gave it, as the card's own lines name it: one list, one source.
+	if !strings.Contains(text, " Use only your connected Support desk account. Approve these actions: Reply ticket.") || strings.Contains(text, action.Name) {
 		t.Fatalf("text: %q", text)
 	}
 	for _, id := range []string{g.Request.Connector.Account, action.Slug, action.Version, "agt_taf"} {
