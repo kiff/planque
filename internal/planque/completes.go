@@ -203,6 +203,7 @@ func eventKey(g *Grant, slug string, payload json.RawMessage) string {
 // later is answered as pending; any other as it was.
 func (s *Server) completed(ctx context.Context, g *Grant, name string, claim store.Item, op operation, state string, res any) any {
 	if state == OpDone {
+		s.noteUsed(ctx, g, res)
 		if c := completesOf(g, name); c != nil {
 			res = pending(res, c, g.ID)
 		} else {

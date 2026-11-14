@@ -1104,6 +1104,12 @@ type grantView struct {
 	// ModeWords is Mode in the owner's words, so every app says the same,
 	// planque's rule for an unknown mode included.
 	ModeWords string `json:"mode_words,omitempty"`
+	// UsedBy, Health and Actions are the connection as the owner's list
+	// shows it (connection_rows.go): the tafs that use it by their names,
+	// its health in plain words, and only the actions that can work for it.
+	UsedBy  []string           `json:"used_by"`
+	Health  *connectionHealth  `json:"health,omitempty"`
+	Actions []connectionAction `json:"actions"`
 }
 
 // Who holds a grant's sign-in.
@@ -1170,6 +1176,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.Digest, v.DigestV = d, 2
 		}
 	}
+	s.fillRow(r, g, &v, time.Time{}, false)
 	return v
 }
 
@@ -2956,6 +2963,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		return nil, err
 	}
 	out := []grantView{}
+	uses := s.lastUses(ctx, tenant)
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -2966,7 +2974,9 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		out = append(out, s.view(r, &g))
+		v := s.view(r, &g)
+		s.fillRow(r, &g, &v, uses[g.ID], true)
+		out = append(out, v)
 	}
 	return out, nil
 }
