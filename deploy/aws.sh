@@ -126,6 +126,12 @@ table() {
     aws dynamodb update-time-to-live --table-name "$TABLE" \
       --time-to-live-specification Enabled=true,AttributeName=ttl --query TimeToLiveSpecification.Enabled >/dev/null
   fi
+  # Deletion protection, checked on every run, so a table rebuilt or changed
+  # by hand gets it back: planque's records can't be dropped by one command.
+  # The fake vendor's test table goes without.
+  if [[ -z "$FAKE" && "$(aws dynamodb describe-table --table-name "$TABLE" --query Table.DeletionProtectionEnabled)" != "True" ]]; then
+    aws dynamodb update-table --table-name "$TABLE" --deletion-protection-enabled --query TableDescription.TableName >/dev/null
+  fi
   # Point-in-time recovery, asked for on every run, so a table rebuilt or
   # changed by hand gets it back: without it, a bad write can't be undone.
   # A table created seconds ago may refuse it for a short while
@@ -264,7 +270,10 @@ down() {
   aws iam delete-role --role-name "$ROLE" 2>/dev/null || true
   command aws --region "$REGION" logs delete-log-group --log-group-name "/aws/lambda/$FN" 2>/dev/null || true
   if [[ -z "$FAKE" || "$FAKE" == vendor ]]; then
-    aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 || true
+    # planque's own table has deletion protection: it stays, unless a person
+    # turns that off first (update-table --no-deletion-protection-enabled).
+    aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 ||
+      echo "kept table $TABLE (deletion protection is on, or it's gone already)" >&2
   fi
   if [[ -z "$FAKE" ]]; then
     local id; id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)
