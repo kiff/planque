@@ -2346,7 +2346,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
-	g.VendorName = label(server.Label())
+	g.VendorName = s.serverVendorName(g, server)
 	g.Catalog = nil
 	for _, t := range listed {
 		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
@@ -2369,7 +2369,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
-	if n := label(server.Label()); n != "" {
+	if n := s.serverVendorName(g, server); n != "" {
 		g.VendorName = n
 	}
 	g.Tools = nil
@@ -3287,6 +3287,11 @@ func label(s string) string {
 // vendorName is the vendor as the owner reads it: its own name, else the
 // host of its server.
 func vendorName(g *Grant) string {
+	// A vendor's own reviewed server is called by its app's name, a grant
+	// stored with its server's own name ("stripe-mcp") too.
+	if n := builtinVendor(g.Request.CatalogEntry); n != "" {
+		return n
+	}
 	if g.VendorName != "" {
 		return g.VendorName
 	}

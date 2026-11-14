@@ -337,7 +337,7 @@ func (s *Server) declareFirst(ctx context.Context, g *Grant) {
 		note("the KIFF connector key could not be opened")
 		return
 	}
-	if n := label(server.Label()); n != "" {
+	if n := s.serverVendorName(g, server); n != "" {
 		g.VendorName = n
 	}
 	transport := oauth.Random(32)

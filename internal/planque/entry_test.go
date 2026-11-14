@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kiff/planque/internal/mcp"
 )
 
 // installEntries is the reviewed catalog as planque matches grants to it:
@@ -396,5 +398,34 @@ func TestTheServerListRefusesLookAlikes(t *testing.T) {
 		if got := s.deriveEntry(&Grant{Request: Request{Server: server}}); got != "" {
 			t.Errorf("%s got the entry %q", server, got)
 		}
+	}
+}
+
+// A server's connection is called by its reviewed app's name, never by the
+// name its server gives itself (Stripe's says "stripe-mcp", which the owner
+// read as the connection's name on 14 Nov). A server with no reviewed app
+// keeps its own title, else its name.
+func TestAServersConnectionIsCalledByItsReviewedApp(t *testing.T) {
+	e := newEnv(t)
+	stripe := mcp.Server{Name: "stripe-mcp"}
+	for _, tc := range []struct {
+		entry  string
+		server mcp.Server
+		want   string
+	}{
+		{StripeEntry, stripe, "Stripe"},
+		{QontoEntry, mcp.Server{Name: "qonto-mcp-server"}, "Qonto"},
+		{"", stripe, "stripe-mcp"},
+		{"connector:none:unknown", mcp.Server{Name: "x", Title: "Example Desk"}, "Example Desk"},
+	} {
+		g := &Grant{Request: Request{CatalogEntry: tc.entry}}
+		if got := e.s.serverVendorName(g, tc.server); got != tc.want {
+			t.Errorf("entry %q, server %+v: %q, want %q", tc.entry, tc.server, got, tc.want)
+		}
+	}
+	// A Stripe connection stored with its server's own name reads as Stripe.
+	stored := &Grant{VendorName: "stripe-mcp", Request: Request{CatalogEntry: StripeEntry}}
+	if got := vendorName(stored); got != "Stripe" || connectionTitle(stored) != "Stripe" {
+		t.Fatalf("a stored Stripe connection: %q, %q", got, connectionTitle(stored))
 	}
 }
