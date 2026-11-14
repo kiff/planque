@@ -465,7 +465,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// sign-in the vendor no longer takes. One the provider says is gone is marked so (sign in again).
 		if held != nil {
 			if err := s.checkConnector(r.Context(), held); err != nil {
-				s.log().WarnContext(r.Context(), "held sign-in not reused", slog.String("grant", held.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "held sign-in not reused", append([]any{slog.String("grant", held.ID)}, errAttrs(err)...)...)
 				if errors.Is(err, connector.ErrAccount) {
 					s.signInRefused(r.Context(), held, vendorName(held)+" no longer accepts this sign-in")
 				}
@@ -508,12 +508,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 				writeErr(w, http.StatusServiceUnavailable, "This app is being set up. Try again in a moment.")
 			default:
 				// The provider's cause, kept here: the person reads only that it can't be set up.
-				attrs := []any{slog.String("toolkit", toolkit), slog.String("err", err.Error())}
-				if ce := (*connector.CallError)(nil); errors.As(err, &ce) && ce.Message != "" {
-					// Its own words, made safe by Reason: one line, secrets redacted.
-					attrs = append(attrs, slog.String("reason", ce.Message))
-				}
-				s.log().WarnContext(r.Context(), "app set-up failed", attrs...)
+				s.log().WarnContext(r.Context(), "app set-up failed", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 				writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
 			}
 			return
@@ -547,7 +542,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// and none without it can be set up now: nothing is asked (the owner,
 		// 14 Nov: "very intrusive"). It isn't the usual sign-in instead.
 		if errors.Is(err, connector.ErrPersonal) {
-			s.log().WarnContext(r.Context(), "sign-in not set up without personal data", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+			s.log().WarnContext(r.Context(), "sign-in not set up without personal data", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 			if errors.Is(err, errAllowance) {
 				writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today, and "+label(app.Name)+" can't be connected without asking for personal data this taf doesn't use. Try again tomorrow.")
 				return
@@ -564,7 +559,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		} else {
 			conn.UsualAccess = true
 			if !errors.Is(err, connector.ErrUnscoped) {
-				s.log().WarnContext(r.Context(), "sign-in not narrowed", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "sign-in not narrowed", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 			}
 		}
 	}
@@ -724,7 +719,7 @@ func (s *Server) resumeConnectorSignIn(w http.ResponseWriter, r *http.Request, s
 		}
 		if old.Account != "" && old.Account != g.Connector.Account {
 			if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
-				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
 			}
 		}
 	default:
@@ -1384,7 +1379,7 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 		s.log().InfoContext(ctx, "sign in again refused", slog.String("grant", g.ID), slog.String("code", code))
 		if p, err := s.provider(g); err == nil {
 			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
-				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
 			}
 		}
 		g.Status, g.Reconnect = StatusNeedsReconnect, false
@@ -1410,4 +1405,18 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 // and where to sign in again. Never the vendor's own error body.
 func signInExpiredWords(vendor string) string {
 	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner taps Connect again on this taf to sign in to " + vendor + " again."
+}
+
+// errAttrs is err for a log line, and, when a provider answered it with a
+// reason of its own, that reason as "reason": Reason has already made it
+// one line with its secrets redacted. The provider's cause is then in the
+// log, never in what the person reads (14 Nov: a sign-in set-up the
+// provider answered 403 was logged with no reason, and no one could say
+// why).
+func errAttrs(err error) []any {
+	attrs := []any{slog.String("err", err.Error())}
+	if ce := (*connector.CallError)(nil); errors.As(err, &ce) && ce.Message != "" {
+		attrs = append(attrs, slog.String("reason", ce.Message))
+	}
+	return attrs
 }
