@@ -48,6 +48,8 @@ type env struct {
 	enrolled bool
 	// lang is the Accept-Language each request carries, as an app's does.
 	lang string
+	// tafName, when set, is the taf's name a managed app's request gives.
+	tafName string
 }
 
 func newEnv(t *testing.T) *env {

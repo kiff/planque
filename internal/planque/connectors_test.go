@@ -332,7 +332,11 @@ func newConnectorFixture(t *testing.T) (*env, *connectorFixture) {
 // one to the app (new_sign_in): a test of a held sign-in reused asks without it.
 func requestConnector(t *testing.T, e *env) map[string]any {
 	t.Helper()
-	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "new_sign_in": true}, nil, "k_setup")
+	ask := map[string]any{"agent": "agt_taf", "new_sign_in": true}
+	if e.tafName != "" {
+		ask["agent_name"] = e.tafName
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", ask, nil, "k_setup")
 	if st != 201 || out["needs_key"] != false {
 		t.Fatalf("request: %d %v", st, out)
 	}
