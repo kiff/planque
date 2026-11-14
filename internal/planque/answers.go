@@ -142,6 +142,12 @@ type progress struct {
 var (
 	cleanPage   = 200
 	cleanBudget = 15 * time.Second
+	// cleanPace is how many bytes of records the clean-up rewrites a second at
+	// most, about 400 write units: a tenant's records share one partition key,
+	// which DynamoDB holds to about 1,000 units a second, and a record with a
+	// large kept answer costs hundreds (14 Nov: PutItem throttled on one key,
+	// the table far under its limit). Zero writes at full speed (tests).
+	cleanPace = 400 << 10
 )
 
 // CleanStoredAnswers is the one-time clean-up of the answers kept before
@@ -223,7 +229,9 @@ func (s *Server) cleanItems(ctx context.Context, items []store.Item) (dropped, i
 		} else {
 			dropAnswer(&op)
 		}
-		switch err := putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver}); {
+		err := putDoc(ctx, s.KV, next, op, store.Cond{Ver: &ver})
+		pace(ctx, len(it.Doc))
+		switch {
 		case errors.Is(err, store.ErrCondition):
 			skipped++ // written in between: the pass runs again
 		case err != nil:
@@ -244,4 +252,15 @@ func called(step string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("the clean-up couldn't %s: %w", step, err)
+}
+
+// pace waits as long as writing n bytes takes at cleanPace.
+func pace(ctx context.Context, n int) {
+	if cleanPace <= 0 || n <= 0 {
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Duration(n) * time.Second / time.Duration(cleanPace)):
+	}
 }

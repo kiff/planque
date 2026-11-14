@@ -313,3 +313,23 @@ func TestAThrottledCleanUpFinishesAtTheNextSweep(t *testing.T) {
 		t.Fatal("the next sweep didn't mark it done")
 	}
 }
+
+// The clean-up paces its writes by their size, so one tenant's partition key
+// stays under DynamoDB's per-key limit: a heavy record waits longer.
+func TestTheCleanUpPacesItsWritesBySize(t *testing.T) {
+	was := cleanPace
+	cleanPace = 1000
+	t.Cleanup(func() { cleanPace = was })
+	begun := time.Now()
+	pace(context.Background(), 100)
+	if d := time.Since(begun); d < 90*time.Millisecond || d > time.Second {
+		t.Fatalf("100 bytes at 1,000 a second took %v, want about 100 ms", d)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	begun = time.Now()
+	pace(ctx, 1_000_000)
+	if d := time.Since(begun); d > 100*time.Millisecond {
+		t.Fatalf("a pace outlived its context: %v", d)
+	}
+}
