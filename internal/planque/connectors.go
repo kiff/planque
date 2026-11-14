@@ -856,6 +856,7 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 	// listed apart, with why, so the taf's Card never grants it.
 	type unusable struct {
 		Name  string `json:"name"`
+		Slug  string `json:"slug,omitempty"`
 		Title string `json:"title"`
 		Why   string `json:"why"`
 	}
@@ -872,13 +873,24 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 			return
 		}
 		if !t.Covered(granted) {
-			unusables = append(unusables, unusable{Name: t.Alias(), Title: label(t.Name), Why: uncoveredWords(g, t)})
+			unusables = append(unusables, unusable{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Why: uncoveredWords(g, t)})
 			continue
 		}
-		tools = append(tools, CatalogTool{Name: t.Alias(), Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
+		tools = append(tools, CatalogTool{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
+
+// connectorToolName is a managed app's tool as planque names it: a name
+// from its catalog as it is, or its provider's slug (GMAIL_FETCH_EMAILS, as
+// its guide and a search give it) as the name the catalog lists it by.
+func connectorToolName(toolkit, name string) string {
+	if strings.HasPrefix(name, "connector_") || !connectorTool.MatchString(name) {
+		return name
+	}
+	return connector.Tool{Toolkit: toolkit, Slug: strings.ToUpper(name)}.Alias()
+}
+
 func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []ToolRequest) error {
 	if err := s.checkConnector(ctx, g); err != nil {
 		return err
@@ -898,7 +910,7 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 			return apiError{http.StatusConflict, uncoveredWords(g, definition) + ": choose the tools its catalog offers"}
 		}
 		g.Connector.Tools = append(g.Connector.Tools, definition)
-		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
+		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Slug: definition.Slug, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
 	}
 	return nil
 }
