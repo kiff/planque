@@ -1066,31 +1066,17 @@ func (s *Server) revokeConnector(ctx context.Context, g *Grant) error {
 
 // scopeWords is what the sign-in asks the vendor for, when the taf named its
 // tools (gap 5 of kiff/tafs#476): only what they need, or, when that couldn't
-// be narrowed, the app's usual access, said plainly. Nothing otherwise.
+// be narrowed, more, said with why. Nothing otherwise. The tools aren't named
+// here: the asked ones are the provider's names ("Fetch message by thread
+// id"), and the actions to approve come next, by the titles the taf gives them.
 func scopeWords(w words.Approval, c *ConnectorRequest) string {
 	if c == nil || len(c.AskedTools) == 0 || c.Title == "" {
 		return ""
 	}
-	tools := toolWords(c.Toolkit, c.AskedTools)
 	if c.UsualAccess {
-		return fmt.Sprintf(w.MoreAccessF, c.Title, tools)
+		return fmt.Sprintf(w.MoreAccessF, c.Title)
 	}
-	return fmt.Sprintf(w.OnlyWhatItUsesF, c.Title, tools)
-}
-
-// toolWords names a provider's tools as people read them: "List events" for
-// GOOGLECALENDAR_LIST_EVENTS.
-func toolWords(toolkit string, slugs []string) string {
-	names := make([]string, 0, len(slugs))
-	for _, slug := range slugs {
-		words := strings.TrimPrefix(strings.ToUpper(slug), strings.ToUpper(toolkit)+"_")
-		words = strings.ToLower(strings.ReplaceAll(words, "_", " "))
-		if words != "" {
-			words = strings.ToUpper(words[:1]) + words[1:]
-		}
-		names = append(names, words)
-	}
-	return strings.Join(names, ", ")
+	return fmt.Sprintf(w.OnlyWhatItUsesF, c.Title)
 }
 
 // checkAskedTools says what's wrong with the tools a connection is asked for
@@ -1110,6 +1096,10 @@ func checkAskedTools(tools []string) string {
 // connectorTool is a provider's tool slug.
 var connectorTool = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{0,127}$`)
 
+// legacySignInThenChoose ends the words of a grant made before titles, as
+// they were signed.
+const legacySignInThenChoose = " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
+
 // connectorText is what the owner reads and signs for a managed connection.
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
@@ -1121,7 +1111,7 @@ func connectorText(w words.Approval, q Request) string {
 		// for, in the English it was signed in.
 		text := "Connect " + c.Toolkit + " through " + c.Provider + " for " + q.Agent + ". This connection provider holds the vendor credentials."
 		if len(q.Tools) == 0 {
-			return text + english.SignInThenChoose
+			return text + legacySignInThenChoose
 		}
 		text += " Use only connected account " + c.Account + ". Approve these exact versioned actions:"
 		for _, t := range c.Tools {

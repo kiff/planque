@@ -29,7 +29,7 @@ func TestHostedKeyAppsReturnConnectedThroughTheSignedFlow(t *testing.T) {
 			if scheme == "BEARER_TOKEN" {
 				credential = "token"
 			}
-			want := "Connect Support desk for this taf. You'll enter your Support desk " + credential + " on the connection service's page; it keeps the " + credential + ", and the taf never sees it."
+			want := "Connect Support desk for this taf. You'll enter your Support desk " + credential + " on our sign-in partner's page; it keeps the " + credential + ", and the taf never sees it."
 			if text := v["text"].(string); !strings.HasPrefix(text, want) || strings.Contains(strings.ToLower(text), "composio") || strings.Contains(text, "agt_taf") {
 				t.Fatalf("words: %q", text)
 			}
@@ -103,9 +103,10 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 		prefix := "Connect desk_demo through composio for agt_taf. This connection provider holds the vendor credentials."
 		if title != "" {
 			old += `,"title":"Support desk"`
-			// With a title and no name, it's "this taf": the agent id is under
-			// Details (kiff/tafs#476). A grant's stored words never change.
-			prefix = "Connect Support desk for this taf. Your sign-in to Support desk stays with the connection service; the taf never sees it."
+			// With a title and no name, it's "this taf", and today's words: a
+			// grant's own words are the ones kept with it (shown), never made
+			// again for its signature, so a grant asked before keeps its own.
+			prefix = "Connect Support desk for this taf. Your Support desk sign-in is kept by our sign-in partner; the taf never sees it."
 		}
 		old += `}`
 		var binding ConnectorRequest
@@ -117,7 +118,11 @@ func TestOlderConnectorGrantsKeepTheirEncodingAndWords(t *testing.T) {
 			t.Fatalf("older signed fields changed: %s %v", raw, err)
 		}
 		q := Request{Agent: "agt_taf", Connector: &binding}
-		if got := connectorText(english, q); got != prefix+" Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet." {
+		end := " Sign in, then approve its actions: the taf gets only those, nothing before."
+		if title == "" {
+			end = " Sign in and confirm on this device, then choose the actions to approve. No actions are granted yet."
+		}
+		if got := connectorText(english, q); got != prefix+end {
 			t.Fatalf("older approval words changed: %q", got)
 		}
 	}
