@@ -56,8 +56,20 @@ the code it ran before is put back. Code only: the function's configuration, tab
 and schedule stay as `deploy/aws.sh up` set them, so a change to those still needs it.
 
 Configuration is in `cmd/planque/main.go`. The hosted deployment's table
-keeps point-in-time recovery on: each `deploy/aws.sh up` asks for it, so a
-table rebuilt or changed by hand gets it back.
+keeps point-in-time recovery and deletion protection on: each
+`deploy/aws.sh up` asks for both, so a table rebuilt or changed by hand gets
+them back. `down` leaves planque's table while its protection is on, and
+says so; a person turns it off first
+(`update-table --no-deletion-protection-enabled`).
+
+A read or write the table throttles is sent again, at most 6 times, after
+200 ms doubling to 5 s: a throttle means nothing was written. A write whose
+answer was lost is never sent again. The one-time clean-up of answers kept
+before the 24-hour limit runs last in the hourly sweep, page by page, within
+a time budget and paced so one account's records aren't throttled, carries on
+from its saved cursor at the next sweep, and its warning names the call that
+stopped it. It needs `dynamodb:Scan`, which `deploy/aws.sh up` gives the
+function's role; a code-only deploy doesn't.
 
 **The live check** (`live/`) runs against a payment provider's real MCP server
 in test mode and the hosted planque. Until KIFF ships the connector key role, KIFF is
