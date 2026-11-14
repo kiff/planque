@@ -1,6 +1,6 @@
 # GitHub
 
-Checked: 2026-11-13 · Sources: the connection service's GitHub tool
+Checked: 2026-11-14 · Sources: the connection service's GitHub tool
 definitions as planque reads them, GitHub's REST API description as
 `api/operations` reads it (1,277 operations), and test runs on a phone on
 13 Nov 2026.
@@ -50,16 +50,17 @@ comment or issue the taf writes is shown to the owner first.
 
 ## Access and plans
 
-- **No paid plan is needed** to read and write issues, files and releases.
-  Some features (protected branches on private repositories, some code
-  scanning) are in GitHub's paid plans; a job that needs one says so.
+- **Reading and writing issues, files and releases** works without a paid
+  plan in the cases checked here. Which other features need one isn't
+  checked here.
 - **An organisation can restrict outside apps.** Then the sign-in works for
   the owner's own repositories but not the organisation's until an admin
   approves the app.
 - **Rate:** about 5,000 calls an hour for a signed-in user, and only 60 an
   hour without a sign-in. Searches have a lower limit, about 30 a minute.
 - **Big answers:** a list answers a page, at most 100 items. Files over 1 MB
-  come back without their content and need a second read.
+  come back without their content and need a second, raw read; files over
+  100 MB can't be read this way at all.
 
 ## When it fails
 
@@ -67,7 +68,7 @@ comment or issue the taf writes is shown to the owner first.
 |---|---|---|
 | Not found (404) on a private repository | The sign-in can't see it: a private repository answers "not found", not "forbidden" | "I can't see that repository. It may be private and not shared with this sign-in." |
 | Refused (403), organisation | The organisation hasn't approved the app | "Your GitHub organisation needs to approve this connection. An admin can do it in the organisation's settings." |
-| Refused (403), rate limit | Over the hourly limit | "GitHub's hourly limit is reached. The taf will continue when it resets." |
+| Refused (403 or 429), rate limit | Over the hourly limit, or too many writes in a short time | "GitHub's hourly limit is reached. The taf will continue when it resets." |
 | Refused (409), conflict | The file or branch changed since it was read | Read it again and retry once; tell the owner only if it fails again. |
 | Refused (422) | The input isn't valid: a branch that exists, a title missing | Fix it and try once; else "GitHub didn't accept that change. Nothing was written." |
 | The sign-in no longer works (401) | Revoked, or the token expired | "GitHub needs you to sign in again. Nothing was written." |

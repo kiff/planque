@@ -1,6 +1,6 @@
 # Asana
 
-Checked: 2026-11-13 · Sources: the connection service's published Asana tool
+Checked: 2026-11-14 · Sources: the connection service's published Asana tool
 list (about 250 tools), Asana's API reference (rate limits, errors,
 pagination, access scopes, task search). Not yet run on a phone. The tool
 names below are checked against the generated part once the keyed run lands.
@@ -12,7 +12,7 @@ names below are checked against the generated part once the keyed run lands.
   access doesn't cover under `unusable`, with why.
 - **The sign-in acts as the owner.** The taf sees only the workspaces,
   teams and projects the owner can see, and can't do more than the owner
-  can. A guest in a workspace sees even less.
+  can.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
 - **Everything lives in a workspace.** Most jobs start by reading the

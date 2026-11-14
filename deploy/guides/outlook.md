@@ -1,6 +1,6 @@
 # Outlook
 
-Checked: 2026-11-13 · Sources: the connection service's Outlook tool
+Checked: 2026-11-14 · Sources: the connection service's Outlook tool
 definitions as planque reads them (317 tools, [generated](generated/outlook.md)),
 and Microsoft's mail and calendar API reference.
 
@@ -64,9 +64,9 @@ changed. The Card says so.
 
 - **Any Microsoft account works,** personal or business. Shared mailboxes
   and other people's calendars need access the owner has been given.
-- **Sending caps are Microsoft's:** about 300 messages a day on a personal
-  account and 10,000 recipients a day on most business plans, with no more
-  than 30 messages a minute.
+- **Sending caps are Microsoft's:** 10,000 recipients a day on most
+  business plans, with no more than 30 messages a minute. Personal accounts
+  have lower caps, which aren't published for free accounts.
 - **Attachments:** up to about 3 MB in one step; larger ones go by an upload
   session, which the tools do in parts.
 - **Rate:** Microsoft limits each mailbox to about 10,000 calls in 10 minutes.
