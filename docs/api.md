@@ -130,7 +130,11 @@ at most once: a replay gets the first answer, and a call whose answer was
 lost is never sent again. The vendor's answer is kept 24 hours, then
 dropped by the hourly sweep: the operation's record keeps only its outcome
 (done, not sent, unknown), and a later replay is told the call was answered
-once, never sent again.
+once, never sent again. Answers kept before that rule are dropped or given
+their expiry by a one-time clean-up, a little at each hourly sweep;
+`POST /v1/sweep/answers` runs that clean-up alone (for a schedule more
+frequent than the sweep's while it runs), answers `{dropped, indexed, done}`,
+and does nothing once `done`.
 
 **Narrowing a vendor tool.** Some vendors offer one broad tool that writes to
 any endpoint of their API. A grant

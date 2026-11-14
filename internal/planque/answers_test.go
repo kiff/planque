@@ -387,3 +387,32 @@ func TestTheCleanUpStopsWithinItsRequestsDeadline(t *testing.T) {
 		t.Fatalf("with little time left: dropped %d, %v; want one", d, err)
 	}
 }
+
+// POST /v1/sweep/answers runs the one-time clean-up alone, for a schedule
+// more frequent than the sweep's, and says when it's done; after that it
+// changes nothing.
+func TestTheCleanUpRunsAloneFromItsOwnRoute(t *testing.T) {
+	e, _ := newConnectorFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	op := operation{Tool: "reply_ticket", ArgsHash: "h", State: OpDone, StartedAt: now.Add(-72 * time.Hour), Result: json.RawMessage(`{"content":[{"type":"text","text":"old_secret"}],"isError":false}`)}
+	if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: "OP#g#old", Ver: 2}, op, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	st, out := e.do("POST", "/v1/sweep/answers", nil, nil, "")
+	if st != 200 || out["dropped"] != float64(1) || out["done"] != true {
+		t.Fatalf("POST /v1/sweep/answers: %d %v", st, out)
+	}
+	var got operation
+	if _, err := getDoc(ctx, e.kv, tenantPK(tenant), "OP#g#old", &got); err != nil || strings.Contains(string(got.Result), "old_secret") {
+		t.Fatalf("the old answer stayed: %+v %v", got, err)
+	}
+	// Done: a second call changes nothing, even with a new old answer.
+	op.ArgsHash = "h2"
+	if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: "OP#g#later", Ver: 2}, op, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e.do("POST", "/v1/sweep/answers", nil, nil, ""); st != 200 || out["dropped"] != float64(0) || out["done"] != true {
+		t.Fatalf("after done: %d %v", st, out)
+	}
+}
