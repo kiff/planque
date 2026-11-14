@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -188,6 +189,12 @@ func (k *KIFF) setupReads(w http.ResponseWriter, r *http.Request) {
 	defer k.mu.Unlock()
 	if k.SetupReadsRefused {
 		writeJSON(w, 403, map[string]string{"error": "the owner's approval doesn't check"})
+		return
+	}
+	// As KIFF reads the approval: planque's own request message, or a
+	// kiff.requests.v1 one whose two hashes name the request given beside it.
+	if why := setupReadsApproval(req); why != "" {
+		writeJSON(w, 403, map[string]string{"error": why})
 		return
 	}
 	k.SetupReads = append(k.SetupReads, req)
@@ -792,4 +799,24 @@ func schemaTypes(schema json.RawMessage) map[string][]string {
 		}
 	}
 	return out
+}
+
+// setupReadsApproval says why KIFF wouldn't take the approval behind
+// Setup's read Card, or "": the request planque had the owner sign, signed
+// alone or named by a kiff.requests.v1 message beside another request.
+func setupReadsApproval(req kiff.SetupReads) string {
+	message := req.Approval.Message
+	if strings.HasPrefix(message, "kiff.requests.v1\n") {
+		lines := strings.Split(message, "\n")
+		sum := sha256.Sum256([]byte(req.Approval.Request))
+		own := hex.EncodeToString(sum[:])
+		if len(lines) != 5 || req.Approval.Request == "" || (lines[3] != own && lines[4] != own) {
+			return "the approval isn't a request planque had the owner sign"
+		}
+		message = req.Approval.Request
+	}
+	if !strings.HasPrefix(message, "planque.request.") {
+		return "the approval isn't a request planque had the owner sign"
+	}
+	return ""
 }

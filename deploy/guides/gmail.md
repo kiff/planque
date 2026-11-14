@@ -1,6 +1,6 @@
 # Gmail
 
-Checked: 2026-11-13 · Sources: the connection service's Gmail tool
+Checked: 2026-11-14 · Sources: the connection service's Gmail tool
 definitions as planque reads them (61 tools), Google's Gmail API reference,
 and test runs on a phone on 13 Nov 2026.
 
@@ -59,14 +59,16 @@ the owner asked for sending, and say every send waits for their yes.
   drafts; sending needs send access. A sign-in made for reading doesn't let
   the taf send.
 - **Daily sending caps are Google's:** about 500 recipients a day on a
-  personal account, and about 2,000 a day on a business (Workspace) account.
-  A job that sends to more each day than that fails partway through.
-- **Attachments:** up to about 25 MB in a draft or reply. Larger files go as
-  a Drive link.
+  personal account. A business (Workspace) account can send about 2,000
+  messages a day, to at most 10,000 recipients in all, fewer on a trial
+  account. A job that sends past its cap fails partway through.
+- **Attachments:** up to about 25 MB in a draft or reply on a personal
+  account; on a business account the admin sets the size. Larger files go
+  as a Drive link.
 - **A business account's admin** can block outside apps from Gmail. Then no
   sign-in works until the admin allows it.
-- **Rate:** Google limits calls per user per second, and the connection
-  service's shared sign-in shares a daily quota. A job reading thousands of
+- **Rate:** Google limits calls per user and per app, a minute at a time. A
+  job reading thousands of
   messages a run should page and pause.
 
 ## When it fails
@@ -75,7 +77,7 @@ the owner asked for sending, and say every send waits for their yes.
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | The sign-in didn't give this tool's access: reading only, say, and the tool sends | "Gmail is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Refused, "rate limit exceeded" (403) or too many calls (429) | Too many calls in a short time | "Gmail asked us to slow down. The taf will try again in a few minutes." |
-| The sign-in no longer works (401) | The owner removed access, changed their password, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
+| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
 | "App is blocked" at sign-in | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
 | A message or draft isn't found (404) | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
 | Daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |

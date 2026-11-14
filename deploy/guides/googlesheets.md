@@ -1,6 +1,6 @@
 # Google Sheets
 
-Checked: 2026-11-13 · Sources: the connection service's Google Sheets tool
+Checked: 2026-11-14 · Sources: the connection service's Google Sheets tool
 definitions as planque reads them (50 tools), Google's Sheets and Drive API
 references, and test runs on a phone on 13 Nov 2026.
 
@@ -72,8 +72,6 @@ write.
 - **Rate:** Google allows about 60 reads and 60 writes a minute for one user,
   and caps each project too. A run that writes row by row over hundreds of
   rows should write in batches.
-- **Size:** a new tab has 1,000 rows and 26 columns (A to Z). Writing past
-  column Z needs the sheet widened first.
 - **Tab names with spaces** must be quoted in a range (`'Leads 2026'!A1:E1`),
   or Google refuses the range.
 

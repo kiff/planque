@@ -1104,6 +1104,12 @@ type grantView struct {
 	// ModeWords is Mode in the owner's words, so every app says the same,
 	// planque's rule for an unknown mode included.
 	ModeWords string `json:"mode_words,omitempty"`
+	// UsedBy, Health and Actions are the connection as the owner's list
+	// shows it (connection_rows.go): the tafs that use it by their names,
+	// its health in plain words, and only the actions that can work for it.
+	UsedBy  []string           `json:"used_by"`
+	Health  *connectionHealth  `json:"health,omitempty"`
+	Actions []connectionAction `json:"actions"`
 }
 
 // Who holds a grant's sign-in.
@@ -1170,6 +1176,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.Digest, v.DigestV = d, 2
 		}
 	}
+	s.fillRow(r, g, &v, time.Time{}, false)
 	return v
 }
 
@@ -1813,7 +1820,7 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		}
 		if re != nil && re.Refused() {
 			// The vendor doesn't let planque's client sign in: nothing the owner can do now, and trying again won't help.
-			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client"})
+			s.fail(w, r, apiCoded{apiError{http.StatusBadGateway, host + " doesn't allow tafs to sign in yet, so nothing was connected. It isn't something you can change from here."}, "vendor_refused_client", ""})
 			return
 		}
 		writeErr(w, http.StatusBadGateway, "Couldn't register with "+host+": "+err.Error())
@@ -2092,6 +2099,15 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		if g.Reconnect {
+			// Signed in again: the same grant, connected with what it had.
+			if err := s.reconnectConnector(r, g); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, s.view(r, g))
+			return
+		}
 		if err := s.list(r.Context(), g, ""); err != nil {
 			s.fail(w, r, err)
 			return
@@ -2573,6 +2589,8 @@ func (s *Server) setupReads(ctx context.Context, key string, g *Grant) {
 	}
 	req := kiff.SetupReads{Agent: reader, Grant: g.ID, Tools: tools}
 	req.Approval.DeviceID, req.Approval.Message, req.Approval.Body, req.Approval.Signature = g.Approval.DeviceID, g.Approval.Message, g.Approval.Body, g.Approval.Signature
+	// Signed together with the Card (key_and_cards, tools_and_cards): the approve's own message, which the signed one names.
+	req.Approval.Request = g.Approval.Request
 	if err := s.KIFF.IssueSetupReads(ctx, key, req); err != nil {
 		s.log().WarnContext(ctx, "setup reads not issued", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "Setup's reads weren't set up in KIFF: "+err.Error())
@@ -2945,6 +2963,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		return nil, err
 	}
 	out := []grantView{}
+	uses := s.lastUses(ctx, tenant)
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -2955,7 +2974,9 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		out = append(out, s.view(r, &g))
+		v := s.view(r, &g)
+		s.fillRow(r, &g, &v, uses[g.ID], true)
+		out = append(out, v)
 	}
 	return out, nil
 }

@@ -161,7 +161,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	for id, e := range s.CatalogEntries {
+	for id, e := range newestRevisions(s.catalogEntries()) {
 		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title), q) {
 			continue
 		}
@@ -319,7 +319,7 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		s.requestGrantFrom(w, r, &CatalogEntry{ID: BrowserEntry, Vendor: browserVendor, Title: "Use websites", Kind: KindBrowser})
 		return
 	}
-	entry, ok := s.CatalogEntries[id]
+	entry, ok := s.catalogEntries()[id]
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {
 			switch directEntryFor(toolkit) {
