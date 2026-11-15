@@ -17,7 +17,7 @@ import (
 
 func deskCatalogEntry() CatalogEntry {
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "base_path", Value: "/v1"}, Source: "catalog", CatalogEntry: "desk@1",
-		Operations: []profile.Operation{{Tool: "reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+		Operations: []profile.Operation{{Tool: "reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	raw, _ := json.Marshal(p)
 	return CatalogEntry{ID: "desk@1", Vendor: p.Vendor, Title: "Support replies", Application: "desk", Tools: []ToolRequest{{Tool: "replyToTicket", Name: "reply", Title: "Reply to a ticket"}}, Profile: raw}
 }

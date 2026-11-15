@@ -375,7 +375,7 @@ func listConnector(t *testing.T, e *env, f *connectorFixture) string {
 }
 func connectConnector(t *testing.T, e *env, f *connectorFixture) *Grant {
 	t.Helper()
-	return connectConnectorWith(t, e, f, profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}})
+	return connectConnectorWith(t, e, f, profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}})
 }
 
 // connectConnectorWith is connectConnector with the profile given.
@@ -683,7 +683,7 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	}
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket",
-		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
 		t.Fatalf("a tool outside the sign-in: %d %v", st, out)
 	}
@@ -920,7 +920,7 @@ func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
 	}
 	_, catalog := e.do("GET", path+"/catalog", nil, nil, "k_coach")
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
-	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	tools := map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}
 	if st, _ := e.do("POST", path+"/tools", tools, nil, "k_third"); st != 403 {
 		t.Fatalf("a third agent proposed tools: %d", st)
@@ -1355,7 +1355,7 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
 		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
-			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
 	// The account's line says the sign-in is reused, once: "no second sign-in" is never said twice (14 Nov).
 	if text := out["text"].(string); st != 200 || out["status"] != StatusPending || !strings.HasPrefix(text, "You're already signed in, to the account Demo Shop: no second sign-in.") ||
@@ -1474,7 +1474,7 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	if slug == "" || slug == name || !strings.HasPrefix(name, "connector_") {
 		t.Fatalf("the catalog's tool: %v", first)
 	}
-	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	for _, asked := range []string{slug, strings.ToLower(slug)} {
 		st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
 		if st != 200 {
