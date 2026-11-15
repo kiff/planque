@@ -2999,6 +2999,9 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
+// errGrantRepeated: the account's grants can't be listed each once.
+var errGrantRepeated = apiCoded{apiError{http.StatusInternalServerError, "the account's grants can't be listed each once; nothing is listed"}, "grant_repeated", ""}
+
 func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	ctx := r.Context()
 	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
@@ -3007,11 +3010,21 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	}
 	out := []grantView{}
 	uses := s.lastUses(ctx, tenant)
+	seen := map[string]bool{}
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
 			continue
 		}
+		// Each grant once, under its own key: an app pairs each grant with
+		// its entry by position, and a repeated id would let one grant's
+		// digest stand for another's. A record that names another id than its
+		// key, or one already read, lists nothing (loudly), never a repeat.
+		if g.ID == "" || skGrant(g.ID) != it.SK || seen[g.ID] {
+			s.log().ErrorContext(ctx, "a grant's record doesn't match its key, or repeats an id: nothing is listed", slog.String("tenant", tenant), slog.String("key", it.SK))
+			return nil, errGrantRepeated
+		}
+		seen[g.ID] = true
 		g.ver = it.Ver
 		_, _ = s.expire(ctx, &g)
 		// The backfill: a grant made before its request named its app gets

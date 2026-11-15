@@ -454,7 +454,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 	err = s.KV.Put(r.Context(), store.Item{PK: pkSigned(hex.EncodeToString(sum[:])), SK: "-", Doc: []byte("{}"), TTL: ttl},
 		store.Cond{NotExists: true})
 	if errors.Is(err, store.ErrCondition) {
-		return Approval{}, apiError{http.StatusConflict, "this signed request was already made; sign a new one"}
+		return Approval{}, apiCoded{apiError{http.StatusConflict, "this signed request was already made; sign a new one"}, "signature_replayed", ""}
 	}
 	if err != nil {
 		return Approval{}, err
@@ -629,7 +629,7 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 	e := Enrolment{Tenant: tenant, Connector: sealed, EnrolledAt: s.now().UTC()}
 	err = putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(tenant), SK: skEnrolment, Ver: prevItem.Ver + 1}, e, cond)
 	if errors.Is(err, store.ErrCondition) {
-		writeErr(w, http.StatusConflict, "the enrolment changed while this one was checked; enrol again")
+		s.fail(w, r, apiCoded{apiError{http.StatusConflict, "the enrolment changed while this one was checked; enrol again"}, "enrolment_changed", ""})
 		return
 	}
 	if err != nil {

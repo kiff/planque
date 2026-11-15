@@ -1023,18 +1023,28 @@ func TestEnrolmentRace(t *testing.T) {
 	e.s.KV = barrierKV{KV: e.kv, wg: &wg, prefix: skEnrolment}
 	phones := []*fakes.Phone{e.device("dev_a"), e.device("dev_b")}
 	statuses := make([]int, 2)
+	answers := make([]map[string]any, 2)
 	var done sync.WaitGroup
 	for i, p := range phones {
 		done.Add(1)
 		go func() {
 			defer done.Done()
-			statuses[i], _ = e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
+			statuses[i], answers[i] = e.do("POST", "/v1/accounts/"+tenant+"/enrolment",
 				map[string]string{"connector_key": "k_connector"}, p, "")
 		}()
 	}
 	done.Wait()
 	if statuses[0]+statuses[1] != 201+409 {
 		t.Fatalf("statuses %v, want one 201 and one 409", statuses)
+	}
+	// The loser's 409 says it raced, never needs_key: an app tells them apart by code.
+	if lost := answers[0]; statuses[1] == 409 {
+		lost = answers[1]
+		if lost["code"] != "enrolment_changed" {
+			t.Fatalf("the race's 409: %v", lost)
+		}
+	} else if lost["code"] != "enrolment_changed" {
+		t.Fatalf("the race's 409: %v", lost)
 	}
 	var en Enrolment
 	if _, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en); err != nil || len(en.Connector) == 0 {

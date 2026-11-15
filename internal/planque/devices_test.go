@@ -418,3 +418,56 @@ func TestAnEnrolmentWithNoKeyAsksWhetherOneIsNeeded(t *testing.T) {
 		t.Fatal("needs_key changed the enrolment")
 	}
 }
+
+// An app pairs each listed grant with its raw entry by position, so a
+// repeated id would let one grant's digest stand for another's. planque
+// never lists one: a record whose id isn't its key's, or repeats one read,
+// lists nothing, with its own code, and the app signs nothing.
+func TestTheGrantsAreNeverListedWithARepeatedID(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, _ := e.request()
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants", nil, e.phone, ""); st != 200 || len(out["grants"].([]any)) != 1 {
+		t.Fatalf("one grant: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same record under a second key: two entries for one id.
+	if err := putDoc(context.Background(), e.kv, store.Item{PK: tenantPK(tenant), SK: skGrant("grt_zzzzsecond")}, g, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants?include=disconnected", nil, e.phone, "")
+	if st != 500 || out["code"] != "grant_repeated" || out["grants"] != nil {
+		t.Fatalf("a repeated id was listed: %d %v", st, out)
+	}
+}
+
+// Each 409 an app may meet when enrolling has its own code, so needs_key
+// is never mistaken for another: a request already made, or a race.
+func TestAReplayedSignatureHasItsOwnCode(t *testing.T) {
+	e := newEnv(t)
+	phone := e.device("dev_phone")
+	body, _ := json.Marshal(map[string]string{"connector_key": "k_connector"})
+	req, _ := http.NewRequest("POST", e.url+"/v1/accounts/"+tenant+"/enrolment", bytes.NewReader(body))
+	phone.Sign(req, tenant, body)
+	send := func() (int, map[string]any) {
+		again, _ := http.NewRequest("POST", req.URL.String(), bytes.NewReader(body))
+		again.Header = req.Header.Clone()
+		resp, err := http.DefaultClient.Do(again)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	if st, out := send(); st != 201 {
+		t.Fatalf("enrol: %d %v", st, out)
+	}
+	if st, out := send(); st != 409 || out["code"] != "signature_replayed" {
+		t.Fatalf("the same signed request again: %d %v", st, out)
+	}
+}
