@@ -369,3 +369,105 @@ func TestARoutineCallIsSignedInsideAnApprovalWindow(t *testing.T) {
 		t.Fatalf("disconnect, window required: %d", st)
 	}
 }
+
+// An app enrols first with no connector key: planque answers kept while
+// KIFF still takes the enrolled key, and needs_key otherwise, writing
+// nothing either way. The app mints a key only on needs_key, so no key is
+// made that nothing uses (KIFF lets no device revoke one). A request with
+// no key never creates an enrolment, and it's verified as the signed
+// routes are, against the enrolled connector.
+func TestAnEnrolmentWithNoKeyAsksWhetherOneIsNeeded(t *testing.T) {
+	e := newEnv(t)
+	iphone, ipad := e.device("dev_iphone"), e.device("dev_ipad")
+	enrol := func(p *fakes.Phone, body map[string]string) (int, map[string]any) {
+		return e.do("POST", "/v1/accounts/"+tenant+"/enrolment", body, p, "")
+	}
+	enrolment := func() (Enrolment, bool) {
+		var en Enrolment
+		_, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skEnrolment, &en)
+		return en, err == nil
+	}
+	// Nothing enrolled: needs_key, and nothing is written.
+	if st, out := enrol(iphone, map[string]string{}); st != 409 || out["code"] != "needs_key" {
+		t.Fatalf("no enrolment, no key: %d %v", st, out)
+	}
+	if _, ok := enrolment(); ok {
+		t.Fatal("a request with no key created an enrolment")
+	}
+	if st, out := enrol(iphone, map[string]string{"connector_key": "k_connector"}); st != 201 {
+		t.Fatalf("enrolling with a key: %d %v", st, out)
+	}
+	before, _ := enrolment()
+	// Enrolled, and KIFF takes its key: kept, nothing written, any device of the account.
+	if st, out := enrol(ipad, map[string]string{"connector_key": ""}); st != 200 || out["kept"] != true {
+		t.Fatalf("enrolled, no key: %d %v", st, out)
+	}
+	if after, _ := enrolment(); !after.EnrolledAt.Equal(before.EnrolledAt) || string(after.Connector) != string(before.Connector) {
+		t.Fatal("a kept enrolment with no key was rewritten")
+	}
+	// Signed as the signed routes are: a device KIFF doesn't know gets no answer about the account.
+	if st, out := enrol(fakes.NewPhone(), map[string]string{}); st == 200 || out["kept"] == true {
+		t.Fatalf("an unknown device: %d %v", st, out)
+	}
+	// The enrolled key revoked in KIFF: needs_key, and the enrolment is left as it was.
+	delete(e.kiff.Keys, "k_connector")
+	if st, out := enrol(ipad, map[string]string{}); st != 409 || out["code"] != "needs_key" {
+		t.Fatalf("the enrolled key revoked, no key: %d %v", st, out)
+	}
+	if after, _ := enrolment(); string(after.Connector) != string(before.Connector) {
+		t.Fatal("needs_key changed the enrolment")
+	}
+}
+
+// An app pairs each listed grant with its raw entry by position, so a
+// repeated id would let one grant's digest stand for another's. planque
+// never lists one: a record whose id isn't its key's, or repeats one read,
+// lists nothing, with its own code, and the app signs nothing.
+func TestTheGrantsAreNeverListedWithARepeatedID(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, _ := e.request()
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants", nil, e.phone, ""); st != 200 || len(out["grants"].([]any)) != 1 {
+		t.Fatalf("one grant: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same record under a second key: two entries for one id.
+	if err := putDoc(context.Background(), e.kv, store.Item{PK: tenantPK(tenant), SK: skGrant("grt_zzzzsecond")}, g, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants?include=disconnected", nil, e.phone, "")
+	if st != 500 || out["code"] != "grant_repeated" || out["grants"] != nil {
+		t.Fatalf("a repeated id was listed: %d %v", st, out)
+	}
+}
+
+// Each 409 an app may meet when enrolling has its own code, so needs_key
+// is never mistaken for another: a request already made, or a race.
+func TestAReplayedSignatureHasItsOwnCode(t *testing.T) {
+	e := newEnv(t)
+	phone := e.device("dev_phone")
+	body, _ := json.Marshal(map[string]string{"connector_key": "k_connector"})
+	req, _ := http.NewRequest("POST", e.url+"/v1/accounts/"+tenant+"/enrolment", bytes.NewReader(body))
+	phone.Sign(req, tenant, body)
+	send := func() (int, map[string]any) {
+		again, _ := http.NewRequest("POST", req.URL.String(), bytes.NewReader(body))
+		again.Header = req.Header.Clone()
+		resp, err := http.DefaultClient.Do(again)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	if st, out := send(); st != 201 {
+		t.Fatalf("enrol: %d %v", st, out)
+	}
+	if st, out := send(); st != 409 || out["code"] != "signature_replayed" {
+		t.Fatalf("the same signed request again: %d %v", st, out)
+	}
+}

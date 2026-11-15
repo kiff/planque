@@ -454,7 +454,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 	err = s.KV.Put(r.Context(), store.Item{PK: pkSigned(hex.EncodeToString(sum[:])), SK: "-", Doc: []byte("{}"), TTL: ttl},
 		store.Cond{NotExists: true})
 	if errors.Is(err, store.ErrCondition) {
-		return Approval{}, apiError{http.StatusConflict, "this signed request was already made; sign a new one"}
+		return Approval{}, apiCoded{apiError{http.StatusConflict, "this signed request was already made; sign a new one"}, "signature_replayed", ""}
 	}
 	if err != nil {
 		return Approval{}, err
@@ -587,6 +587,13 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if connector == "" {
+		// No key sent: an app asks first whether the account's enrolled key
+		// still stands, and mints one only when it doesn't, so no key is made
+		// that nothing uses (KIFF won't let a device revoke one).
+		s.enrolWithoutKey(w, r, tenant, body, prev, prevItem.Ver > 0)
+		return
+	}
 	// The connector key first: KIFF is asked with it whether the device signed.
 	me, err := s.KIFF.Me(r.Context(), connector)
 	if err != nil {
@@ -622,7 +629,7 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 	e := Enrolment{Tenant: tenant, Connector: sealed, EnrolledAt: s.now().UTC()}
 	err = putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(tenant), SK: skEnrolment, Ver: prevItem.Ver + 1}, e, cond)
 	if errors.Is(err, store.ErrCondition) {
-		writeErr(w, http.StatusConflict, "the enrolment changed while this one was checked; enrol again")
+		s.fail(w, r, apiCoded{apiError{http.StatusConflict, "the enrolment changed while this one was checked; enrol again"}, "enrolment_changed", ""})
 		return
 	}
 	if err != nil {
@@ -631,6 +638,35 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log().InfoContext(r.Context(), "device enrolled", slog.String("tenant", tenant), slog.String("device", a.Fingerprint))
 	writeJSON(w, http.StatusCreated, map[string]string{"tenant": tenant, "device": a.Fingerprint})
+}
+
+// enrolWithoutKey answers an enrolment that sends no connector key. It
+// never writes: with no enrolment, or one whose key KIFF no longer takes
+// as the account's connector, it answers 409 needs_key, and the app mints
+// a key and enrols again with it. Else the request is verified as the
+// signed routes are, against the enrolled connector, and it answers kept.
+func (s *Server) enrolWithoutKey(w http.ResponseWriter, r *http.Request, tenant string, body []byte, prev Enrolment, enrolled bool) {
+	needsKey := apiCoded{apiError{http.StatusConflict, "no connector key is enrolled that KIFF still takes; mint one and enrol again with it"}, "needs_key", ""}
+	if !enrolled {
+		s.fail(w, r, needsKey)
+		return
+	}
+	kept, err := s.connectorStands(r.Context(), tenant, prev)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !kept {
+		s.fail(w, r, needsKey)
+		return
+	}
+	a, err := s.verifySigned(r, tenant, capConnect, body, func() (string, error) { return s.openConnector(r.Context(), prev) })
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log().InfoContext(r.Context(), "enrolment kept", slog.String("tenant", tenant), slog.String("device", a.Fingerprint))
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "device": a.Fingerprint, "kept": true})
 }
 
 // agentKey checks the KIFF key an agent sends, for tenant.
