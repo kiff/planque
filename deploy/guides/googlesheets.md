@@ -40,7 +40,7 @@ So:
 | `GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW` | Finds the first row matching a value | read | the row and its number |
 | `GOOGLESHEETS_GET_SHEET_NAMES` | Lists the tabs of a spreadsheet | read | tab names |
 | `GOOGLESHEETS_GET_SPREADSHEET_INFO` | Reads a spreadsheet's title, tabs and settings | read | the spreadsheet id, tab ids |
-| `GOOGLESHEETS_SEARCH_SPREADSHEETS` | Finds spreadsheets by name or date | read, **needs Drive access** | spreadsheet ids and links |
+| `GOOGLESHEETS_SEARCH_SPREADSHEETS` | Finds spreadsheets by name or date; **needs Drive access** | read | spreadsheet ids and links |
 | `GOOGLESHEETS_CREATE_GOOGLE_SHEET1` | Creates a new spreadsheet | write | **the spreadsheet id and its link**: keep them |
 | `GOOGLESHEETS_VALUES_UPDATE` | Writes values into one range, replacing what's there | write | the range written and how many cells |
 | `GOOGLESHEETS_UPDATE_VALUES_BATCH` | Writes several ranges at once | write | the ranges written |
