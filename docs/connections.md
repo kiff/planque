@@ -169,7 +169,9 @@ schema doesn't name is refused, whatever `additionalProperties` says. An
 object that names its fields is stored closed (`additionalProperties: false`),
 even when it came open (`true`, or a schema such as the vendor's "a text per
 column"): closing only narrows it, and what is stored and signed says so. An
-open object that names no field is refused. The approval names the fields
+open object that names no field is refused, and so is an object with no schema
+or no `properties`: each is told to name the fields the taf writes, by the names
+the job or the owner gives (the column it marks), with an example. The approval names the fields
 (`values (Introduction)`). An object argument is never the amount or the
 resource, and it can't share its path with a pin or another argument inside
 it. Lifting each field as its own argument (`values.Introduction`, a string)

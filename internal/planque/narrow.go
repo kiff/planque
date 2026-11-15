@@ -754,6 +754,11 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 // lists one by one.
 const maxObjectFields = 50
 
+// objectNamesFields is what an object naming no field is told, with or
+// without a schema: which fields to name, and how (the Eval's intros declared
+// a sheet row's values as an object with no schema, then with no properties).
+const objectNamesFields = `an object names each field the taf writes, by the name the job or the owner gives it (the column it marks), in properties: {"type": "object", "properties": {"Status": {"type": "string"}}}`
+
 // objectWant is what an object argument's schema must be.
 const objectWant = `an object naming each field it may set, each a string, integer, number, boolean or array: {"type": "object", "properties": {"Status": {"type": "string"}}}`
 
@@ -770,8 +775,11 @@ func checkObject(raw json.RawMessage) string {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Additional json.RawMessage            `json:"additionalProperties"`
 	}
+	if len(raw) == 0 {
+		return "it has no schema: " + objectNamesFields
+	}
 	if json.Unmarshal(raw, &open) == nil && len(open.Properties) == 0 && len(open.Additional) > 0 && string(open.Additional) != "false" {
-		return "an object names the fields the taf may set, in properties (each column it writes, like Status): an open object can't be checked"
+		return "an open object can't be checked: " + objectNamesFields
 	}
 	var s shape
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -791,7 +799,7 @@ func checkObject(raw json.RawMessage) string {
 		return "an object takes type, properties, required and description only"
 	}
 	if len(s.Properties) == 0 {
-		return "an object names its fields"
+		return objectNamesFields
 	}
 	if len(s.Properties) > maxObjectFields {
 		return fmt.Sprintf("an object names at most %d fields", maxObjectFields)

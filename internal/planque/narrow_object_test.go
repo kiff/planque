@@ -75,11 +75,11 @@ func TestAnObjectArgumentsSchemaIsChecked(t *testing.T) {
 		schema string
 		want   string
 	}{
-		"open, no fields":    {`{"type":"object","additionalProperties":{"type":"string"}}`, "names the fields the taf may set"},
-		"open, fields empty": {`{"type":"object","properties":{},"additionalProperties":true}`, "names the fields the taf may set"},
-		"no fields":          {`{"type":"object","properties":{}}`, "names its fields"},
-		"fields unnamed":     {`{"type":"object"}`, "names its fields"},
-		"no schema":          {``, "JSON Schema of"},
+		"open, no fields":    {`{"type":"object","additionalProperties":{"type":"string"}}`, "open object can't be checked: an object names each field the taf writes"},
+		"open, fields empty": {`{"type":"object","properties":{},"additionalProperties":true}`, "open object can't be checked: an object names each field the taf writes"},
+		"no fields":          {`{"type":"object","properties":{}}`, "an object names each field the taf writes"},
+		"fields unnamed":     {`{"type":"object"}`, `in properties: {"type": "object", "properties": {"Status"`},
+		"no schema":          {``, "it has no schema: an object names each field the taf writes"},
 		"not an object":      {`{"type":"array","items":{"type":"string"}}`, "is an object"},
 		"a nested object":    {`{"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":"string"}}}}}`, "never an object"},
 		"a null field":       {`{"type":"object","properties":{"a":{"type":"null"}}}`, "type null isn't one"},
