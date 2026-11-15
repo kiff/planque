@@ -165,14 +165,19 @@ which is how the disclosure line finds the text. An object names at most 50
 fields, and takes `type`, `properties`, `required` and `description` only
 (no `enum`, `items` or lengths on the object itself). The
 same keywords are taken, and the same annotations dropped. A field the
-schema doesn't name is refused, whether `additionalProperties` is missing or
-`false`. `true`, or a schema there, is refused. The approval names the fields
+schema doesn't name is refused, whatever `additionalProperties` says. An
+object that names its fields is stored closed (`additionalProperties: false`),
+even when it came open (`true`, or a schema such as the vendor's "a text per
+column"): closing only narrows it, and what is stored and signed says so. An
+open object that names no field is refused. The approval names the fields
 (`values (Introduction)`). An object argument is never the amount or the
 resource, and it can't share its path with a pin or another argument inside
 it. Lifting each field as its own argument (`values.Introduction`, a string)
 still works. An `argument_type` refusal shows both forms, so a retry works
 whichever the taf picks. KIFF never gets an argument's schema: planque checks
-each call against it.
+each call against it. A refusal of an argument's type or schema carries its
+`shape`, the declaration by keys and types alone (field names, an enum's
+count, never a value or a description), and planque logs it.
 
 **The vendor's allowed values** (`narrow.go`, `schemaOver`): a narrowed
 string, number or boolean argument keeps the `enum` the vendor's description

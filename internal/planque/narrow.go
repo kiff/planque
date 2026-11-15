@@ -60,7 +60,11 @@ func refTool(t ToolRequest) string { return cmp.Or(t.Name, t.Tool) }
 func checkNarrowing(t ToolRequest) *toolRefusal {
 	tool := refTool(t)
 	arg := func(code, name, want, msg string) *toolRefusal {
-		return &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
+		r := &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
+		if code == refArgumentType || code == refArgumentSchema {
+			r.Shape = argShape(t.Arguments[name])
+		}
+		return r
 	}
 	// A broad write narrowed to an operation that moves money or closes a bill for good (voiding,
 	// paying, writing off, deleting or finalizing a bill or a credit):
@@ -553,9 +557,37 @@ func normaliseArguments(t ToolRequest) {
 	for name, a := range t.Arguments {
 		if (a.Type == "array" || a.Type == "object") && len(a.Schema) > 0 {
 			a.Schema = normaliseSchema(a.Schema)
+			if a.Type == "object" {
+				a.Schema = closedObject(a.Schema)
+			}
 			t.Arguments[name] = a
 		}
 	}
+}
+
+// closedObject is an object argument's schema closed: additionalProperties
+// false, whatever it was (true, a schema such as a sheet's "a text per
+// column", or none), once properties names at least one field. Closing only
+// narrows it: the taf sets only the fields named, as planque checks anyway,
+// and what is stored and signed says so. A taf that copied the vendor's open
+// object (the Eval's intros) connects on its first try. An object naming no
+// field is left as it came, for checkObject to refuse.
+func closedObject(raw json.RawMessage) json.RawMessage {
+	var m map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if dec.Decode(&m) != nil || m == nil || m["type"] != "object" {
+		return raw
+	}
+	if props, ok := m["properties"].(map[string]any); !ok || len(props) == 0 || m["additionalProperties"] == false {
+		return raw
+	}
+	m["additionalProperties"] = false
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // normaliseSchema drops a schema's annotations, at every level, and reads an
@@ -731,6 +763,16 @@ const objectWant = `an object naming each field it may set, each a string, integ
 // Never an object in it: a nested object's fields are arguments of their own,
 // at their paths.
 func checkObject(raw json.RawMessage) string {
+	// An open object naming no field (the vendor's "a text per column",
+	// copied): closedObject closes one that names its fields, so say what to
+	// name rather than the keywords.
+	var open struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Additional json.RawMessage            `json:"additionalProperties"`
+	}
+	if json.Unmarshal(raw, &open) == nil && len(open.Properties) == 0 && len(open.Additional) > 0 && string(open.Additional) != "false" {
+		return "an object names the fields the taf may set, in properties (each column it writes, like Status): an open object can't be checked"
+	}
 	var s shape
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -938,4 +980,93 @@ func oneOfWithoutKey(kind string, tools []ToolRequest) string {
 		}
 	}
 	return ""
+}
+
+// maxShape bounds a refused argument's shape in the log.
+const maxShape = 600
+
+// argShape is an argument's declaration by its keys and types alone: its type,
+// and its schema's keys, with each field's name and type. Never a value: an
+// enum is its count, a description and a const are left out, so nothing the
+// taf wrote in them is logged.
+func argShape(a Argument) string {
+	s := "type=" + a.Type
+	if len(a.Schema) > 0 {
+		var v any
+		if json.Unmarshal(a.Schema, &v) != nil {
+			s += " schema=(not JSON)"
+		} else {
+			s += " schema=" + shapeOf(v, 0)
+		}
+	}
+	if r := []rune(s); len(r) > maxShape {
+		s = string(r[:maxShape-1]) + "…"
+	}
+	return s
+}
+
+func shapeOf(v any, depth int) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return kindOf(v)
+	}
+	if depth > maxShapeDepth+2 {
+		return "{…}"
+	}
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		switch k {
+		case "description", "title", "examples", "example", "default", "const", "pattern", "$comment":
+			parts = append(parts, k)
+		case "type":
+			if t, ok := m[k].(string); ok {
+				parts = append(parts, "type:"+t)
+			} else {
+				parts = append(parts, "type:"+kindOf(m[k]))
+			}
+		case "enum", "required":
+			if l, ok := m[k].([]any); ok {
+				parts = append(parts, fmt.Sprintf("%s:%d", k, len(l)))
+			} else {
+				parts = append(parts, k+":"+kindOf(m[k]))
+			}
+		case "properties":
+			props, ok := m[k].(map[string]any)
+			if !ok {
+				parts = append(parts, "properties:"+kindOf(m[k]))
+				continue
+			}
+			var fs []string
+			for _, name := range slices.Sorted(maps.Keys(props)) {
+				fs = append(fs, name+":"+shapeOf(props[name], depth+1))
+			}
+			parts = append(parts, "properties:{"+strings.Join(fs, ",")+"}")
+		default:
+			if _, isMap := m[k].(map[string]any); isMap {
+				parts = append(parts, k+":"+shapeOf(m[k], depth+1))
+			} else {
+				parts = append(parts, k+":"+kindOf(m[k]))
+			}
+		}
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// kindOf is a JSON value's kind, never the value.
+func kindOf(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	case float64, json.Number:
+		return "number"
+	case []any:
+		return "list"
+	case map[string]any:
+		return "object"
+	}
+	return "?"
 }

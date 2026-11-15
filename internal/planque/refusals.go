@@ -23,6 +23,7 @@ func (s *Server) refusalsLogged(h http.HandlerFunc) http.HandlerFunc {
 		var got struct {
 			Error string `json:"error"`
 			Code  string `json:"code"`
+			Shape string `json:"shape"`
 		}
 		_ = json.Unmarshal(rec.body.Bytes(), &got)
 		attrs := []any{slog.String("path", loggedPath(r.URL.Path)), slog.Int("status", rec.status), slog.String("error", got.Error)}
@@ -31,6 +32,9 @@ func (s *Server) refusalsLogged(h http.HandlerFunc) http.HandlerFunc {
 		}
 		if got.Code != "" {
 			attrs = append(attrs, slog.String("code", got.Code))
+		}
+		if got.Shape != "" {
+			attrs = append(attrs, slog.String("shape", got.Shape))
 		}
 		s.log().WarnContext(r.Context(), "connection refused", attrs...)
 	}
