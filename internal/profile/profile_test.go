@@ -13,7 +13,7 @@ import (
 // These are KIFF's synthetic kiff.profile.v1 / kiff.words.v1 vectors.
 func TestContractVectors(t *testing.T) {
 	files, err := filepath.Glob("testdata/*.expected.json")
-	if err != nil || len(files) != 5 {
+	if err != nil || len(files) != 6 {
 		t.Fatal("missing contract vectors")
 	}
 	for _, file := range files {
@@ -263,5 +263,23 @@ func TestAClaimAndAClaimRelated(t *testing.T) {
 		if err := with(c.tool, c.changes); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// outside marks a draft that reaches people outside once the owner sends it (a draft email or reply), as KIFF's
+// profile takes it; on any other effect but sends it's still refused.
+func TestOutsideMarksASendOrADraftOnly(t *testing.T) {
+	prof := func(effect string) []byte {
+		return []byte(`{"v":"kiff.profile.v1","vendor":"Gmail","transport":"rest","pin":{"kind":"base_path","value":"/gmail/v1"},` +
+			`"source":"catalog","catalog_entry":"google-gmail@2","test_proven":false,"operations":[{"tool":"drafts_create","title":"Draft a reply",` +
+			`"kind":"write","effect":"` + effect + `","shape":"single","resource":{"arg":"thread_id","noun":"thread","outside":true}}]}`)
+	}
+	for _, effect := range []string{"none_until_approved", "sends"} {
+		if _, err := Parse(prof(effect)); err != nil {
+			t.Errorf("%s with outside: %v", effect, err)
+		}
+	}
+	if _, err := Parse(prof("writes")); err == nil || !strings.Contains(err.Error(), "resource.outside is only for a sends operation, or a draft") {
+		t.Errorf("writes with outside: %v", err)
 	}
 }
