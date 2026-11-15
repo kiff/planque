@@ -21,11 +21,11 @@ and Google's Docs API reference.
 |---|---|---|---|
 | `GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT` | Reads a document as plain text | read | |
 | `GOOGLEDOCS_GET_DOCUMENT_BY_ID` | Reads a document with its structure | read | its revision |
-| `GOOGLEDOCS_SEARCH_DOCUMENTS` | Finds documents by name or date | read, **needs Drive access** | document ids |
-| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF | read, **needs Drive access** | |
+| `GOOGLEDOCS_SEARCH_DOCUMENTS` | Finds documents by name or date; **needs Drive access** | read | document ids |
+| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF; **needs Drive access** | read | |
 | `GOOGLEDOCS_CREATE_DOCUMENT` | Creates a document with a title and text | write | **the document's id** |
 | `GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN` | Creates a document from formatted text | write | **the document's id** |
-| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template | write, **needs Drive access** | the copy's id |
+| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template; **needs Drive access** | write | the copy's id |
 | `GOOGLEDOCS_REPLACE_ALL_TEXT` | Replaces every match of a phrase | write | |
 | `GOOGLEDOCS_INSERT_TEXT_ACTION` | Inserts text at a place in the document | write | |
 | `GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN` | Replaces a document's whole content | write | |

@@ -24,7 +24,7 @@ YouTube Analytics API documentation.
 | `YOUTUBE_LIST_COMMENT_THREADS2` | Reads comments on a video or the channel | read | comment ids |
 | `YOUTUBE_CREATE_COMMENT_REPLY` | Replies to a comment, as the channel | write, public | the reply's id |
 | `YOUTUBE_LOAD_CAPTIONS` | Reads a video's captions | read | the caption text |
-| `YOUTUBE_SEARCH_YOU_TUBE` | Searches public videos | read, **rationed** | video ids |
+| `YOUTUBE_SEARCH_YOU_TUBE` | Searches public videos; **rationed** | read | video ids |
 
 **Replies are public and signed by the channel.** Each is shown to the owner
 first, or bounded by the Card.

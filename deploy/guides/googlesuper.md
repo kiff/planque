@@ -43,7 +43,8 @@ The same as each app's guide, under this app's names. For example:
 | `GOOGLESUPER_EVENTS_LIST` / `GOOGLESUPER_FIND_FREE_SLOTS` | Calendar's reads | read |
 | `GOOGLESUPER_CREATE_EVENT` | Calendar's create | write |
 | `GOOGLESUPER_VALUES_GET` | Sheets' read | read |
-| `GOOGLESUPER_FIND_FILE` / `GOOGLESUPER_UPLOAD_FILE` | Drive's find and upload | read / write |
+| `GOOGLESUPER_FIND_FILE` | Drive's find | read |
+| `GOOGLESUPER_UPLOAD_FILE` | Drive's upload | write |
 | `GOOGLESUPER_CREATE_DOCUMENT` | Docs' create | write |
 | `GOOGLESUPER_INSERT_TASK` | Tasks' add | write |
 
