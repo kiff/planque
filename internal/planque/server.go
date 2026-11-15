@@ -587,6 +587,13 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if connector == "" {
+		// No key sent: an app asks first whether the account's enrolled key
+		// still stands, and mints one only when it doesn't, so no key is made
+		// that nothing uses (KIFF won't let a device revoke one).
+		s.enrolWithoutKey(w, r, tenant, body, prev, prevItem.Ver > 0)
+		return
+	}
 	// The connector key first: KIFF is asked with it whether the device signed.
 	me, err := s.KIFF.Me(r.Context(), connector)
 	if err != nil {
@@ -631,6 +638,35 @@ func (s *Server) enrol(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log().InfoContext(r.Context(), "device enrolled", slog.String("tenant", tenant), slog.String("device", a.Fingerprint))
 	writeJSON(w, http.StatusCreated, map[string]string{"tenant": tenant, "device": a.Fingerprint})
+}
+
+// enrolWithoutKey answers an enrolment that sends no connector key. It
+// never writes: with no enrolment, or one whose key KIFF no longer takes
+// as the account's connector, it answers 409 needs_key, and the app mints
+// a key and enrols again with it. Else the request is verified as the
+// signed routes are, against the enrolled connector, and it answers kept.
+func (s *Server) enrolWithoutKey(w http.ResponseWriter, r *http.Request, tenant string, body []byte, prev Enrolment, enrolled bool) {
+	needsKey := apiCoded{apiError{http.StatusConflict, "no connector key is enrolled that KIFF still takes; mint one and enrol again with it"}, "needs_key", ""}
+	if !enrolled {
+		s.fail(w, r, needsKey)
+		return
+	}
+	kept, err := s.connectorStands(r.Context(), tenant, prev)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !kept {
+		s.fail(w, r, needsKey)
+		return
+	}
+	a, err := s.verifySigned(r, tenant, capConnect, body, func() (string, error) { return s.openConnector(r.Context(), prev) })
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.log().InfoContext(r.Context(), "enrolment kept", slog.String("tenant", tenant), slog.String("device", a.Fingerprint))
+	writeJSON(w, http.StatusOK, map[string]any{"tenant": tenant, "device": a.Fingerprint, "kept": true})
 }
 
 // agentKey checks the KIFF key an agent sends, for tenant.
