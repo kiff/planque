@@ -158,7 +158,12 @@ row's update, whose `values` is a text per column):
 `{"path": "values", "type": "object", "schema": {"type": "object", "properties": {"Introduction": {"type": "string"}}}}`.
 Each field is a plain value or an array, as an array argument's schema is.
 It is never another object (name a nested object's fields as arguments of
-their own, at their paths), never `null`, a type list or alternatives. The
+their own, at their paths), never `null`, a type list or alternatives. A
+field's name is 1 to 64 characters with no dot (spaces are fine: "First
+name"), since a field's path is the argument's and its name split on dots,
+which is how the disclosure line finds the text. An object names at most 50
+fields, and takes `type`, `properties`, `required` and `description` only
+(no `enum`, `items` or lengths on the object itself). The
 same keywords are taken, and the same annotations dropped. A field the
 schema doesn't name is refused, whether `additionalProperties` is missing or
 `false`. `true`, or a schema there, is refused. The approval names the fields

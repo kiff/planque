@@ -2,6 +2,7 @@ package planque
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -88,6 +89,13 @@ func TestAnObjectArgumentsSchemaIsChecked(t *testing.T) {
 		"an array unchecked": {`{"type":"object","properties":{"a":{"type":"array"}}}`, "a: "},
 		"required not named": {`{"type":"object","properties":{"a":{"type":"string"}},"required":["b"]}`, "required field b"},
 		"a keyword":          {`{"type":"object","properties":{"a":{"type":"string","pattern":"x"}}}`, "JSON Schema of"},
+		"a dot in a name":    {`{"type":"object","properties":{"A.B":{"type":"string"}}}`, "no dot"},
+		"an empty name":      {`{"type":"object","properties":{"":{"type":"string"}}}`, "no dot"},
+		"a name too long":    {`{"type":"object","properties":{"` + strings.Repeat("a", 65) + `":{"type":"string"}}}`, "1 to 64"},
+		"an enum on it":      {`{"type":"object","properties":{"a":{"type":"string"}},"enum":["x"]}`, "description only"},
+		"items on it":        {`{"type":"object","properties":{"a":{"type":"string"}},"items":{"type":"string"}}`, "description only"},
+		"a length on it":     {`{"type":"object","properties":{"a":{"type":"string"}},"maxItems":2}`, "description only"},
+		"too many fields":    {manyFields(51), "at most 50 fields"},
 	} {
 		tool := ToolRequest{Tool: "updateRow", Arguments: map[string]Argument{"values": {Path: "values", Type: "object", Schema: json.RawMessage(c.schema)}}}
 		normaliseArguments(tool)
@@ -98,6 +106,13 @@ func TestAnObjectArgumentsSchemaIsChecked(t *testing.T) {
 	}
 	// A field may be an array with its own reviewed schema, and an optional
 	// field written as anyOf it and null is the field alone.
+	// A sheet's column with a space in its name is a field; 50 fields are taken.
+	for _, schema := range []string{`{"type":"object","properties":{"First name":{"type":"string"}}}`, manyFields(50)} {
+		tool := ToolRequest{Tool: "updateRow", Arguments: map[string]Argument{"values": {Path: "values", Type: "object", Schema: json.RawMessage(schema)}}}
+		if msg := checkNarrowing(tool); msg != nil {
+			t.Fatal(msg)
+		}
+	}
 	ok := json.RawMessage(`{"type":"object","properties":{"Tags":{"type":"array","items":{"type":"string"}},"Note":{"anyOf":[{"type":"string"},{"type":"null"}]},"Count":{"type":"integer"},"Done":{"type":"boolean"}}}`)
 	tool := ToolRequest{Tool: "updateRow", Arguments: map[string]Argument{"values": {Path: "values", Type: "object", Schema: ok}}}
 	normaliseArguments(tool)
@@ -187,4 +202,13 @@ func TestAnObjectArgumentFitsTheAPIsObject(t *testing.T) {
 	if msg := apiToolsCheck(snap, []ToolRequest{tool}); msg == nil || msg.Code != refArgumentType {
 		t.Fatalf("a string for the API's object: %v", msg)
 	}
+}
+
+// manyFields is an object schema naming n string fields.
+func manyFields(n int) string {
+	fields := make([]string, n)
+	for i := range fields {
+		fields[i] = fmt.Sprintf(`"f%d":{"type":"string"}`, i)
+	}
+	return `{"type":"object","properties":{` + strings.Join(fields, ",") + `}}`
 }

@@ -718,6 +718,10 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 	return ""
 }
 
+// maxObjectFields bounds an object argument's fields, which its approval
+// lists one by one.
+const maxObjectFields = 50
+
 // objectWant is what an object argument's schema must be.
 const objectWant = `an object naming each field it may set, each a string, integer, number, boolean or array: {"type": "object", "properties": {"Status": {"type": "string"}}}`
 
@@ -739,8 +743,16 @@ func checkObject(raw json.RawMessage) string {
 	if s.AdditionalProperties != nil && *s.AdditionalProperties {
 		return "an object takes only the fields it names"
 	}
+	// What fits checks of an object: the list and length keywords are a
+	// field's, never shown on the object where nothing would apply them.
+	if len(s.Enum) > 0 || len(s.Items) > 0 || s.MaxLength != nil || s.MaxItems != nil {
+		return "an object takes type, properties, required and description only"
+	}
 	if len(s.Properties) == 0 {
 		return "an object names its fields"
+	}
+	if len(s.Properties) > maxObjectFields {
+		return fmt.Sprintf("an object names at most %d fields", maxObjectFields)
 	}
 	for _, r := range s.Required {
 		if _, ok := s.Properties[r]; !ok {
@@ -748,6 +760,13 @@ func checkObject(raw json.RawMessage) string {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		// A field's path is the argument's and its name, split on dots: by
+		// the disclosure line's placing, among others. A name with a dot, or
+		// none, would point somewhere else, and the line would find no text.
+		// Spaces stay: a sheet's column is "First name".
+		if name == "" || strings.Contains(name, ".") || len(name) > 64 {
+			return fmt.Sprintf("field %q: a field's name is 1 to 64 characters, with no dot", name)
+		}
 		var f shape
 		_ = json.Unmarshal(s.Properties[name], &f)
 		var why string
