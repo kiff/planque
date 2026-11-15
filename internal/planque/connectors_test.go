@@ -1429,9 +1429,10 @@ func TestConnectorCallbackAnswersThePersonWithAPage(t *testing.T) {
 	if g.SignedIn || g.Status != StatusApproved {
 		t.Fatalf("a cancelled sign-in moved the grant: %s signed=%v", g.Status, g.SignedIn)
 	}
-	// The link worked once: the same callback again is a used link, as a page.
+	// The link worked once: the same callback again is a used link, as a page,
+	// and the sign-in never went through, so it starts again from tafs.
 	st, ct, body = page(u.RequestURI(), "")
-	isPage("used", st, ct, body, "This sign-in link is unknown, expired or already used.")
+	isPage("used", st, ct, body, "This sign-in link was already used. Go back to tafs and start the sign-in again from there.")
 }
 
 // The sign-in link comes with the app's name as people name it, so the app's

@@ -19,11 +19,14 @@ type Lines struct {
 	NotConnected     string
 	NotSignedInAgain string
 	SignInView       string
+	SignedIn         string
 
 	// The result of a vendor's sign-in.
 	MissingState          string
 	LinkUnknown           string
 	LinkUsed              string
+	SignInWentThroughF    string // the app's name
+	LinkUsedStartAgain    string
 	NotCompletedF         string // the vendor's host
 	NotCompletedRenewF    string // the vendor's host
 	OtherServer           string
@@ -62,6 +65,7 @@ type Lines struct {
 }
 
 func (l Lines) NotCompleted(host string) string      { return fmt.Sprintf(l.NotCompletedF, host) }
+func (l Lines) SignInWentThrough(app string) string  { return fmt.Sprintf(l.SignInWentThroughF, app) }
 func (l Lines) NotCompletedRenew(host string) string { return fmt.Sprintf(l.NotCompletedRenewF, host) }
 func (l Lines) NotFinished(host string) string       { return fmt.Sprintf(l.NotFinishedF, host) }
 func (l Lines) NotFinishedRenew(host string) string  { return fmt.Sprintf(l.NotFinishedRenewF, host) }
