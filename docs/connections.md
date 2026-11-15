@@ -152,6 +152,28 @@ be checked, so it is refused (`argument_schema`), never dropped. The agent
 sees that schema. A call whose value has a field the schema doesn't name, the wrong kind
 of value, a value outside its list, or a missing required field is refused.
 
+**Object arguments** (`narrow.go`, `checkObject`): an argument may also be
+`"type": "object"` with a `schema` naming each field the taf may set (a sheet
+row's update, whose `values` is a text per column):
+`{"path": "values", "type": "object", "schema": {"type": "object", "properties": {"Introduction": {"type": "string"}}}}`.
+Each field is a plain value or an array, as an array argument's schema is.
+It is never another object (name a nested object's fields as arguments of
+their own, at their paths), never `null`, a type list or alternatives. A
+field's name is 1 to 64 characters with no dot (spaces are fine: "First
+name"), since a field's path is the argument's and its name split on dots,
+which is how the disclosure line finds the text. An object names at most 50
+fields, and takes `type`, `properties`, `required` and `description` only
+(no `enum`, `items` or lengths on the object itself). The
+same keywords are taken, and the same annotations dropped. A field the
+schema doesn't name is refused, whether `additionalProperties` is missing or
+`false`. `true`, or a schema there, is refused. The approval names the fields
+(`values (Introduction)`). An object argument is never the amount or the
+resource, and it can't share its path with a pin or another argument inside
+it. Lifting each field as its own argument (`values.Introduction`, a string)
+still works. An `argument_type` refusal shows both forms, so a retry works
+whichever the taf picks. KIFF never gets an argument's schema: planque checks
+each call against it.
+
 **The vendor's allowed values** (`narrow.go`, `schemaOver`): a narrowed
 string, number or boolean argument keeps the `enum` the vendor's description
 gives at its path (at most 50 values, each of the argument's type), so the

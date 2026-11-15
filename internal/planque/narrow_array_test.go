@@ -99,7 +99,7 @@ func TestAnArrayArgumentsSchemaIsChecked(t *testing.T) {
 		"an object unnamed":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object"}}`)}, "names its fields"},
 		"a keyword unchecked":  {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string","pattern":"x"}}}}`)}, "JSON Schema of"},
 		"required not a field": {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}},"required":["b"]}}`)}, "required field b"},
-		"a scalar with schema": {Argument{Path: "n", Type: "string", Schema: lines}, "only an array argument"},
+		"a scalar with schema": {Argument{Path: "n", Type: "string", Schema: lines}, "only an array or object argument"},
 	} {
 		tool := ToolRequest{Tool: "create", Fixed: map[string]json.RawMessage{"status": json.RawMessage(`"draft"`)}, Arguments: map[string]Argument{"items": c.arg}}
 		if msg := checkNarrowing(tool); msg == nil || !strings.Contains(msg.Msg, c.want) {
