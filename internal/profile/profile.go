@@ -207,7 +207,10 @@ type Resource struct {
 	// account's domain, a class of its own in the words. For a draft
 	// (none_until_approved), what it drafts reaches people outside once the
 	// owner sends it, such as a draft email or reply.
-	Outside bool `json:"outside,omitempty"`
+	// A pointer, so false is kept as said: a draft that stays inside says
+	// outside: false and opts out of the disclosure, which a draft carries by
+	// default; not said (nil) is not the same as false.
+	Outside *bool `json:"outside,omitempty"`
 }
 
 // Amount is where a money operation's amount is and what it means.
@@ -428,8 +431,8 @@ func (p Profile) validateOp(o Operation, byTool map[string]Operation) error {
 		if strings.TrimSpace(r.Noun) == "" || len(r.Noun) > 40 {
 			return errors.New("resource.noun says what it is, 1 to 40 characters")
 		}
-		if r.Outside && o.Effect != EffectSends && o.Effect != EffectDraft {
-			return errors.New("resource.outside is only for a sends operation, or a draft (none_until_approved) that reaches people outside once sent")
+		if r.Outside != nil && o.Effect != EffectSends && o.Effect != EffectDraft {
+			return errors.New("resource.outside is only for a sends operation, or a draft (none_until_approved), true or false")
 		}
 	}
 	if o.Money() != (o.Amount != nil) {
