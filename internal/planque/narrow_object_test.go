@@ -75,8 +75,8 @@ func TestAnObjectArgumentsSchemaIsChecked(t *testing.T) {
 		schema string
 		want   string
 	}{
-		"open fields":        {`{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":true}`, "only the fields it names"},
-		"open to a schema":   {`{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":{"type":"string"}}`, "JSON Schema of"},
+		"open, no fields":    {`{"type":"object","additionalProperties":{"type":"string"}}`, "names the fields the taf may set"},
+		"open, fields empty": {`{"type":"object","properties":{},"additionalProperties":true}`, "names the fields the taf may set"},
 		"no fields":          {`{"type":"object","properties":{}}`, "names its fields"},
 		"fields unnamed":     {`{"type":"object"}`, "names its fields"},
 		"no schema":          {``, "JSON Schema of"},
@@ -211,4 +211,57 @@ func manyFields(n int) string {
 		fields[i] = fmt.Sprintf(`"f%d":{"type":"string"}`, i)
 	}
 	return `{"type":"object","properties":{` + strings.Join(fields, ",") + `}}`
+}
+
+// An object that names its fields but is left open (additionalProperties true,
+// or a schema such as the sheet's "a text per column", which a taf copies from
+// the vendor: the Eval's intros) is stored closed, never refused. Closing only
+// narrows it: what is stored, shown and signed says additionalProperties
+// false, and a call with a field it doesn't name is still refused.
+func TestAnOpenObjectNamingItsFieldsIsStoredClosed(t *testing.T) {
+	for name, schema := range map[string]string{
+		"open to a schema": `{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":{"type":"string"}}`,
+		"open":             `{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":true}`,
+		"left out":         `{"type":"object","properties":{"status":{"type":"string"}}}`,
+		"closed":           `{"type":"object","properties":{"status":{"type":"string"}},"additionalProperties":false}`,
+	} {
+		tool := ToolRequest{Tool: "updateRow", Arguments: map[string]Argument{"values": {Path: "values", Type: "object", Required: true, Schema: json.RawMessage(schema)}}}
+		normaliseArguments(tool)
+		if msg := checkNarrowing(tool); msg != nil {
+			t.Fatalf("%s: %v", name, msg)
+		}
+		var stored map[string]any
+		_ = json.Unmarshal(tool.Arguments["values"].Schema, &stored)
+		if stored["additionalProperties"] != false {
+			t.Errorf("%s: stored as %s", name, tool.Arguments["values"].Schema)
+		}
+		if _, err := tool.vendorArgs(map[string]any{"values": map[string]any{"status": "done", "Email": "x@example.com"}}); err == nil {
+			t.Errorf("%s: a field it doesn't name was taken", name)
+		}
+		if _, err := tool.vendorArgs(map[string]any{"values": map[string]any{"status": "done"}}); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A refused argument's declaration is logged by its keys and types alone: its
+// fields' names and types, an enum's count, never a description, a value or an
+// enum's values.
+func TestARefusedArgumentsShapeHasNoValues(t *testing.T) {
+	schema := `{"type":"object","description":"SECRET-DESC","properties":{"status":{"type":"string","enum":["SECRET-ENUM"],"pattern":"SECRET-PAT"}}}`
+	tool := ToolRequest{Tool: "updateRow", Arguments: map[string]Argument{"values": {Path: "values", Type: "object", Schema: json.RawMessage(schema)}}}
+	normaliseArguments(tool)
+	msg := checkNarrowing(tool)
+	if msg == nil || msg.Code != refArgumentSchema {
+		t.Fatalf("%v", msg)
+	}
+	if !strings.Contains(msg.Shape, "type=object") || !strings.Contains(msg.Shape, "status:{enum:1,pattern,type:string}") {
+		t.Fatalf("shape %q", msg.Shape)
+	}
+	if strings.Contains(msg.Shape, "SECRET") {
+		t.Fatalf("a value is in the shape: %q", msg.Shape)
+	}
+	if r := checkNarrowing(ToolRequest{Tool: "x", Arguments: map[string]Argument{"n": {Path: "n", Type: "map"}}}); r == nil || r.Shape != "type=map" {
+		t.Fatalf("a type refusal's shape: %+v", r)
+	}
 }

@@ -15,6 +15,10 @@ type toolRefusal struct {
 	Tool  string `json:"tool,omitempty"`
 	Field string `json:"field,omitempty"`
 	Want  string `json:"want,omitempty"`
+	// Shape is a refused argument's declaration by its keys and types alone
+	// (argShape), for planque's log: what was refused can be read without
+	// the request's body.
+	Shape string `json:"shape,omitempty"`
 }
 
 func (r *toolRefusal) Error() string { return r.Msg }
