@@ -1964,11 +1964,16 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p pendingSignIn
-	if !ok || json.Unmarshal(it.Doc, &p) != nil || s.now().After(p.Expires) {
+	if !ok {
+		s.spentLink(w, r, state)
+		return
+	}
+	if json.Unmarshal(it.Doc, &p) != nil || s.now().After(p.Expires) {
 		lang, l := speech(r, nil)
 		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
+	s.keepUsedLink(r.Context(), state, p)
 	g, err := s.loadGrant(r.Context(), p.Tenant, p.Grant)
 	if err != nil {
 		s.fail(w, r, err)

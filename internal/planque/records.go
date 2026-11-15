@@ -3,6 +3,8 @@ package planque
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -421,6 +423,12 @@ type Renewal struct {
 }
 
 // pendingSignIn is one vendor sign-in in progress, keyed by its state.
+// usedSignIn is the grant a used sign-in link was for (pkSignInUsed).
+type usedSignIn struct {
+	Tenant string `json:"tenant"`
+	Grant  string `json:"grant"`
+}
+
 type pendingSignIn struct {
 	Tenant   string    `json:"tenant"`
 	Grant    string    `json:"grant"`
@@ -475,6 +483,15 @@ func skSnapshot(id string, n int) string {
 }
 func skOp(id, op string) string    { return "OP#" + id + "#" + op }
 func pkSignIn(state string) string { return "SIGNIN#" + state }
+
+// pkSignInUsed marks a sign-in link that came back once, until the link's
+// own deadline: a second visit says the sign-in already went through, or
+// that the link was used, never that it's unknown (spentLink). It keys on
+// the state's hash: the state itself is never kept once used.
+func pkSignInUsed(state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return "SIGNINUSED#" + hex.EncodeToString(sum[:])
+}
 func pkClient(issuer, redirect, name string) string {
 	return "CLIENT#" + issuer + "#" + redirect + "#" + name
 }

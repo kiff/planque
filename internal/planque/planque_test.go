@@ -401,9 +401,10 @@ func TestCallbackChecks(t *testing.T) {
 	if r3.StatusCode != 400 {
 		t.Fatalf("other issuer: %d", r3.StatusCode)
 	}
-	// The state was taken by that attempt: the link works once.
+	// The state was taken by that attempt: the link works once, and the
+	// second visit is told the link was used (spentLink), never run again.
 	r4, _ := http.Get(back)
-	if r4.StatusCode != 400 {
+	if r4.StatusCode != http.StatusConflict {
 		t.Fatalf("reused state: %d", r4.StatusCode)
 	}
 	if len(e.kiff.Connections(tenant)) != 0 {

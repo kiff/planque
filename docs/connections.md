@@ -20,6 +20,16 @@ Servers offering dynamic registration continue to use that flow when they
 do not advertise client metadata support. PKCE, resource binding, one-use
 state and confirmation on the approving device apply to both flows.
 
+A sign-in link that came back once stays one-use: landed on again (a
+vendor's "click here" after its redirect, a reopened tab), it runs nothing
+and moves no grant. Until the link's own deadline planque keeps a mark of
+it, by the state's hash, never the state, so the page can say what
+happened: the sign-in already went through (its grant is signed in or
+connected), so the owner goes back to tafs, where it finishes; or the link
+was used and the sign-in starts again from tafs. A link planque never gave
+is unknown, as before. The page names the app, never a grant, an account or
+a code.
+
 **The resource.** A server's metadata must name the server planque calls:
 the same URL, or the same scheme and host with a path made of the server's
 leading segments, as Qonto names `https://mcp.qonto.com` for its server at

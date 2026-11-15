@@ -82,10 +82,10 @@ func TestSignInPagesSpeakTheAppsLanguageThenTheBrowsers(t *testing.T) {
 	if st != 200 || !says(page, "de", de.NotConnected) || !says(page, "de", de.NotCompleted(hostOf(e.vendor.URL))) {
 		t.Fatalf("the vendor's refusal, in German: %d %s", st, page)
 	}
-	// The link is used: no grant to go by, so the browser's language.
+	// The link is used, and the sign-in never went through: it says so, in the app's German.
 	st, page = e.browse(e.url+"/oauth/callback?state="+state+"&code=x", "fr-FR,fr;q=0.9")
-	if fr := words.For("fr"); st != 400 || !says(page, "fr", fr.LinkUnknown) {
-		t.Fatalf("a used link, in French: %d %s", st, page)
+	if st != 409 || !says(page, "de", de.LinkUsedStartAgain) {
+		t.Fatalf("a used link, in German: %d %s", st, page)
 	}
 	if st, page = e.browse(e.url+"/oauth/callback", "pl"); st != 400 || !says(page, "pl", words.For("pl").MissingState) {
 		t.Fatalf("no state, in Polish: %d %s", st, page)

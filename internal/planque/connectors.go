@@ -784,11 +784,16 @@ func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var pending pendingSignIn
-	if !ok || json.Unmarshal(it.Doc, &pending) != nil || !s.now().Before(pending.Expires) {
+	if !ok {
+		s.spentLink(w, r, state)
+		return
+	}
+	if json.Unmarshal(it.Doc, &pending) != nil || !s.now().Before(pending.Expires) {
 		lang, l := speech(r, nil)
 		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
+	s.keepUsedLink(r.Context(), state, pending)
 	g, err := s.loadGrant(r.Context(), pending.Tenant, pending.Grant)
 	if err != nil {
 		s.failPage(w, r, nil, err)
