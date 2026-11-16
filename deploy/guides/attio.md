@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Attio tool
 definitions as planque reads them (105 tools), and Attio's REST API
 documentation (authentication, rate limits, pagination, records, notes,
 tasks).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -85,16 +86,16 @@ only. Offer a write only for what the owner asked to change.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access (403) | The sign-in didn't give this area, or the person who signed in can't do this in Attio | "Attio is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Too many calls (429) | Over Attio's per-second limit | "Attio asked us to slow down. The taf will try again in a moment." |
-| The sign-in no longer works | The owner removed the app, or the sign-in expired | "Attio needs you to sign in again. Nothing was changed." |
-| A record already has that value (409, uniqueness) | Another record holds the same unique email or domain | "That's already in Attio. The taf will update the existing record instead." |
-| Matches more than one record | The matching field isn't unique in this workspace | "More than one record in Attio matches. Which one should the taf use?" |
-| Changed at the same moment (409) | Another change landed during the write | "Someone changed that record at the same time. The taf left it as it is and will try on its next run." |
-| A value isn't one Attio knows (400) | A stage or option name that isn't set up | "Attio doesn't have that option. Which existing one should the taf use?" |
-| Not found (404) | The record was deleted or merged, or the object doesn't exist | "That record isn't in Attio any more. The taf will skip it." |
+The rows are Attio's own refusals: the taf gets "Attio refused it (it
+answered …): …" with Attio's reason. planque's own refusals, and a sign-in
+Attio no longer takes (401), are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create or a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403) | The sign-in didn't give this area, or the person who signed in can't do this in Attio | "Attio is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused (429) | Over Attio's per-second limit | "Attio asked us to slow down. The taf will try again in a moment." |
+| Refused (409), uniqueness | Another record holds the same unique email or domain | "That's already in Attio. The taf will update the existing record instead." |
+| Refused, matches more than one record | The matching field isn't unique in this workspace | "More than one record in Attio matches. Which one should the taf use?" |
+| Refused (409), changed at the same moment | Another change landed during the write | "Someone changed that record at the same time. The taf left it as it is and will try on its next run." |
+| Refused (400), a value Attio doesn't know | A stage or option name that isn't set up | "Attio doesn't have that option. Which existing one should the taf use?" |
+| Refused (404) | The record was deleted or merged, or the object doesn't exist | "That record isn't in Attio any more. The taf will skip it." |

@@ -13,11 +13,16 @@ import (
 //go:embed *.md
 var files embed.FS
 
+//go:embed _refusals.md
+var refusals string
+
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // Adapted is an app's adapted guide, by its slug (gmail, googlesheets,
 // stripe), and the day it was checked; ok is false when the app has none
-// yet. This directory's own notes (README, apps) are never a guide.
+// yet. This directory's own notes (README, apps) are never a guide. Every
+// guide ends with _refusals.md, what a failed call returns whatever the
+// app, with the app's name in place of {app}.
 func Adapted(slug string) (text, checked string, ok bool) {
 	if !slugPattern.MatchString(slug) || slug == "readme" || slug == "apps" {
 		return "", "", false
@@ -27,6 +32,8 @@ func Adapted(slug string) (text, checked string, ok bool) {
 		return "", "", false
 	}
 	text = string(b)
+	title, _, _ := strings.Cut(strings.TrimPrefix(text, "# "), "\n")
+	text = strings.TrimRight(text, "\n") + "\n\n" + strings.ReplaceAll(refusals, "{app}", strings.TrimSpace(title))
 	for _, line := range strings.SplitN(text, "\n", 8) {
 		if rest, found := strings.CutPrefix(strings.TrimSpace(line), "Checked: "); found {
 			checked, _, _ = strings.Cut(rest, " ")

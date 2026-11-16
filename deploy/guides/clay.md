@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: [the generated part](generated/clay.md)
 (15 tools), and Clay's developer docs at developers.clay.com: the Public API
 reference, authentication, errors, rate limits, pagination, searches,
 routines, batch runs and tables pages, plus Clay's pricing page.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -78,18 +79,19 @@ the balance with `CLAY_GET_CREDIT_BALANCE` first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| "Authentication failed" (401 or 403) | The key is wrong or no longer valid, or this step isn't allowed | "Clay didn't accept the key. Could you make a new one in Clay's API keys page and paste it again?" |
-| Search refused for a limit (402) | The plan's per-search or per-period result cap is reached; the message says which, and when it resets | "Clay's search limit for your plan is reached. It frees up on the date Clay gives; a higher plan raises it." |
-| Search refused as invalid (400) | The search was written wrongly | Read the search reference, fix it and try once; else "Clay didn't understand that search. Can you describe who you're looking for another way?" |
-| Not found (404) | A table, function or run id that doesn't exist or isn't in this workspace | "I can't find that in your Clay workspace. Could you check the link or name?" |
-| Refused (409 or 422) | The request doesn't fit the item's current state | Fix it and try once; else "Clay didn't accept that request. Nothing was run." |
-| Too many calls (429) | Over the workspace's rate | "Clay asked us to slow down. The taf will continue in a moment." |
-| Still running (202) | The run or job hasn't finished | Wait and read again later; tell the owner only if it never finishes. |
-| An item failed in a finished run | That item failed, often at the data source | "Clay couldn't enrich some of the records. The rest are done." |
-| Out of credits or Actions | The workspace's balance is spent | "Your Clay workspace is out of credits. Add more in Clay, then the taf can finish." |
-| Server error (5xx) | A passing problem at Clay | Retry a read later; tell the owner only if it keeps failing. |
+The rows are Clay's own answers: the taf gets "Clay refused it (it answered
+…): …" with Clay's reason, unless the row says otherwise. planque's own
+refusals are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403), "Authentication failed", or Clay's sign-in has expired (401) | The key is wrong or no longer valid, or this step isn't allowed | "Clay didn't accept the key. Could you make a new one in Clay's API keys page, then tap Connect on this taf and paste it?" |
+| Refused (402), search limit | The plan's per-search or per-period result cap is reached; the message says which, and when it resets | "Clay's search limit for your plan is reached. It frees up on the date Clay gives; a higher plan raises it." |
+| Refused (400), invalid search | The search was written wrongly | Read the search reference, fix it and try once; else "Clay didn't understand that search. Can you describe who you're looking for another way?" |
+| Refused (404) | A table, function or run id that doesn't exist or isn't in this workspace | "I can't find that in your Clay workspace. Could you check the link or name?" |
+| Refused (409 or 422) | The request doesn't fit the item's current state | Fix it and try once; else "Clay didn't accept that request. Nothing was run." |
+| Refused (429) | Over the workspace's rate | "Clay asked us to slow down. The taf will continue in a moment." |
+| A result saying it's still running (202) | The run or job hasn't finished | Wait and read again later; tell the owner only if it never finishes. |
+| A finished run with an item failed | That item failed, often at the data source | "Clay couldn't enrich some of the records. The rest are done." |
+| Refused, out of credits or Actions | The workspace's balance is spent | "Your Clay workspace is out of credits. Add more in Clay, then the taf can finish." |
+| Refused (500 or above) | A passing problem at Clay | Retry a read later; tell the owner only if it keeps failing. |
