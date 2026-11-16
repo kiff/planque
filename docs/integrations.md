@@ -1,7 +1,6 @@
 # Integrations record
 
-One row per app that taf jobs connect through the connection platform
-(Composio): how its sign-in is set up, what it asks the vendor for, what its
+One row per app that taf jobs connect through the connection platform: how its sign-in is set up, what it asks the vendor for, what its
 jobs need at least, and whether a real sign-in has proved it. A change to an
 app's sign-in in the platform's console lands in the same pull request as
 its row here.
