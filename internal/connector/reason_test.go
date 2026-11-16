@@ -18,6 +18,18 @@ func TestReasonIsOneSafeBoundedLine(t *testing.T) {
 		{"plain\ntext\x00 with\tcontrols", "plain text with controls"},
 		{`{"detail":"Authorization: Bearer abc.def-ghi rejected"}`, "Authorization: [redacted] rejected"},
 		{`{"message":"the project key synthetic-key is wrong"}`, "the project key [redacted] is wrong"},
+		// Key formats with a fixed prefix, and a key the vendor quoted after naming it: planque never holds the
+		// person's own key for an app, so the shape and the label are what catch it.
+		{`{"message":"token xoxb-1234567890-abcdefghij revoked"}`, "token [redacted] revoked"},
+		{`{"message":"bad credentials for ghp_aaaaBBBBccccDDDDeeeeFFFF1234"}`, "bad credentials for [redacted]"},
+		{`{"message":"AKIAABCDEFGHIJKLMNOP is not valid"}`, "[redacted] is not valid"},
+		{`{"message":"Invalid API key provided: 'a1b2c3d4e5f6a7b8c9d0e1f2'"}`, "Invalid API key provided: '[redacted]'"},
+		{`{"error":"api_key=0123456789abcdef0123 rejected"}`, "api_key=[redacted] rejected"},
+		{`{"error":"Invalid token: 9f8e7d6c5b4a39281706f5e4"}`, "Invalid token: [redacted]"},
+		// What isn't a key stays: short words after a label, and ids a person needs to read.
+		{`{"message":"Invalid API key provided"}`, "Invalid API key provided"},
+		{`{"message":"The token is expired"}`, "The token is expired"},
+		{`{"message":"No such customer: 'cus_ABC123def456GHI'; a similar object exists in live mode, but a test mode key was used to make this request."}`, "No such customer: 'cus_ABC123def456GHI'; a similar object exists in live mode, but a test mode key was used to make this request."},
 		{`{"data":[]}`, ""},
 		{``, ""},
 	} {
