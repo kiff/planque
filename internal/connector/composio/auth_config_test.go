@@ -108,9 +108,9 @@ func TestAuthorizationUsesTheApprovedAuthConfig(t *testing.T) {
 // name rather than made twice. An operator's own sign-in is never narrowed,
 // and a recommendation outside the managed ceiling isn't taken.
 func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
-	sum := sha256.Sum256([]byte("tickets.read"))
+	sum := sha256.Sum256([]byte("https://www.googleapis.com/auth/tasks.readonly"))
 	name := "planque-scoped-desk-" + hex.EncodeToString(sum[:8])
-	recommend := `{"scopes":{"least_privilege":["tickets.read"]}}`
+	recommend := `{"scopes":{"least_privilege":["https://www.googleapis.com/auth/tasks.readonly"]}}`
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/api/v3.1/auth_configs":
@@ -121,13 +121,13 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 				`{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"desk"}},`+
 				`{"id":"ac_own","auth_scheme":"OAUTH2","status":"ENABLED","toolkit":{"slug":"own"}}]}`), nil
 		case "/api/v3.1/toolkits/desk":
-			return response(200, `{"slug":"desk","name":"Support desk","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":["tickets.read","tickets.write"]}}],`+
+			return response(200, `{"slug":"desk","name":"Support desk","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":["https://www.googleapis.com/auth/tasks.readonly","https://www.googleapis.com/auth/tasks"]}}],`+
 				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":["offline_access"]}]}`), nil
 		case "/api/v3.1/toolkits/desk/scopes/recommended":
 			return response(200, recommend), nil
 		case "/api/v3.1/tools":
 			// A scope no reviewed order ranks: the recommendation decides.
-			return response(200, `{"items":[{"slug":"DESK_LIST_TICKETS","toolkit":{"slug":"desk"},"version":"20300101_00","description":"Lists tickets.","input_parameters":{"type":"object","properties":{}},"tags":["readOnlyHint"],"scopes":["tickets.read","tickets.write"]}]}`), nil
+			return response(200, `{"items":[{"slug":"DESK_LIST_TICKETS","toolkit":{"slug":"desk"},"version":"20300101_00","description":"Lists tickets.","input_parameters":{"type":"object","properties":{}},"tags":["readOnlyHint"],"scopes":["https://www.googleapis.com/auth/tasks.readonly","https://www.googleapis.com/auth/tasks"]}]}`), nil
 		case "/api/v3.1/toolkits/own":
 			return response(200, `{"slug":"own","name":"Own app"}`), nil
 		}
@@ -140,7 +140,7 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 		t.Fatalf("the app's usual sign-in: %+v %v", app, err)
 	}
 	scoped, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}, connector.Allowance{})
-	if err != nil || scoped.AuthConfig != "ac_0_scoped" || strings.Join(scoped.Scopes, " ") != "offline_access tickets.read" {
+	if err != nil || scoped.AuthConfig != "ac_0_scoped" || strings.Join(scoped.Scopes, " ") != "https://www.googleapis.com/auth/tasks.readonly offline_access" {
 		t.Fatalf("scoped: %+v %v", scoped, err)
 	}
 	own, err := c.App(ctx, "own")
@@ -153,6 +153,36 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 	recommend = `{"scopes":{"least_privilege":["admin"]}}`
 	if _, err := c.Scope(ctx, app, []string{"DESK_LIST_TICKETS"}, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) {
 		t.Fatalf("a scope outside the ceiling was taken: %v", err)
+	}
+}
+
+// Only Google's sign-ins are narrowed (the owner, 16 Nov: "flexible but
+// responsible"): an app whose managed sign-in asks for any other scopes keeps
+// its usual one, with its full access, and nothing is asked or made at the
+// provider beyond reading its ceiling.
+func TestOnlyGooglesSignInsAreNarrowed(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			if r.Method == http.MethodPost {
+				t.Fatal("a narrowed sign-in was made for an app that isn't Google's")
+			}
+			return response(200, `{"items":[{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"desk"}}]}`), nil
+		case "/api/v3.1/toolkits/desk":
+			return response(200, `{"slug":"desk","name":"Support desk","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":["tickets.read","tickets.write","users.write"]}}]}`), nil
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		return nil, nil
+	})
+	ctx := context.Background()
+	app, err := c.App(ctx, "desk")
+	if err != nil || app.AuthConfig != "ac_usual" || !app.Managed {
+		t.Fatalf("the app's usual sign-in: %+v %v", app, err)
+	}
+	for _, tools := range [][]string{{"DESK_LIST_TICKETS"}, nil} {
+		if _, err := c.Scope(ctx, app, tools, connector.Allowance{}); !errors.Is(err, connector.ErrUnscoped) {
+			t.Fatalf("a sign-in that isn't Google's was narrowed (%v): %v", tools, err)
+		}
 	}
 }
 
