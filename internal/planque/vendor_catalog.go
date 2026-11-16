@@ -144,8 +144,9 @@ type catalogEntryView struct {
 	How    string `json:"how"`
 	State  string `json:"state"`
 	Grant  string `json:"grant,omitempty"`
-	// Proved: the app connects today, since when and where that's recorded
-	// (proved.json); none for an app no check has connected yet.
+	// Proved: the app connects today, the way a check connected it, since
+	// when and where that's recorded (proved.json); per app, so How may be
+	// another way than this entry's. None for an app no check has connected.
 	Proved *Proof `json:"proved,omitempty"`
 }
 
@@ -259,7 +260,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		proved = Proved
 	}
 	for i := range entries {
-		entries[i].Proved = proofOf(proved, entries[i].Entry, entries[i].Vendor)
+		entries[i].Proved = proofOf(proved, entries[i].Entry)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
 }

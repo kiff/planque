@@ -13,12 +13,16 @@ import (
 )
 
 // Proof says an app connects today: a check connected it (a phone proof, an
-// Eval), and the app has been listed as working since At (YYYY-MM-DD), where
-// Link shows it. It's reviewed data (proved.json), never code: proving an app
-// is one data change, and every reader (tafs cloud's gallery, kiff.dev's apps
-// list) reads the same flag on the catalog.
+// Eval), the way How says ("key", with the app's own key, or "sign-in"), and
+// the app has been listed as working since At (YYYY-MM-DD), where Link shows
+// it. It's per app, as kiff.dev's apps list has it, not per catalog entry: an
+// entry that reaches the app another way carries the same proof, and How says
+// which way was run. It's reviewed data (proved.json), never code: proving an
+// app is one data change, and every reader (tafs cloud's gallery, kiff.dev's
+// apps list) reads the same flag on the catalog.
 type Proof struct {
 	At   string `json:"at"`
+	How  string `json:"how"`
 	Link string `json:"link,omitempty"`
 }
 
@@ -31,8 +35,9 @@ var Proved = mustDecodeProved(provedJSON)
 
 var provedName = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
 
-// DecodeProved reads a proofs file: each app's folded name, the day it's
-// listed as working since, and a public link to where that's recorded.
+// DecodeProved reads a proofs file: each app's folded name, the way it was
+// checked, the day it's listed as working since, and a public link to where
+// that's recorded.
 func DecodeProved(raw []byte) (map[string]Proof, error) {
 	var rows map[string]Proof
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -43,6 +48,9 @@ func DecodeProved(raw []byte) (map[string]Proof, error) {
 	for name, p := range rows {
 		if !provedName.MatchString(name) || provedKey(name) != name {
 			return nil, fmt.Errorf("proofs: %q isn't an app's folded name (lower case letters and digits)", name)
+		}
+		if p.How != "key" && p.How != "sign-in" {
+			return nil, fmt.Errorf("proofs: %s's how %q is neither key nor sign-in", name, p.How)
 		}
 		if _, err := time.Parse(time.DateOnly, p.At); err != nil {
 			return nil, fmt.Errorf("proofs: %s's at %q isn't a day (YYYY-MM-DD)", name, p.At)
@@ -73,19 +81,18 @@ func provedKey(name string) string {
 	return strings.NewReplacer(" ", "", ".", "", "-", "", "_", "", "\t", "").Replace(name)
 }
 
-// proofOf is the proof of the app an entry names, by its slug (after
-// connector:<provider>:, or before @ in a reviewed entry) or its vendor.
-func proofOf(proved map[string]Proof, entry, vendor string) *Proof {
+// proofOf is the proof of the app an entry names, by its slug: after
+// connector:<provider>:, or before @ in a reviewed entry. Never by its vendor,
+// which is the provider's words: a name planque didn't choose proves nothing.
+func proofOf(proved map[string]Proof, entry string) *Proof {
 	slug := entry
 	if _, s, ok := connectorEntry(entry); ok {
 		slug = s
 	} else if at := strings.LastIndex(entry, "@"); at > 0 {
 		slug = entry[:at]
 	}
-	for _, name := range []string{slug, vendor} {
-		if p, ok := proved[provedKey(name)]; ok && name != "" {
-			return &p
-		}
+	if p, ok := proved[provedKey(slug)]; ok && slug != "" {
+		return &p
 	}
 	return nil
 }
