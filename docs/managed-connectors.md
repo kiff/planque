@@ -138,7 +138,11 @@ The account-authenticated catalog endpoints include upstream discovery:
 
    **The narrowest sign-in (gap 5 of kiff/tafs#476).** A request may name the
    taf's tools (`tools`, the provider's slugs, as the tools search names
-   them; a managed connect's `setup_reads` count among them). For an app on
+   them; a managed connect's `setup_reads` count among them). Only a sign-in
+   whose ceiling holds Google's scopes is narrowed, where Google's consent
+   screen and review weigh each scope; any other app keeps its usual sign-in,
+   with its full access (`usual_access`), and the taf's Card decides what it
+   may do with it (the owner's direction, 16 Nov). For such an app on
    the provider's own sign-in, planque reads that
    sign-in's scope ceiling and the scopes it always asks (the app's
    `composio_managed_auth` and `auth_config_details`), picks each tool's

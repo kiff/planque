@@ -450,7 +450,8 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 }
 
 // Scope finds the narrowest sign-in to app's provider-managed sign-in that
-// covers tools (gap 5 of kiff/tafs#476). It reads the app's managed scope
+// covers tools (gap 5 of kiff/tafs#476), for an app whose sign-in asks for
+// Google's scopes only: any other keeps its usual one (ErrUnscoped). It reads the app's managed scope
 // ceiling and the scopes always asked, asks the provider which of the
 // ceiling's scopes the tools need at least, and pins a managed sign-in that
 // asks only for those: made once per app and scope set, and found again by
@@ -492,6 +493,13 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 		}
 	}
 	if len(ceiling) == 0 {
+		return connector.Scoped{}, connector.ErrUnscoped
+	}
+	// Narrowed only where the provider's rules require it: Google's scopes,
+	// whose consent screen and review weigh each one. Any other app keeps its
+	// usual sign-in, with its full access, and the taf's Card decides what it
+	// may do with it (the owner, 16 Nov: "flexible but responsible").
+	if !slices.ContainsFunc(ceiling, googleScope) {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}
 	// No tools named: nothing to narrow to, but never the usual sign-in's personal data.
@@ -708,6 +716,12 @@ func personalOnly(accepted, ceiling []string) string {
 		return in[0]
 	}
 	return ""
+}
+
+// googleScope says s is one of Google's OAuth scopes, the only ones Scope
+// narrows to.
+func googleScope(s string) bool {
+	return strings.HasPrefix(s, "https://www.googleapis.com/auth/") || s == "https://mail.google.com/"
 }
 
 // personalScope says s reads a person's own data (personal), in Google's URL form.

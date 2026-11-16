@@ -252,12 +252,12 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if in.Scheme != "OAUTH2" || !slices.Equal(in.Available, f.ceiling) {
 			f.t.Fatalf("a recommendation asked outside the managed ceiling: %+v", in)
 		}
-		// Each tool's least-privilege scope: a reply writes tickets, a list reads them.
+		// Each tool's least-privilege scope: a reply writes tasks, a list reads them (Google's, the scopes planque narrows).
 		var least []string
 		for _, tool := range in.Tools {
-			scope := "tickets.read"
+			scope := "https://www.googleapis.com/auth/tasks.readonly"
 			if strings.HasSuffix(tool, "_REPLY") {
-				scope = "tickets.write"
+				scope = "https://www.googleapis.com/auth/tasks"
 			}
 			if !slices.Contains(least, scope) {
 				least = append(least, scope)
@@ -636,7 +636,7 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 // owner signs, the words say it, and the sign-in serves only those tools.
 func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	e, f := newConnectorFixture(t)
-	f.managed, f.ceiling, f.always = true, []string{"admin", "tickets.read", "tickets.write"}, []string{"offline_access"}
+	f.managed, f.ceiling, f.always = true, []string{"https://www.googleapis.com/auth/admin.directory.user", "https://www.googleapis.com/auth/tasks", "https://www.googleapis.com/auth/tasks.readonly"}, []string{"offline_access"}
 	ask := func(tools ...string) (map[string]any, *Grant) {
 		t.Helper()
 		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Weekly tickets", "tools": tools}, nil, "k_setup")
@@ -649,10 +649,10 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	}
 	v, g := ask("DESK_DEMO_LIST_TICKETS")
 	c := g.Request.Connector
-	if !slices.Equal(c.AskedTools, []string{"DESK_DEMO_LIST_TICKETS"}) || !slices.Equal(c.Scopes, []string{"offline_access", "tickets.read"}) || c.UsualAccess || c.AuthConfig != "ac_scoped_1" {
+	if !slices.Equal(c.AskedTools, []string{"DESK_DEMO_LIST_TICKETS"}) || !slices.Equal(c.Scopes, []string{"https://www.googleapis.com/auth/tasks.readonly", "offline_access"}) || c.UsualAccess || c.AuthConfig != "ac_scoped_1" {
 		t.Fatalf("the request: %+v", c)
 	}
-	if !slices.Equal(f.scopedMade, []string{`planque-scoped-desk_demo-` + scopedSuffix([]string{"tickets.read"}) + `: ["tickets.read"]`}) {
+	if !slices.Equal(f.scopedMade, []string{`planque-scoped-desk_demo-` + scopedSuffix([]string{"https://www.googleapis.com/auth/tasks.readonly"}) + `: ["https://www.googleapis.com/auth/tasks.readonly"]`}) {
 		t.Fatalf("scoped sign-ins made: %v", f.scopedMade)
 	}
 	// No provider's tool name ("List tickets" from DESK_DEMO_LIST_TICKETS): the actions come next, by their titles.
@@ -718,12 +718,14 @@ func TestAConnectionThatCantBeNarrowedSaysSo(t *testing.T) {
 		set  func(*testing.T, *env, *connectorFixture)
 	}{
 		{"its recommendation failed", func(_ *testing.T, _ *env, f *connectorFixture) {
-			f.managed, f.ceiling, f.noRecommend = true, []string{"tickets.write"}, true
+			f.managed, f.ceiling, f.noRecommend = true, []string{"https://www.googleapis.com/auth/tasks"}, true
 		}},
 		{"no managed ceiling", func(_ *testing.T, _ *env, f *connectorFixture) { f.managed = true }},
-		{"an operator's own sign-in", func(_ *testing.T, _ *env, f *connectorFixture) { f.ceiling = []string{"tickets.write"} }},
+		{"an operator's own sign-in", func(_ *testing.T, _ *env, f *connectorFixture) {
+			f.ceiling = []string{"https://www.googleapis.com/auth/tasks"}
+		}},
 		{"the day's set-ups used", func(t *testing.T, e *env, f *connectorFixture) {
-			f.managed, f.ceiling = true, []string{"tickets.write"}
+			f.managed, f.ceiling = true, []string{"https://www.googleapis.com/auth/tasks"}
 			useTheDay(t, e, onDemandADay)
 		}},
 	} {
@@ -833,7 +835,7 @@ func TestNoSignInWithPersonalDataIsEverTheFallback(t *testing.T) {
 // account's day as setting up an app does: after it, one set-up fewer is left.
 func TestANewScopedSignInCountsAsASetUp(t *testing.T) {
 	e, f := newConnectorFixture(t)
-	f.managed, f.ceiling = true, []string{"tickets.read", "tickets.write"}
+	f.managed, f.ceiling = true, []string{"https://www.googleapis.com/auth/tasks", "https://www.googleapis.com/auth/tasks.readonly"}
 	for i := 1; i < onDemandADay; i++ {
 		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:ondemand_"+strconv.Itoa(i)+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
 			t.Fatalf("set-up %d: %d %v", i, st, out)
