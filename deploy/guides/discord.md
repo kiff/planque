@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Discord tool
 definitions as planque reads them (23 tools), Discord's developer docs
 (docs.discord.com: OAuth2, Users, Invites, Rate Limits, and Opcodes and
 Status Codes).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## Discord or Discord Bot?
 
@@ -80,14 +81,15 @@ app posts anything.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Discord's own answers: a refusal reaches the taf as
+"Discord refused it (it answered …): …", with Discord's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403, or the tool is under `unusable`) | The sign-in didn't include this part, the server list say | "Discord is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works (401) | The sign-in is missing or no longer valid | "Discord needs you to sign in again. Nothing was changed." |
-| Too many calls (429) | Over Discord's limit for that call | "Discord asked us to slow down. The taf will try again shortly." |
-| Not found (404), or an unknown server | The server or invite no longer exists, or the owner left it | "That Discord server isn't reachable any more. Is it still yours?" |
+| Refused (403), missing access, or the tool is under `unusable` | The sign-in didn't include this part, the server list say | "Discord is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Discord's sign-in has expired (401) | The sign-in is missing or no longer valid | "Discord needs you to sign in again. Nothing was changed." |
+| Refused (429), too many calls | Over Discord's limit for that call | "Discord asked us to slow down. The taf will try again shortly." |
+| Refused (404), not found or unknown server | The server or invite no longer exists, or the owner left it | "That Discord server isn't reachable any more. Is it still yours?" |
 | A widget read is refused or empty | The server's widget is turned off (Discord says it's disabled) | "That server doesn't share its public widget. The taf will skip it." |
 | The job needs messages | This app can't read or post them | "To read or post in your server, connect Discord Bot instead. It adds a bot to your server." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.

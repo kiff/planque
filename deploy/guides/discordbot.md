@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Discord Bot tool
 definitions as planque reads them (157 tools), Discord's developer docs
 (docs.discord.com: OAuth2, Messages, Guilds, Users, Gateway intents, Rate
 Limits, and Opcodes and Status Codes).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## Discord Bot or Discord?
 
@@ -95,16 +96,17 @@ for their yes: the whole channel sees it.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Discord Bot's own answers: a refusal reaches the taf as
+"Discord Bot refused it (it answered …): …", with Discord Bot's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, missing access (403) | The bot's role can't see that channel | "The bot can't see that channel. In your server's settings, let its role view it, or pick another channel." |
 | Refused, missing permissions (403) | The bot can see the channel but not post, read history or do this | "The bot isn't allowed to do that in this channel. A server admin can give its role that right." |
 | Messages come back with empty text | No message-content access | "Discord gave the taf those messages without their text. It can only read messages that mention the bot." |
-| Search answers "not ready" (202) | Discord is still indexing the server | Wait the time given and try once more; tell the owner only if it fails again. |
-| Too many calls (429), or a slow-mode refusal | Over Discord's limit for that channel | "Discord asked us to slow down. The taf will continue in a moment." |
-| Not found (404): unknown channel, message or server | It was deleted, or the bot was removed from the server | "That channel or message isn't there any more. Is the bot still in your server?" |
+| A result (202): search "not ready" | Discord is still indexing the server | Wait the time given and try once more; tell the owner only if it fails again. |
+| Refused (429), too many calls or slow mode | Over Discord's limit for that channel | "Discord asked us to slow down. The taf will continue in a moment." |
+| Refused (404), unknown channel, message or server | It was deleted, or the bot was removed from the server | "That channel or message isn't there any more. Is the bot still in your server?" |
 | Refused (400) | A message over 2,000 characters, empty, or a bad field | Fix it and try once; else "Discord didn't accept that post. Nothing was posted." |
-| The sign-in no longer works (401) | The bot's sign-in is missing or no longer valid | "Discord Bot needs to be connected again. Nothing was posted." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Discord Bot's sign-in has expired (401) | The bot's sign-in is missing or no longer valid | "Discord Bot needs to be connected again. Nothing was posted." |

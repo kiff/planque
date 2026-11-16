@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Excel tool
 definitions as planque reads them (125 tools, [generated](generated/excel.md)),
 and Microsoft's workbook API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -58,14 +59,17 @@ writes over what's there; writing a range can.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Excel's own answers: a refusal reaches the taf as
+"Excel refused it (it answered …): …", with Excel's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in gave read access only, or the file is someone else's | "Excel is only partly connected, or that workbook isn't yours to change. Sign in again and allow editing, or pick another file." |
-| The file isn't found (404) | Moved, deleted, or not in OneDrive | "I can't find that workbook in your OneDrive. It may have moved; send me its link." |
-| The file is locked (409 or 423) | Someone is changing it right now, or it's checked out | "The workbook is busy. The taf will try again in a minute." |
-| The range is refused (400) | A sheet name that doesn't exist, or a range shape that doesn't match the values | Fix it and try once; tell the owner only if it fails again. |
-| Too many calls (429) | Over Microsoft's limit | "Microsoft asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, password changed, or expired | "Excel needs you to sign in again. Nothing was changed." |
+| Refused (404), the file isn't found | Moved, deleted, or not in OneDrive | "I can't find that workbook in your OneDrive. It may have moved; send me its link." |
+| Refused (409 or 423), the file is locked | Someone is changing it right now, or it's checked out | "The workbook is busy. The taf will try again in a minute." |
+| Refused (400), bad range | A sheet name that doesn't exist, or a range shape that doesn't match the values | Fix it and try once; tell the owner only if it fails again. |
+| Refused (429), too many calls | Over Microsoft's limit | "Microsoft asked us to slow down. The taf will continue in a minute." |
+| Excel's sign-in has expired (401) | Removed, password changed, or expired | "Excel needs you to sign in again. Nothing was changed." |
 
-After any refusal the taf stops that step and says so. A failed search never
-leads to creating a new workbook.
+A failed search never leads to creating a new workbook.

@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Figma tool
 definitions as planque reads them (52 tools, [generated](generated/figma.md)),
 and Figma's REST API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -58,12 +59,14 @@ needs keeping.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Figma's own answers: a refusal reaches the taf as
+"Figma refused it (it answered …): …", with Figma's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403) | The owner can't open that file, or the plan doesn't include the feature | "I can't open that Figma file. Check it's shared with you, or it may need a higher Figma plan." |
-| Not found (404) | A wrong file key, or a deleted frame | "That Figma file or frame isn't there. Send me its link again." |
-| Too many calls (429) | Over Figma's limit | "Figma asked us to slow down. The taf will continue in a minute." |
+| Refused (404), not found | A wrong file key, or a deleted frame | "That Figma file or frame isn't there. Send me its link again." |
+| Refused (429), too many calls | Over Figma's limit | "Figma asked us to slow down. The taf will continue in a minute." |
 | An export comes back empty | The frame is hidden or empty | "That frame exported nothing. It may be hidden in the file." |
-| The sign-in no longer works (401) | Removed, or expired | "Figma needs you to sign in again." |
-
-After any refusal the taf stops that step and says so.
+| Figma's sign-in has expired (401) | Removed, or expired | "Figma needs you to sign in again." |

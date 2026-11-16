@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's GitHub tool
 definitions as planque reads them, GitHub's REST API description as
 `api/operations` reads it (1,277 operations), and test runs on a phone on
 13 Nov 2026.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -64,13 +65,15 @@ comment or issue the taf writes is shown to the owner first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are GitHub's own answers: a refusal reaches the taf as
+"GitHub refused it (it answered …): …", with GitHub's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Not found (404) on a private repository | The sign-in can't see it: a private repository answers "not found", not "forbidden" | "I can't see that repository. It may be private and not shared with this sign-in." |
+| Refused (404), on a private repository | The sign-in can't see it: a private repository answers "not found", not "forbidden" | "I can't see that repository. It may be private and not shared with this sign-in." |
 | Refused (403), organisation | The organisation hasn't approved the app | "Your GitHub organisation needs to approve this connection. An admin can do it in the organisation's settings." |
 | Refused (403 or 429), rate limit | Over the hourly limit, or too many writes in a short time | "GitHub's hourly limit is reached. The taf will continue when it resets." |
 | Refused (409), conflict | The file or branch changed since it was read | Read it again and retry once; tell the owner only if it fails again. |
 | Refused (422) | The input isn't valid: a branch that exists, a title missing | Fix it and try once; else "GitHub didn't accept that change. Nothing was written." |
-| The sign-in no longer works (401) | Revoked, or the token expired | "GitHub needs you to sign in again. Nothing was written." |
-
-After any refusal the taf stops that step and says so.
+| GitHub's sign-in has expired (401) | Revoked, or the token expired | "GitHub needs you to sign in again. Nothing was written." |

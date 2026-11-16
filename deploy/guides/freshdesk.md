@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Freshdesk tool
 definitions as planque reads them (184 tools, [generated](generated/freshdesk.md)),
 and Freshdesk's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -55,12 +56,14 @@ never answers twice.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Freshdesk's own answers: a refusal reaches the taf as
+"Freshdesk refused it (it answered …): …", with Freshdesk's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403) | The plan has no API access, or the agent lacks the right | "Your Freshdesk plan or role doesn't allow this. Check the plan, or connect with an admin's key." |
-| The key is refused (401) | Wrong key or domain, or the key was reset | "Freshdesk didn't accept the key. Check the domain and paste the key from your profile again." |
-| Not found (404) | A deleted ticket, or a wrong domain | "That ticket isn't there any more." |
-| Too many calls (429) | Over the account's per-minute limit | "Freshdesk asked us to slow down. The taf will continue in a minute." |
+| Freshdesk's sign-in has expired (401) | Wrong key or domain, or the key was reset | "Freshdesk didn't accept the key. Check the domain, then tap Connect on this taf and paste the key from your profile again." |
+| Refused (404), not found | A deleted ticket, or a wrong domain | "That ticket isn't there any more." |
+| Refused (429), too many calls | Over the account's per-minute limit | "Freshdesk asked us to slow down. The taf will continue in a minute." |
 | Refused (400) | A field value Freshdesk doesn't accept (a status number, a missing email) | Fix it and try once; else "Freshdesk didn't accept that change. Nothing was updated." |
-
-After any refusal the taf stops that step and says so.
