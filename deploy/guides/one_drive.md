@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's OneDrive tool
 definitions as planque reads them (101 tools), and OneDrive's API
 documentation (items, uploads, error answers, working at scale).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -82,17 +83,19 @@ waits for the owner's yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are OneDrive's own answers: a refusal reaches the taf as
+"OneDrive refused it (it answered …): …", with OneDrive's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, `accessDenied`) | The sign-in didn't give this tool's access, or the person can't open that file | "OneDrive is only partly connected, or that file isn't yours to change. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works (401) | The sign-in expired or was removed | "OneDrive needs you to sign in again. Nothing was changed." |
-| Not found (404, `itemNotFound`) | The file or folder was deleted or moved | "That file isn't in OneDrive any more. The taf will skip it." |
-| Name taken, or folder missing (409) | A file with that name exists, or the target folder isn't there | "There's already a file with that name, or the folder is gone. The taf will stop and show you what it tried." |
-| Changed since read (412, `resourceModified`) | Someone edited the file after the taf read it | "Someone changed that file meanwhile. The taf will read it again before writing." |
-| File too large (413) | Over the size one call accepts | "That file is too big to add in one go. The taf has stopped." |
-| Too many calls (429 or 503) | OneDrive is slowing this app down | "OneDrive asked us to slow down. The taf will try again later." |
-| Drive full (507, `quotaLimitReached`) | The person's storage is used up | "Your OneDrive is full. Free some space, and the taf will try again." |
+| OneDrive's sign-in has expired (401) | The sign-in expired or was removed | "OneDrive needs you to sign in again. Nothing was changed." |
+| Refused (404), not found, `itemNotFound` | The file or folder was deleted or moved | "That file isn't in OneDrive any more. The taf will skip it." |
+| Refused (409), name taken, or folder missing | A file with that name exists, or the target folder isn't there | "There's already a file with that name, or the folder is gone. The taf will stop and show you what it tried." |
+| Refused (412), changed since read, `resourceModified` | Someone edited the file after the taf read it | "Someone changed that file meanwhile. The taf will read it again before writing." |
+| Refused (413), file too large | Over the size one call accepts | "That file is too big to add in one go. The taf has stopped." |
+| Refused (429 or 503), too many calls | OneDrive is slowing this app down | "OneDrive asked us to slow down. The taf will try again later." |
+| Refused (507), drive full, `quotaLimitReached` | The person's storage is used up | "Your OneDrive is full. Free some space, and the taf will try again." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find its folder asks, rather than making
-another one.
+A taf that can't find its folder asks, rather than making another one.

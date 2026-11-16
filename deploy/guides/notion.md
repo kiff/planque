@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Notion tool
 definitions as planque reads them (56 tools), and Notion's API reference
 (request limits, status codes, authorization).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -85,17 +86,19 @@ what a person wrote.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Not found (404, `object_not_found`) | The page or database wasn't shared with the taf at sign-in, or it was deleted | "The taf can't see that Notion page. Share it with the taf from the page's connections menu, then try again." |
-| Refused, not allowed (403, `restricted_resource`) | The sign-in can't do this kind of change, or the workspace's content cap is reached | "Notion didn't let the taf make this change. Check the taf's access to that page, or your workspace's plan." |
-| Too many calls (429, `rate_limited`) | Over the connection's or the workspace's per-minute budget | "Notion asked us to slow down. The taf will try again in a minute." |
-| Blocked by Notion (429, `public_api_request_blocked`) | Notion has restricted this connection | "Notion has blocked this connection. Only Notion's support can lift that." |
-| The sign-in no longer works (401) | The owner removed the connection, or its access was revoked | "Notion needs you to sign in again. Nothing was changed." |
-| Rejected, wrong shape (400, `validation_error`) | A value doesn't fit the column, or the content is too long for one call | "Notion didn't accept that entry: a value doesn't fit its column. The taf will skip it and tell you which." |
-| Conflict (409) | Two edits to the same thing at once | "Someone was editing the same page. The taf will try once more." |
-| Notion unavailable (503) | Notion is down, or the answer took too long; a write may have saved anyway | "Notion isn't answering right now. The taf will check whether the change was saved before trying again." |
+The rows are Notion's own answers: a refusal reaches the taf as
+"Notion refused it (it answered …): …", with Notion's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create or a write: if it can't find its page, it asks, rather
-than making another one.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (404), not found, `object_not_found` | The page or database wasn't shared with the taf at sign-in, or it was deleted | "The taf can't see that Notion page. Share it with the taf from the page's connections menu, then try again." |
+| Refused, not allowed (403, `restricted_resource`) | The sign-in can't do this kind of change, or the workspace's content cap is reached | "Notion didn't let the taf make this change. Check the taf's access to that page, or your workspace's plan." |
+| Refused (429), too many calls, `rate_limited` | Over the connection's or the workspace's per-minute budget | "Notion asked us to slow down. The taf will try again in a minute." |
+| Refused (429), blocked by Notion, `public_api_request_blocked` | Notion has restricted this connection | "Notion has blocked this connection. Only Notion's support can lift that." |
+| Notion's sign-in has expired (401) | The owner removed the connection, or its access was revoked | "Notion needs you to sign in again. Nothing was changed." |
+| Refused (400), rejected, wrong shape, `validation_error` | A value doesn't fit the column, or the content is too long for one call | "Notion didn't accept that entry: a value doesn't fit its column. The taf will skip it and tell you which." |
+| Refused (409), conflict | Two edits to the same thing at once | "Someone was editing the same page. The taf will try once more." |
+| Refused (503), Notion unavailable | Notion is down, or the answer took too long; a write may have saved anyway | "Notion isn't answering right now. The taf will check whether the change was saved before trying again." |
+
+If it can't find its page, it asks, rather than making another one.

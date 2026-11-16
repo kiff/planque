@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Microsoft Teams tool
 definitions as planque reads them (237 tools), and Microsoft Teams' API
 documentation (messages, channels, chats, teams, throttling, errors).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -89,14 +90,16 @@ A note to self is the gentlest way to report.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Microsoft Teams's own answers: a refusal reaches the taf as
+"Microsoft Teams refused it (it answered …): …", with Microsoft Teams's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, access denied (403) | The sign-in lacks this tool's access, the account has no Teams licence, or an access policy blocks it | "Microsoft Teams is only partly connected: this step needs access you didn't give, or your organization blocks it. Want to sign in again and allow it, or ask your IT admin?" |
-| The sign-in no longer works (401) | The sign-in expired, or access was removed | "Microsoft Teams needs you to sign in again. Nothing was posted." |
-| Not found (404) | The channel, chat or message was deleted, or the person left it | "That conversation isn't there any more for your account. The taf will skip it." |
-| Too many calls (429) | Over the per-channel, per-chat or per-person rate | "Microsoft Teams asked us to slow down. The taf will try again in a moment." |
-| Teams unavailable (503) | Maintenance or overload | "Microsoft Teams isn't answering right now. The taf will try again later." |
+| Microsoft Teams's sign-in has expired (401) | The sign-in expired, or access was removed | "Microsoft Teams needs you to sign in again. Nothing was posted." |
+| Refused (404), not found | The channel, chat or message was deleted, or the person left it | "That conversation isn't there any more for your account. The taf will skip it." |
+| Refused (429), too many calls | Over the per-channel, per-chat or per-person rate | "Microsoft Teams asked us to slow down. The taf will try again in a moment." |
+| Refused (503), Teams unavailable | Maintenance or overload | "Microsoft Teams isn't answering right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find its thread asks, rather than
-starting a new one.
+A taf that can't find its thread asks, rather than starting a new one.

@@ -3,6 +3,7 @@
 Checked: 2026-11-13 · Sources: the connection service's Odoo tool
 definitions as planque reads them (12 tools), and Odoo's External API and
 Extract API documentation (version 18.0).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -79,18 +80,20 @@ waits for their yes.
 
 ## When it fails
 
+The rows are Odoo's own answers: a refusal reaches the taf as
+"Odoo refused it (it answered …): …", with Odoo's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
 The document-reading service answers most problems inside a normal answer,
 with a status word, rather than as an error.
 
-| What happens | Why | Tell the owner |
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not enough credit (`error_no_credit`) | The digitization account has run out of credits | "Odoo has no document-reading credits left. Buy more in Odoo, then the taf can carry on." |
-| Unsupported file (`error_unsupported_format`) | The file isn't a PDF, PNG or JPG | "Odoo can't read that file type. Send it as a PDF or a photo." |
-| Protected or too long (`error_password_protected`, `error_too_many_pages`) | The PDF has a password, or too many pages | "Odoo couldn't read that document: it's locked or too long. Send an unlocked copy, or fewer pages." |
-| Result not found (`error_document_not_found`) | The token is wrong or the document is gone | "Odoo can't find that document any more. The taf will skip it." |
-| Under maintenance (`error_maintenance`) | Odoo's reading service is down for a while | "Odoo's document reading is paused for maintenance. The taf will try again later." |
+| Refused, unsupported file (`error_unsupported_format`) | The file isn't a PDF, PNG or JPG | "Odoo can't read that file type. Send it as a PDF or a photo." |
+| Refused, protected or too long (`error_password_protected`, `error_too_many_pages`) | The PDF has a password, or too many pages | "Odoo couldn't read that document: it's locked or too long. Send an unlocked copy, or fewer pages." |
+| Refused, result not found (`error_document_not_found`) | The token is wrong or the document is gone | "Odoo can't find that document any more. The taf will skip it." |
+| Refused, under maintenance (`error_maintenance`) | Odoo's reading service is down for a while | "Odoo's document reading is paused for maintenance. The taf will try again later." |
 | Refused, not allowed | The key's user lacks rights for that kind of record, or the plan has no external API | "Odoo didn't let the taf do that with this login. Check the user's rights, or your Odoo plan." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a failed read is never sent again without checking
-for its result first.
+A failed read is never sent again without checking for its result first.

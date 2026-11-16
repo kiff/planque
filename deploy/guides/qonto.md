@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: planque's reviewed entries `qonto-key@1` and
 `qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)), and
 Qonto's published invoicing API description.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -53,13 +54,16 @@ any other.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The key is refused (401) | Wrong format, revoked, or the login and secret swapped | "Qonto didn't accept the key. Paste it again as your organisation login, a colon, then the secret key." |
-| Refused (403) | This key isn't allowed to call that part of Qonto | "Qonto doesn't let this key do that step. The taf will do without it." |
-| The draft is refused: IBAN | The IBAN isn't one of the business's accounts | "That IBAN isn't one of your Qonto accounts, so the draft wasn't made." |
-| The draft is refused: quote not found | The quote doesn't exist, or belongs to another organisation | "That quote isn't in your Qonto account. Nothing was drafted." |
-| The draft is refused: conflict | The invoice number is already used, or the invoice conflicts with another | "Qonto refused the draft because it clashes with an existing invoice. Nothing was drafted." |
-| Too many calls (429) | Over Qonto's rate | "Qonto asked us to slow down. The taf will try again in a minute." |
+planque calls Qonto with the key itself, so Qonto's answers reach the taf
+by its address: "thirdparty.qonto.com refused it (403): …". An answer of 500
+or above reads "may or may not have done it": read the invoices before any
+new call. planque's own refusals are in the part below.
 
-After any refusal the taf stops that step and says so.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (401) | Wrong format, revoked, or the login and secret swapped | "Qonto didn't accept the key. Tap Connect on this taf and paste it again as your organisation login, a colon, then the secret key." |
+| Refused (403) | This key isn't allowed to call that part of Qonto | "Qonto doesn't let this key do that step. The taf will do without it." |
+| Refused, on the draft: IBAN | The IBAN isn't one of the business's accounts | "That IBAN isn't one of your Qonto accounts, so the draft wasn't made." |
+| Refused, on the draft: quote not found | The quote doesn't exist, or belongs to another organisation | "That quote isn't in your Qonto account. Nothing was drafted." |
+| Refused, on the draft: conflict | The invoice number is already used, or the invoice conflicts with another | "Qonto refused the draft because it clashes with an existing invoice. Nothing was drafted." |
+| Refused (429), too many calls | Over Qonto's rate | "Qonto asked us to slow down. The taf will try again in a minute." |
