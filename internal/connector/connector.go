@@ -266,8 +266,20 @@ type Result struct {
 const maxReason = 300
 
 // secretShapes are what a reason must never carry, whatever the vendor
-// echoed: vendor keys, bearer tokens, webhook secrets and JWTs.
-var secretShapes = regexp.MustCompile(`(?i)\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]+|\bwhsec_[A-Za-z0-9]+|\bbearer\s+[A-Za-z0-9._~+/=-]+|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+// echoed: vendor keys, bearer tokens, webhook secrets and JWTs, and the
+// shapes of the usual key and token formats with a fixed prefix (chat
+// workspace tokens, code-host tokens, cloud access key ids, mail-service
+// keys, store admin tokens).
+var secretShapes = regexp.MustCompile(`(?i)\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]+|\bwhsec_[A-Za-z0-9]+|\bbearer\s+[A-Za-z0-9._~+/=-]+|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+` +
+	`|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bglpat-[A-Za-z0-9_-]{20,}` +
+	`|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|\bkey-[a-f0-9]{32}\b|\bshp(?:at|ca|pa|ss)_[A-Fa-f0-9]{32}\b`)
+
+// labelledSecret is a key a vendor quoted after naming it ("api_key=…",
+// "Invalid token 'abc…'"), in any format: planque never holds a person's
+// own key for an app, so it can't name that key to Reason, and a vendor that
+// echoes it would otherwise pass it to the taf and the owner. The label stays;
+// a value shorter than 16 characters is left (words, not keys).
+var labelledSecret = regexp.MustCompile(`(?i)(\b(?:api[_ -]?key|apikey|access[_ -]?token|refresh[_ -]?token|token|client[_ -]?secret|secret|password|passwd|key)\b(?:\s+(?:provided|given|is|was|used))?\s*[:=]?\s*['"]?)[A-Za-z0-9._~+/=-]{16,}`)
 
 // Reason is a provider's or vendor's error made safe to show the owner and
 // the taf: its message when the error is JSON ({"message"}, {"error":
@@ -286,6 +298,7 @@ func Reason(raw []byte, secrets ...string) string {
 		}
 	}
 	text = secretShapes.ReplaceAllString(text, "[redacted]")
+	text = labelledSecret.ReplaceAllString(text, "${1}[redacted]")
 	text = strings.Join(strings.FieldsFunc(text, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
 	if r := []rune(text); len(r) > maxReason {
 		text = string(r[:maxReason-1]) + "…"
