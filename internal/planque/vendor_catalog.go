@@ -144,6 +144,9 @@ type catalogEntryView struct {
 	How    string `json:"how"`
 	State  string `json:"state"`
 	Grant  string `json:"grant,omitempty"`
+	// Proved: the app connects today, since when and where that's recorded
+	// (proved.json); none for an app no check has connected yet.
+	Proved *Proof `json:"proved,omitempty"`
 }
 
 // vendorCatalog combines configured entries with paginated provider discovery.
@@ -251,6 +254,13 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
+	proved := s.Proved
+	if proved == nil {
+		proved = Proved
+	}
+	for i := range entries {
+		entries[i].Proved = proofOf(proved, entries[i].Entry, entries[i].Vendor)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
 }
 
