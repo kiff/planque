@@ -155,8 +155,8 @@ func TestTheCatalogSaysWhichAppsAreProved(t *testing.T) {
 func TestTheProofsAreReadWithNoAccount(t *testing.T) {
 	w := httptest.NewRecorder()
 	(&Server{}).Handler().ServeHTTP(w, httptest.NewRequest("GET", "/v1/proved", nil))
-	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("%d %q", w.Code, w.Header().Get("Content-Type"))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "public, max-age=600" {
+		t.Fatalf("%d %q %q", w.Code, w.Header().Get("Content-Type"), w.Header().Get("Cache-Control"))
 	}
 	var got map[string]map[string]map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || len(got) != 1 || got["proved"] == nil {
@@ -181,5 +181,16 @@ func TestTheProofsAreReadWithNoAccount(t *testing.T) {
 	(&Server{}).Handler().ServeHTTP(w, httptest.NewRequest("POST", "/v1/proved", nil))
 	if w.Code != 405 {
 		t.Fatalf("POST: %d", w.Code)
+	}
+}
+
+// The route reads the catalog's own source: a server's proofs when it has
+// them, so the catalog and the public list never disagree.
+func TestTheProofsReadWithNoAccountAreTheCatalogs(t *testing.T) {
+	s := &Server{Proved: map[string]Proof{"gmail": {At: "2026-11-13", How: "oauth", Entries: []string{"gmail-sheet"}, Link: "https://example.com/proof"}}}
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/v1/proved", nil))
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"proved":{"gmail":{"at":"2026-11-13","how":"oauth","link":"https://example.com/proof"}}}` {
+		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }

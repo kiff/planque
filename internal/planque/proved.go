@@ -131,12 +131,20 @@ type publicProof struct {
 // servePublicProofs answers GET /v1/proved with no account: {"proved": {app:
 // {at, how, link}}}, by folded name, the same map the catalog's top level
 // carries. kiff.dev's apps list reads it, so the site and tafs cloud's gallery
-// read one source. It holds nothing but proved.json, which is public already;
-// the reader keeps its own copy (kiff.dev re-reads it every 10 minutes).
-func servePublicProofs(w http.ResponseWriter, _ *http.Request) {
-	out := make(map[string]publicProof, len(Proved))
-	for name, p := range Proved {
+// read one source. It holds nothing but proved.json, which is public already.
+func (s *Server) servePublicProofs(w http.ResponseWriter, _ *http.Request) {
+	// The catalog's own source (vendor_catalog.go), so the two never disagree.
+	proved := s.Proved
+	if proved == nil {
+		proved = Proved
+	}
+	out := make(map[string]publicProof, len(proved))
+	for name, p := range proved {
 		out[name] = publicProof{At: p.At, How: p.How, Link: p.Link}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"proved": out})
+	w.Header().Set("Content-Type", "application/json")
+	// Public data, re-read by kiff.dev every 10 minutes: caches may keep it as long.
+	w.Header().Set("Cache-Control", "public, max-age=600")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"proved": out})
 }
