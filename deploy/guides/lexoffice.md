@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Lexoffice tool
 definitions as planque reads them (43 tools), and the app's public API
 documentation (now published under its new name, Lexware Office).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -73,16 +74,19 @@ owner's call, not the taf's.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Lexoffice's own answers: a refusal reaches the taf as
+"Lexoffice refused it (it answered …): …", with Lexoffice's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| The key doesn't work (401) | The key is missing or wrong, or the API client was switched off | "Lexoffice needs a new key. Nothing was changed." |
+| Lexoffice's sign-in has expired (401), the key doesn't work | The key is missing or wrong, or the API client was switched off | "Lexoffice needs a new key. Nothing was changed." |
 | Refused for the contract (402) | The owner's contract doesn't cover this action | "Your Lexoffice plan doesn't include this step. You can check your plan in the app, or the taf can do without it." |
 | Refused for missing access (403) | The key's access doesn't cover this action | "Lexoffice is only partly connected: this step needs access your key doesn't give. Want to add a key that allows it, or do without this step?" |
-| Not found (404) | The document or contact doesn't exist | "That isn't in Lexoffice any more. The taf will skip it." |
-| Rejected (406) | A value failed the app's checks, or a file was asked for on a draft | "Lexoffice didn't accept that entry. The taf has stopped and will show you what it tried." |
-| Conflict (409) | Someone changed the record since the taf read it, or the document is still a draft | "Someone changed this in Lexoffice in the meantime. The taf will read it again before trying once more." |
-| Too many calls (429) | Over two calls a second | "Lexoffice asked us to slow down. The taf will try again in a moment." |
-| Lexoffice unavailable (5xx) | Trouble on the app's side, or a call ran too long | "Lexoffice isn't answering right now. The taf will check whether anything was saved before trying again." |
+| Refused (404), not found | The document or contact doesn't exist | "That isn't in Lexoffice any more. The taf will skip it." |
+| Refused (406), rejected | A value failed the app's checks, or a file was asked for on a draft | "Lexoffice didn't accept that entry. The taf has stopped and will show you what it tried." |
+| Refused (409), conflict | Someone changed the record since the taf read it, or the document is still a draft | "Someone changed this in Lexoffice in the meantime. The taf will read it again before trying once more." |
+| Refused (429), too many calls | Over two calls a second | "Lexoffice asked us to slow down. The taf will try again in a moment." |
+| Refused (500 or above) | Trouble on the app's side, or a call ran too long | "Lexoffice isn't answering right now. The taf will check whether anything was saved before trying again." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a contact asks before adding one.
+A taf that can't find a contact asks before adding one.

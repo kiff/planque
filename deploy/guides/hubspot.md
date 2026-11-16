@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's HubSpot tool
 definitions as planque reads them (352 tools), and HubSpot's developer
 documentation (usage guidelines, CRM search, contacts, notes, error handling).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -89,16 +90,17 @@ tools only. Offer a write only for what the owner asked to change.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are HubSpot's own answers: a refusal reaches the taf as
+"HubSpot refused it (it answered …): …", with HubSpot's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in didn't give this kind of record, or this write | "HubSpot is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Too many calls (429) | Over the account's short-term limit | "HubSpot asked us to slow down. The taf will try again in a minute." |
-| Account locked briefly (423) | Many records changed at once | "HubSpot is busy with a lot of changes. The taf will try again in a moment." |
-| The sign-in no longer works (401) | The owner removed the app, or the sign-in expired | "HubSpot needs you to sign in again. Nothing was changed." |
-| A contact with that email already exists | Email is a contact's unique key | "That person is already in HubSpot. The taf will update their record instead of adding a new one." |
-| A record isn't found (404) | It was deleted or merged in HubSpot | "That record isn't in HubSpot any more. The taf will skip it." |
-| A search asks past 10,000 results (400) | Too many matches for one search | "That search finds too much at once. The taf will look at a shorter period." |
-| HubSpot is unavailable (5xx) | A short outage on HubSpot's side | "HubSpot isn't answering right now. The taf will try again later." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create or a write.
+| Refused (429), too many calls | Over the account's short-term limit | "HubSpot asked us to slow down. The taf will try again in a minute." |
+| Refused (423), account locked briefly | Many records changed at once | "HubSpot is busy with a lot of changes. The taf will try again in a moment." |
+| HubSpot's sign-in has expired (401) | The owner removed the app, or the sign-in expired | "HubSpot needs you to sign in again. Nothing was changed." |
+| Refused, a contact with that email already exists | Email is a contact's unique key | "That person is already in HubSpot. The taf will update their record instead of adding a new one." |
+| Refused (404), record not found | It was deleted or merged in HubSpot | "That record isn't in HubSpot any more. The taf will skip it." |
+| Refused (400), a search past 10,000 results | Too many matches for one search | "That search finds too much at once. The taf will look at a shorter period." |
+| Refused (500 or above) | A short outage on HubSpot's side | "HubSpot isn't answering right now. The taf will try again later." |
