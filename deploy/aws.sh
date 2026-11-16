@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # planque on AWS: one Lambda behind a function URL, one DynamoDB table,
 # one KMS key. Idempotent. Never prints account ids or ARNs. The table keeps
-# point-in-time recovery on.
+# point-in-time recovery on. The key is rotated yearly, and its policy lets
+# only planque's role seal and open with it (keypolicy).
 #
 #   deploy/aws.sh up      create or update; prints the function URL
 #   deploy/aws.sh down    remove everything (the KMS key is scheduled
@@ -153,6 +154,24 @@ kmskey() {
     local id; id=$(aws kms create-key --description "planque envelope encryption" --query KeyMetadata.KeyId)
     aws kms create-alias --alias-name "$ALIAS" --target-key-id "$id"
   fi
+  # Rotated yearly by KMS: old versions stay for opening what they sealed, so
+  # nothing is sealed again.
+  aws kms enable-key-rotation --key-id "$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId)"
+}
+
+# keypolicy: only planque's role seals and opens with the key. The account's
+# administrators administer it (describe, rotate, disable, schedule deletion,
+# change this policy) but can't use it, and no grant can be made on it, so no
+# IAM policy, however broad, opens a stored secret. Changing this policy is
+# the break-glass, and CloudTrail records it. Run after role(): the policy
+# names the role, and KMS refuses a principal that doesn't exist yet.
+keypolicy() {
+  local id role_arn
+  id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId)
+  role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
+  local admin='"kms:DescribeKey","kms:GetKeyPolicy","kms:PutKeyPolicy","kms:ListKeyPolicies","kms:GetKeyRotationStatus","kms:EnableKeyRotation","kms:DisableKeyRotation","kms:ListKeyRotations","kms:RotateKeyOnDemand","kms:EnableKey","kms:DisableKey","kms:ListAliases","kms:CreateAlias","kms:UpdateAlias","kms:DeleteAlias","kms:UpdateKeyDescription","kms:ListGrants","kms:RevokeGrant","kms:RetireGrant","kms:ListResourceTags","kms:TagResource","kms:UntagResource","kms:ScheduleKeyDeletion","kms:CancelKeyDeletion"'
+  local policy="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AdministerNeverUse\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::$ACCOUNT:root\"},\"Action\":[$admin],\"Resource\":\"*\"},{\"Sid\":\"PlanqueSealsAndOpens\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"$role_arn\"},\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"*\"}]}"
+  aws kms put-key-policy --key-id "$id" --policy-name default --policy "$policy"
 }
 
 function_env() {
@@ -223,6 +242,7 @@ up() {
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
   if [[ "$FAKE" == vendor ]]; then table; fi
   role
+  if [[ -z "$FAKE" ]]; then keypolicy; fi
   local zip; zip=$(build)
   local role_arn; role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
   if aws lambda get-function --function-name "$FN" --query Configuration.FunctionName >/dev/null 2>&1; then
