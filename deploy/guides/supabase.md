@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Supabase tool
 definitions as planque reads them (230 tools, [generated](generated/supabase.md)),
 and Supabase's management API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -59,13 +60,14 @@ adds.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Supabase's own answers: a refusal reaches the taf as
+"Supabase refused it (it answered …): …", with Supabase's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused | This sign-in isn't allowed to do that in Supabase | "Supabase doesn't let this connection do that in this project." |
-| The project doesn't answer | A free project paused after a week of low activity | "Your Supabase project is paused. Restore it in Supabase, then I'll try again." |
-| A query is refused | A table or column that doesn't exist, or SQL that can't run | "The query didn't run: the table may have changed. Want me to read it again?" |
-| Too many calls (429) | Over 120 calls a minute on one endpoint | "Supabase asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works | The sign-in isn't accepted any more | "Supabase needs you to sign in again." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused, the project doesn't answer | A free project paused after a week of low activity | "Your Supabase project is paused. Restore it in Supabase, then I'll try again." |
+| Refused, query | A table or column that doesn't exist, or SQL that can't run | "The query didn't run: the table may have changed. Want me to read it again?" |
+| Refused (429), too many calls | Over 120 calls a minute on one endpoint | "Supabase asked us to slow down. The taf will continue in a minute." |
+| Supabase's sign-in has expired | The sign-in isn't accepted any more | "Supabase needs you to sign in again." |

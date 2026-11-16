@@ -3,6 +3,7 @@
 Checked: 2026-11-13 · Sources: the connection service's Reddit tool
 definitions as planque reads them (48 tools), Reddit's API reference, and
 Reddit's Data API terms.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -85,17 +86,20 @@ only for posts the taf made, and each one waits for the owner's yes too.
 
 ## When it fails
 
+The rows are Reddit's own answers: a refusal reaches the taf as
+"Reddit refused it (it answered …): …", with Reddit's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
 Reddit's reference lists few error codes, so these rows give none.
 
-| What happens | Why | Tell the owner |
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access | The sign-in didn't give this tool's access: reading only, say, and the tool posts | "Reddit is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works | The person removed the app, or the sign-in expired | "Reddit needs you to sign in again. Nothing was posted." |
-| Post refused by the community | It breaks that community's rules (no links, text required, banned words) | "That community didn't accept the post: it doesn't fit their rules. Want to change it, or post somewhere else?" |
-| Too many calls | Over Reddit's call limit | "Reddit asked us to slow down. The taf will try again later." |
-| Not found | The post or comment was deleted | "That post isn't there any more. The taf will skip it." |
-| Blocked by Reddit | Reddit has restricted this account or app | "Reddit has blocked this account or connection. The taf has stopped. Check the account on Reddit." |
+| Reddit's sign-in has expired | The person removed the app, or the sign-in expired | "Reddit needs you to sign in again. Nothing was posted." |
+| Refused by the community | It breaks that community's rules (no links, text required, banned words) | "That community didn't accept the post: it doesn't fit their rules. Want to change it, or post somewhere else?" |
+| Refused, too many calls | Over Reddit's call limit | "Reddit asked us to slow down. The taf will try again later." |
+| Refused, not found | The post or comment was deleted | "That post isn't there any more. The taf will skip it." |
+| Refused, blocked by Reddit | Reddit has restricted this account or app | "Reddit has blocked this account or connection. The taf has stopped. Check the account on Reddit." |
 
-After any refusal the taf stops that step and says so. A refused post is
-never sent again with the text changed unless the owner changed it, and a
-refused read never leads to a write.
+A refused post is never sent again with the text changed unless the owner
+changed it, and a refused read never leads to a write.

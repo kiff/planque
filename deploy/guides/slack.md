@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Slack tool
 definitions as planque reads them (165 tools, [generated](generated/slack.md)),
 and Slack's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -66,13 +67,15 @@ posted to the owner alone goes as a direct message to themselves.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Slack's own answers: a refusal reaches the taf as
+"Slack refused it (it answered …): …", with Slack's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (`missing_scope`) | The sign-in didn't give this tool's access | "Slack is only partly connected: this step needs access you didn't give. Sign in again and allow it, or do without this step." |
-| Channel not found, or not in it (`channel_not_found`, `not_in_channel`) | The owner isn't in the channel, it's private, or archived | "I can't post in that channel. Make sure you're in it, or pick another." |
-| Too many calls (429, `ratelimited`) | Over Slack's limit for that method | "Slack asked us to slow down. The taf will continue in a minute." |
-| Admin approval needed at sign-in | The workspace restricts outside apps | "Your Slack admin needs to approve this connection. Ask them, or use another workspace." |
-| The sign-in no longer works (`invalid_auth`, `token_revoked`) | Removed, or the owner left the workspace | "Slack needs you to sign in again. Nothing was posted." |
-| Message cut short | Slack cuts a message far over its length guide (about 4,000 characters of text) | Keep messages short; split a long report into several. |
-
-After any refusal the taf stops that step and says so.
+| Refused, channel not found or not in it (`channel_not_found`, `not_in_channel`) | The owner isn't in the channel, it's private, or archived | "I can't post in that channel. Make sure you're in it, or pick another." |
+| Refused (429), too many calls, `ratelimited` | Over Slack's limit for that method | "Slack asked us to slow down. The taf will continue in a minute." |
+| At sign-in: admin approval needed | The workspace restricts outside apps | "Your Slack admin needs to approve this connection. Ask them, or use another workspace." |
+| Slack's sign-in has expired | Removed, or the owner left the workspace | "Slack needs you to sign in again. Nothing was posted." |
+| A result with the message cut short | Slack cuts a message far over its length guide (about 4,000 characters of text) | Keep messages short; split a long report into several. |

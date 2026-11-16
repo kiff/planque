@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Telegram tool
 definitions as planque reads them (18 tools, [generated](generated/telegram.md)),
 and Telegram's bot API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -56,13 +57,14 @@ asks for the ones after it and never answers twice.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The key is refused | A wrong or replaced key | "Telegram didn't accept the bot's key. Copy it again from BotFather." |
-| The bot can't reach the chat | The bot isn't in that chat, or no one wrote to it | "The bot can't reach that chat yet. Write to the bot first, or add it to the group." |
-| The person blocked the bot | The person stopped the bot from writing to them | "That person blocked the bot, so the message wasn't sent." |
-| Too many messages (429) | Over Telegram's rate | "Telegram asked us to slow down. The rest goes in a moment." |
-| Reading new messages doesn't work | The bot has a webhook set, so its messages go elsewhere | "Another app receives this bot's messages. Use a bot of its own for this taf." |
+The rows are Telegram's own answers: a refusal reaches the taf as
+"Telegram refused it (it answered …): …", with Telegram's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused, the key | A wrong or replaced key | "Telegram didn't accept the bot's key. Copy it again from BotFather." |
+| Refused, the bot can't reach the chat | The bot isn't in that chat, or no one wrote to it | "The bot can't reach that chat yet. Write to the bot first, or add it to the group." |
+| Refused, the person blocked the bot | The person stopped the bot from writing to them | "That person blocked the bot, so the message wasn't sent." |
+| Refused (429), too many messages | Over Telegram's rate | "Telegram asked us to slow down. The rest goes in a moment." |
+| Refused, reading new messages | The bot has a webhook set, so its messages go elsewhere | "Another app receives this bot's messages. Use a bot of its own for this taf." |
