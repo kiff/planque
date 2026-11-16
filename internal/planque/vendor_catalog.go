@@ -144,9 +144,9 @@ type catalogEntryView struct {
 	How    string `json:"how"`
 	State  string `json:"state"`
 	Grant  string `json:"grant,omitempty"`
-	// Proved: the app connects today, the way a check connected it, since
-	// when and where that's recorded (proved.json); per app, so How may be
-	// another way than this entry's. None for an app no check has connected.
+	// Proved: the app connects today this entry's way, as a check connected
+	// it, since when and where that's recorded (proved.json). None for an
+	// app no check has connected this way.
 	Proved *Proof `json:"proved,omitempty"`
 }
 
@@ -169,10 +169,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title), q) {
 			continue
 		}
-		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: e.Title, Icon: e.Icon, How: "oauth", State: "available"}
-		if e.Kind == KindAPIKey {
-			v.How = "key"
-		}
+		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: e.Title, Icon: e.Icon, How: reviewedHow(e), State: "available"}
 		if state, ok := states[id]; ok {
 			v.State, v.Grant = state.State, state.Grant
 		}
@@ -260,9 +257,11 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		proved = Proved
 	}
 	for i := range entries {
-		entries[i].Proved = proofOf(proved, entries[i].Entry)
+		entries[i].Proved = proofOf(proved, entries[i].Entry, entries[i].How)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
+	// Every proof, by app: an app proved by key with no key entry (Stripe's,
+	// Shippo's) is proved on by_key, the way it was run, and on no entry.
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "proved": proved, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
 }
 
 // entryStates is each catalog entry the tenant has a connection to, with its
@@ -366,4 +365,13 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	frozen.ID = id
 	s.requestGrantFrom(w, r, &frozen)
+}
+
+// reviewedHow is how a reviewed entry connects, in the catalog's words: "key"
+// for a key entry, else "oauth".
+func reviewedHow(e CatalogEntry) string {
+	if e.Kind == KindAPIKey {
+		return "key"
+	}
+	return "oauth"
 }

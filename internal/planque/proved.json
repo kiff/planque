@@ -1,13 +1,13 @@
 {
   "stripe": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
-  "qonto": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
+  "qonto": {"at": "2026-11-13", "how": "key", "entries": ["qonto-key"], "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "shippo": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "intercom": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "zendesk": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "pipedrive": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "github": {"at": "2026-11-13", "how": "key", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
-  "gmail": {"at": "2026-11-13", "how": "sign-in", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
-  "typeform": {"at": "2026-11-16", "how": "sign-in", "link": "https://github.com/kiff/tafs/commit/900c6465"},
-  "googlecalendar": {"at": "2026-11-16", "how": "sign-in", "link": "https://github.com/kiff/tafs/commit/cc430a6f"},
-  "googledrive": {"at": "2026-11-16", "how": "sign-in", "link": "https://github.com/kiff/tafs/commit/cc430a6f"}
+  "gmail": {"at": "2026-11-13", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
+  "typeform": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/900c6465"},
+  "googlecalendar": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/cc430a6f"},
+  "googledrive": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/cc430a6f"}
 }

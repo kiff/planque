@@ -1,6 +1,8 @@
 package planque
 
 import (
+	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -23,49 +25,102 @@ func TestProofsRefuseWhatTheyCantRead(t *testing.T) {
 		{"two objects", `{} {}`, "object of apps"},
 		{"null", `null`, "object of apps"},
 		{"an unknown field", `{"gmail":{"at":"2026-11-13","how":"key","by":"me"}}`, "object of apps"},
-		{"an unfolded name", `{"Google Calendar":{"at":"2026-11-16","how":"sign-in"}}`, "folded name"},
-		{"a dash in the name", `{"google-calendar":{"at":"2026-11-16","how":"sign-in"}}`, "folded name"},
-		{"no how", `{"gmail":{"at":"2026-11-13"}}`, "neither key nor sign-in"},
-		{"another how", `{"gmail":{"at":"2026-11-13","how":"oauth"}}`, "neither key nor sign-in"},
-		{"no day", `{"gmail":{"how":"sign-in"}}`, "isn't a day"},
-		{"a day with a time", `{"gmail":{"at":"2026-11-13T10:00:00Z","how":"sign-in"}}`, "isn't a day"},
-		{"an http link", `{"gmail":{"at":"2026-11-13","how":"sign-in","link":"http://example.com/a"}}`, "https"},
-		{"a link with a user", `{"gmail":{"at":"2026-11-13","how":"sign-in","link":"https://me@example.com/a"}}`, "https"},
-		{"a relative link", `{"gmail":{"at":"2026-11-13","how":"sign-in","link":"/a"}}`, "https"},
+		{"an unfolded name", `{"Google Calendar":{"at":"2026-11-16","how":"oauth"}}`, "folded name"},
+		{"a dash in the name", `{"google-calendar":{"at":"2026-11-16","how":"oauth"}}`, "folded name"},
+		{"no how", `{"gmail":{"at":"2026-11-13"}}`, "neither key nor oauth"},
+		{"another how", `{"gmail":{"at":"2026-11-13","how":"sign-in"}}`, "neither key nor oauth"},
+		{"an entry with its revision", `{"qonto":{"at":"2026-11-13","how":"key","entries":["qonto-key@2"]}}`, "reviewed entry's name"},
+		{"no day", `{"gmail":{"how":"oauth"}}`, "isn't a day"},
+		{"a day with a time", `{"gmail":{"at":"2026-11-13T10:00:00Z","how":"oauth"}}`, "isn't a day"},
+		{"an http link", `{"gmail":{"at":"2026-11-13","how":"oauth","link":"http://example.com/a"}}`, "https"},
+		{"a link with a user", `{"gmail":{"at":"2026-11-13","how":"oauth","link":"https://me@example.com/a"}}`, "https"},
+		{"a relative link", `{"gmail":{"at":"2026-11-13","how":"oauth","link":"/a"}}`, "https"},
 	} {
 		if p, err := DecodeProved([]byte(c.raw)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v %v, want %q", c.name, p, err, c.want)
 		}
 	}
-	if p, err := DecodeProved([]byte(`{"gmail":{"at":"2026-11-13","how":"sign-in"}}`)); err != nil || p["gmail"].At != "2026-11-13" || p["gmail"].How != "sign-in" {
+	if p, err := DecodeProved([]byte(`{"gmail":{"at":"2026-11-13","how":"oauth"}}`)); err != nil || p["gmail"].At != "2026-11-13" || p["gmail"].How != "oauth" {
 		t.Errorf("a proof with no link: %v %v", p, err)
 	}
 }
 
-// A proof matches by the slug planque names an entry with, never by the
-// vendor's words, which the provider supplies.
-func TestAProofMatchesTheAppsSlugOnly(t *testing.T) {
-	proved := map[string]Proof{"googlecalendar": {At: "2026-11-16", How: "sign-in"}, "shippo": {At: "2026-11-13", How: "key"}}
-	for _, c := range []struct{ entry, want string }{
-		{"connector:composio:googlecalendar", "2026-11-16"},
-		{"connector:composio:GOOGLE_CALENDAR", "2026-11-16"},
-		{"shippo@1", "2026-11-13"},
-		{"shippo", "2026-11-13"},
-		{"shipping", ""},
-		{"connector:composio:calendar", ""},
-		{"connector:composio:notion", ""},
-		{"", ""},
+// A proof matches by the slug planque names an entry with, or one of its
+// reviewed entries, and only the way it was proved; never by the vendor's
+// words, which the provider supplies.
+func TestAProofMatchesTheAppsSlugTheWayItWasRun(t *testing.T) {
+	proved := map[string]Proof{
+		"googlecalendar": {At: "2026-11-16", How: "oauth"},
+		"qonto":          {At: "2026-11-13", How: "key", Entries: []string{"qonto-key"}},
+	}
+	for _, c := range []struct{ entry, how, want string }{
+		{"connector:composio:googlecalendar", "oauth", "2026-11-16"},
+		{"connector:composio:GOOGLE_CALENDAR", "oauth", "2026-11-16"},
+		{"connector:composio:googlecalendar", "key", ""},
+		{"qonto-key@2", "key", "2026-11-13"},
+		{"qonto", "oauth", ""},
+		{"connector:composio:qonto", "oauth", ""},
+		{"connector:composio:calendar", "oauth", ""},
+		{"connector:composio:notion", "oauth", ""},
+		{"", "key", ""},
 	} {
-		got := proofOf(proved, c.entry)
+		got := proofOf(proved, c.entry, c.how)
 		if (got == nil) != (c.want == "") || got != nil && got.At != c.want {
-			t.Errorf("%s: %+v, want %q", c.entry, got, c.want)
+			t.Errorf("%s (%s): %+v, want %q", c.entry, c.how, got, c.want)
+		}
+	}
+}
+
+// The shipped proofs against the shipped catalog: each lands on exactly the
+// entries its way in was run, and on no other. Qonto, proved by key, is on
+// its reviewed key entry and not its sign-in; the apps proved by key with no
+// key entry (Stripe's, Shippo's) are on none, only on by_key; each app
+// proved by sign-in is on its provider entry.
+func TestTheShippedProofsLandOnlyWhereTheyWereRun(t *testing.T) {
+	conf, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped, err := DecodeCatalog(conf, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type view struct{ entry, how string }
+	views := []view{{StripeEntry, "oauth"}, {QontoEntry, "oauth"}}
+	for id, e := range newestRevisions(shipped) {
+		views = append(views, view{id, reviewedHow(e)})
+	}
+	for app := range Proved {
+		views = append(views, view{"connector:composio:" + app, "oauth"})
+	}
+	landed := map[string][]string{}
+	for app, p := range Proved {
+		for _, v := range views {
+			if proofOf(map[string]Proof{app: p}, v.entry, v.how) != nil {
+				landed[app] = append(landed[app], v.entry)
+			}
+		}
+	}
+	for app := range landed {
+		slices.Sort(landed[app])
+	}
+	want := map[string][]string{
+		"qonto":          {"qonto-key@2"},
+		"gmail":          {"connector:composio:gmail"},
+		"typeform":       {"connector:composio:typeform"},
+		"googlecalendar": {"connector:composio:googlecalendar"},
+		"googledrive":    {"connector:composio:googledrive"},
+	}
+	for app, p := range Proved {
+		if !slices.Equal(landed[app], want[app]) {
+			t.Errorf("%s (proved by %s) lands on %v, want %v", app, p.How, landed[app], want[app])
 		}
 	}
 }
 
 func TestTheCatalogSaysWhichAppsAreProved(t *testing.T) {
 	e, _ := newConnectorFixture(t)
-	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-16", How: "sign-in", Link: "https://example.com/proof"}}
+	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-16", How: "oauth", Link: "https://example.com/proof"}}
 	st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog", nil, nil, "k_setup")
 	if st != 200 {
 		t.Fatalf("catalog: %d %v", st, out)
@@ -76,7 +131,7 @@ func TestTheCatalogSaysWhichAppsAreProved(t *testing.T) {
 		proof, has := row["proved"].(map[string]any)
 		if row["entry"] == "connector:composio:desk_demo" {
 			seen++
-			if !has || proof["at"] != "2026-11-16" || proof["how"] != "sign-in" || proof["link"] != "https://example.com/proof" {
+			if !has || proof["at"] != "2026-11-16" || proof["how"] != "oauth" || proof["link"] != "https://example.com/proof" {
 				t.Errorf("desk_demo isn't proved: %v", row)
 			}
 		} else if _, there := row["proved"]; there {
@@ -85,5 +140,10 @@ func TestTheCatalogSaysWhichAppsAreProved(t *testing.T) {
 	}
 	if seen != 1 {
 		t.Fatalf("desk_demo isn't in the catalog: %v", out)
+	}
+	// Every proof, by app, beside by_key: an app proved by key with no key
+	// entry is proved there.
+	if all, _ := out["proved"].(map[string]any); out["by_key"] != true || len(all) != 1 || all["deskdemo"] == nil {
+		t.Errorf("proved by app: %v", out["proved"])
 	}
 }
