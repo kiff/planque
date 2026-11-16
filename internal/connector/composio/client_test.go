@@ -587,6 +587,50 @@ func TestSetUpMakesOneManagedSignInAndOffersTheApp(t *testing.T) {
 	}
 }
 
+// An app that takes only a key is set up as a sign-in of its scheme with no
+// credentials of ours, never as a managed one the provider doesn't have for
+// it, and taken only as that scheme and not managed.
+func TestSetUpMakesAKeyAppsSignInWithNoCredentials(t *testing.T) {
+	made := 0
+	answer := `{"toolkit":{"slug":"desk"},"auth_config":{"id":"ac_desk_new","auth_scheme":"api_key","is_composio_managed":false}}`
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "GET":
+			return response(200, `{"items":[]}`), nil
+		case r.URL.Path == "/api/v3.1/auth_configs" && r.Method == "POST":
+			made++
+			var body map[string]json.RawMessage
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if string(body["toolkit"]) != `{"slug":"desk"}` || string(body["auth_config"]) != `{"authScheme":"API_KEY","credentials":{},"type":"use_custom_auth"}` {
+				t.Fatalf("set-up request: %s", mustJSON(body))
+			}
+			return response(201, answer), nil
+		case r.URL.Path == "/api/v3.1/toolkits/desk":
+			return response(200, `{"slug":"desk","name":"Desk","auth_schemes":["API_KEY"]}`), nil
+		default:
+			t.Fatalf("unexpected path %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+	app, err := c.SetUp(context.Background(), "desk")
+	if err != nil || made != 1 || app.Setup != connector.SetupReady || app.AuthConfig != "ac_desk_new" || app.AuthScheme != "API_KEY" || app.Managed {
+		t.Fatalf("set up: %+v err=%v made=%d", app, err, made)
+	}
+	// An answer of another scheme, or one said to be managed, is refused.
+	for _, wrong := range []string{
+		`{"toolkit":{"slug":"desk"},"auth_config":{"id":"ac_desk_new","auth_scheme":"OAUTH2","is_composio_managed":false}}`,
+		`{"toolkit":{"slug":"desk"},"auth_config":{"id":"ac_desk_new","auth_scheme":"API_KEY","is_composio_managed":true}}`,
+	} {
+		answer = wrong
+		c2 := testClient(c.HTTP.Transport.(transport))
+		if _, err := c2.SetUp(context.Background(), "desk"); !errors.Is(err, connector.ErrDefinition) {
+			t.Fatalf("%s was taken: %v", wrong, err)
+		}
+	}
+}
+
 // A search by words asks the provider's text search, narrows to one app
 // upstream and to several here, never returns a platform meta tool, and
 // brings each tool's app as it stands, read once per app.

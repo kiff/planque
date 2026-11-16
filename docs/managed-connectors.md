@@ -114,7 +114,11 @@ The account-authenticated catalog endpoints include upstream discovery:
    yet, is **set up on this pick**: planque creates one provider-managed auth
    config (`POST /auth_configs` with `use_composio_managed_auth` and nothing
    of ours in it), takes the answer only when the provider says it manages
-   it, and keeps its id under a per-app record that is also the lock, so two
+   it. An app that takes only a key or token, or needs no sign-in, is set up
+   on the pick too, as a config of its scheme with no credentials
+   (`use_custom_auth`, `authScheme` its scheme, `credentials: {}`): the owner
+   enters their key on the provider's page. That answer is taken only as that
+   scheme and not managed. Either way planque keeps its id under a per-app record that is also the lock, so two
    owners picking the app at once make one. The grant pins that config as a
    pre-set app's grant does, and is marked `on_demand: true`, as is every
    later grant on a sign-in set up this way, so Coach drafts its writes and
