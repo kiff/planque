@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Zendesk tool
 definitions as planque reads them (480 tools, [generated](generated/zendesk.md)),
 and Zendesk's Support API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -54,13 +55,14 @@ when the owner asked, bounded by the Card.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Zendesk's own answers: a refusal reaches the taf as "Zendesk
+refused it (it answered …): …", with Zendesk's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403) | This account isn't allowed to do that in Zendesk | "Zendesk doesn't let your account do this step. A Zendesk admin can check its access." |
-| Not found (404) | The ticket isn't there, or the id is wrong | "That ticket isn't in Zendesk any more. The taf will skip it." |
+| Refused (404), not found | The ticket isn't there, or the id is wrong | "That ticket isn't in Zendesk any more. The taf will skip it." |
 | Refused (422) | A value Zendesk doesn't accept | "Zendesk didn't accept that change. The taf has stopped and will show you what it tried." |
-| Too many calls (429) | Over the account's rate | "Zendesk asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | The sign-in isn't accepted any more | "Zendesk needs you to sign in again." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused (429), too many calls | Over the account's rate | "Zendesk asked us to slow down. The taf will continue in a minute." |
+| Zendesk's sign-in has expired (401) | The sign-in isn't accepted any more | "Zendesk needs you to sign in again." |

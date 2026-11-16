@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: [the generated part](generated/clickup.md)
 (163 tools), and ClickUp's developer docs at developer.clickup.com: the API
 reference, authentication, rate limits and common errors pages.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -82,12 +83,13 @@ is shown to the owner first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Workspace not authorised (OAUTH_023, OAUTH_026, OAUTH_027, OAUTH_029 to 045) | That workspace wasn't chosen at sign-in | "This ClickUp workspace isn't shared with the connection. Want to sign in again and include it?" |
-| Token not found (OAUTH_019, 021, 025, 077) | The owner removed the app's access in ClickUp | "ClickUp needs you to sign in again. Nothing was changed." |
-| Too many calls (429) | Over the plan's calls per minute | "ClickUp asked us to slow down. The taf will continue in a minute." |
-| Any other refusal on a write | An input ClickUp didn't accept, or an item deleted or made private | Check the item with a read and try once; else "ClickUp didn't accept that change. Nothing was written." |
+The rows are ClickUp's own answers: a refusal reaches the taf as "ClickUp
+refused it (it answered …): …", with ClickUp's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused, workspace not authorised (OAUTH_023, OAUTH_026, OAUTH_027, OAUTH_029 to 045) | That workspace wasn't chosen at sign-in | "This ClickUp workspace isn't shared with the connection. Want to sign in again and include it?" |
+| ClickUp's sign-in has expired | The owner removed the app's access in ClickUp | "ClickUp needs you to sign in again. Nothing was changed." |
+| Refused (429), too many calls | Over the plan's calls per minute | "ClickUp asked us to slow down. The taf will continue in a minute." |
+| Refused, on a write, for any other reason | An input ClickUp didn't accept, or an item deleted or made private | Check the item with a read and try once; else "ClickUp didn't accept that change. Nothing was written." |

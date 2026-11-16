@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Maps tool
 definitions as planque reads them (24 tools, [generated](generated/google_maps.md)),
 and Google's Maps Platform reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -54,12 +55,14 @@ answers faster.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Maps's own answers: a refusal reaches the taf as
+"Google Maps refused it (it answered …): …", with Google Maps's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| No results (`ZERO_RESULTS`) | Nothing matched | "I didn't find any place matching that. Want to try other words or a wider area?" |
+| A result: no results (`ZERO_RESULTS`) | Nothing matched | "I didn't find any place matching that. Want to try other words or a wider area?" |
 | Refused, over the allowance (`OVER_QUERY_LIMIT`, 429) | The month's or minute's allowance is used | "Google Maps' allowance is used up for now. The taf will try again later." |
 | Refused (`REQUEST_DENIED`, 403) | The connection's access to Maps isn't set up | "Google Maps isn't available on this connection right now." |
-| A bad request (`INVALID_REQUEST`, 400) | An address or field the API didn't accept | Fix the input and try once; tell the owner only if it fails again. |
-| Not found (404) | The place's id changed (it moved or closed) | Search for it again by name; if nothing is found: "That place isn't on Google Maps any more. It may have closed." |
-
-After any refusal the taf stops that step and says so.
+| Refused (`INVALID_REQUEST`, 400) | An address or field the API didn't accept | Fix the input and try once; tell the owner only if it fails again. |
+| Refused (404), not found | The place's id changed (it moved or closed) | Search for it again by name; if nothing is found: "That place isn't on Google Maps any more. It may have closed." |

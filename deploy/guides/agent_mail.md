@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Agent Mail tool
 definitions as planque reads them (93 tools), and Agent Mail's API
 documentation (errors, rate limits, drafts, threads, labels).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -83,15 +84,18 @@ sending, and say every send waits for their yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access (403, missing permission) | The key doesn't allow this action, sending say | "Agent Mail is only partly connected: this step needs access your key doesn't give. Want to add a key that allows it, or do without this step?" |
-| The key no longer works (401, unknown or expired key) | The key was revoked or has expired | "Agent Mail needs a new key. Nothing was sent." |
-| Not found (404) | The message, draft or inbox was deleted, or the key can't see that inbox | "That email or inbox isn't there for this connection. The taf will skip it." |
-| Send refused (403, message rejected) | A block list, a recipient missing from an allow list, or an attachment link that can't be fetched | "Agent Mail wouldn't send this one, because of a block or allow list, or an attachment it couldn't fetch. Nothing went out." |
-| Domain not verified (403) | The sending domain's DNS records aren't checked yet | "Your sending domain isn't verified yet in Agent Mail. Finish its setup there, then the taf can send." |
-| Inbox or account suspended (403) | Too many bounces or complaints, or the account is on hold | "Sending is paused on this Agent Mail inbox. Reading still works. Check the inbox's status in Agent Mail." |
-| Too many calls, or the daily cap (429) | Over the rate limit or the plan's sending cap | "Agent Mail asked us to slow down, or today's sending limit is reached. The taf will try again later." |
+The rows are Agent Mail's own refusals: the taf gets "Agent Mail refused it
+(it answered …): …" with Agent Mail's reason. planque's own refusals, and a
+key Agent Mail no longer takes (401), are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403), missing permission | The key doesn't allow this action, sending say | "Agent Mail is only partly connected: this step needs access your key doesn't give. Want to add a key that allows it, or do without this step?" |
+| Refused (404) | The message, draft or inbox was deleted, or the key can't see that inbox | "That email or inbox isn't there for this connection. The taf will skip it." |
+| Refused (403), message rejected | A block list, a recipient missing from an allow list, or an attachment link that can't be fetched | "Agent Mail wouldn't send this one, because of a block or allow list, or an attachment it couldn't fetch. Nothing went out." |
+| Refused (403), domain not verified | The sending domain's DNS records aren't checked yet | "Your sending domain isn't verified yet in Agent Mail. Finish its setup there, then the taf can send." |
+| Refused (403), inbox or account suspended | Too many bounces or complaints, or the account is on hold | "Sending is paused on this Agent Mail inbox. Reading still works. Check the inbox's status in Agent Mail." |
+| Refused (429) | Over the rate limit or the plan's sending cap | "Agent Mail asked us to slow down, or today's sending limit is reached. The taf will try again later." |
+
+A key that stops working shows as a sign-in that has expired: the owner
+taps Connect and gives a new key.

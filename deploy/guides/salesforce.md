@@ -5,6 +5,7 @@ definitions as planque reads them, Salesforce's help articles on API
 access by edition and on the daily request limit, and its REST API and
 limits references. "Not checked" means the reference doesn't say what
 that tool's answer holds.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -84,13 +85,16 @@ asked, and each change waits for the owner's yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Salesforce's own answers: a refusal reaches the taf as
+"Salesforce refused it (it answered …): …", with Salesforce's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not allowed | The signed-in user's permissions don't cover this record or action | "Salesforce doesn't let your account do this step. Your Salesforce admin can allow it, or the taf can do without it." |
-| No API access | The company's Salesforce edition doesn't include it | "Your Salesforce edition doesn't let outside apps connect. Your Salesforce admin can tell you whether it can be added." |
-| Request limit exceeded (REQUEST_LIMIT_EXCEEDED) | The company used up its daily allowance | "Salesforce's daily limit for your company is used up. The taf will try again tomorrow." |
-| The sign-in no longer works | Access was removed, or the sign-in ended | "Salesforce needs you to sign in again. Nothing was changed." |
-| A record isn't found | It was deleted or merged | "That record isn't in Salesforce any more. The taf will skip it." |
+| Refused, no API access | The company's Salesforce edition doesn't include it | "Your Salesforce edition doesn't let outside apps connect. Your Salesforce admin can tell you whether it can be added." |
+| Refused, request limit exceeded (REQUEST_LIMIT_EXCEEDED) | The company used up its daily allowance | "Salesforce's daily limit for your company is used up. The taf will try again tomorrow." |
+| Salesforce's sign-in has expired | Access was removed, or the sign-in ended | "Salesforce needs you to sign in again. Nothing was changed." |
+| Refused, record not found | It was deleted or merged | "That record isn't in Salesforce any more. The taf will skip it." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a contact never adds them again.
+A taf that can't find a contact never adds them again.

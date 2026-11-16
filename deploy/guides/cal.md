@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the Cal tool definitions as planque reads
 them (170 tools, generated/cal.md), and Cal.com's API v2 reference
 (introduction, bookings, slots) and its pricing page.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -82,13 +83,13 @@ their yes. A cancelled recurring booking can take every later one with it.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The sign-in no longer works | The owner removed access, or the sign-in expired | "Cal needs you to sign in again. Nothing was booked or changed." |
-| Refused for missing access | The sign-in doesn't cover this tool, or the owner's plan doesn't include it | "Cal didn't let us do this with your account. It may need a team plan, or a new sign-in. Want to do without this step?" |
-| A booking isn't found | It was cancelled, or the uid is wrong | "That booking isn't in Cal any more. The taf will skip it." |
-| A booking is refused | The time clashes with another booking, or a required answer is missing | Read the free times again and try once; else "Cal didn't accept that booking. Nothing was booked." |
-| Too many calls | Over Cal's per-minute limit | "Cal asked us to slow down. The taf will try again in a minute." |
+The rows are Cal's own refusals: the taf gets "Cal refused it: …" with
+Cal's reason, and its status when it gave one. planque's own refusals, and
+a sign-in Cal no longer takes, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused, missing access | The sign-in doesn't cover this tool, or the owner's plan doesn't include it | "Cal didn't let us do this with your account. It may need a team plan, or a new sign-in. Want to do without this step?" |
+| Refused, booking not found | It was cancelled, or the uid is wrong | "That booking isn't in Cal any more. The taf will skip it." |
+| Refused, booking not accepted | The time clashes with another booking, or a required answer is missing | Read the free times again and try once; else "Cal didn't accept that booking. Nothing was booked." |
+| Refused, too many calls | Over Cal's per-minute limit | "Cal asked us to slow down. The taf will try again in a minute." |

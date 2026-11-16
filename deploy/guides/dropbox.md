@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Dropbox tool
 definitions as planque reads them (175 tools), Dropbox's API reference
 (the published API spec), its performance, error-handling, OAuth and data
 transport limit pages.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -81,17 +82,18 @@ asked to share; each link is shown to the owner first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The sign-in no longer works (401) | The owner removed access, the sign-in expired, or the account is suspended | "Dropbox needs you to sign in again. Nothing was changed." |
-| Refused for missing access (401, missing scope) | The sign-in didn't give this tool's access | "Dropbox is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Not found (409, path not found) | The file was moved, renamed, deleted or unshared | "That file isn't where it was any more. The taf will skip it." |
-| Conflict on upload (409, conflict) | A file with that name exists | Save under a new name once; else "A file with that name is already there. Nothing was replaced." |
-| No space (409, insufficient space) | The Dropbox is full | "Your Dropbox is full, so the file wasn't saved. Free some space or upgrade, and the taf will try again." |
-| Refused (403), monthly limit | The team used its monthly upload allowance | "Your Dropbox team has used this month's upload allowance. Uploads resume on the 1st of the month." |
-| Too many calls (429) | Too many calls or parallel writes | "Dropbox asked us to slow down. The taf will try again shortly." |
-| Bad input (400) | The tool doesn't fit this account or the input is wrong | "Dropbox didn't accept that step. Nothing was changed." |
-| Server error (500) | A brief fault on Dropbox's side | Try again later; if it repeats, "Dropbox is having trouble right now. The taf will try again later." |
+The rows are Dropbox's own answers: a refusal reaches the taf as "Dropbox
+refused it (it answered …): …", with Dropbox's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Dropbox's sign-in has expired (401) | The owner removed access, the sign-in expired, or the account is suspended | "Dropbox needs you to sign in again. Nothing was changed." |
+| Dropbox's sign-in has expired (401), for a missing scope | The sign-in didn't give this tool's access. Dropbox answers 401 for it, so planque ends the sign-in | "Dropbox is only partly connected: this step needs access you didn't give. Sign in again and allow it, or do without this step." |
+| Refused (409), path not found | The file was moved, renamed, deleted or unshared | "That file isn't where it was any more. The taf will skip it." |
+| Refused (409), conflict on upload | A file with that name exists | Save under a new name once; else "A file with that name is already there. Nothing was replaced." |
+| Refused (409), insufficient space | The Dropbox is full | "Your Dropbox is full, so the file wasn't saved. Free some space or upgrade, and the taf will try again." |
+| Refused (403), monthly limit | The team used its monthly upload allowance | "Your Dropbox team has used this month's upload allowance. Uploads resume on the 1st of the month." |
+| Refused (429), too many calls | Too many calls or parallel writes | "Dropbox asked us to slow down. The taf will try again shortly." |
+| Refused (400), bad input | The tool doesn't fit this account or the input is wrong | "Dropbox didn't accept that step. Nothing was changed." |
+| Refused (500), server error | A brief fault on Dropbox's side | Try again later; if it repeats, "Dropbox is having trouble right now. The taf will try again later." |

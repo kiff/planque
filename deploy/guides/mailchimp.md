@@ -3,6 +3,7 @@
 Checked: 2026-11-13 · Sources: the connection service's Mailchimp tool
 definitions as planque reads them, and Mailchimp's Marketing API reference
 (rate limits and timeouts, errors, OAuth, campaigns, lists, members).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -88,17 +89,20 @@ agreed to it; otherwise it keeps them out of the audience.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Mailchimp's own answers: a refusal reaches the taf as
+"Mailchimp refused it (it answered …): …", with Mailchimp's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not allowed (403) | The sign-in's user role or the account's plan doesn't allow this step | "Mailchimp doesn't let this connection do that step. It may need a higher role on the account or a different plan. Want to do without it?" |
 | Refused, account disabled (403, user disabled) | The Mailchimp account has been deactivated | "Your Mailchimp account is switched off, so the taf can't use it. Check the account in Mailchimp." |
-| The sign-in no longer works (401) | Access was removed, or the person who signed in left the account | "Mailchimp needs you to sign in again. Nothing was sent." |
-| Too many calls (429) | More than 10 calls at once for this user | "Mailchimp asked us to slow down. The taf will try again in a moment." |
-| Not found (404) | The audience, contact or campaign was deleted, or the id is wrong | "That isn't in Mailchimp any more. The taf will skip it." |
+| Mailchimp's sign-in has expired (401) | Access was removed, or the person who signed in left the account | "Mailchimp needs you to sign in again. Nothing was sent." |
+| Refused (429), too many calls | More than 10 calls at once for this user | "Mailchimp asked us to slow down. The taf will try again in a moment." |
+| Refused (404), not found | The audience, contact or campaign was deleted, or the id is wrong | "That isn't in Mailchimp any more. The taf will skip it." |
 | Refused, not allowed in this state (405) | The campaign's state blocks it, such as deleting one that is sending | "Mailchimp won't do that while the campaign is in its current state. Nothing was changed." |
-| Rejected as invalid (400) | A field failed Mailchimp's checks | "Mailchimp didn't accept that entry. The taf will skip it and tell you which." |
-| Mailchimp error (500) | Trouble on Mailchimp's side | "Mailchimp is having trouble right now. The taf will try again later." |
+| Refused (400), rejected as invalid | A field failed Mailchimp's checks | "Mailchimp didn't accept that entry. The taf will skip it and tell you which." |
+| Refused (500), Mailchimp error | Trouble on Mailchimp's side | "Mailchimp is having trouble right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a failed send is never retried without the owner's
-yes: a call that timed out may still have gone through.
+A failed send is never retried without the owner's yes: a call that timed
+out may still have gone through.

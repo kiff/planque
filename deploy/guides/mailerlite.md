@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's MailerLite tool
 definitions as planque reads them, and MailerLite's API documentation
 (getting started, subscribers, groups, campaigns).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -85,15 +86,17 @@ only when the person asked to subscribe again. A taf never tries.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The key doesn't work (401) | The key is wrong, was deleted, or its maker left the account | "MailerLite needs a new key. Nothing was sent." |
-| Refused, not allowed (403) | The account or this key isn't allowed to do this | "MailerLite doesn't let this connection do that step. Want to do without it?" |
-| Not found (404) | The subscriber, group or campaign was deleted, or the id is wrong | "That isn't in MailerLite any more. The taf will skip it." |
-| Rejected as invalid (422) | A field failed MailerLite's checks, such as a badly formed email | "MailerLite didn't accept that entry. The taf will skip it and tell you which." |
-| Too many calls (429) | Over the per-minute limit | "MailerLite asked us to slow down. The taf will try again in a minute." |
-| Conflict (409) | The change clashes with the item's current state | "MailerLite couldn't make that change right now. Nothing was changed." |
+The rows are MailerLite's own answers: a refusal reaches the taf as
+"MailerLite refused it (it answered …): …", with MailerLite's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a failed send is never retried without the owner's
-yes.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| MailerLite's sign-in has expired (401), the key doesn't work | The key is wrong, was deleted, or its maker left the account | "MailerLite needs a new key. Nothing was sent." |
+| Refused, not allowed (403) | The account or this key isn't allowed to do this | "MailerLite doesn't let this connection do that step. Want to do without it?" |
+| Refused (404), not found | The subscriber, group or campaign was deleted, or the id is wrong | "That isn't in MailerLite any more. The taf will skip it." |
+| Refused (422), rejected as invalid | A field failed MailerLite's checks, such as a badly formed email | "MailerLite didn't accept that entry. The taf will skip it and tell you which." |
+| Refused (429), too many calls | Over the per-minute limit | "MailerLite asked us to slow down. The taf will try again in a minute." |
+| Refused (409), conflict | The change clashes with the item's current state | "MailerLite couldn't make that change right now. Nothing was changed." |
+
+A failed send is never retried without the owner's yes.

@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's YouTube tool
 definitions as planque reads them (67 tools, [generated](generated/youtube.md)),
 and the YouTube Data API documentation (quota, errors, comments) and the
 YouTube Analytics API documentation.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -56,13 +57,14 @@ never answers twice.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are YouTube's own answers: a refusal reaches the taf as "YouTube
+refused it (it answered …): …", with YouTube's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, quota (403 `quotaExceeded`) | The day's allowance is used | "YouTube's daily allowance is used up. The taf will continue tomorrow." |
 | Refused for missing access (403) | The sign-in didn't give this access, or the wrong channel was chosen | "YouTube is only partly connected, or connected to another channel. Sign in again and pick the right one." |
-| Comments disabled (403) | The video has comments off | "Comments are turned off on that video." |
-| Not found (404) | The video isn't there, or isn't visible to this channel | "That video isn't available any more." |
-| The sign-in no longer works (401) | The sign-in is no longer valid | "YouTube needs you to sign in again." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused (403), comments disabled | The video has comments off | "Comments are turned off on that video." |
+| Refused (404), not found | The video isn't there, or isn't visible to this channel | "That video isn't available any more." |
+| YouTube's sign-in has expired (401) | The sign-in is no longer valid | "YouTube needs you to sign in again." |

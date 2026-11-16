@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: [the generated part](generated/confluence.md)
 (70 tools), and Confluence Cloud's developer docs: the REST API v2
 reference and its published API description, the rate-limiting page and
 the OAuth 2.0 apps page.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -77,16 +78,17 @@ first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Not found (404) | The page or space doesn't exist, or the owner can't see or edit it: Confluence answers "not found" for both | "I can't reach that page. It may have been moved, deleted, or be restricted from you." |
-| The sign-in no longer works (401) | The owner removed access, changed their password, or 90 days passed unused | "Confluence needs you to sign in again. Nothing was changed." |
-| Refused for missing access | The sign-in was made for reading and the tool writes | "Confluence is only partly connected: this step needs access you didn't give. Want to sign in again and allow it?" |
-| Update refused for the version number | The version sent isn't the page's current one plus one: someone may have changed it since the taf read it | Read the page again and retry once; else "Someone edited that page while I was working. I've left it as it is." |
-| Refused (409) on update | The space needs approval before publishing | "This space needs an approval before changes go live, so I couldn't change the page. I can give you the new text to submit yourself." |
-| Too large (413) | The page is over 5 MB | "That page is too big for Confluence. Can I split it into several pages?" |
-| Too many calls (429) | The hourly allowance is spent; Confluence says how long to wait | "Confluence asked us to slow down. The taf will continue after the wait it gave." |
-| Refused as invalid (400) | An input isn't valid | Fix it and try once; else "Confluence didn't accept that change. Nothing was written." |
+The rows are Confluence's own answers: a refusal reaches the taf as
+"Confluence refused it (it answered …): …", with Confluence's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (404), not found | The page or space doesn't exist, or the owner can't see or edit it: Confluence answers "not found" for both | "I can't reach that page. It may have been moved, deleted, or be restricted from you." |
+| Confluence's sign-in has expired (401) | The owner removed access, changed their password, or 90 days passed unused | "Confluence needs you to sign in again. Nothing was changed." |
+| Refused for missing access | The sign-in was made for reading and the tool writes | "Confluence is only partly connected: this step needs access you didn't give. Want to sign in again and allow it?" |
+| Refused on update, for the version number | The version sent isn't the page's current one plus one: someone may have changed it since the taf read it | Read the page again and retry once; else "Someone edited that page while I was working. I've left it as it is." |
+| Refused (409) on update | The space needs approval before publishing | "This space needs an approval before changes go live, so I couldn't change the page. I can give you the new text to submit yourself." |
+| Refused (413), too large | The page is over 5 MB | "That page is too big for Confluence. Can I split it into several pages?" |
+| Refused (429), too many calls | The hourly allowance is spent; Confluence says how long to wait | "Confluence asked us to slow down. The taf will continue after the wait it gave." |
+| Refused as invalid (400) | An input isn't valid | Fix it and try once; else "Confluence didn't accept that change. Nothing was written." |

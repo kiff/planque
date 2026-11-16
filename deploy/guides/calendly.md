@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Calendly tool
 definitions as planque reads them (53 tools), and Calendly's developer
 documentation (rate limits, frequently asked questions).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -76,14 +77,16 @@ waits for the owner's yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access (403) | The sign-in doesn't cover this tool, or the account's role doesn't allow it | "Calendly is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Refused, plan required | The tool needs Calendly's Enterprise plan | "This step needs Calendly's Enterprise plan. The taf will do without it." |
-| Too many calls (429) | Over the per-minute limit, or the daily booking cap | "Calendly asked us to slow down. The taf will try again shortly; bookings over today's limit wait until tomorrow." |
-| The sign-in no longer works (401) | The person changed their login, or removed access | "Calendly needs you to sign in again. Nothing was booked or cancelled." |
-| Not found (404) | The meeting or meeting type was deleted, or belongs to someone else | "That meeting isn't in Calendly any more. The taf will skip it." |
+The rows are Calendly's own refusals: the taf gets "Calendly refused it (it
+answered …): …" with Calendly's reason. planque's own refusals are in the
+part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a meeting never books a new one in
-its place.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403) | The sign-in doesn't cover this tool, or the account's role doesn't allow it | "Calendly is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, plan required | The tool needs Calendly's Enterprise plan | "This step needs Calendly's Enterprise plan. The taf will do without it." |
+| Refused (429) | Over the per-minute limit, or the daily booking cap | "Calendly asked us to slow down. The taf will try again shortly; bookings over today's limit wait until tomorrow." |
+| Calendly's sign-in has expired (401) | The person changed their login, or removed access | "Calendly needs you to sign in again: tap Connect on this taf. Nothing was booked or cancelled." |
+| Refused (404) | The meeting or meeting type was deleted, or belongs to someone else | "That meeting isn't in Calendly any more. The taf will skip it." |
+
+A taf that can't find a meeting never books a new one in its place.

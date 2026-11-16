@@ -5,6 +5,7 @@ tool list, Airtable's API reference (rate limits, errors, access scopes,
 records) and its help pages on monthly call limits. Not yet run on a phone.
 The tool names below are checked against the generated part once the keyed
 run lands.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -82,16 +83,20 @@ named.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access | The sign-in didn't give this tool's access: reading only, say, and the tool adds records | "Airtable is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Refused, or "not found", on a base or table | The base wasn't chosen at sign-in, the owner can't see it, or the name is wrong | "I can't reach that base. Add it to the connection in Airtable, or check you have access to it." |
-| The sign-in is refused, or a base can't be chosen | An enterprise admin blocks outside apps, or that base | "Your Airtable admin blocks outside apps. Ask them to allow it, or connect another account." |
-| Too many calls, right away | Over 5 calls a second on one base | Wait 30 seconds and continue; tell the owner only if it keeps happening. |
-| Too many calls, all day | The workspace's monthly calls are used up | "Your Airtable plan's monthly allowance is used up. The taf will continue next month, or sooner on a bigger plan." |
-| Not accepted | A value doesn't fit its field (text in a number field, an unknown choice) | Fix it and try once; else "Airtable didn't accept that change. Nothing was written." |
-| The sign-in no longer works | Access removed, or it expired | "Airtable needs you to sign in again. Nothing was changed." |
-| Airtable's own error | A problem on Airtable's side | "Airtable had a problem. The taf will try again later. Nothing was changed." |
+The rows are Airtable's own refusals: the taf gets "Airtable refused it (it
+answered …): …" with Airtable's reason. planque's own refusals, and a sign-
+in Airtable no longer takes (401), are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403), missing access | The sign-in didn't give this tool's access: reading only, say, and the tool adds records | "Airtable is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused (403 or 404) on a base or table | The base wasn't chosen at sign-in, the owner can't see it, or the name is wrong | "I can't reach that base. Add it to the connection in Airtable, or check you have access to it." |
+| Refused (429), right away | Over 5 calls a second on one base | Wait 30 seconds and continue; tell the owner only if it keeps happening. |
+| Refused (429), all day | The workspace's monthly calls are used up | "Your Airtable plan's monthly allowance is used up. The taf will continue next month, or sooner on a bigger plan." |
+| Refused (422) | A value doesn't fit its field (text in a number field, an unknown choice) | Fix it and try once; else "Airtable didn't accept that change. Nothing was written." |
+| Refused (500 or above) | A problem on Airtable's side | "Airtable had a problem. The taf will try again later. Nothing was changed." |
+
+**At sign-in, not on a call:** if an enterprise admin blocks outside apps,
+or a base, the sign-in is refused or the base can't be chosen. Tell the
+owner: "Your Airtable admin blocks outside apps. Ask them to allow it, or
+connect another account."

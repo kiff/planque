@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Super tool
 definitions as planque reads them (541 tools, [generated](generated/googlesuper.md)),
 and Google's API references for the apps it spans.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## What it is
 
@@ -82,10 +83,13 @@ Everything each app's guide says not to offer, and in particular:
 
 ## When it fails
 
+The rows are Google Super's own answers: a refusal reaches the taf as
+"Google Super refused it (it answered …): …", with Google Super's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
 As in each app's guide. One more:
 
-| What happens | Why | Tell the owner |
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) on one app's tool | The sign-in was made for other apps' tools | "Your Google connection doesn't cover this step yet. Sign in again and allow it, or I'll do without." |
-
-After any refusal the taf stops that step and says so.
+| Refused (400), `FAILED_PRECONDITION` on a Gmail tool | The connected Google account has no Gmail mailbox it can read | "The Google account you connected has no Gmail mailbox I can read. Connect again with the account whose inbox you want." |

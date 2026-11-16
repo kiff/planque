@@ -3,6 +3,7 @@
 Checked: 2026-11-13 · Sources: the connection service's LinkedIn tool
 definitions as planque reads them (29 tools), and LinkedIn's API
 documentation.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -52,13 +53,17 @@ only on their yes. Offer "Delete a post" only for posts the taf made.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are LinkedIn's own answers: a refusal reaches the taf as "LinkedIn
+refused it (it answered …): …", with LinkedIn's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403), not allowed | The tool needs page access, or a permission LinkedIn didn't give | "LinkedIn doesn't let this connection do that yet. Posting as yourself works; posting as your page doesn't." |
 | Refused (422), duplicate | The same text was just posted | "LinkedIn refused the post because it's the same as a recent one. Want to change it?" |
-| Too many calls (429) | Over LinkedIn's daily limit | "LinkedIn's daily limit is reached. The taf will try again tomorrow." |
-| The sign-in no longer works (401) | Expired after about 60 days, or removed | "LinkedIn needs you to sign in again. Nothing was posted." |
-| Not found (404) | The post was deleted | "That post isn't there any more. The taf will skip it." |
+| Refused (429), too many calls | Over LinkedIn's daily limit | "LinkedIn's daily limit is reached. The taf will try again tomorrow." |
+| LinkedIn's sign-in has expired (401) | Expired after about 60 days, or removed | "LinkedIn needs you to sign in again. Nothing was posted." |
+| Refused (404), not found | The post was deleted | "That post isn't there any more. The taf will skip it." |
 
-After any refusal the taf stops that step and says so. A refused post is
-never retried with the text changed unless the owner changed it.
+A refused post is never retried with the text changed unless the owner
+changed it.

@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's published Asana tool
 list (about 250 tools), Asana's API reference (rate limits, errors,
 pagination, access scopes, task search). Not yet run on a phone. The tool
 names below are checked against the generated part once the keyed run lands.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -86,17 +87,19 @@ creating or updating tasks only when the owner asked for it.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access | The sign-in didn't give this tool's access: reading only, say, and the tool creates a task | "Asana is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Refused, forbidden on one task or project | The owner can't see or change it (private project, guest) | "I can't reach that task or project with your Asana account. It may be private, or need someone to add you." |
-| "Payment required" | Search, or another paid feature, on a free workspace | "That needs a paid Asana plan. I can do it another way, by reading the project's tasks, if that works for you." |
-| Too many calls | Over the per-minute limit, or 5 duplications already running | "Asana asked us to slow down. The taf will try again in a minute." |
-| Not found | The task or project was deleted, or the id is wrong | "That task isn't in Asana any more. The taf will skip it." |
-| Bad input | A required value is missing, a workspace for example | Fix it and try once; else "Asana didn't accept that change. Nothing was written." |
-| The list was cut short | The answer was too large | Read it again by section; tell the owner only if it still fails. |
-| The sign-in no longer works | Access removed, or the workspace blocked this app | "Asana needs you to sign in again. If your workspace admin blocks outside apps, ask them to allow it." |
-| Asana's own error | A problem on Asana's side | "Asana had a problem. The taf will try again later. Nothing was changed." |
+The rows are Asana's own refusals ("Asana refused it: …", with its reason).
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused, missing access | The sign-in didn't give this tool's access: reading only, say, and the tool creates a task | "Asana is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, forbidden on one task or project | The owner can't see or change it (private project, guest) | "I can't reach that task or project with your Asana account. It may be private, or need someone to add you." |
+| Refused, "payment required" | Search, or another paid feature, on a free workspace | "That needs a paid Asana plan. I can do it another way, by reading the project's tasks, if that works for you." |
+| Refused, too many calls | Over the per-minute limit, or 5 duplications already running | "Asana asked us to slow down. The taf will try again in a minute." |
+| Refused, not found | The task or project was deleted, or the id is wrong | "That task isn't in Asana any more. The taf will skip it." |
+| Refused, bad input | A required value is missing, a workspace for example | Fix it and try once; else "Asana didn't accept that change. Nothing was written." |
+| Refused, the list was cut short | The answer was too large | Read it again by section; tell the owner only if it still fails. |
+| Refused, Asana's own error | A problem on Asana's side | "Asana had a problem. The taf will try again later. Nothing was changed." |
+
+If the workspace's admin blocks outside apps, the sign-in stops working:
+tell the owner to ask the admin to allow it, then sign in again.

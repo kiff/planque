@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Typeform tool
 definitions as planque reads them (35 tools, [generated](generated/typeform.md)),
 and Typeform's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -55,13 +56,14 @@ question doesn't break the taf.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Typeform's own answers: a refusal reaches the taf as "Typeform
+refused it (it answered …): …", with Typeform's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access | The sign-in didn't give this access, or the form belongs to another workspace | "Typeform is only partly connected, or that form isn't in your workspace." |
-| Not found | A deleted form, or a wrong id | "That form isn't there any more." |
-| Too many calls | Over the 2 calls a second | "Typeform asked us to slow down. The taf will continue in a moment." |
-| The sign-in no longer works (401) | The sign-in isn't accepted any more | "Typeform needs you to sign in again." |
-| No new responses | Nobody answered, or the plan's monthly cap is reached | "No new responses since last time." Say the cap only if Typeform says so. |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused, not found | A deleted form, or a wrong id | "That form isn't there any more." |
+| Refused, too many calls | Over the 2 calls a second | "Typeform asked us to slow down. The taf will continue in a moment." |
+| Typeform's sign-in has expired (401) | The sign-in isn't accepted any more | "Typeform needs you to sign in again." |
+| A result with no new responses | Nobody answered, or the plan's monthly cap is reached | "No new responses since last time." Say the cap only if Typeform says so. |

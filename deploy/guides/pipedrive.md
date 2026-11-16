@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Pipedrive tool
 definitions as planque reads them, and Pipedrive's API documentation (rate
 limits, status codes, sign-in, and its published API description).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -87,15 +88,18 @@ offer it only when asked, and each change waits for the owner's yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Pipedrive's own answers: a refusal reaches the taf as
+"Pipedrive refused it (it answered …): …", with Pipedrive's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not allowed (403) | The sign-in didn't give this area | "Pipedrive is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Refused, limit reached (403) | The account has reached its plan's limit for that kind of record | "Your Pipedrive account has reached its limit for this kind of record. Nothing was added." |
-| Too many calls (429) | Over the two-second limit, or the day's budget is spent | "Pipedrive asked us to slow down. The taf will try again shortly, or tomorrow if today's allowance is used up." |
-| Account not open (402) | The trial ended, or payment details are missing | "Your Pipedrive account isn't active right now. Nothing was changed." |
-| The sign-in no longer works (401) | The sign-in ended, or was removed | "Pipedrive needs you to sign in again. Nothing was changed." |
-| Not found (404) or gone (410) | The record was deleted or merged | "That record isn't in Pipedrive any more. The taf will skip it." |
-| Pipedrive is unavailable (503) | Planned maintenance | "Pipedrive is down for maintenance. The taf will try again later." |
+| Refused (429), too many calls | Over the two-second limit, or the day's budget is spent | "Pipedrive asked us to slow down. The taf will try again shortly, or tomorrow if today's allowance is used up." |
+| Refused (402), account not open | The trial ended, or payment details are missing | "Your Pipedrive account isn't active right now. Nothing was changed." |
+| Pipedrive's sign-in has expired (401) | The sign-in ended, or was removed | "Pipedrive needs you to sign in again. Nothing was changed." |
+| Refused (404), not found, or gone (410) | The record was deleted or merged | "That record isn't in Pipedrive any more. The taf will skip it." |
+| Refused (503), Pipedrive unavailable | Planned maintenance | "Pipedrive is down for maintenance. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a person never adds them again.
+A taf that can't find a person never adds them again.

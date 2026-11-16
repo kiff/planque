@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the Bitbucket tool definitions as planque
 reads them (116 tools, generated/bitbucket.md), Bitbucket Cloud's
 REST API reference (authentication, scopes, pagination, error layout) and
 its API request limits page.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -89,13 +90,14 @@ for it, and show each one to the owner first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Bitbucket's own refusals: the taf gets "Bitbucket refused it:
+…" with Bitbucket's reason, and its status when it gave one. planque's own
+refusals are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| The sign-in no longer works (401) | The owner removed access, or the sign-in lapsed after three months unused | "Bitbucket needs you to sign in again. Nothing was written." |
-| Refused for missing access | The sign-in didn't give this tool's access, or the owner's account can't use that repository | "Bitbucket is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Not found | The workspace, repository, pull request or file doesn't exist, or this account can't see it | "I can't find that in Bitbucket. Check the name, and that your account can open it." |
+| Bitbucket's sign-in has expired (401) | The owner removed access, or the sign-in lapsed after three months unused | "Bitbucket needs you to sign in again: tap Connect on this taf. Nothing was written." |
+| Refused, missing access | The sign-in didn't give this tool's access, or the owner's account can't use that repository | "Bitbucket is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, not found | The workspace, repository, pull request or file doesn't exist, or this account can't see it | "I can't find that in Bitbucket. Check the name, and that your account can open it." |
 | Refused, too many calls | Over the hourly limit for this user | "Bitbucket's hourly limit is reached. The taf will continue when it frees up." |
 | Refused, with an error per field | The input isn't valid: a branch that doesn't exist, a title missing | Fix it and try once; else "Bitbucket didn't accept that change. Nothing was written." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.

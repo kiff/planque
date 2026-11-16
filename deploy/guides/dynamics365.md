@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Dynamics 365 tool
 definitions as planque reads them (119 tools), and Dynamics 365's data API
 documentation (updating rows, paging, duplicate detection, service
 protection limits, daily request limits).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -82,17 +83,18 @@ Each update is shown to the owner first.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The sign-in no longer works (401) | Expired or revoked | "Dynamics 365 needs you to sign in again. Nothing was changed." |
-| Refused, not allowed | The owner's access doesn't allow this action on this kind of record | "Your Dynamics 365 access doesn't allow this step. Your administrator can extend it, or the taf does without this step." |
-| Sign-in needs approval | The organisation requires an admin to approve outside apps | "Your organisation's admin needs to approve this connection before it can work." |
-| Not found (404) | The record was deleted | "That record isn't there any more. The taf will skip it." |
-| Precondition failed (412) | The record changed since it was read | Read it again and retry once; else "That record changed in the meantime. Nothing was changed." |
-| Refused as a duplicate | A record with the same details exists, when duplicate checks are on | "That record already exists in Dynamics 365. Nothing was added." |
-| Bad request (400) | A field name or value isn't accepted | "Dynamics 365 didn't accept that change. Nothing was written." |
-| Too many requests (429) | Over the short-term limit; the answer says how long to wait | "Dynamics 365 asked us to slow down. The taf will continue in a few minutes." |
-| Server error | A fault on Dynamics 365's side | "Dynamics 365 isn't answering right now. The taf will try again later." |
+The rows are Dynamics 365's own answers: a refusal reaches the taf as
+"Dynamics 365 refused it (it answered …): …", with Dynamics 365's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Dynamics 365's sign-in has expired (401) | Expired or revoked | "Dynamics 365 needs you to sign in again. Nothing was changed." |
+| Refused, not allowed | The owner's access doesn't allow this action on this kind of record | "Your Dynamics 365 access doesn't allow this step. Your administrator can extend it, or the taf does without this step." |
+| At sign-in: needs approval | The organisation requires an admin to approve outside apps | "Your organisation's admin needs to approve this connection before it can work." |
+| Refused (404), not found | The record was deleted | "That record isn't there any more. The taf will skip it." |
+| Refused (412), precondition failed | The record changed since it was read | Read it again and retry once; else "That record changed in the meantime. Nothing was changed." |
+| Refused as a duplicate | A record with the same details exists, when duplicate checks are on | "That record already exists in Dynamics 365. Nothing was added." |
+| Refused (400), bad request | A field name or value isn't accepted | "Dynamics 365 didn't accept that change. Nothing was written." |
+| Refused (429), too many requests | Over the short-term limit; the answer says how long to wait | "Dynamics 365 asked us to slow down. The taf will continue in a few minutes." |
+| Refused, server error | A fault on Dynamics 365's side | "Dynamics 365 isn't answering right now. The taf will try again later." |

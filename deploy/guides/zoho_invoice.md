@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Zoho Invoice tool
 definitions as planque reads them (137 tools), and Zoho Invoice's API
 documentation (introduction, sign-in, errors, paging, invoices, contacts,
 customer payments, estimates, items).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -90,16 +91,19 @@ yes. There's no tool to change an invoice once made.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Zoho Invoice's own answers: a refusal reaches the taf as "Zoho
+Invoice refused it (it answered …): …", with Zoho Invoice's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not allowed (403) | The person's role in the organization doesn't allow this, or they aren't in that organization | "Zoho Invoice didn't let the taf do this. Your role there may not allow it; an admin of that organization can change it." |
 | Refused for missing access | The sign-in didn't give this tool's access | "Zoho Invoice is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works (401) | The sign-in was removed or is no longer valid | "Zoho Invoice needs you to sign in again. Nothing was changed." |
-| Too many calls (429) | Over the minute's limit, too many at once, or the day's allowance | "Zoho Invoice asked us to slow down, or today's allowance is used up. The taf will try again later." |
-| Not found (404) | Deleted, or in another organization | "That invoice isn't in Zoho Invoice any more. The taf will skip it." |
-| Rejected as malformed (400) | A required field is missing or a value doesn't fit | "Zoho Invoice didn't accept that. The taf has stopped and will show you what it tried." |
-| Server error (500) | Trouble on Zoho's side | "Zoho Invoice isn't answering properly right now. The taf will try again later." |
+| Zoho Invoice's sign-in has expired (401) | The sign-in was removed or is no longer valid | "Zoho Invoice needs you to sign in again. Nothing was changed." |
+| Refused (429), too many calls | Over the minute's limit, too many at once, or the day's allowance | "Zoho Invoice asked us to slow down, or today's allowance is used up. The taf will try again later." |
+| Refused (404), not found | Deleted, or in another organization | "That invoice isn't in Zoho Invoice any more. The taf will skip it." |
+| Refused (400), rejected as malformed | A required field is missing or a value doesn't fit | "Zoho Invoice didn't accept that. The taf has stopped and will show you what it tried." |
+| Refused (500), server error | Trouble on Zoho's side | "Zoho Invoice isn't answering properly right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and an invoice is never created or emailed twice to make
-up for an unclear answer.
+An invoice is never created or emailed twice to make up for an unclear
+answer.

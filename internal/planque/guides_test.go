@@ -67,7 +67,7 @@ func TestEveryAdaptedGuideIsDatedAndShort(t *testing.T) {
 		t.Fatalf("no guides: %v", err)
 	}
 	for _, f := range files {
-		if strings.HasSuffix(f, "README.md") || strings.HasSuffix(f, "apps.md") {
+		if strings.HasSuffix(f, "README.md") || strings.HasSuffix(f, "apps.md") || strings.HasSuffix(f, "_refusals.md") {
 			continue
 		}
 		raw, _ := os.ReadFile(f)

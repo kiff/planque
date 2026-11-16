@@ -115,7 +115,7 @@ func TestEveryToolAGuideNamesIsInItsGeneratedGuide(t *testing.T) {
 	checked := 0
 	for _, f := range files {
 		slug := strings.TrimSuffix(filepath.Base(f), ".md")
-		if slug == "README" || slug == "apps" {
+		if slug == "README" || slug == "apps" || slug == "_refusals" {
 			continue
 		}
 		generated, ok := generatedGuideTools(slug)

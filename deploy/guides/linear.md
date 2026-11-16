@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Linear tool
 definitions as planque reads them (47 tools), and Linear's developer
 documentation (rate limits, sign-in, the API's answers, paging and
 filtering).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -81,15 +82,17 @@ it; each shows under the owner's name.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Linear's own answers: a refusal reaches the taf as "Linear
+refused it (it answered …): …", with Linear's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access | The sign-in was made for reading, or only for issues or comments, and this tool needs more | "Linear is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Too many calls (429, `RATELIMITED`) | Over the hourly calls or complexity budget | "Linear asked us to slow down. The taf will try again later." |
-| A query too big | Over Linear's limit for a single query | "That request to Linear was too large. The taf will ask for less at a time." |
-| The sign-in no longer works | Access was revoked, or the sign-in couldn't be renewed | "Linear needs you to sign in again. Nothing was changed." |
-| Answer with errors | Part of the request failed, such as an issue that no longer exists | "Linear couldn't do part of that. The taf has stopped and will show you what was missing." |
-| Linear unavailable (5xx) | Trouble on Linear's side | "Linear isn't answering right now. The taf will try once more later." |
+| Refused (429), too many calls, `RATELIMITED` | Over the hourly calls or complexity budget | "Linear asked us to slow down. The taf will try again later." |
+| Refused, query too big | Over Linear's limit for a single query | "That request to Linear was too large. The taf will ask for less at a time." |
+| Linear's sign-in has expired | Access was revoked, or the sign-in couldn't be renewed | "Linear needs you to sign in again. Nothing was changed." |
+| A result with errors | Part of the request failed, such as an issue that no longer exists | "Linear couldn't do part of that. The taf has stopped and will show you what was missing." |
+| Refused (500 or above) | Trouble on Linear's side | "Linear isn't answering right now. The taf will try once more later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find its issue never opens a new one in
-its place.
+A taf that can't find its issue never opens a new one in its place.

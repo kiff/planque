@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Intercom tool
 definitions as planque reads them (138 tools), and Intercom's developer
 documentation (rate limits, error answers, OAuth scopes, and the reference
 pages for replying, contacts and tickets).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -80,17 +81,19 @@ and each reply waits for the owner's yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Intercom's own answers: a refusal reaches the taf as "Intercom
+refused it (it answered …): …", with Intercom's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused, not allowed (403) | The sign-in's app doesn't have this permission | "Intercom is only partly connected: this step needs access the connection doesn't have. The taf will do without it." |
 | Refused, not on this plan (403, `api_plan_restricted`) | The workspace's Intercom plan doesn't include this feature | "This needs a feature your Intercom plan doesn't include. The taf will do without it." |
-| The sign-in no longer works (401) | Access was removed, or the token is no longer valid | "Intercom needs you to sign in again. Nothing was sent." |
-| Not found (404) | The conversation, person or ticket was deleted | "That isn't in Intercom any more. The taf will skip it." |
-| Several people match (409) | More than one contact has that email | "Two people in Intercom share that email. Tell the taf which one, or it will skip them." |
-| Rejected as invalid (422) | A value is well formed but doesn't fit, such as an unknown teammate | "Intercom didn't accept that change. The taf has stopped and will show you what it tried." |
-| Too many calls (429) | Over the per-minute limit, or replies too fast in one conversation | "Intercom asked us to slow down. The taf will try again in a moment." |
-| Intercom unavailable (5xx) | Trouble on Intercom's side | "Intercom isn't answering right now. The taf will try once more later." |
+| Intercom's sign-in has expired (401) | Access was removed, or the token is no longer valid | "Intercom needs you to sign in again. Nothing was sent." |
+| Refused (404), not found | The conversation, person or ticket was deleted | "That isn't in Intercom any more. The taf will skip it." |
+| Refused (409), several people match | More than one contact has that email | "Two people in Intercom share that email. Tell the taf which one, or it will skip them." |
+| Refused (422), rejected as invalid | A value is well formed but doesn't fit, such as an unknown teammate | "Intercom didn't accept that change. The taf has stopped and will show you what it tried." |
+| Refused (429), too many calls | Over the per-minute limit, or replies too fast in one conversation | "Intercom asked us to slow down. The taf will try again in a moment." |
+| Refused (500 or above) | Trouble on Intercom's side | "Intercom isn't answering right now. The taf will try once more later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a conversation never starts a new
-one in its place.
+A taf that can't find a conversation never starts a new one in its place.

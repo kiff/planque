@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Docs tool
 definitions as planque reads them (46 tools, [generated](generated/googledocs.md)),
 and Google's Docs API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -76,13 +77,16 @@ each write that depends on a position, or replace by phrase instead.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Docs's own answers: a refusal reaches the taf as
+"Google Docs refused it (it answered …): …", with Google Docs's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | Most often a search, which needs Drive access | "Google Docs is only partly connected: finding documents by name needs access you didn't give. Send me the document's link instead." |
-| The document isn't found (404) | Deleted, or not shared with this account | "I can't open that document. It may have been deleted or not shared with this account." |
-| A write is refused (400) | A position past the end, after an edit moved it | Read the document again and retry once; tell the owner only if it fails again. |
-| Too many calls (429) | Over Google's per-minute limit | "Google Docs asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Docs needs you to sign in again. Nothing was changed." |
+| Refused (404), document not found | Deleted, or not shared with this account | "I can't open that document. It may have been deleted or not shared with this account." |
+| Refused (400), bad write | A position past the end, after an edit moved it | Read the document again and retry once; tell the owner only if it fails again. |
+| Refused (429), too many calls | Over Google's per-minute limit | "Google Docs asked us to slow down. The taf will continue in a minute." |
+| Google Docs's sign-in has expired (401) | Removed, or expired | "Google Docs needs you to sign in again. Nothing was changed." |
 
-After any refusal the taf stops that step and says so. A failed search never
-leads to creating a new document in its place.
+A failed search never leads to creating a new document in its place.
