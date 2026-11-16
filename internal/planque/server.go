@@ -77,6 +77,9 @@ type Server struct {
 	// ServerApps is the reviewed list of which app a vendor's own server
 	// is: its server, and the catalog entry it belongs to (entry.go).
 	ServerApps map[string]string
+	// Proved is which apps connect today (proved.go); nil is the reviewed
+	// proved.json shipped in the binary.
+	Proved map[string]Proof
 	// DescriberServers are the servers, besides Stripe's own, whose first
 	// request gets these describing tools as setup reads with its sign-in
 	// (PLANQUE_DESCRIBER_SERVERS): the Eval's vendor, on a host we run.
