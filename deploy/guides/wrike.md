@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Wrike**, held by the connection service. The taf acts as the
-  owner, with their rights in each space. The catalog lists the tools and,
+  owner, with their rights in each space. The grant's catalog lists the tools and,
   with a known sign-in, puts the ones its access doesn't cover under
   `unusable`. Offer only what's under `tools`.
 - **Wrike keeps each account's data in one data centre** (the US or the EU),

@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **A sign-in to HubSpot**, held by the connection service; the taf never
   sees a password or token. The owner picks the HubSpot account to connect
-  on HubSpot's own page. planque's catalog lists the tools and, with a known
+  on HubSpot's own page. The grant's catalog lists the tools and, with a known
   sign-in, puts the ones its access doesn't cover under `unusable`, with why.
 - **Access is per kind of record.** Contacts, companies and deals each have
   their own read and write access; owners can only be read. A sign-in that reads deals

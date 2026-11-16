@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Asana**, held by the connection service; the taf never sees
-  a password or token. With a known sign-in, the catalog puts the tools its
+  a password or token. With a known sign-in, the grant's catalog puts the tools its
   access doesn't cover under `unusable`, with why.
 - **The sign-in acts as the owner.** The taf sees only the workspaces,
   teams and projects the owner can see, and can't do more than the owner

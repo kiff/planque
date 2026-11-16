@@ -10,7 +10,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **A sign-in to Monday**, held by the connection service; the taf never
   sees a password or token. The person approves the access asked for on
-  Monday's own page. planque's catalog lists the tools and, with a known
+  Monday's own page. The grant's catalog lists the tools and, with a known
   sign-in, puts the ones its access doesn't cover under `unusable`, with
   why.
 - **The taf acts for the person who signed in**, within what they allowed.

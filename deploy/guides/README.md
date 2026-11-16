@@ -15,7 +15,7 @@ file): a new or changed guide reaches Coach with the next deploy.
   catalog as planque reads it, for every app at once. It says how the app
   connects and, for each tool: what it does, read or write, its inputs, what
   it returns (the ids and links a taf keeps, as the catalog's `returns` gives
-  them) and the access it needs (as the catalog's `unusable` checks it).
+  them) and the access it needs (as the grant's catalog's `unusable` checks it).
   Never edited by hand: run the command again.
 - **Adapted:** `<slug>.md`, beside this file, written by a person in our own
   words from the vendor's published documentation and from real runs: the

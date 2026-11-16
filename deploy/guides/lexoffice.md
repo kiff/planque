@@ -13,7 +13,7 @@ Failure table checked against planque's answers on 2026-11-16.
 - **One key reaches one organization's books.** `LEXOFFICE_GET_PROFILE`
   names the company and its tax setup, so a taf can check it's in the right
   books before it writes.
-- **With a known sign-in**, planque's catalog puts the tools the key can't
+- **With a known sign-in**, the grant's catalog puts the tools the key can't
   run under `unusable`. Ask for every tool the job needs in the first
   request, so nothing is asked twice.
 

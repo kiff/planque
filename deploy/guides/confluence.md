@@ -10,7 +10,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **A sign-in to Confluence**, held by the connection service; the taf never
   sees a password or token. At sign-in the owner picks the Confluence site
-  to allow. planque's catalog lists the tools and, with a
+  to allow. The grant's catalog lists the tools and, with a
   known sign-in, puts the ones its access doesn't cover under `unusable`.
 - **The taf can do only what the owner can.** Even with write access, a page
   in a space the owner can't edit stays out of reach.

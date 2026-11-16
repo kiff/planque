@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
   organization, and can be limited to some inboxes or some actions.
 - **Agent Mail gives a taf its own inbox**, separate from the owner's
   personal mailbox. Mail it sends comes from that inbox's address.
-- **A restricted key leaves tools out.** With a known sign-in the catalog
+- **A restricted key leaves tools out.** With a known sign-in the grant's catalog
   puts the tools the key can't run under `unusable`. Ask for every tool the
   job needs in the first request, so nothing is asked twice.
 

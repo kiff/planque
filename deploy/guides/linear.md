@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Linear**, made on Linear's own page and held by the
-  connection service; the taf never sees a token. planque's catalog lists
+  connection service; the taf never sees a token. The grant's catalog lists
   the tools and, with a known sign-in, puts the ones its access doesn't
   cover under `unusable`, with why.
 - **Linear's access comes in a few sizes:** reading, a narrower right to

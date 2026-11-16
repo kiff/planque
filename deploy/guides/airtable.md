@@ -10,7 +10,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Airtable**, held by the connection service; the taf never
-  sees a password or token. With a known sign-in, the catalog puts the tools
+  sees a password or token. With a known sign-in, the grant's catalog puts the tools
   its access doesn't cover under `unusable`, with why.
 - **The owner picks the bases at sign-in.** The taf reaches only the bases
   and workspaces the owner chose then, and never more than the owner can do

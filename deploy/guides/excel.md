@@ -8,7 +8,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Microsoft**, held by the connection service: a work or
-  school account. Workbooks in a personal OneDrive can't be opened. The catalog lists the tools and, with a
+  school account. Workbooks in a personal OneDrive can't be opened. The grant's catalog lists the tools and, with a
   known sign-in, puts the ones its access doesn't cover under `unusable`.
   Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.

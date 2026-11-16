@@ -15,7 +15,7 @@ Failure table checked against planque's answers on 2026-11-16.
   job is for.
 - **Access is granted by area:** sales invoices, documents (purchase invoices
   and receipts), estimates, bank, time entries and settings. A sign-in made
-  for one area doesn't reach the others. With a known sign-in, planque's
+  for one area doesn't reach the others. With a known sign-in, the grant's
   catalog puts the tools it doesn't cover under `unusable`, with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.

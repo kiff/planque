@@ -24,7 +24,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **A sign-in to Discord**, held by the connection service; the taf never
   sees a password or token. The owner approves on Discord's own page.
-  planque's catalog lists the tools and, with a known sign-in, puts the ones
+  The grant's catalog lists the tools and, with a known sign-in, puts the ones
   its access doesn't cover under `unusable`, with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request, so nothing is asked

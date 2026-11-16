@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
   files, releases or issues can go by the web read tool. Offer a sign-in only
   when the job needs the owner's private repositories or writes anything.
 - **A sign-in to GitHub**, held by the connection service, is the usual way.
-  The catalog lists its tools and, with a known sign-in, puts the ones its
+  The grant's catalog lists its tools and, with a known sign-in, puts the ones its
   access doesn't cover under `unusable`. A held sign-in is reused for a new
   taf when it covers the tools asked.
 - **Or a key**, a fine-grained token the owner makes in GitHub's settings,

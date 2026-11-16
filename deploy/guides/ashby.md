@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
   service; the taf never sees it. In Ashby, an admin creates the key and
   picks, module by module, what it may read or write (candidates, jobs,
   interviews, offers and so on).
-- **A key without a module leaves its tools out.** With a known sign-in the
+- **A key without a module leaves its tools out.** With a known sign-in the grant's
   catalog puts the tools the key can't run under `unusable`. Ask for every
   tool the job needs in the first request, so nothing is asked twice.
 - **Confidential jobs and private fields are hidden by default.** A key sees

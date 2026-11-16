@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to one QuickBooks company**, held by the connection service;
-  the taf never sees a password or token. planque's catalog lists the tools
+  the taf never sees a password or token. The grant's catalog lists the tools
   and, with a known sign-in, puts the ones its access doesn't cover under
   `unusable`, with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
