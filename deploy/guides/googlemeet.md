@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Meet tool
 definitions as planque reads them (25 tools, [generated](generated/googlemeet.md)),
 and Google's Meet API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -45,6 +46,11 @@ names who gets the summary, and the Card says so.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Meet's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **Transcripts, recordings and notes** exist only if someone turned them on
   in the meeting, and only on plans that include them: Google's business
   plans, and for recordings some paid personal storage plans. On a free
@@ -56,12 +62,14 @@ names who gets the summary, and the Card says so.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| No transcript or recording found | Not turned on, not ready yet, or the plan doesn't include it | "That meeting has no transcript yet. If it was turned on, it can take a few minutes; I'll look again." |
-| Refused for missing access (403) | The sign-in didn't give this access, or the meeting isn't the owner's | "I can't read that meeting. It may belong to someone else, or Meet is only partly connected." |
-| Not found (404) | Older than 30 days, or a wrong id | "That meeting's record isn't there any more." |
-| Too many calls (429) | Over Google's limit | "Google asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Meet needs you to sign in again." |
+The rows are Google Meet's own answers: a refusal reaches the taf as
+"Google Meet refused it (it answered …): …", with Google Meet's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| A result with no transcript or recording | Not turned on, not ready yet, or the plan doesn't include it | "That meeting has no transcript yet. If it was turned on, it can take a few minutes; I'll look again." |
+| Refused for missing access (403) | The sign-in didn't give this access, or the meeting isn't the owner's | "I can't read that meeting. It may belong to someone else, or Meet is only partly connected." |
+| Refused (404), not found | Older than 30 days, or a wrong id | "That meeting's record isn't there any more." |
+| Refused (429), too many calls | Over Google's limit | "Google asked us to slow down. The taf will continue in a minute." |
+| Google Meet's sign-in has expired (401) | Removed, or expired | "Google Meet needs you to sign in again." |

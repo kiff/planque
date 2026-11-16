@@ -120,12 +120,37 @@ func builtinVendor(id string) string {
 	return ""
 }
 
+// grantVendor is the name people read for g when its app is one of
+// planque's own reviewed entries, or "": by the entry given (any of its
+// forms), else by the server, for a connection to Stripe's or Qonto's own
+// MCP server stored with no entry, or an older one, that names neither
+// (a grant made before its request named its entry, still read as
+// "stripe-mcp"). Only those servers: any other keeps its own name.
+func grantVendor(g *Grant, entry string) string {
+	if n := builtinVendor(entry); n != "" {
+		return n
+	}
+	if requestFamily(g.Request) != familyMCP || g.Request.Connector != nil {
+		return ""
+	}
+	switch {
+	case rowMatches(stripeServer, g.Request.Server):
+		return stripeVendor
+	case sameServer(qontoServer, g.Request.Server):
+		return qontoVendor
+	}
+	return ""
+}
+
 // serverVendorName is what a server's connection is called: its reviewed
 // app's name when the grant is that app's ("Stripe"), else what the server
 // calls itself. A server's own name is often its package's ("stripe-mcp"),
 // never what the owner knows the app by.
 func (s *Server) serverVendorName(g *Grant, server mcp.Server) string {
-	if n := s.entryVendor(g.Request.CatalogEntry); n != "" {
+	if n := grantVendor(g, entryOf(g)); n != "" {
+		return n
+	}
+	if n := s.entryVendor(entryOf(g)); n != "" {
 		return n
 	}
 	return label(server.Label())

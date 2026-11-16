@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Wrike tool
 definitions as planque reads them (144 tools, [generated](generated/wrike.md)),
 and Wrike's developer documentation (errors, authorisation, ids, tasks and
 comments).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -55,13 +56,14 @@ them from the API and keep them as given.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Wrike's own answers: a refusal reaches the taf as "Wrike
+refused it (it answered …): …", with Wrike's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403) | The owner can't reach that item, or the account's licence or quota doesn't allow the action | "Wrike doesn't let your account do that here. Check your access to that space, or your Wrike plan." |
-| Not found (404) | The task was deleted, or the id is wrong | "That task isn't there any more." |
+| Refused (404), not found | The task was deleted, or the id is wrong | "That task isn't there any more." |
 | Refused (400) | A value or field Wrike doesn't accept, such as a status outside this workflow | Read the workflow and try once; else "Wrike didn't accept that change." |
-| Too many calls (429) | Over Wrike's rate | "Wrike asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | The sign-in is invalid or expired | "Wrike needs you to sign in again." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused (429), too many calls | Over Wrike's rate | "Wrike asked us to slow down. The taf will continue in a minute." |
+| Wrike's sign-in has expired (401) | The sign-in is invalid or expired | "Wrike needs you to sign in again." |

@@ -96,7 +96,7 @@ role() {
   fi
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
-    stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
+    stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
     # KIFF's receiver and its signing secret go together, as planque checks
     # at start: half of the pair is refused here, before anything changes.
     if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then
@@ -125,6 +125,12 @@ table() {
     aws dynamodb wait table-exists --table-name "$TABLE"
     aws dynamodb update-time-to-live --table-name "$TABLE" \
       --time-to-live-specification Enabled=true,AttributeName=ttl --query TimeToLiveSpecification.Enabled >/dev/null
+  fi
+  # Deletion protection, checked on every run, so a table rebuilt or changed
+  # by hand gets it back: planque's records can't be dropped by one command.
+  # The fake vendor's test table goes without.
+  if [[ -z "$FAKE" && "$(aws dynamodb describe-table --table-name "$TABLE" --query Table.DeletionProtectionEnabled)" != "True" ]]; then
+    aws dynamodb update-table --table-name "$TABLE" --deletion-protection-enabled --query TableDescription.TableName >/dev/null
   fi
   # Point-in-time recovery, asked for on every run, so a table rebuilt or
   # changed by hand gets it back: without it, a bad write can't be undone.
@@ -164,8 +170,12 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
   else
     # The browser worker's address and key are set by
     # deploy/browserworker/aws.sh and kept here as they are; so is which
-    # accounts are offered Stripe refunds (PLANQUE_STRIPE_REFUNDS), and the
-    # catalog's operators, unless PLANQUE_CATALOG_OPERATORS is given.
+    # accounts are offered Stripe refunds (PLANQUE_STRIPE_REFUNDS), the
+    # catalog's operators, unless PLANQUE_CATALOG_OPERATORS is given, and
+    # the servers that get Stripe's describing read with their sign-in
+    # besides Stripe's own (PLANQUE_DESCRIBER_SERVERS): live planque sets
+    # it for the Eval's vendor, a host we run, so the Eval measures the
+    # path a Stripe customer gets; a rerun keeps it.
     # planque's switches (PLANQUE_DIGEST=v2, PLANQUE_WINDOW_REQUIRED=true)
     # are taken from the environment when given, else kept from the
     # function, so a rerun never turns one off; set one to another value
@@ -173,10 +183,10 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json"}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
-for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS"):
+for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
     if now.get(k) and not v.get(k): v[k]=now[k]
 for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
@@ -264,7 +274,10 @@ down() {
   aws iam delete-role --role-name "$ROLE" 2>/dev/null || true
   command aws --region "$REGION" logs delete-log-group --log-group-name "/aws/lambda/$FN" 2>/dev/null || true
   if [[ -z "$FAKE" || "$FAKE" == vendor ]]; then
-    aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 || true
+    # planque's own table has deletion protection: it stays, unless a person
+    # turns that off first (update-table --no-deletion-protection-enabled).
+    aws dynamodb delete-table --table-name "$TABLE" --query TableDescription.TableName >/dev/null 2>&1 ||
+      echo "kept table $TABLE (deletion protection is on, or it's gone already)" >&2
   fi
   if [[ -z "$FAKE" ]]; then
     local id; id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)

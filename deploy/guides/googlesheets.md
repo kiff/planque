@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Sheets tool
 definitions as planque reads them (50 tools), Google's Sheets and Drive API
 references, and test runs on a phone on 13 Nov 2026.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -40,7 +41,7 @@ So:
 | `GOOGLESHEETS_LOOKUP_SPREADSHEET_ROW` | Finds the first row matching a value | read | the row and its number |
 | `GOOGLESHEETS_GET_SHEET_NAMES` | Lists the tabs of a spreadsheet | read | tab names |
 | `GOOGLESHEETS_GET_SPREADSHEET_INFO` | Reads a spreadsheet's title, tabs and settings | read | the spreadsheet id, tab ids |
-| `GOOGLESHEETS_SEARCH_SPREADSHEETS` | Finds spreadsheets by name or date | read, **needs Drive access** | spreadsheet ids and links |
+| `GOOGLESHEETS_SEARCH_SPREADSHEETS` | Finds spreadsheets by name or date; **needs Drive access** | read | spreadsheet ids and links |
 | `GOOGLESHEETS_CREATE_GOOGLE_SHEET1` | Creates a new spreadsheet | write | **the spreadsheet id and its link**: keep them |
 | `GOOGLESHEETS_VALUES_UPDATE` | Writes values into one range, replacing what's there | write | the range written and how many cells |
 | `GOOGLESHEETS_UPDATE_VALUES_BATCH` | Writes several ranges at once | write | the ranges written |
@@ -67,6 +68,19 @@ write.
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes):
+  - **reading cells:** read-only Sheets ("see all your spreadsheets"). A few
+    reads (by data filter, developer metadata, validation rules) list no
+    read-only access and take edit access;
+  - **writing cells or sheets:** Sheets edit access ("see, edit, create and
+    delete all your spreadsheets");
+  - **finding a sheet by name, or exporting it:** read-only Drive as well
+    ("see and download all your Drive files"); moving a sheet to a folder
+    takes full Drive.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **No paid plan is needed**; any Google account works. A business admin can
   block outside apps.
 - **Rate:** Google allows about 60 reads and 60 writes a minute for one user,
@@ -77,14 +91,15 @@ write.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Sheets's own answers: a refusal reaches the taf as
+"Google Sheets refused it (it answered …): …", with Google Sheets's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | The sign-in didn't give this tool's access: most often a search, which needs Drive | "Google Sheets is only partly connected: finding sheets by name needs access you didn't give. Send me the sheet's link instead, or sign in again and allow it." |
-| Too many calls (429) | Over Google's per-minute limit | "Google Sheets asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | The owner removed access or the sign-in expired | "Google Sheets needs you to sign in again. Nothing was changed." |
-| The sheet isn't found (404) | Deleted, or the taf isn't allowed to open it | "I can't open that sheet. It may have been deleted or not shared with this account." |
-| A range is refused (400) | A tab name without quotes, or a range outside the sheet | Fix the range and try once; don't tell the owner unless it fails again. |
-| The owner doesn't see a write | Google's phone app shows an open sheet's old cells until it's reopened | "It's written. Close and reopen the sheet to see it." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create or a write.
+| Refused (429), too many calls | Over Google's per-minute limit | "Google Sheets asked us to slow down. The taf will continue in a minute." |
+| Google Sheets's sign-in has expired (401) | The owner removed access or the sign-in expired | "Google Sheets needs you to sign in again. Nothing was changed." |
+| Refused (404), sheet not found | Deleted, or the taf isn't allowed to open it | "I can't open that sheet. It may have been deleted or not shared with this account." |
+| Refused (400), bad range | A tab name without quotes, or a range outside the sheet | Fix the range and try once; don't tell the owner unless it fails again. |
+| A write that worked, which the owner doesn't see | Google's phone app shows an open sheet's old cells until it's reopened | "It's written. Close and reopen the sheet to see it." |

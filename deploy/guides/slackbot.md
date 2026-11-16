@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Slackbot tool
 definitions as planque reads them (105 tools, [generated](generated/slackbot.md)),
 and Slack's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## What it is, beside Slack
 
@@ -62,13 +63,14 @@ app's name, and it sees only the channels it's been added to.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Not in the channel (`not_in_channel`, `channel_not_found`) | The app wasn't added to it | "Add the app to that channel first: type /invite and its name there." |
-| Refused for missing access (`missing_scope`) | The install didn't give this access | "The Slack app is only partly set up: this step needs access it wasn't given. Sign in again and allow it." |
-| Too many calls (`ratelimited`) | Over Slack's limit | "Slack asked us to slow down. The taf will continue in a minute." |
-| Admin approval needed | The workspace restricts apps | "Your Slack admin needs to approve this app." |
-| The install no longer works (`invalid_auth`, `token_revoked`) | The app was removed, or the token isn't valid any more | "The Slack app was removed. Sign in again to reinstall it." |
+The rows are Slackbot's own answers: a refusal reaches the taf as "Slackbot
+refused it (it answered …): …", with Slackbot's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused, not in the channel (`not_in_channel`, `channel_not_found`) | The app wasn't added to it | "Add the app to that channel first: type /invite and its name there." |
+| Refused for missing access (`missing_scope`) | The install didn't give this access | "The Slack app is only partly set up: this step needs access it wasn't given. Sign in again and allow it." |
+| Refused, too many calls (`ratelimited`) | Over Slack's limit | "Slack asked us to slow down. The taf will continue in a minute." |
+| At sign-in: admin approval needed | The workspace restricts apps | "Your Slack admin needs to approve this app." |
+| Refused, the install no longer works (`invalid_auth`, `token_revoked`) | The app was removed, or the token isn't valid any more | "The Slack app was removed. Sign in again to reinstall it." |

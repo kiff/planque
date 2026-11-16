@@ -4,7 +4,7 @@ import "testing"
 
 // Each status has one line in the owner's words, the same in every app.
 func TestStatusWords(t *testing.T) {
-	vendor := Request{Server: "https://mcp.stripe.com/"}
+	vendor := Request{Server: "https://mcp.example.com/"}
 	for _, c := range []struct {
 		g    Grant
 		want string
@@ -14,8 +14,9 @@ func TestStatusWords(t *testing.T) {
 		{Grant{Status: StatusPending, SignedIn: true}, "Signed in · tools waiting for your approval"},
 		{Grant{Status: StatusPending, SignedIn: true, Connected: []ToolRequest{{Tool: "list_charges", Title: "List charges"}}}, "Connected · new tools waiting for your approval"},
 		{Grant{Status: StatusListed, SignedIn: true}, "Unfinished · signed in, no tools chosen yet"},
-		{Grant{Status: StatusApproved, Request: vendor}, "Approved · waiting for the sign-in at mcp.stripe.com"},
-		{Grant{Status: StatusApproved, Request: vendor, VendorName: "Stripe"}, "Approved · waiting for the sign-in at Stripe"},
+		{Grant{Status: StatusApproved, Request: vendor}, "Approved · waiting for the sign-in at mcp.example.com"},
+		{Grant{Status: StatusApproved, Request: vendor, VendorName: "Example Desk"}, "Approved · waiting for the sign-in at Example Desk"},
+		{Grant{Status: StatusApproved, Request: Request{Server: "https://mcp.stripe.com/"}}, "Approved · waiting for the sign-in at Stripe"},
 		{Grant{Status: StatusSignedIn}, "Signed in · waiting for you to confirm"},
 		{Grant{Status: StatusFailed, Reason: "the token could not be stored"}, "Not connected"},
 		{Grant{Status: StatusDisconnected}, "Disconnected"},

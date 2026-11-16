@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's WhatsApp tool
 definitions as planque reads them (127 tools, [generated](generated/whatsapp.md)),
 and WhatsApp's Business Platform documentation.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## What it is
 
@@ -71,15 +72,16 @@ how many, and the first message is shown to the owner.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are WhatsApp's own answers: a refusal reaches the taf as "WhatsApp
+refused it (it answered …): …", with WhatsApp's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused: outside 24 hours (131047) | A plain message outside the window | "That customer last wrote over a day ago, so only an approved template can be sent." |
-| Template refused (132000 and others) | The values sent don't match the template's fields, or the template can't be used | "WhatsApp refused the template message. The taf has stopped and will show you what it tried." |
-| First-contact cap reached | The business's cap on customers messaged first in a day | "Your WhatsApp number's daily limit is reached. The rest go tomorrow." |
-| Can't be delivered (131026) | The number isn't on WhatsApp, or its app is out of date | "That number can't get WhatsApp messages right now, so nothing was delivered." |
-| Payment refused (131042) | A problem with the business account's payment method | "WhatsApp needs a working payment method on your business account before it sends this." |
-| Sending too fast (130429) | Over the platform's sending rate | "WhatsApp asked us to slow down. The rest goes in a moment." |
-| The sign-in no longer works (code 0) | The access expired or was withdrawn | "WhatsApp needs you to sign in again. Nothing was sent." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused, template (132000 and others) | The values sent don't match the template's fields, or the template can't be used | "WhatsApp refused the template message. The taf has stopped and will show you what it tried." |
+| Refused, first-contact cap reached | The business's cap on customers messaged first in a day | "Your WhatsApp number's daily limit is reached. The rest go tomorrow." |
+| Refused, can't be delivered (131026) | The number isn't on WhatsApp, or its app is out of date | "That number can't get WhatsApp messages right now, so nothing was delivered." |
+| Refused, payment (131042) | A problem with the business account's payment method | "WhatsApp needs a working payment method on your business account before it sends this." |
+| Refused, sending too fast (130429) | Over the platform's sending rate | "WhatsApp asked us to slow down. The rest goes in a moment." |
+| WhatsApp's sign-in has expired | The access expired or was withdrawn | "WhatsApp needs you to sign in again. Nothing was sent." |

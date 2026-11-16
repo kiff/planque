@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Tasks tool
 definitions as planque reads them (16 tools, [generated](generated/googletasks.md)),
 and Google's Tasks API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -44,6 +45,11 @@ can't be due at 15:00. A job that needs a time uses Google Calendar.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Tasks's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **No paid plan is needed.** A business admin can block outside apps.
 - **Limits:** up to 100,000 tasks in all, 20,000 open tasks in one list,
   and 2,000 lists. Google's daily call allowance is shared by everyone on
@@ -53,11 +59,13 @@ can't be due at 15:00. A job that needs a time uses Google Calendar.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Tasks's own answers: a refusal reaches the taf as
+"Google Tasks refused it (it answered …): …", with Google Tasks's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in gave read access only | "Google Tasks is only partly connected: adding tasks needs access you didn't give. Sign in again and allow it." |
-| The task or list isn't found (404) | Deleted in the app | "That task isn't there any more. The taf will skip it." |
-| Too many calls (429) | Over Google's limit | "Google asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Tasks needs you to sign in again. Nothing was changed." |
-
-After any refusal the taf stops that step and says so.
+| Refused (404), task or list not found | Deleted in the app | "That task isn't there any more. The taf will skip it." |
+| Refused (429), too many calls | Over Google's limit | "Google asked us to slow down. The taf will continue in a minute." |
+| Google Tasks's sign-in has expired (401) | Removed, or expired | "Google Tasks needs you to sign in again. Nothing was changed." |

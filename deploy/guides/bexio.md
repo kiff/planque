@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the bexio tool definitions as planque reads
 them (309 tools, generated/bexio.md), and bexio's API reference at
 docs.bexio.com (personal access tokens, rate limiting, errors, pagination,
 changelog).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -84,14 +85,15 @@ for it, and say each one waits for their yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The key isn't accepted (401) | The key expired after 60 days, or the owner deleted it | "bexio stopped accepting the key. Make a new one in bexio's developer portal and paste it here. Nothing was changed." |
-| Refused (403) | The key's user can't use this part of bexio, or the company doesn't have the module | "bexio didn't let us do this with your account. Check that your user can use this part of bexio, or do without this step." |
-| Not found (404) | The contact, invoice or quote was deleted, or the id is wrong | "That record isn't in bexio any more. The taf will skip it." |
-| Not saved (422) | A required field is missing or not valid, such as a contact, tax or account that doesn't exist | Fix the input and try once; else "bexio didn't accept that document. Nothing was saved." |
-| Too many requests (429) | Over bexio's rate limit | "bexio asked us to slow down. The taf will try again shortly." |
-| Unavailable (503) | bexio is down or in maintenance | "bexio is not available right now. The taf will try again later." |
+The rows are bexio's own refusals: the taf gets "bexio refused it (it
+answered …): …" with bexio's reason. planque's own refusals are in the part
+below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| bexio's sign-in has expired (401) | The key expired after 60 days, or the owner deleted it | "bexio stopped accepting the key. Make a new one in bexio's developer portal, then tap Connect on this taf and paste it. Nothing was changed." |
+| Refused (403) | The key's user can't use this part of bexio, or the company doesn't have the module | "bexio didn't let us do this with your account. Check that your user can use this part of bexio, or do without this step." |
+| Refused (404) | The contact, invoice or quote was deleted, or the id is wrong | "That record isn't in bexio any more. The taf will skip it." |
+| Refused (422) | A required field is missing or not valid, such as a contact, tax or account that doesn't exist | Fix the input and try once; else "bexio didn't accept that document. Nothing was saved." |
+| Refused (429) | Over bexio's rate limit | "bexio asked us to slow down. The taf will try again shortly." |
+| Refused (503) | bexio is down or in maintenance | "bexio is not available right now. The taf will try again later." |

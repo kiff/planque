@@ -2,10 +2,12 @@ package planque
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/kiff/planque/internal/jcs"
+	"github.com/kiff/planque/internal/store"
 )
 
 // definitionsReadEvery is how often, at most, planque reads a direct MCP
@@ -94,10 +96,66 @@ func (s *Server) checkDefinitions(ctx context.Context, g *Grant) (code, why stri
 		}
 	}
 	g.DefinitionsReadAt = now
-	if err := s.saveGrant(ctx, g); err != nil {
+	err = s.saveGrant(ctx, g)
+	if errors.Is(err, store.ErrCondition) {
+		// Another write to the grant came first: two calls reading the
+		// definitions in the same moment, or anything else the grant keeps.
+		return s.keepDefinitionsAfter(ctx, g, now)
+	}
+	if err != nil {
 		// Checked and unchanged: the call goes on; the next one reads again.
 		s.log().WarnContext(ctx, "definitions check not kept", slog.String("grant", g.ID), slog.String("err", err.Error()))
 	}
+	return "", ""
+}
+
+// keepDefinitionsAfter settles a definitions check (mine) whose write lost
+// to another, against the grant as stored. The same definitions recorded
+// by the other read are nothing to keep: the call goes on, no warning. A
+// tool the stored grant has no hash for yet gets this read's, written
+// once more. A hash the other read recorded that differs from this one's
+// means the vendor's tool changed between the two reads: it pauses, as a
+// change found on one read does, and says so loudly. g becomes the stored
+// grant, so the call goes on from what is kept.
+func (s *Server) keepDefinitionsAfter(ctx context.Context, mine *Grant, now time.Time) (code, why string) {
+	stored, err := s.loadGrant(ctx, mine.Tenant, mine.ID)
+	if err != nil {
+		s.log().WarnContext(ctx, "definitions check not kept", slog.String("grant", mine.ID), slog.String("err", err.Error()))
+		return "", ""
+	}
+	read := make(map[string]string, len(mine.Tools))
+	for _, t := range mine.Tools {
+		read[t.Tool] = t.VendorSchemaSHA256
+	}
+	write := false
+	for i, t := range stored.Tools {
+		sum, ok := read[t.Tool]
+		switch {
+		case !ok || sum == "" || t.VendorSchemaSHA256 == sum:
+		case t.VendorSchemaSHA256 == "":
+			stored.Tools[i].VendorSchemaSHA256, write = sum, true
+		default:
+			*mine = *stored
+			if mine.Paused != nil {
+				return pausedRefusal(mine)
+			}
+			s.log().ErrorContext(ctx, "definitions differ between two reads at once", slog.String("grant", mine.ID), slog.String("tool", t.Tool))
+			return s.pauseGrant(ctx, mine, t.Name, vendorName(mine)+" changed "+t.Tool+" since you approved it")
+		}
+	}
+	if stored.Paused != nil {
+		*mine = *stored
+		return pausedRefusal(mine)
+	}
+	// The other write was a check of its own when it read in this window:
+	// the same thing, kept once. Otherwise this read is kept.
+	if write || now.Sub(stored.DefinitionsReadAt) >= definitionsReadEvery {
+		stored.DefinitionsReadAt = now
+		if err := s.saveGrant(ctx, stored); err != nil {
+			s.log().WarnContext(ctx, "definitions check not kept", slog.String("grant", mine.ID), slog.String("err", err.Error()))
+		}
+	}
+	*mine = *stored
 	return "", ""
 }
 

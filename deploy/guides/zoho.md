@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Zoho tool
 definitions as planque reads them (110 tools, [generated](generated/zoho.md)),
 and Zoho CRM's API documentation (limits, status codes, data centres,
 search, records).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -59,13 +60,14 @@ custom fields change. Read the module's fields once and keep them.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Zoho CRM's own answers: a refusal reaches the taf as "Zoho CRM
+refused it (it answered …): …", with Zoho CRM's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403, no permission) | The owner's account isn't allowed to do this | "Your Zoho account doesn't allow this step. Your Zoho admin can check its permissions." |
-| The sign-in isn't accepted (401) | The sign-in is invalid or expired | "Zoho needs you to sign in again." |
+| Zoho's sign-in has expired (401) | The sign-in is invalid or expired | "Zoho needs you to sign in again." |
 | Refused (400, invalid data or mandatory field missing) | A field's API name or value is wrong | Read the fields and try once; else "Zoho didn't accept the record." |
-| Too many calls (429) | Over the 24-hour credits, or too many calls at once | "Zoho's call allowance is used up for now. The taf will continue later." |
-| A duplicate (`DUPLICATE_DATA`) | A field marked unique already has that value | Use the existing record's id; don't tell the owner. |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused (429), too many calls | Over the 24-hour credits, or too many calls at once | "Zoho's call allowance is used up for now. The taf will continue later." |
+| Refused, duplicate (`DUPLICATE_DATA`) | A field marked unique already has that value | Use the existing record's id; don't tell the owner. |

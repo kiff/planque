@@ -198,7 +198,7 @@ func TestDeploymentKeepsPointInTimeRecovery(t *testing.T) {
 	}
 	// unavailable is how often a new table refuses recovery before it takes
 	// it (ContinuousBackupsUnavailableException): a few times, then never.
-	run := func(exists bool, unavailable int) (string, error) {
+	runAs := func(exists bool, unavailable int, fake, protected string) (string, error) {
 		found := "1"
 		if exists {
 			found = "0"
@@ -206,13 +206,15 @@ func TestDeploymentKeepsPointInTimeRecovery(t *testing.T) {
 		dir := t.TempDir()
 		log := dir + "/calls"
 		script := `set -euo pipefail
-TABLE=demo PITR_RETRY_SECONDS=0
+TABLE=demo PITR_RETRY_SECONDS=0 FAKE=` + fake + `
 refusals=` + strconv.Itoa(unavailable) + `
 aws() {
  echo "$*" >>` + log + `
  case "$1 $2" in
- "dynamodb describe-table") return ` + found + `;;
- "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live") return 0;;
+ "dynamodb describe-table")
+  if [[ "$*" == *DeletionProtectionEnabled* ]]; then echo ` + protected + `; return 0; fi
+  return ` + found + `;;
+ "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live"|"dynamodb update-table") return 0;;
  "dynamodb update-continuous-backups")
   n=$(cat ` + dir + `/refused 2>/dev/null || echo 0)
   if (( n < refusals )); then echo $((n+1)) >` + dir + `/refused; return 254; fi
@@ -228,6 +230,7 @@ aws() {
 		}
 		return string(logged), nil
 	}
+	run := func(exists bool, unavailable int) (string, error) { return runAs(exists, unavailable, "", "False") }
 	for _, exists := range []bool{false, true} {
 		calls, err := run(exists, 0)
 		if err != nil {
@@ -238,6 +241,21 @@ aws() {
 		}
 		if strings.Contains(calls, "create-table") == exists {
 			t.Fatalf("table (exists=%v) created the table wrongly:\n%s", exists, calls)
+		}
+	}
+	// Deletion protection: turned on when it's off, left alone when it's on,
+	// and never asked of the fake vendor's test table.
+	const protect = "dynamodb update-table --table-name demo --deletion-protection-enabled"
+	for _, c := range []struct {
+		fake, protected string
+		want            bool
+	}{{"", "False", true}, {"", "True", false}, {"vendor", "False", false}} {
+		calls, err := runAs(true, 0, c.fake, c.protected)
+		if err != nil {
+			t.Fatalf("table (fake=%q protected=%s) failed: %v", c.fake, c.protected, err)
+		}
+		if strings.Contains(calls, protect) != c.want {
+			t.Fatalf("table (fake=%q protected=%s) asked for deletion protection=%v, want %v:\n%s", c.fake, c.protected, !c.want, c.want, calls)
 		}
 	}
 	// A new table that refuses recovery for a moment still gets it, and the run goes on.

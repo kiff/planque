@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's BigQuery tool
 definitions as planque reads them (63 tools, [generated](generated/googlebigquery.md)),
 and Google's BigQuery reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -58,13 +59,16 @@ one runs every time.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google BigQuery's own answers: a refusal reaches the taf as
+"Google BigQuery refused it (it answered …): …", with Google BigQuery's
+reason. planque's own refusals, and an expired sign-in, are in the part
+below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403, access denied) | The owner's role doesn't allow it, or BigQuery isn't on in the project | "Your Google Cloud role doesn't let me run that. A project admin can give you query access." |
 | Refused (403, quota or billing) | The free allowance is used and billing isn't set up, or a cost cap was hit | "BigQuery's allowance for this project is used up. Billing needs to be set up to run more queries." |
-| The query is refused (400) | A SQL error, or a column that doesn't exist | "The query didn't run: a table or column has changed. Want me to look at the table again?" |
-| Not found (404) | A dataset or table renamed or deleted | "I can't find that table any more." |
-| Too many calls (429, or a 403 that says the rate is exceeded) | Over the project's rate | "BigQuery asked us to slow down. The taf will try again in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "BigQuery needs you to sign in again." |
-
-After any refusal the taf stops that step and says so.
+| Refused (400), bad query | A SQL error, or a column that doesn't exist | "The query didn't run: a table or column has changed. Want me to look at the table again?" |
+| Refused (404), not found | A dataset or table renamed or deleted | "I can't find that table any more." |
+| Refused (429), too many calls, or a 403 that says the rate is exceeded | Over the project's rate | "BigQuery asked us to slow down. The taf will try again in a minute." |
+| Google BigQuery's sign-in has expired (401) | Removed, or expired | "BigQuery needs you to sign in again." |

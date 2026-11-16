@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Gorgias tool
 definitions as planque reads them (51 tools, [generated](generated/gorgias.md)),
 and Gorgias's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -54,12 +55,14 @@ answered, so it never acts twice.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Gorgias's own answers: a refusal reaches the taf as "Gorgias
+refused it (it answered …): …", with Gorgias's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused (403) | The connection's user lacks the right | "Your Gorgias role doesn't allow this. An admin can change it." |
-| The sign-in no longer works (401) | Removed, or expired | "Gorgias needs you to sign in again." |
-| Not found (404) | A deleted ticket | "That ticket isn't there any more." |
-| Too many calls (429) | Over the account's rate | "Gorgias asked us to slow down. The taf will continue in a moment." |
+| Gorgias's sign-in has expired (401) | Removed, or expired | "Gorgias needs you to sign in again." |
+| Refused (404), not found | A deleted ticket | "That ticket isn't there any more." |
+| Refused (429), too many calls | Over the account's rate | "Gorgias asked us to slow down. The taf will continue in a moment." |
 | Refused (400) | A channel or field Gorgias didn't accept | Fix it and try once; else "Gorgias didn't accept that message. Nothing was sent." |
-
-After any refusal the taf stops that step and says so.

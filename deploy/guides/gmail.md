@@ -1,8 +1,10 @@
 # Gmail
 
-Checked: 2026-11-14 · Sources: the connection service's Gmail tool
+Checked: 2026-11-15 · Sources: the connection service's Gmail tool
 definitions as planque reads them (61 tools), Google's Gmail API reference,
-and test runs on a phone on 13 Nov 2026.
+test runs on a phone on 13 and 14 Nov 2026, and planque's scope choice for
+the managed sign-in (`docs/managed-connectors.md`).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -10,9 +12,8 @@ and test runs on a phone on 13 Nov 2026.
   a password or token. planque's catalog lists the tools and, with a known
   sign-in, puts the ones its access doesn't cover under `unusable`, with why.
 - **An account that already holds Gmail reuses that sign-in** for a new taf,
-  with no browser, when it covers the tools asked. If the new taf needs a
-  tool the held sign-in doesn't cover (sending, say, after a read-only
-  sign-in), Google asks the owner again.
+  with no browser, when it covers the tools asked. Through the managed
+  sign-in it always does (full mail access, below).
 - **One approval for the sign-in, one for the tools and the Card.** Ask for
   every tool the job needs in the first request, so nothing is asked twice.
 
@@ -43,7 +44,9 @@ something the taf made: use the id it kept.
 
 **Start read-only.** "Draft, and let me check before anything is sent" is a
 read tool plus `GMAIL_CREATE_EMAIL_DRAFT`. Offer a sending tool only when
-the owner asked for sending, and say every send waits for their yes.
+the owner asked for sending, and say every send waits for their yes. The
+taf's tools and its Card are what keep a job to reading: the sign-in itself
+can do more (below).
 
 ## Don't offer
 
@@ -55,9 +58,22 @@ the owner asked for sending, and say every send waits for their yes.
 
 ## Access and plans
 
-- **Reading and drafting** need Gmail read access plus the right to write
-  drafts; sending needs send access. A sign-in made for reading doesn't let
-  the taf send.
+- **Through the managed sign-in, Google's page asks for full mail access**
+  ("read, compose, send and permanently delete"), whatever the taf's tools:
+  that sign-in offers no narrower Gmail access, not read-only, compose or
+  modify. A read-only job's sign-in can, as a sign-in, also send and delete.
+  - The approval says so: "Gmail will ask for more access than this taf
+    uses". Coach says it plainly before connecting, and never "only what this
+    taf needs".
+  - What the taf may do is still only its tools and its Card. A taf with no
+    sending tool can't send, whatever the sign-in allows.
+  - Read-only Gmail needs a sign-in whose own access includes it, which the
+    managed one doesn't. Until then, don't promise it.
+- **Never contacts, birthday, addresses or phone numbers:** a Gmail job asks
+  for none of them.
+- The tools are named in the connect: a connect that names none asks for the
+  app's widest access, so the taf's planned tools are always named when it
+  connects.
 - **Daily sending caps are Google's:** about 500 recipients a day on a
   personal account. A business (Workspace) account can send about 2,000
   messages a day, to at most 10,000 recipients in all, fewer on a trial
@@ -73,14 +89,15 @@ the owner asked for sending, and say every send waits for their yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access (403, "insufficient scopes") | The sign-in didn't give this tool's access: reading only, say, and the tool sends | "Gmail is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Refused, "rate limit exceeded" (403) or too many calls (429) | Too many calls in a short time | "Gmail asked us to slow down. The taf will try again in a few minutes." |
-| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
-| "App is blocked" at sign-in | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
-| A message or draft isn't found (404) | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
-| Daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |
+The rows are Gmail's own refusals. planque's own, and an expired sign-in,
+are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused for missing access (403, "insufficient scopes") | The sign-in didn't give this tool's access: an older sign-in, or one made another way than the managed one | "Gmail is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, "rate limit exceeded" (403) or too many calls (429) | Too many calls in a short time | "Gmail asked us to slow down. The taf will try again in a few minutes." |
+| Gmail's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
+| At sign-in: "App is blocked" | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
+| Refused (404), message or draft not found | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
+| Refused (400), `FAILED_PRECONDITION`, "Precondition check failed" | The connected Google account has no Gmail mailbox it can read: a work account with Gmail turned off, or one made without Gmail. Signing in again with the same account doesn't fix it | "The Google account connected for Gmail has no mailbox I can read. Connect Gmail again with the account whose inbox you want." |
+| Refused, daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |

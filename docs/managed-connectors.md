@@ -134,11 +134,20 @@ The account-authenticated catalog endpoints include upstream discovery:
 
    **The narrowest sign-in (gap 5 of kiff/tafs#476).** A request may name the
    taf's tools (`tools`, the provider's slugs, as the tools search names
-   them). For an app on the provider's own sign-in, planque reads that
+   them; a managed connect's `setup_reads` count among them). For an app on
+   the provider's own sign-in, planque reads that
    sign-in's scope ceiling and the scopes it always asks (the app's
-   `composio_managed_auth` and `auth_config_details`), asks the provider for
-   the tools' least-privilege scopes within the ceiling
-   (`toolkits/{slug}/scopes/recommended`), and pins a managed sign-in that
+   `composio_managed_auth` and `auth_config_details`), picks each tool's
+   narrowest scope from the tool's own list by a reviewed order of Google's
+   scopes (`breadth`: read-only before edit before full, for Gmail, Sheets,
+   Docs, Calendar and Drive; a write never takes a read-only scope; a read
+   is a tool the provider tags `readOnlyHint`, or one the app's adapted guide
+   marks "read" in its tools table, checked by a person against the vendor's
+   reference: 14 Nov, two Gmail reads the provider didn't tag got full mail;
+   a tool neither says is a read stays a write), and
+   only when a tool's list isn't ranked asks the provider for the tools'
+   least-privilege scopes within the ceiling
+   (`toolkits/{slug}/scopes/recommended`). It pins a managed sign-in that
    asks only for those (`credentials.scopes`). It is made once per app and
    scope set, named `planque-scoped-<app>-<hash>`, found again by that name,
    and never chosen as an app's usual sign-in. A new one counts against the
@@ -147,6 +156,16 @@ The account-authenticated catalog endpoints include upstream discovery:
    in the signed request (`asked_tools`, `scopes`), the words say "<app> is
    asked only for what this taf's actions need.", and the grant binds only those
    tools later (409 for another: a new connection asks for it).
+
+   A recommendation with a scope the reviewed order ranks (a Google scope)
+   is one that couldn't be checked tool by tool, and the provider's can be
+   wider than the tools need (14 Nov: full mail access for two Gmail reads).
+   It's pinned the same way but marked wide: `usual_access`, and the words
+   say "<app> will ask for more access than this taf uses…", never "only
+   what this taf's actions need". So is a tool that took a wider scope than
+   its narrowest because the ceiling lacks that one: the provider's managed
+   Gmail sign-in offers full mail alone, not `gmail.readonly`, so a Gmail
+   read on it asks full mail and is said to.
 
    When the provider can't narrow it (no ceiling, a tool outside it, its
    recommendation failing, an operator's own sign-in, or the account's

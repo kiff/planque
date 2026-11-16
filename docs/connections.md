@@ -20,6 +20,16 @@ Servers offering dynamic registration continue to use that flow when they
 do not advertise client metadata support. PKCE, resource binding, one-use
 state and confirmation on the approving device apply to both flows.
 
+A sign-in link that came back once stays one-use: landed on again (a
+vendor's "click here" after its redirect, a reopened tab), it runs nothing
+and moves no grant. Until the link's own deadline planque keeps a mark of
+it, by the state's hash, never the state, so the page can say what
+happened: the sign-in already went through (its grant is signed in or
+connected), so the owner goes back to tafs, where it finishes; or the link
+was used and the sign-in starts again from tafs. A link planque never gave
+is unknown, as before. The page names the app, never a grant, an account or
+a code.
+
 **The resource.** A server's metadata must name the server planque calls:
 the same URL, or the same scheme and host with a path made of the server's
 leading segments, as Qonto names `https://mcp.qonto.com` for its server at
@@ -137,8 +147,10 @@ approves it anew: a grant from `@1` stays as it was.
 **Array arguments** (`narrow.go`): a narrowed tool's argument may be
 `"type": "array"` with a `schema`, a JSON Schema of `type`, `properties`,
 `required`, `items`, `enum`, `maxLength`, `maxItems` and `description` only.
-Its items are objects, each naming its fields, or plain values (strings,
-integers, numbers or booleans: a draft's cc addresses). Annotations a
+Its items are objects, each naming its fields, plain values (strings,
+integers, numbers or booleans: a draft's cc addresses), or rows of plain
+values, one level deep (a sheet's `values`: `[["Ana", 12]]`), each cell
+checked as a plain value; a row of objects or of rows is refused. Annotations a
 provider's generated schema carries (`title`, `default`, `examples`,
 `example`, `$comment`, `deprecated`, `readOnly`, `writeOnly`, `nullable`,
 `format`, which planque never checked) are dropped at every level, and an
@@ -149,6 +161,35 @@ stored, declared and signed without them. Any other keyword (`pattern`,
 be checked, so it is refused (`argument_schema`), never dropped. The agent
 sees that schema. A call whose value has a field the schema doesn't name, the wrong kind
 of value, a value outside its list, or a missing required field is refused.
+
+**Object arguments** (`narrow.go`, `checkObject`): an argument may also be
+`"type": "object"` with a `schema` naming each field the taf may set (a sheet
+row's update, whose `values` is a text per column):
+`{"path": "values", "type": "object", "schema": {"type": "object", "properties": {"Introduction": {"type": "string"}}}}`.
+Each field is a plain value or an array, as an array argument's schema is.
+It is never another object (name a nested object's fields as arguments of
+their own, at their paths), never `null`, a type list or alternatives. A
+field's name is 1 to 64 characters with no dot (spaces are fine: "First
+name"), since a field's path is the argument's and its name split on dots,
+which is how the disclosure line finds the text. An object names at most 50
+fields, and takes `type`, `properties`, `required` and `description` only
+(no `enum`, `items` or lengths on the object itself). The
+same keywords are taken, and the same annotations dropped. A field the
+schema doesn't name is refused, whatever `additionalProperties` says. An
+object that names its fields is stored closed (`additionalProperties: false`),
+even when it came open (`true`, or a schema such as the vendor's "a text per
+column"): closing only narrows it, and what is stored and signed says so. An
+open object that names no field is refused, and so is an object with no schema
+or no `properties`: each is told to name the fields the taf writes, by the names
+the job or the owner gives (the column it marks), with an example. The approval names the fields
+(`values (Introduction)`). An object argument is never the amount or the
+resource, and it can't share its path with a pin or another argument inside
+it. Lifting each field as its own argument (`values.Introduction`, a string)
+still works. An `argument_type` refusal shows both forms, so a retry works
+whichever the taf picks. KIFF never gets an argument's schema: planque checks
+each call against it. A refusal of an argument's type or schema carries its
+`shape`, the declaration by keys and types alone (field names, an enum's
+count, never a value or a description), and planque logs it.
 
 **The vendor's allowed values** (`narrow.go`, `schemaOver`): a narrowed
 string, number or boolean argument keeps the `enum` the vendor's description

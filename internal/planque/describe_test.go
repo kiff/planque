@@ -330,3 +330,38 @@ func TestAFieldCheckOnAnEndedSignInSaysSignInAgain(t *testing.T) {
 		t.Fatal("a tool on an ended sign-in was marked checked")
 	}
 }
+
+// Setup's reads alone are never an approval of their own: the owner would
+// tap once for them and again for the taf's tools and Card (the Eval's
+// third tap). They go in the request that sets the taf's tools. A vendor's
+// describing tool alone still connects first, as a narrowed write needs.
+func TestSetupReadsAloneAreRefused(t *testing.T) {
+	e := newEnv(t)
+	id := e.listedGrant()
+	acct := "/v1/accounts/" + tenant + "/grants/" + id
+	read := map[string]any{"tool": "list_charges", "title": "Charges for setup", "name": "charges_ab12", "read_only": true, "setup_reads": true}
+	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{read}}, nil, "k_setup")
+	if st != 400 || out["code"] != "setup_reads_alone" || out["field"] != "setup_reads" || !strings.Contains(out["error"].(string), "with the taf's tools") {
+		t.Fatalf("setup reads alone, listed: %d %v", st, out)
+	}
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusListed || len(g.Request.Tools) != 0 {
+		t.Fatalf("a refused request changed the grant: %s %v", g.Status, g.Request.Tools)
+	}
+	// With the taf's own tool, in one request: one approval.
+	taf := map[string]any{"tool": "stripe_api_read", "title": "Read from Stripe", "name": "read_taf", "read_only": true}
+	st, out = e.do("POST", acct+"/tools", map[string]any{"tools": []any{taf, read}}, nil, "k_setup")
+	if st != 200 || out["status"] != StatusPending {
+		t.Fatalf("setup reads with the taf's tools: %d %v", st, out)
+	}
+	if st, out := e.do("POST", acct+"/approve", map[string]string{"digest": out["digest"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	// Connected: adding Setup's reads alone is refused too.
+	more := map[string]any{"tool": "list_charges", "title": "More charges for setup", "name": "charges_cd34", "read_only": true, "setup_reads": true}
+	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{more}}, nil, "k_setup"); st != 400 || out["code"] != "setup_reads_alone" {
+		t.Fatalf("setup reads alone, connected: %d %v", st, out)
+	}
+	// A describing tool alone still connects first (detailsGrant).
+	_ = e.detailsGrant()
+}

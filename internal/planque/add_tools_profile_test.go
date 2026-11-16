@@ -18,7 +18,7 @@ func TestAnAdditionsProfileIsMergedIntoTheApprovedOne(t *testing.T) {
 		o := profile.Operation{Tool: tool, Title: title, Kind: kind, Shape: "single"}
 		if kind == "write" {
 			o.Effect = profile.EffectSends
-			o.Resource = &profile.Resource{Arg: "inbox_id", Noun: "inbox", Outside: true}
+			o.Resource = &profile.Resource{Arg: "inbox_id", Noun: "inbox", Outside: new(true)}
 		}
 		return o
 	}

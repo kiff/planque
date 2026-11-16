@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Wise tool
 definitions as planque reads them (9 tools, [generated](generated/wise.md)),
 and Wise's API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -59,12 +60,13 @@ nothing. The owner makes any transfer in Wise.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The token is refused (401) | Wrong, or deleted in Wise | "Wise didn't accept the token. If you still want this job, make a new one (read only) in Wise's settings and paste it again; nothing was moved." |
-| Refused (403) | The token can't reach this, or Wise wants a stronger check | "Wise doesn't let this connection do that step, or wants a stronger check that only you can give in Wise. The taf will do without it." |
-| A quote is refused | A currency pair or amount Wise doesn't take | "Wise can't price that: the currency or amount isn't supported." |
-| Too many calls | Over Wise's rate | "Wise asked us to slow down. The taf will try again in a minute." |
+The rows are Wise's own answers: a refusal reaches the taf as "Wise refused
+it (it answered …): …", with Wise's reason. planque's own refusals, and an
+expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Wise's sign-in has expired (401), token refused | Wrong, or deleted in Wise | "Wise didn't accept the token. If you still want this job, make a new one (read only) in Wise's settings and paste it again; nothing was moved." |
+| Refused (403) | The token can't reach this, or Wise wants a stronger check | "Wise doesn't let this connection do that step, or wants a stronger check that only you can give in Wise. The taf will do without it." |
+| Refused, quote | A currency pair or amount Wise doesn't take | "Wise can't price that: the currency or amount isn't supported." |
+| Refused, too many calls | Over Wise's rate | "Wise asked us to slow down. The taf will try again in a minute." |

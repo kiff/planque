@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Zoho Books tool
 definitions as planque reads them (270 tools), and Zoho Books' API
 documentation (introduction, sign-in, errors, paging, invoices, contacts,
 customer payments, estimates, items).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -91,15 +92,18 @@ payments by hand can't be done with these tools.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Zoho Books's own answers: a refusal reaches the taf as "Zoho
+Books refused it (it answered …): …", with Zoho Books's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access | The sign-in didn't give this tool's access, or the person's role in the organization doesn't allow it | "Zoho Books is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works (401) | Removed from connected apps, or a password change signed it out | "Zoho Books needs you to sign in again. Nothing was changed." |
-| Too many calls (429) | Over the minute's limit, too many at once, or the plan's daily allowance | "Zoho Books asked us to slow down, or today's allowance is used up. The taf will try again later." |
-| Not found (404), or "invoice does not exist" | Deleted, or in another organization | "That invoice isn't in Zoho Books any more. The taf will skip it." |
-| Rejected as malformed (400) | A required field is missing or a value doesn't fit | "Zoho Books didn't accept that change. The taf has stopped and will show you what it tried." |
-| Zoho has an internal error (500) | Trouble on Zoho's side | "Zoho Books isn't answering properly right now. The taf will try again later." |
+| Zoho Books's sign-in has expired (401) | Removed from connected apps, or a password change signed it out | "Zoho Books needs you to sign in again. Nothing was changed." |
+| Refused (429), too many calls | Over the minute's limit, too many at once, or the plan's daily allowance | "Zoho Books asked us to slow down, or today's allowance is used up. The taf will try again later." |
+| Refused (404), not found, or "invoice does not exist" | Deleted, or in another organization | "That invoice isn't in Zoho Books any more. The taf will skip it." |
+| Refused (400), rejected as malformed | A required field is missing or a value doesn't fit | "Zoho Books didn't accept that change. The taf has stopped and will show you what it tried." |
+| Refused (500), Zoho internal error | Trouble on Zoho's side | "Zoho Books isn't answering properly right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and an email to a customer is never sent twice to make up
-for an unclear answer.
+An email to a customer is never sent twice to make up for an unclear
+answer.

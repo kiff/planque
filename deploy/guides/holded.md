@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Holded tool
 definitions as planque reads them (10 tools), and Holded's API reference
 (invoices, contacts, error handling and API limits).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -70,15 +71,18 @@ check the answer after.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Holded's own answers: a refusal reaches the taf as "Holded
+refused it (it answered …): …", with Holded's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The key doesn't allow this kind of record, or only allows reading it | "Holded is only partly connected: this step needs access your key doesn't give. Want to add a key that allows it, or do without this step?" |
-| The key doesn't work (401) | The key is missing, wrong or was removed in Holded | "Holded needs a new key. Nothing was changed." |
-| Too many calls (429), this minute | Over the per-minute limit | "Holded asked us to slow down. The taf will try again in a minute." |
-| Too many calls (429), this month | The plan's monthly budget is used up | "Holded's monthly limit for your plan is reached. The taf will pick up again next month, or sooner if you move to a bigger plan." |
-| Rejected (400 or 422) | A value doesn't fit, or the invoice is approved and can't be deleted | "Holded didn't accept that change. The taf has stopped and will show you what it tried." |
-| Not found (404) | The contact or invoice was deleted | "That isn't in Holded any more. The taf will skip it." |
-| Holded unavailable (500) | Trouble on Holded's side | "Holded isn't answering right now. The taf will try again later." |
+| Holded's sign-in has expired (401), the key doesn't work | The key is missing, wrong or was removed in Holded | "Holded needs a new key. Nothing was changed." |
+| Refused (429), too many calls this minute | Over the per-minute limit | "Holded asked us to slow down. The taf will try again in a minute." |
+| Refused (429), too many calls this month | The plan's monthly budget is used up | "Holded's monthly limit for your plan is reached. The taf will pick up again next month, or sooner if you move to a bigger plan." |
+| Refused (400 or 422), rejected | A value doesn't fit, or the invoice is approved and can't be deleted | "Holded didn't accept that change. The taf has stopped and will show you what it tried." |
+| Refused (404), not found | The contact or invoice was deleted | "That isn't in Holded any more. The taf will skip it." |
+| Refused (500), Holded unavailable | Trouble on Holded's side | "Holded isn't answering right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find a contact asks before adding one.
+A taf that can't find a contact asks before adding one.

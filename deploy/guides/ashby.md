@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Ashby tool
 definitions as planque reads them (191 tools), and Ashby's API documentation
 (authentication, responses, the candidate and application references) and
 its help page on API keys.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -76,14 +77,14 @@ candidate is what a candidate and the hiring team see.
 ## When it fails
 
 Ashby answers most refusals as a normal answer marked unsuccessful, with an
-error code inside, rather than an error status.
+error code inside, rather than an error status. Those arrive as a result,
+not as "Ashby refused it": read the answer's success flag before using it.
+planque's own refusals, and a key Ashby no longer takes (401), are in the
+part below.
 
-| What happens | Why | Tell the owner |
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403, missing endpoint permission) | The key's module for this step is off, or read only | "Ashby is only partly connected: this step needs access your key doesn't give. Ask your Ashby admin to allow it on the key, or do without this step." |
-| The key doesn't work (401 or 403) | No key was sent, or the key is wrong or switched off | "Ashby needs a new key from your admin. Nothing was changed." |
-| An application or candidate isn't found | It was removed, or it belongs to a confidential job the key can't see | "The taf can't see that candidate. It may be deleted, or on a confidential job. Your admin can allow confidential jobs on the key." |
-| Answer marked unsuccessful, with a message | A field is wrong, such as a stage from another job's plan | "Ashby didn't accept this change. The taf will stop and show you what it tried." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Refused (403), missing endpoint permission | The key's module for this step is off, or read only | "Ashby is only partly connected: this step needs access your key doesn't give. Ask your Ashby admin to allow it on the key, or do without this step." |
+| Refused (403), key not accepted | No key was sent, or the key is wrong or switched off | "Ashby needs a new key from your admin. Nothing was changed." |
+| Answer unsuccessful: application or candidate not found | It was removed, or it belongs to a confidential job the key can't see | "The taf can't see that candidate. It may be deleted, or on a confidential job. Your admin can allow confidential jobs on the key." |
+| Answer unsuccessful, with a message | A field is wrong, such as a stage from another job's plan | "Ashby didn't accept this change. The taf will stop and show you what it tried." |

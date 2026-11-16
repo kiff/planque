@@ -15,7 +15,12 @@ import (
 
 const maxPathParts = 4
 
-var argTypes = []string{"string", "integer", "number", "boolean", "array"}
+var argTypes = []string{"string", "integer", "number", "boolean", "array", "object"}
+
+// argTypeWant is what an argument_type refusal asks for: both ways to give a
+// vendor's object (a sheet row's values, column → text), so a retry works
+// whichever one the taf picks.
+const argTypeWant = `string, integer, number, boolean, array or object. An object names each field it may set: {"path": "values", "type": "object", "schema": {"type": "object", "properties": {"Status": {"type": "string"}}}}. Or name each field as its own argument at its path: {"status": {"path": "values.Status", "type": "string"}}`
 
 func pathParts(p string) ([]string, bool) {
 	parts := strings.Split(p, ".")
@@ -55,7 +60,11 @@ func refTool(t ToolRequest) string { return cmp.Or(t.Name, t.Tool) }
 func checkNarrowing(t ToolRequest) *toolRefusal {
 	tool := refTool(t)
 	arg := func(code, name, want, msg string) *toolRefusal {
-		return &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
+		r := &toolRefusal{Code: code, Tool: tool, Field: name, Want: want, Msg: msg}
+		if code == refArgumentType || code == refArgumentSchema {
+			r.Shape = argShape(t.Arguments[name])
+		}
+		return r
 	}
 	// A broad write narrowed to an operation that moves money or closes a bill for good (voiding,
 	// paying, writing off, deleting or finalizing a bill or a credit):
@@ -77,11 +86,13 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 		case !toolName.MatchString(name) || name == IdempotencyArg:
 			return arg(refArgumentName, name, "letters, digits and underscores, starting with a letter", "argument "+name+" is not a valid name")
 		case !slices.Contains(argTypes, a.Type):
-			return arg(refArgumentType, name, "string, integer, number, boolean or array", "argument "+name+" must be a string, integer, number, boolean or array")
+			return arg(refArgumentType, name, argTypeWant, "argument "+name+" must be a "+argTypeWant)
 		case a.Type == "array" && checkShape(a.Schema, true) != "":
-			return arg(refArgumentSchema, name, "an array of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
-		case a.Type != "array" && len(a.Schema) > 0:
-			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array argument has a schema")
+			return arg(refArgumentSchema, name, "an array of plain values, of rows of plain values, or of objects naming their fields", "argument "+name+"'s schema: "+checkShape(a.Schema, true))
+		case a.Type == "object" && checkObject(a.Schema) != "":
+			return arg(refArgumentSchema, name, objectWant, "argument "+name+"'s schema: "+checkObject(a.Schema))
+		case a.Type != "array" && a.Type != "object" && len(a.Schema) > 0:
+			return arg(refArgumentSchema, name, "no schema", "argument "+name+" is a "+a.Type+": only an array or object argument has a schema")
 		case a.OneOf != nil && (a.Type != "string" || !toolName.MatchString(a.OneOf.Tool) || !pathExpr(a.OneOf.Path)):
 			return arg(refArgumentOneOf, name, "a string argument's {tool, path}", "argument "+name+"'s one_of is a string argument's read (a tool of the same request) and the dotted path of its values")
 		}
@@ -220,9 +231,12 @@ func (t ToolRequest) schemaOver(vendor json.RawMessage) json.RawMessage {
 	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
 		a := t.Arguments[name]
 		p := map[string]any{"type": a.Type}
-		if a.Type == "array" {
+		if a.Type == "array" || a.Type == "object" {
 			p = map[string]any{}
 			_ = json.Unmarshal(a.Schema, &p)
+			if a.Type == "object" {
+				p["additionalProperties"] = false // as planque checks it: only the fields it names
+			}
 		} else if e := vendorEnum(vendor, a.Path, a.Type); e != nil {
 			p["enum"] = e
 		}
@@ -251,7 +265,7 @@ func (t ToolRequest) vendorArgs(args map[string]any) (json.RawMessage, error) {
 			if !ok {
 				return nil, fmt.Errorf("argument %s is not part of this grant", name)
 			}
-			if a.Type == "array" {
+			if a.Type == "array" || a.Type == "object" {
 				if why := fits(v, a.Schema, name); why != "" {
 					return nil, fmt.Errorf("argument %s", why)
 				}
@@ -367,7 +381,14 @@ func narrowingText(t ToolRequest, catalog ...CatalogTool) string {
 	if len(t.Arguments) == 0 {
 		return s + "; the taf sets nothing)"
 	}
-	return s + "; the taf sets only " + strings.Join(slices.Sorted(maps.Keys(t.Arguments)), ", ") + ")"
+	var sets []string
+	for _, name := range slices.Sorted(maps.Keys(t.Arguments)) {
+		if fields := objectFields(t.Arguments[name]); len(fields) > 0 {
+			name += " (" + strings.Join(fields, ", ") + ")"
+		}
+		sets = append(sets, name)
+	}
+	return s + "; the taf sets only " + strings.Join(sets, ", ") + ")"
 }
 
 // argDescription is the vendor's description of the argument at a dotted
@@ -519,6 +540,9 @@ const maxShapeDepth = 4
 // hide and are checked as a plain argument is.
 var itemTypes = []string{"object", "string", "integer", "number", "boolean"}
 
+// plainTypes are a row's items: an array argument may also be rows of plain values (a sheet's values), one level deep.
+var plainTypes = []string{"string", "integer", "number", "boolean"}
+
 // annotations are JSON Schema keywords that describe a value without
 // restricting what planque lets through: a provider's generated schema
 // carries them (an email draft's cc has a title, a default and examples), and
@@ -531,11 +555,39 @@ var annotations = []string{"title", "default", "examples", "example", "$comment"
 // KIFF, shown to the owner and signed is the normalised schema.
 func normaliseArguments(t ToolRequest) {
 	for name, a := range t.Arguments {
-		if a.Type == "array" && len(a.Schema) > 0 {
+		if (a.Type == "array" || a.Type == "object") && len(a.Schema) > 0 {
 			a.Schema = normaliseSchema(a.Schema)
+			if a.Type == "object" {
+				a.Schema = closedObject(a.Schema)
+			}
 			t.Arguments[name] = a
 		}
 	}
+}
+
+// closedObject is an object argument's schema closed: additionalProperties
+// false, whatever it was (true, a schema such as a sheet's "a text per
+// column", or none), once properties names at least one field. Closing only
+// narrows it: the taf sets only the fields named, as planque checks anyway,
+// and what is stored and signed says so. A taf that copied the vendor's open
+// object (the Eval's intros) connects on its first try. An object naming no
+// field is left as it came, for checkObject to refuse.
+func closedObject(raw json.RawMessage) json.RawMessage {
+	var m map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if dec.Decode(&m) != nil || m == nil || m["type"] != "object" {
+		return raw
+	}
+	if props, ok := m["properties"].(map[string]any); !ok || len(props) == 0 || m["additionalProperties"] == false {
+		return raw
+	}
+	m["additionalProperties"] = false
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // normaliseSchema drops a schema's annotations, at every level, and reads an
@@ -665,8 +717,15 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 	case "array":
 		if top {
 			var it shape
-			if json.Unmarshal(s.Items, &it) != nil || !slices.Contains(itemTypes, it.Type) {
-				return "its items are objects or plain values (string, integer, number or boolean)"
+			if json.Unmarshal(s.Items, &it) != nil || !slices.Contains(itemTypes, it.Type) && it.Type != "array" {
+				return "its items are objects, plain values (string, integer, number or boolean), or rows of plain values"
+			}
+			// A row of plain values (a sheet's values: [["Ana", 12]]): one level, its items plain, never objects or rows.
+			if it.Type == "array" {
+				var cell shape
+				if json.Unmarshal(it.Items, &cell) != nil || !slices.Contains(plainTypes, cell.Type) {
+					return "a row's items are plain values (string, integer, number or boolean), never objects or rows"
+				}
 			}
 		}
 		return checkShapeAt(s.Items, false, depth+1)
@@ -689,6 +748,104 @@ func checkShapeAt(raw json.RawMessage, top bool, depth int) string {
 		return "type " + s.Type + " isn't one an argument can have"
 	}
 	return ""
+}
+
+// maxObjectFields bounds an object argument's fields, which its approval
+// lists one by one.
+const maxObjectFields = 50
+
+// objectNamesFields is what an object naming no field is told, with or
+// without a schema: which fields to name, and how (the Eval's intros declared
+// a sheet row's values as an object with no schema, then with no properties).
+const objectNamesFields = `an object names each field the taf writes, by the name the job or the owner gives it (the column it marks), in properties: {"type": "object", "properties": {"Status": {"type": "string"}}}`
+
+// objectWant is what an object argument's schema must be.
+const objectWant = `an object naming each field it may set, each a string, integer, number, boolean or array: {"type": "object", "properties": {"Status": {"type": "string"}}}`
+
+// checkObject says what is wrong with an object argument's schema, or "":
+// an object naming its fields (a field it doesn't name is refused, written
+// or not), each a plain value or an array as an array argument's schema is.
+// Never an object in it: a nested object's fields are arguments of their own,
+// at their paths.
+func checkObject(raw json.RawMessage) string {
+	// An open object naming no field (the vendor's "a text per column",
+	// copied): closedObject closes one that names its fields, so say what to
+	// name rather than the keywords.
+	var open struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Additional json.RawMessage            `json:"additionalProperties"`
+	}
+	if len(raw) == 0 {
+		return "it has no schema: " + objectNamesFields
+	}
+	if json.Unmarshal(raw, &open) == nil && len(open.Properties) == 0 && len(open.Additional) > 0 && string(open.Additional) != "false" {
+		return "an open object can't be checked: " + objectNamesFields
+	}
+	var s shape
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if len(raw) == 0 || dec.Decode(&s) != nil {
+		return "it must be a JSON Schema of type, properties, required, items, enum, maxLength, maxItems and description only"
+	}
+	if s.Type != "object" {
+		return "an object argument's schema is an object"
+	}
+	if s.AdditionalProperties != nil && *s.AdditionalProperties {
+		return "an object takes only the fields it names"
+	}
+	// What fits checks of an object: the list and length keywords are a
+	// field's, never shown on the object where nothing would apply them.
+	if len(s.Enum) > 0 || len(s.Items) > 0 || s.MaxLength != nil || s.MaxItems != nil {
+		return "an object takes type, properties, required and description only"
+	}
+	if len(s.Properties) == 0 {
+		return objectNamesFields
+	}
+	if len(s.Properties) > maxObjectFields {
+		return fmt.Sprintf("an object names at most %d fields", maxObjectFields)
+	}
+	for _, r := range s.Required {
+		if _, ok := s.Properties[r]; !ok {
+			return "required field " + r + " isn't one of its fields"
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		// A field's path is the argument's and its name, split on dots: by
+		// the disclosure line's placing, among others. A name with a dot, or
+		// none, would point somewhere else, and the line would find no text.
+		// Spaces stay: a sheet's column is "First name".
+		if name == "" || strings.Contains(name, ".") || len(name) > 64 {
+			return fmt.Sprintf("field %q: a field's name is 1 to 64 characters, with no dot", name)
+		}
+		var f shape
+		_ = json.Unmarshal(s.Properties[name], &f)
+		var why string
+		switch f.Type {
+		case "array":
+			why = checkShape(s.Properties[name], true)
+		case "object":
+			why = "a field is never an object: name its fields as arguments of their own, at their paths (" + name + ".Field)"
+		default: // a plain value; anything else is refused as no argument's type
+			why = checkShapeAt(s.Properties[name], false, 1)
+		}
+		if why != "" {
+			return name + ": " + why
+		}
+	}
+	return ""
+}
+
+// objectFields are an object argument's field names, in order; nil for any
+// other argument.
+func objectFields(a Argument) []string {
+	if a.Type != "object" {
+		return nil
+	}
+	var s shape
+	if json.Unmarshal(a.Schema, &s) != nil {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(s.Properties))
 }
 
 // fits says how v doesn't fit a reviewed schema, naming where (at), or ""
@@ -831,4 +988,93 @@ func oneOfWithoutKey(kind string, tools []ToolRequest) string {
 		}
 	}
 	return ""
+}
+
+// maxShape bounds a refused argument's shape in the log.
+const maxShape = 600
+
+// argShape is an argument's declaration by its keys and types alone: its type,
+// and its schema's keys, with each field's name and type. Never a value: an
+// enum is its count, a description and a const are left out, so nothing the
+// taf wrote in them is logged.
+func argShape(a Argument) string {
+	s := "type=" + a.Type
+	if len(a.Schema) > 0 {
+		var v any
+		if json.Unmarshal(a.Schema, &v) != nil {
+			s += " schema=(not JSON)"
+		} else {
+			s += " schema=" + shapeOf(v, 0)
+		}
+	}
+	if r := []rune(s); len(r) > maxShape {
+		s = string(r[:maxShape-1]) + "…"
+	}
+	return s
+}
+
+func shapeOf(v any, depth int) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return kindOf(v)
+	}
+	if depth > maxShapeDepth+2 {
+		return "{…}"
+	}
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		switch k {
+		case "description", "title", "examples", "example", "default", "const", "pattern", "$comment":
+			parts = append(parts, k)
+		case "type":
+			if t, ok := m[k].(string); ok {
+				parts = append(parts, "type:"+t)
+			} else {
+				parts = append(parts, "type:"+kindOf(m[k]))
+			}
+		case "enum", "required":
+			if l, ok := m[k].([]any); ok {
+				parts = append(parts, fmt.Sprintf("%s:%d", k, len(l)))
+			} else {
+				parts = append(parts, k+":"+kindOf(m[k]))
+			}
+		case "properties":
+			props, ok := m[k].(map[string]any)
+			if !ok {
+				parts = append(parts, "properties:"+kindOf(m[k]))
+				continue
+			}
+			var fs []string
+			for _, name := range slices.Sorted(maps.Keys(props)) {
+				fs = append(fs, name+":"+shapeOf(props[name], depth+1))
+			}
+			parts = append(parts, "properties:{"+strings.Join(fs, ",")+"}")
+		default:
+			if _, isMap := m[k].(map[string]any); isMap {
+				parts = append(parts, k+":"+shapeOf(m[k], depth+1))
+			} else {
+				parts = append(parts, k+":"+kindOf(m[k]))
+			}
+		}
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// kindOf is a JSON value's kind, never the value.
+func kindOf(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	case float64, json.Number:
+		return "number"
+	case []any:
+		return "list"
+	case map[string]any:
+		return "object"
+	}
+	return "?"
 }

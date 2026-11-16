@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Docs tool
 definitions as planque reads them (46 tools, [generated](generated/googledocs.md)),
 and Google's Docs API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -21,11 +22,11 @@ and Google's Docs API reference.
 |---|---|---|---|
 | `GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT` | Reads a document as plain text | read | |
 | `GOOGLEDOCS_GET_DOCUMENT_BY_ID` | Reads a document with its structure | read | its revision |
-| `GOOGLEDOCS_SEARCH_DOCUMENTS` | Finds documents by name or date | read, **needs Drive access** | document ids |
-| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF | read, **needs Drive access** | |
+| `GOOGLEDOCS_SEARCH_DOCUMENTS` | Finds documents by name or date; **needs Drive access** | read | document ids |
+| `GOOGLEDOCS_EXPORT_DOCUMENT_AS_PDF` | Exports a document as PDF; **needs Drive access** | read | |
 | `GOOGLEDOCS_CREATE_DOCUMENT` | Creates a document with a title and text | write | **the document's id** |
 | `GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN` | Creates a document from formatted text | write | **the document's id** |
-| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template | write, **needs Drive access** | the copy's id |
+| `GOOGLEDOCS_COPY_DOCUMENT` | Copies a document, such as a template; **needs Drive access** | write | the copy's id |
 | `GOOGLEDOCS_REPLACE_ALL_TEXT` | Replaces every match of a phrase | write | |
 | `GOOGLEDOCS_INSERT_TEXT_ACTION` | Inserts text at a place in the document | write | |
 | `GOOGLEDOCS_UPDATE_DOCUMENT_MARKDOWN` | Replaces a document's whole content | write | |
@@ -50,6 +51,20 @@ each write that depends on a position, or replace by phrase instead.
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes):
+  - **reading a document:** read-only Docs ("see all your documents");
+  - **writing:** Docs edit access ("see, edit, create and delete all your
+    documents");
+  - **finding a document by name, exporting it as PDF, or reading its file
+    details:** read-only Drive as well ("see and download all your Drive
+    files");
+  - **copying a template, or creating or uploading a file:** full Drive
+    ("see, edit, create and delete all your Drive files"). Offer these only
+    when the job needs them.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **No paid plan is needed.** A business admin can block outside apps.
 - **Size:** a document can hold about 1.02 million characters. A taf that
   appends a line every day for years should start a new document each year.
@@ -62,13 +77,16 @@ each write that depends on a position, or replace by phrase instead.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Docs's own answers: a refusal reaches the taf as
+"Google Docs refused it (it answered …): …", with Google Docs's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | Most often a search, which needs Drive access | "Google Docs is only partly connected: finding documents by name needs access you didn't give. Send me the document's link instead." |
-| The document isn't found (404) | Deleted, or not shared with this account | "I can't open that document. It may have been deleted or not shared with this account." |
-| A write is refused (400) | A position past the end, after an edit moved it | Read the document again and retry once; tell the owner only if it fails again. |
-| Too many calls (429) | Over Google's per-minute limit | "Google Docs asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Docs needs you to sign in again. Nothing was changed." |
+| Refused (404), document not found | Deleted, or not shared with this account | "I can't open that document. It may have been deleted or not shared with this account." |
+| Refused (400), bad write | A position past the end, after an edit moved it | Read the document again and retry once; tell the owner only if it fails again. |
+| Refused (429), too many calls | Over Google's per-minute limit | "Google Docs asked us to slow down. The taf will continue in a minute." |
+| Google Docs's sign-in has expired (401) | Removed, or expired | "Google Docs needs you to sign in again. Nothing was changed." |
 
-After any refusal the taf stops that step and says so. A failed search never
-leads to creating a new document in its place.
+A failed search never leads to creating a new document in its place.

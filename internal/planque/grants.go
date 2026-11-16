@@ -243,13 +243,32 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
 		return
 	}
+	// Stripe's own server, connected first, gets its describing tool as a
+	// setup read with the sign-in when the request names none: its catalog
+	// isn't known before the sign-in, so the asking agent can't name it, and a
+	// narrowed write needs its fields read before the taf's tools and Card
+	// (the Eval's red 1: one approval for the app, two for the Card). Bound to
+	// Stripe's server, never a tool's name alone: another server listing a
+	// tool by that name gets nothing. Named in the owner's text as any setup
+	// read is; one Stripe doesn't list connects none, and the events say why.
+	if req.SetupReads == nil && req.Tools != nil && len(*req.Tools) == 0 && req.Kind == "" && req.API == nil &&
+		req.Browser == nil && req.Reuse == "" {
+		if reads := s.serverDescribers(req.Server); len(reads) > 0 {
+			req.SetupReads = reads
+		}
+	}
 	if req.SetupReads != nil {
-		// Only an entry whose tools come from its server's list once signed
-		// in: planque knows that server, so the reads' names are checked
-		// against what it lists. A bare server's catalog is unknown before
-		// the sign-in: it connects first, then asks for its reads.
-		if !fromCatalog || entry == nil || len(entry.Tools) != 0 || entry.Kind != "" || entry.Server == "" || len(*req.Tools) != 0 {
-			writeErr(w, http.StatusBadRequest, "setup_reads goes on a catalog entry's first request, connected first (tools: []): a server connects first, then asks for its reads with its tools")
+		// Only a first request that connects first (tools: []), to a server
+		// whose tools come from its own list once signed in: a catalog entry
+		// of one, or a bare MCP server. The names are checked against that
+		// list once signed in; one it doesn't list, or doesn't mark
+		// read-only, connects none, and the grant's events say why. So the
+		// owner approves the reads with the sign-in, and the write whose
+		// fields they read comes next with the taf's Card: two approvals.
+		entryServer := fromCatalog && entry != nil && len(entry.Tools) == 0 && entry.Kind == "" && entry.Server != ""
+		bareServer := !fromCatalog && req.Server != "" && req.Kind == "" && req.API == nil && req.Browser == nil && req.Reuse == ""
+		if !(entryServer || bareServer) || len(*req.Tools) != 0 {
+			writeErr(w, http.StatusBadRequest, "setup_reads goes on a server's first request, connected first (tools: []): a request with its tools at once, or a key, a browser or a reused sign-in, asks for its reads with its tools")
 			return
 		}
 		if msg := setupReadNames(req.SetupReads); msg != "" {
@@ -757,7 +776,8 @@ func connectionText(w words.Approval, q Request, held bool, account string, cata
 		// A managed app's sign-in reused: the account it's in, by its name,
 		// so an owner who holds two can say it's the other one.
 		if q.Reuse != "" && account != "" {
-			return fmt.Sprintf(w.SignedInToF, account) + connectorText(w, q)
+			// Its first line says "no second sign-in": the rest never says it again.
+			return fmt.Sprintf(w.SignedInToF, account) + connectorTextSaid(w, q, true)
 		}
 		return connectorText(w, q)
 	}
@@ -1339,6 +1359,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
 	}
+	// Setup's reads alone are never an approval of their own (the Eval's
+	// third tap): they come with the taf's tools.
+	if r := setupReadsAlone(req.Tools); r != nil {
+		writeRefusal(w, r)
+		return
+	}
 	// A direct Stripe connection that asks for the refund takes planque's
 	// whole request, its case reads and its reviewed profile: a refund's
 	// money rules are never a model's draft (stripe_refunds.go).
@@ -1365,7 +1391,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if g.Request.Connector == nil && len(g.Catalog) == 0 {
-		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it has no catalog to choose from; connect first (request with no tools)")
+		// A tool it lacks, a write most often, comes in one new request with
+		// every tool the job needs and the taf's Card drafted, so the owner
+		// approves once: never a request for the write alone (the Eval's
+		// four approvals for one sheet).
+		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it takes no more: ask one new request naming every tool the job needs, its writes too, with the taf's Card drafted in the same approval, never a request for one tool alone")
 		return
 	}
 	// What it has: on a connected grant, its tools; while an addition waits,
@@ -1934,11 +1964,16 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var p pendingSignIn
-	if !ok || json.Unmarshal(it.Doc, &p) != nil || s.now().After(p.Expires) {
+	if !ok {
+		s.spentLink(w, r, state)
+		return
+	}
+	if json.Unmarshal(it.Doc, &p) != nil || s.now().After(p.Expires) {
 		lang, l := speech(r, nil)
 		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
+	s.keepUsedLink(r.Context(), state, p)
 	g, err := s.loadGrant(r.Context(), p.Tenant, p.Grant)
 	if err != nil {
 		s.fail(w, r, err)
@@ -2964,6 +2999,9 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
+// errGrantRepeated: the account's grants can't be listed each once.
+var errGrantRepeated = apiCoded{apiError{http.StatusInternalServerError, "the account's grants can't be listed each once; nothing is listed"}, "grant_repeated", ""}
+
 func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	ctx := r.Context()
 	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
@@ -2972,11 +3010,21 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	}
 	out := []grantView{}
 	uses := s.lastUses(ctx, tenant)
+	seen := map[string]bool{}
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
 			continue
 		}
+		// Each grant once, under its own key: an app pairs each grant with
+		// its entry by position, and a repeated id would let one grant's
+		// digest stand for another's. A record that names another id than its
+		// key, or one already read, lists nothing (loudly), never a repeat.
+		if g.ID == "" || skGrant(g.ID) != it.SK || seen[g.ID] {
+			s.log().ErrorContext(ctx, "a grant's record doesn't match its key, or repeats an id: nothing is listed", slog.String("tenant", tenant), slog.String("key", it.SK))
+			return nil, errGrantRepeated
+		}
+		seen[g.ID] = true
 		g.ver = it.Ver
 		_, _ = s.expire(ctx, &g)
 		// The backfill: a grant made before its request named its app gets
@@ -3297,7 +3345,9 @@ func label(s string) string {
 func vendorName(g *Grant) string {
 	// A vendor's own reviewed server is called by its app's name, a grant
 	// stored with its server's own name ("stripe-mcp") too.
-	if n := builtinVendor(g.Request.CatalogEntry); n != "" {
+	// Its entry may be the one recorded beside an older request (Grant.Entry),
+	// or none, on Stripe's or Qonto's own server.
+	if n := grantVendor(g, entryOf(g)); n != "" {
 		return n
 	}
 	if g.VendorName != "" {

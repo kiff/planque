@@ -4,6 +4,7 @@ Checked: 2026-11-13 · Sources: the connection service's QuickBooks tool
 definitions as planque reads them (the generated part beside this file),
 and QuickBooks Online's API documentation (limits and throttles,
 authorization, error codes).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -77,13 +78,15 @@ so a taf can't email an invoice from QuickBooks; it can read the invoice
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Too many calls (429) | Over the per-minute or per-second limit for the company | "QuickBooks asked us to slow down. The taf will try again in a minute." |
-| The sign-in no longer works (401) | Access was removed, or the sign-in ended | "QuickBooks needs you to sign in again. Nothing was changed in your books." |
-| Refused for missing access (403) | The sign-in doesn't cover this tool | "QuickBooks is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Not found | The record was deleted, or made inactive | "That record isn't active in QuickBooks any more. The taf will skip it." |
+The rows are QuickBooks's own answers: a refusal reaches the taf as
+"QuickBooks refused it (it answered …): …", with QuickBooks's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a payment or invoice is never retried without the
-owner's yes.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (429), too many calls | Over the per-minute or per-second limit for the company | "QuickBooks asked us to slow down. The taf will try again in a minute." |
+| QuickBooks's sign-in has expired (401) | Access was removed, or the sign-in ended | "QuickBooks needs you to sign in again. Nothing was changed in your books." |
+| Refused for missing access (403) | The sign-in doesn't cover this tool | "QuickBooks is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
+| Refused, not found | The record was deleted, or made inactive | "That record isn't active in QuickBooks any more. The taf will skip it." |
+
+A payment or invoice is never retried without the owner's yes.

@@ -229,3 +229,75 @@ func TestABrowserGrantReadsNoToolList(t *testing.T) {
 		t.Fatalf("a browser grant: %q %q paused=%+v lists %d, was %d", code, why, g.Paused, e.vendor.Lists, before)
 	}
 }
+
+// Two calls reading the definitions in the same moment: the second one's
+// write loses to the first's. The same definitions are nothing to keep: no
+// pause, no refusal, one record, and the call goes on from it. Different
+// ones mean the tool changed between the two reads: it pauses, as a
+// change found on one read does. A write that lost to anything else keeps
+// this read. The owner's phone on Android 104 hit two at once.
+func TestTwoDefinitionsChecksAtOnce(t *testing.T) {
+	ctx := context.Background()
+	fresh := func(t *testing.T) (*env, *Grant) {
+		e := newEnv(t)
+		g := e.connect()
+		// As a tool approved before planque kept its schema's hash: the first read records one.
+		g.Tools[0].VendorSchemaSHA256, g.DefinitionsReadAt = "", time.Time{}
+		if err := e.s.saveGrant(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+		return e, g
+	}
+
+	t.Run("the same definitions", func(t *testing.T) {
+		e, g := fresh(t)
+		first, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		second, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if code, why := e.s.checkDefinitions(ctx, first); code != "" || why != "" {
+			t.Fatalf("the first check: %q %q", code, why)
+		}
+		if code, why := e.s.checkDefinitions(ctx, second); code != "" || why != "" || second.Paused != nil {
+			t.Fatalf("the second check, the same definitions: %q %q paused=%+v", code, why, second.Paused)
+		}
+		stored, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if stored.Paused != nil || stored.Tools[0].VendorSchemaSHA256 == "" || stored.ver != first.ver || second.ver != stored.ver {
+			t.Fatalf("one record of the same check: paused=%+v hash=%q ver %d, first %d, second %d",
+				stored.Paused, stored.Tools[0].VendorSchemaSHA256, stored.ver, first.ver, second.ver)
+		}
+	})
+
+	t.Run("different definitions", func(t *testing.T) {
+		e, g := fresh(t)
+		first, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		second, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if code, _ := e.s.checkDefinitions(ctx, first); code != "" {
+			t.Fatalf("the first check: %q", code)
+		}
+		e.vendor.ChangeTools = changeRefund
+		code, why := e.s.checkDefinitions(ctx, second)
+		if code != CodeOperationChanged || !strings.Contains(why, "changed create_refund since you approved it") {
+			t.Fatalf("the second check, other definitions: %q %q", code, why)
+		}
+		stored, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if stored.Paused == nil || stored.Paused.Tool != "create_refund" {
+			t.Fatalf("the grant wasn't paused: %+v", stored.Paused)
+		}
+	})
+
+	t.Run("another write came first", func(t *testing.T) {
+		e, g := fresh(t)
+		check, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		other, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		other.event(time.Now(), "something else the grant keeps")
+		if err := e.s.saveGrant(ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		if code, why := e.s.checkDefinitions(ctx, check); code != "" || why != "" {
+			t.Fatalf("the check after another write: %q %q", code, why)
+		}
+		stored, _ := e.s.loadGrant(ctx, tenant, g.ID)
+		if stored.Tools[0].VendorSchemaSHA256 == "" || stored.DefinitionsReadAt.IsZero() || !strings.Contains(mustJSONString(stored.Events), "something else the grant keeps") {
+			t.Fatalf("the check wasn't kept beside the other write: hash=%q read=%v", stored.Tools[0].VendorSchemaSHA256, stored.DefinitionsReadAt)
+		}
+	})
+}

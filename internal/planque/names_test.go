@@ -45,7 +45,12 @@ func TestAVendorsNameIsBounded(t *testing.T) {
 			t.Errorf("label(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if got := vendorName(&Grant{Request: Request{Server: "https://mcp.stripe.com/mcp"}}); got != "mcp.stripe.com" {
+	// A server planque doesn't know as a vendor's reads as its host;
+	// Stripe's own reads as Stripe, named or not.
+	if got := vendorName(&Grant{Request: Request{Server: "https://mcp.example.com/mcp"}}); got != "mcp.example.com" {
 		t.Fatalf("no name: %q, want the host", got)
+	}
+	if got := vendorName(&Grant{Request: Request{Server: "https://mcp.stripe.com/mcp"}}); got != "Stripe" {
+		t.Fatalf("Stripe's own server, no name: %q", got)
 	}
 }

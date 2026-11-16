@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Sentry tool
 definitions as planque reads them (the generated part beside this file),
 and Sentry's API documentation (rate limits, issues, events, releases).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -84,14 +85,16 @@ and each change waits for their yes. Sentry changes only the fields sent.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Sentry's own answers: a refusal reaches the taf as "Sentry
+refused it (it answered …): …", with Sentry's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in didn't give this tool's access, or the person's role in the organization doesn't allow it | "Sentry is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Too many calls | Over the per-tool rate or the limit on calls at once | "Sentry asked us to slow down. The taf will try again shortly." |
-| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "Sentry needs you to sign in again. Nothing was changed." |
-| Not found (404) | The issue was deleted or merged, or belongs to a project the sign-in can't see | "That issue isn't in Sentry any more, or this connection can't see it. The taf will skip it." |
-| Rejected (400) | A value Sentry didn't accept, such as an unknown assignee | "Sentry didn't accept that change. The taf has stopped and will show you what it tried." |
+| Refused, too many calls | Over the per-tool rate or the limit on calls at once | "Sentry asked us to slow down. The taf will try again shortly." |
+| Sentry's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Sentry needs you to sign in again. Nothing was changed." |
+| Refused (404), not found | The issue was deleted or merged, or belongs to a project the sign-in can't see | "That issue isn't in Sentry any more, or this connection can't see it. The taf will skip it." |
+| Refused (400), rejected | A value Sentry didn't accept, such as an unknown assignee | "Sentry didn't accept that change. The taf has stopped and will show you what it tried." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't read an issue never resolves or assigns
-it.
+A taf that can't read an issue never resolves or assigns it.

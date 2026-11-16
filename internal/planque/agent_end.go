@@ -42,7 +42,11 @@ type keptSignIn struct {
 // name the vendor or the managed app gave, else its server's host, else its
 // API's.
 func (s *Server) appName(g *Grant) string {
-	if e, ok := s.CatalogEntries[s.appEntry(g)]; ok && e.Vendor != "" {
+	entry := s.appEntry(g)
+	if n := grantVendor(g, entry); n != "" {
+		return n
+	}
+	if e, ok := s.CatalogEntries[entry]; ok && e.Vendor != "" {
 		return e.Vendor
 	}
 	if g.VendorName != "" {

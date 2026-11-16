@@ -17,7 +17,7 @@ import (
 func completesProfile() profile.Profile {
 	return profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
 		Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
-			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"},
+			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"},
 			Completes: &profile.Completes{Event: "DESK_DEMO_NEW_TICKET", Key: "id", EventKey: "ticket.reply", TimeoutS: 900,
 				Words: "The desk answers when the customer replies; the taf waits for that."}}}}
 }

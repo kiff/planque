@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Outlook tool
 definitions as planque reads them (317 tools, [generated](generated/outlook.md)),
 and Microsoft's mail and calendar API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -74,14 +75,15 @@ changed. The Card says so.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| "Need admin approval" at sign-in | A work account whose admin hasn't approved the app | "Your Microsoft admin needs to approve this connection first. Ask them, or connect a personal account." |
-| Refused for missing access (403) | The sign-in didn't give this tool's access: reading only, say, and the tool sends | "Outlook is only partly connected: this step needs access you didn't give. Sign in again and allow it, or do without this step." |
-| Too many calls (429) | Over Microsoft's limit for the mailbox | "Outlook asked us to slow down. The taf will try again in a few minutes." |
-| Sending refused, limit reached | The day's sending cap | "Outlook's daily sending limit is reached. The rest goes tomorrow." |
-| The message isn't found (404) | Deleted, or moved to a folder the taf doesn't read | "That email isn't there any more. The taf will skip it." |
-| The sign-in no longer works (401) | Removed, password changed, or expired | "Outlook needs you to sign in again. Nothing was sent." |
+The rows are Outlook's own answers: a refusal reaches the taf as "Outlook
+refused it (it answered …): …", with Outlook's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| At sign-in: "Need admin approval" | A work account whose admin hasn't approved the app | "Your Microsoft admin needs to approve this connection first. Ask them, or connect a personal account." |
+| Refused for missing access (403) | The sign-in didn't give this tool's access: reading only, say, and the tool sends | "Outlook is only partly connected: this step needs access you didn't give. Sign in again and allow it, or do without this step." |
+| Refused (429), too many calls | Over Microsoft's limit for the mailbox | "Outlook asked us to slow down. The taf will try again in a few minutes." |
+| Refused, sending limit reached | The day's sending cap | "Outlook's daily sending limit is reached. The rest goes tomorrow." |
+| Refused (404), message not found | Deleted, or moved to a folder the taf doesn't read | "That email isn't there any more. The taf will skip it." |
+| Outlook's sign-in has expired (401) | Removed, password changed, or expired | "Outlook needs you to sign in again. Nothing was sent." |

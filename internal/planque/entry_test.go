@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
 )
 
@@ -439,5 +440,53 @@ func TestAServersConnectionIsCalledByItsReviewedApp(t *testing.T) {
 	other := &Grant{VendorName: "Gmail", Request: Request{CatalogEntry: "connector:composio:gmail"}}
 	if got := vendorName(other); got != "Gmail" {
 		t.Fatalf("another managed app: %q", got)
+	}
+}
+
+// The owner's Stripe connection still read "stripe-mcp" after #210 and #212:
+// its grant was stored before its request named its entry, so the request has
+// none, and the entry recorded beside it (Grant.Entry) is the managed form the
+// reviewed server list gave mcp.stripe.com then, planque's own, or none at
+// all. Each reads "Stripe" in the grant's view, the account's connections and
+// an ended taf's rows, with nothing rewritten. Another server whose own name
+// ends in "-mcp" keeps it.
+func TestAnOlderStoredStripeConnectionIsCalledStripe(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, server, entry, stored, want string
+	}{
+		{"entry recorded as the managed app", "https://mcp.stripe.com", "connector:composio:stripe", "stripe-mcp", "Stripe"},
+		{"entry recorded as planque's own", "https://mcp.stripe.com", StripeEntry, "stripe-mcp", "Stripe"},
+		{"no entry, Stripe's server", "https://mcp.stripe.com", "", "stripe-mcp", "Stripe"},
+		{"no entry, a path on Stripe's server", "https://mcp.stripe.com/v1/mcp", "", "stripe-mcp", "Stripe"},
+		{"no entry, Qonto's server", "https://mcp.qonto.com/mcp", "", "qonto-mcp-server", "Qonto"},
+		// NEGATIVE: another server's own "-mcp" name is kept, nothing stripped.
+		{"another server named -mcp", "https://mcp.example.com/mcp", "", "example-mcp", "example-mcp"},
+		{"a look-alike of Stripe's host", "https://mcp.stripe.com.example.net", "", "stripe-mcp", "stripe-mcp"},
+		{"Qonto's host on another path", "https://mcp.qonto.com/other", "", "qonto-mcp-server", "qonto-mcp-server"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
+			g := e.connect()
+			g.Request.Server, g.Request.CatalogEntry, g.Entry, g.VendorName = tc.server, "", tc.entry, tc.stored
+			if err := e.s.saveGrant(ctx, g); err != nil {
+				t.Fatal(err)
+			}
+			title := tc.want + " · " + label(accountLabel(g)) // "Stripe · acct_…"
+			if _, view := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, nil, "k_setup"); view["vendor"] != tc.want || view["title"] != title {
+				t.Errorf("the grant's view: vendor %v, title %v", view["vendor"], view["title"])
+			}
+			if _, cs := e.connections("k_person"); len(cs) != 1 || cs[0]["vendor"] != tc.want || cs[0]["title"] != title {
+				t.Errorf("the connections: %v", cs)
+			}
+			if got := e.s.appName(g); got != tc.want {
+				t.Errorf("an ended taf's rows: %q", got)
+			}
+			stored, err := e.s.loadGrant(ctx, tenant, g.ID)
+			if err != nil || stored.VendorName != tc.stored || stored.Entry != tc.entry || stored.Request.CatalogEntry != "" {
+				t.Errorf("the stored grant was rewritten: %+v, %v", stored, err)
+			}
+		})
 	}
 }

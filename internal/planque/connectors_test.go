@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -52,6 +54,8 @@ type connectorFixture struct {
 	// set, is its managed scope ceiling, always is what it always asks, and
 	// setUpFails fails an app's set-up at the provider, its answer naming the project key.
 	setUpFails bool
+	// scopedFails refuses a scoped sign-in's set-up (403), its answer naming the project key.
+	scopedFails bool
 	// noRecommend fails the scope recommendation (gap 5 of kiff/tafs#476).
 	managed     bool
 	ceiling     []string
@@ -75,6 +79,9 @@ type connectorFixture struct {
 	granted                   string
 	search                    bool
 	searchScopes, replyScopes []string
+	// searchDescribed describes the search's q, as a provider's read does,
+	// so it reads as read-only.
+	searchDescribed bool
 }
 
 func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -114,6 +121,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			Config map[string]any `json:"auth_config"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&in)
+		if name, _ := in.Config["name"].(string); strings.HasPrefix(name, "planque-scoped-") && f.scopedFails {
+			return profileResponse(403, `{"error":{"message":"Custom scopes need your own auth config for key synthetic-project-key"}}`), nil
+		}
 		if name, _ := in.Config["name"].(string); strings.HasPrefix(name, "planque-scoped-") {
 			// A scoped sign-in: the managed kind, named, asking for the scopes given and nothing of ours.
 			creds, _ := in.Config["credentials"].(map[string]any)
@@ -262,13 +272,17 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		replyScopes, _ := json.Marshal(f.replyScopes)
 		tool := `{"slug":"DESK_DEMO_REPLY","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Reply to a ticket","scopes":` + string(replyScopes) + `,"input_parameters":` + schema +
-			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}}}}}`
+			`,"output_parameters":{"type":"object","properties":{"data":{"type":"object","properties":{"ticket_id":{"type":"string"},"url":{"type":"string"},"status":{"type":"string"}}},"error":{"type":"string"},"successful":{"type":"boolean"}}}}`
 		if path == "/tools" {
 			items := tool
 			if f.search {
 				searchScopes, _ := json.Marshal(f.searchScopes)
+				searchQ := ""
+				if f.searchDescribed {
+					searchQ = `,"description":"Words to search the tickets for"`
+				}
 				items += `,{"slug":"DESK_DEMO_SEARCH","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Search tickets","tags":["readOnlyHint"],"scopes":` + string(searchScopes) +
-					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"}},"additionalProperties":false}}`
+					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"` + searchQ + `}},"additionalProperties":false}}`
 			}
 			body = `{"items":[` + items + `]}`
 		} else {
@@ -292,7 +306,7 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		if f.lost {
 			return nil, errors.New("synthetic lost answer")
 		}
-		body = `{"data":{"id":"reply_demo"},"successful":true}`
+		body = `{"data":{"id":"reply_demo","ticket_id":"ticket_demo","url":"https://desk.example/t/ticket_demo","status":"answered"},"successful":true}`
 		if f.executeBody != "" {
 			return profileResponse(cmp.Or(f.executeStatus, 200), f.executeBody), nil
 		}
@@ -361,7 +375,7 @@ func listConnector(t *testing.T, e *env, f *connectorFixture) string {
 }
 func connectConnector(t *testing.T, e *env, f *connectorFixture) *Grant {
 	t.Helper()
-	return connectConnectorWith(t, e, f, profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}})
+	return connectConnectorWith(t, e, f, profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}})
 }
 
 // connectConnectorWith is connectConnector with the profile given.
@@ -669,7 +683,7 @@ func TestAConnectionAskedWithItsToolsSignsInForOnlyWhatTheyNeed(t *testing.T) {
 	}
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket",
-		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+		Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup"); st != 409 || !strings.Contains(out["error"].(string), "isn't among them") {
 		t.Fatalf("a tool outside the sign-in: %d %v", st, out)
 	}
@@ -906,7 +920,7 @@ func TestConnectorAnAccountKeysGrantIsFinishedByItsTafOrSetup(t *testing.T) {
 	}
 	_, catalog := e.do("GET", path+"/catalog", nil, nil, "k_coach")
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
-	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	tools := map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}
 	if st, _ := e.do("POST", path+"/tools", tools, nil, "k_third"); st != 403 {
 		t.Fatalf("a third agent proposed tools: %d", st)
@@ -1341,10 +1355,11 @@ func TestANewTafReusesAManagedAppsSignIn(t *testing.T) {
 	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
 	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
 		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
-			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply"}}, "profile": p}, nil, "k_setup")
-	if st != 200 || out["status"] != StatusPending || !strings.Contains(out["text"].(string), "with the sign-in you already have there") ||
-		!strings.Contains(out["text"].(string), "Approve these actions: ") {
+	// The account's line says the sign-in is reused, once: "no second sign-in" is never said twice (14 Nov).
+	if text := out["text"].(string); st != 200 || out["status"] != StatusPending || !strings.HasPrefix(text, "You're already signed in, to the account Demo Shop: no second sign-in.") ||
+		strings.Count(text, "no second sign-in") != 1 || strings.Contains(text, "with the sign-in you already have there") || !strings.Contains(text, "Approve these actions: ") {
 		t.Fatalf("tools: %d %v", st, out)
 	}
 	g, _ = e.s.loadGrant(ctx, tenant, id)
@@ -1414,9 +1429,10 @@ func TestConnectorCallbackAnswersThePersonWithAPage(t *testing.T) {
 	if g.SignedIn || g.Status != StatusApproved {
 		t.Fatalf("a cancelled sign-in moved the grant: %s signed=%v", g.Status, g.SignedIn)
 	}
-	// The link worked once: the same callback again is a used link, as a page.
+	// The link worked once: the same callback again is a used link, as a page,
+	// and the sign-in never went through, so it starts again from tafs.
 	st, ct, body = page(u.RequestURI(), "")
-	isPage("used", st, ct, body, "This sign-in link is unknown, expired or already used.")
+	isPage("used", st, ct, body, "This sign-in link was already used. Go back to tafs and start the sign-in again from there.")
 }
 
 // The sign-in link comes with the app's name as people name it, so the app's
@@ -1458,7 +1474,7 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	if slug == "" || slug == name || !strings.HasPrefix(name, "connector_") {
 		t.Fatalf("the catalog's tool: %v", first)
 	}
-	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: true}, RequiredArguments: []string{"ticket", "text"}}}}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted", Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single", Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
 	for _, asked := range []string{slug, strings.ToLower(slug)} {
 		st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: asked, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
 		if st != 200 {
@@ -1481,5 +1497,114 @@ func TestAManagedToolIsTakenByItsSlugAsByItsName(t *testing.T) {
 	if st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: "DESK_DEMO_NOTHING", Title: "Nothing", Name: "nothing"}}, "profile": p}, nil, "k_setup"); st != 400 ||
 		!strings.Contains(out["error"].(string), "read the app's tool catalog before selecting this action") {
 		t.Fatalf("an unknown slug: %d %v", st, out)
+	}
+}
+
+// A path the catalog's returns name is found in the answer a call relays
+// (14 Nov: a check drafted from "data.messages" read nothing, since the
+// relay carries the provider's data alone). The path the returns named
+// before, under data., isn't: the regression this guards.
+func TestAToolsReturnsNameWhatItsRelayedAnswerHas(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_returns"}`)
+	p := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_returns", Args: args})
+	res := e.s.call(ctx, g, "reply_ticket", args, p)
+	var answer struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	b, _ := json.Marshal(res)
+	if err := json.Unmarshal(b, &answer); err != nil || len(answer.Content) == 0 {
+		t.Fatalf("answer: %s", b)
+	}
+	var relayed map[string]any
+	if err := json.Unmarshal([]byte(answer.Content[0].Text), &relayed); err != nil {
+		t.Fatalf("the relayed answer isn't JSON: %q", answer.Content[0].Text)
+	}
+	at := func(path string) bool {
+		var node any = relayed
+		for _, k := range strings.Split(path, ".") {
+			m, ok := node.(map[string]any)
+			if !ok {
+				return false
+			}
+			if node, ok = m[k]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	for _, path := range []string{"ticket_id", "url"} {
+		if !at(path) {
+			t.Errorf("the returns' %q isn't in the relayed answer %v", path, relayed)
+		}
+	}
+	if at("data.ticket_id") {
+		t.Errorf("the relayed answer still has data.: %v", relayed)
+	}
+}
+
+// A narrowed sign-in the provider refuses is logged with the provider's own
+// reason, its key never (14 Nov: a 403 on the set-up of Gmail's narrowed
+// sign-in was logged as "composio: POST /auth_configs: 403" alone).
+func TestARefusedNarrowedSignInIsLoggedWithTheProvidersReason(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	e, f := newConnectorFixture(t)
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	f.managed, f.scopedFails = true, true
+	f.ceiling = []string{g + "gmail.modify", g + "user.birthday.read", g + "userinfo.email"}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	if st != 503 || !strings.Contains(out["error"].(string), "without asking for personal data") {
+		t.Fatalf("a narrowed sign-in the provider refused: %d %v", st, out)
+	}
+	got := logs.String()
+	if !strings.Contains(got, `"msg":"sign-in not set up without personal data"`) || !strings.Contains(got, `"reason":"Custom scopes need your own auth config for key [redacted]"`) {
+		t.Fatalf("the provider's reason isn't logged: %s", got)
+	}
+	if strings.Contains(got, "synthetic-project-key") {
+		t.Fatalf("the project key reached the log: %s", got)
+	}
+	if strings.Contains(out["error"].(string), "Custom scopes") {
+		t.Fatalf("the provider's words reached the person: %v", out)
+	}
+}
+
+// The body Coach's connect sends for an app's catalog entry, setup reads
+// and all (name-the-tools@13), is taken, never a 400 on setup_reads: the
+// reads are planned tools like the rest, so the sign-in is narrowed to
+// what they all need, here a read-only scope (14 Nov: Gmail's connect was
+// refused for setup_reads, and its retry, with no tools, asked for full
+// mail), and they can be bound once signed in.
+func TestAManagedConnectTakesItsSetupReadsAsPlannedTools(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	const mail = "https://mail.google.com/"
+	for _, c := range []struct {
+		name string
+		body map[string]any
+	}{
+		{"the read as a tool", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_SEARCH"}}},
+		{"the read as a setup read", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "setup_reads": []string{"desk_demo_search"}}},
+		{"both, as name-the-tools sends them", map[string]any{"agent": "agt_taf", "agent_name": "Replies", "tools": []string{"DESK_DEMO_SEARCH"}, "setup_reads": []string{"DESK_DEMO_SEARCH"}}},
+	} {
+		e, f := newConnectorFixture(t)
+		f.managed, f.search, f.noRecommend, f.searchDescribed = true, true, true, true
+		f.ceiling = []string{mail, g + "gmail.modify", g + "gmail.readonly", g + "userinfo.email"}
+		f.searchScopes = []string{mail, g + "gmail.modify", g + "gmail.readonly"}
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:desk_demo/grants", c.body, nil, "k_setup")
+		if st != 201 {
+			t.Fatalf("%s: %d %v", c.name, st, out)
+		}
+		gr, _ := e.s.loadGrant(context.Background(), tenant, out["grant"].(map[string]any)["id"].(string))
+		conn := gr.Request.Connector
+		if !slices.Equal(conn.AskedTools, []string{"DESK_DEMO_SEARCH"}) || conn.UsualAccess || len(gr.Request.Tools) != 0 {
+			t.Fatalf("%s: asked %v, usual %v, granted %v", c.name, conn.AskedTools, conn.UsualAccess, gr.Request.Tools)
+		}
+		if len(f.scopedMade) != 1 || !strings.HasSuffix(f.scopedMade[0], `["`+g+`gmail.readonly"]`) {
+			t.Fatalf("%s: the sign-in asks for %v, want gmail.readonly alone", c.name, f.scopedMade)
+		}
 	}
 }

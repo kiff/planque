@@ -3,6 +3,8 @@
 Checked: 2026-11-14 · Sources: the connection service's Shopify tool
 definitions as planque reads them (386 tools), and Shopify's Admin API
 documentation (access scopes, rate limits, status codes).
+Failure table checked against planque's answers on 2026-11-16.
+Tools checked against the sign-in's scopes on 2026-11-16.
 
 ## How it connects
 
@@ -11,6 +13,9 @@ documentation (access scopes, rate limits, status codes).
   access on Shopify's own install page. planque's catalog lists the tools
   and, with a known sign-in, puts the ones its access doesn't cover under
   `unusable`, with why.
+- **Type only the store's subdomain.** Before Shopify's page, the
+  connection page asks for the "Store Subdomain": only `my-shop` for
+  `my-shop.myshopify.com`. Its auto-fill can be wrong; retype it.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request, so nothing is asked
   twice.
@@ -37,6 +42,16 @@ carry.
 | `SHOPIFY_CREATE_DRAFT_ORDER` | Drafts an order for the owner to review; charges nothing | write | the draft order id |
 | `SHOPIFY_UPDATE_FULFILLMENT_TRACKING` | Adds or corrects a shipment's tracking | write | the fulfilment id |
 | `SHOPIFY_CREATE_REFUND` | Refunds money on an order | write, money | the refund id |
+
+**What today's sign-in allows (16 Nov):** Shopify is asked for
+`read_orders`, `read_customers` and `write_orders` only. So:
+- the other reads run;
+- `SHOPIFY_SEARCH_PRODUCTS` and `SHOPIFY_GET_INVENTORY_LEVELS` (products,
+  stock) and `SHOPIFY_CREATE_DRAFT_ORDER` (draft orders) are refused: don't
+  offer them;
+- `write_orders` is for `SHOPIFY_CREATE_REFUND`. `SHOPIFY_UPDATE_ORDER` and
+  `SHOPIFY_UPDATE_FULFILLMENT_TRACKING` run on it too: offer them only when
+  the owner asks.
 
 **What to keep:** the order id and customer id the taf worked on, to come
 back to the same order next run; each draft order and refund id the taf
@@ -74,9 +89,8 @@ stays within the Card's limit.
 
 ## Access and plans
 
-- **Orders older than 60 days** need a separate "all orders" access on top
-  of order access. Without it, older orders simply aren't returned, so a
-  job looking back further misses them.
+- **Orders older than 60 days** need a separate "all orders" access, which
+  today's sign-in doesn't ask for: older orders aren't returned.
 - **Customer names, emails and addresses** are protected data on Shopify.
   An app must be approved by Shopify to read them on a live store. If
   the app isn't approved, Shopify doesn't return those fields.
@@ -90,16 +104,19 @@ stays within the Card's limit.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Shopify's own answers: a refusal reaches the taf as "Shopify
+refused it (it answered …): …", with Shopify's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in didn't give this tool's access | "Shopify is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
-| Older orders are missing | No "all orders" access, so only the last 60 days are visible | "Shopify only showed the last 60 days of orders. To look further back, sign in again and allow access to all orders." |
-| Too many calls (429) | Over the store's call rate | "Shopify asked us to slow down. The taf will try again in a moment." |
-| Payment required (402) | The store is frozen for an unpaid Shopify bill | "Your Shopify store is paused until its bill is paid. Nothing was changed." |
+| A result missing older orders | No "all orders" access, so only the last 60 days are visible | "Shopify only showed the last 60 days of orders. To look further back, sign in again and allow access to all orders." |
+| Refused (429), too many calls | Over the store's call rate | "Shopify asked us to slow down. The taf will try again in a moment." |
+| Refused (402), payment required | The store is frozen for an unpaid Shopify bill | "Your Shopify store is paused until its bill is paid. Nothing was changed." |
 | Refused as invalid (422) | A required field is missing, or the action doesn't fit the order (refunding more than was paid, say) | "Shopify didn't accept that change to the order. The taf has stopped and will show you what it tried." |
-| Not found (404) | The order, customer or product was deleted | "That isn't in your store any more. The taf will skip it." |
-| The sign-in no longer works (401) | The app was removed from the store, or access expired | "Shopify needs you to connect the store again. Nothing was changed." |
-| A server error (5xx) | Trouble on Shopify's side | "Shopify is having trouble right now. The taf will try again later." |
+| Refused (404), not found | The order, customer or product was deleted | "That isn't in your store any more. The taf will skip it." |
+| Shopify's sign-in has expired (401) | The app was removed from the store, or access expired | "Shopify needs you to connect the store again. Nothing was changed." |
+| Refused (500 or above) | Trouble on Shopify's side | "Shopify is having trouble right now. The taf will try again later." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a refund is never retried without the owner's yes.
+A refund is never retried without the owner's yes.

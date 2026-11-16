@@ -203,6 +203,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cleanTriggers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
+	// Vendors' answers past answerTTL: each record keeps its outcome alone.
+	if dropped, err := s.SweepAnswers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: answers not all dropped yet", slog.String("err", err.Error()))
+	} else if dropped > 0 {
+		s.log().InfoContext(r.Context(), "sweep dropped answers", slog.Int("dropped", dropped))
+	}
 	// Sign-ins kept for another connection that no live grant uses now.
 	if revoked, err := s.SweepKept(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: kept sign-ins not all revoked yet", slog.String("err", err.Error()))
@@ -218,5 +224,25 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if n > 0 {
 		s.log().InfoContext(r.Context(), "sweep ended grants", slog.Int("ended", n))
 	}
+	// Once, and last: the answers kept before answerTTL, dropped or given
+	// their expiry. Its writes can wait on a throttled key, so it runs after
+	// the sweep's own work, which a slow clean-up never holds up.
+	if _, _, err := s.CleanStoredAnswers(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
+	}
 	writeJSON(w, http.StatusOK, map[string]int{"ended": n})
+}
+
+// sweepAnswersOnce runs only the one-time clean-up of the answers kept
+// before answerTTL (CleanStoredAnswers), at its own pace and budget: a
+// schedule can call it more often than the hourly sweep until it logs
+// "stored answers cleaned once" (14 Nov: about 5,700 records left at one
+// sweep an hour). Once done, it does nothing; done says so.
+func (s *Server) sweepAnswersOnce(w http.ResponseWriter, r *http.Request) {
+	dropped, indexed, err := s.CleanStoredAnswers(r.Context())
+	if err != nil {
+		s.log().WarnContext(r.Context(), "sweep: the one-time clean-up of stored answers waits for the next sweep", slog.String("err", err.Error()))
+	}
+	_, done, _ := s.KV.Get(r.Context(), onceAnswers.PK, onceAnswers.SK)
+	writeJSON(w, http.StatusOK, map[string]any{"dropped": dropped, "indexed": indexed, "done": done})
 }

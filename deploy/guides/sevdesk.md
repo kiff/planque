@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Sevdesk tool
 definitions as planque reads them (134 tools), and Sevdesk's published API
 description (its OpenAPI file and the guides inside it).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -84,14 +85,16 @@ emailed it's marked sent, and Sevdesk doesn't let it change after that.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| The token doesn't work (401) | The token is wrong or no longer valid | "Sevdesk needs a new API token. Nothing was changed." |
-| Refused as invalid (422) | A tax rate or booking account doesn't fit, or a status change isn't allowed | "Sevdesk didn't accept that entry: its tax or account doesn't fit. The taf has stopped and will show you what it tried." |
-| Bad request (400) | A field is missing or wrong, or the invoice isn't there | "Sevdesk couldn't find or accept that invoice. The taf will skip it and tell you which." |
-| Changing a sent or locked invoice | Sent and locked invoices can't change | "That invoice is already sent, so Sevdesk won't change it. Correct it in Sevdesk if it needs changing." |
-| Server error (500) | Trouble on Sevdesk's side | "Sevdesk isn't answering properly right now. The taf will try again later." |
+The rows are Sevdesk's own answers: a refusal reaches the taf as "Sevdesk
+refused it (it answered …): …", with Sevdesk's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write, and a payment is never booked twice: the taf reads the
-invoice's status first.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Sevdesk's sign-in has expired (401), the token doesn't work | The token is wrong or no longer valid | "Sevdesk needs a new API token. Nothing was changed." |
+| Refused as invalid (422) | A tax rate or booking account doesn't fit, or a status change isn't allowed | "Sevdesk didn't accept that entry: its tax or account doesn't fit. The taf has stopped and will show you what it tried." |
+| Refused (400), bad request | A field is missing or wrong, or the invoice isn't there | "Sevdesk couldn't find or accept that invoice. The taf will skip it and tell you which." |
+| Refused, changing a sent or locked invoice | Sent and locked invoices can't change | "That invoice is already sent, so Sevdesk won't change it. Correct it in Sevdesk if it needs changing." |
+| Refused (500), server error | Trouble on Sevdesk's side | "Sevdesk isn't answering properly right now. The taf will try again later." |
+
+A payment is never booked twice: the taf reads the invoice's status first.

@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Calendar tool
 definitions as planque reads them (47 tools, [generated](generated/googlecalendar.md)),
 and Google's Calendar API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -57,6 +58,19 @@ calendar's own; never assume the server's.
 
 ## Access and plans
 
+- **What Google's page asks for follows the taf's tools,** each at the
+  narrowest access it runs on (Google's words, roughly, in quotes):
+  - **reading events and free time:** read-only access to events or
+    calendars ("view events on all your calendars");
+  - **creating or changing events:** access to events ("view and edit events
+    on all your calendars");
+  - **managing calendars themselves** (creating, clearing, deleting or
+    sharing a calendar, its access list): full calendar access, which also
+    lets it share and delete calendars. Offer these only when the job needs
+    them.
+  - The tools are named in the connect: a connect that names none asks for the
+    app's widest access, so the taf's planned tools are always named when it
+    connects.
 - **No paid plan is needed.** Rooms and buildings
   (`GOOGLECALENDAR_LIST_BUILDINGS`, `GOOGLECALENDAR_LIST_CALENDAR_RESOURCES`)
   exist only on business accounts.
@@ -72,14 +86,16 @@ calendar's own; never assume the server's.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Calendar's own answers: a refusal reaches the taf as
+"Google Calendar refused it (it answered …): …", with Google Calendar's
+reason. planque's own refusals, and an expired sign-in, are in the part
+below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in gave read-only or free-time access, and the tool writes | "Google Calendar is only partly connected: adding events needs access you didn't give. Sign in again and allow it, or I'll only read." |
 | Refused, rate or invitation limit (403 or 429) | Too many calls, or too many invitations sent | "Google asked us to slow down. The rest goes in a few minutes." |
-| The event isn't found (404, or 410 "deleted") | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
-| A conflict (409) | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |
-| The sign-in no longer works (401) | Removed, or expired | "Google Calendar needs you to sign in again. Nothing was changed." |
-| A time is refused (400) | A time without a zone, or an end before its start | Fix the time and try once; else "Google didn't accept that time. Nothing was booked." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create.
+| Refused (404), event not found, or (410) "deleted" | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
+| Refused (409), conflict | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |
+| Google Calendar's sign-in has expired (401) | Removed, or expired | "Google Calendar needs you to sign in again. Nothing was changed." |
+| Refused (400), bad time | A time without a zone, or an end before its start | Fix the time and try once; else "Google didn't accept that time. Nothing was booked." |

@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: planque's direct Stripe connection and its
 reviewed refund entry (`docs/managed-connectors.md`), Stripe's API
 reference and operation ids, invoicing docs and published server tools.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -96,20 +97,21 @@ the owner asked for reminders, and say each one waits for their yes.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+Errors arrive as "… returned an error: …".
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused: several accounts, or none | The sign-in reaches more than one Stripe account | "Your Stripe sign-in reaches several accounts. Sign in again and pick the one this taf should use." |
 | Refused: a live object | The refund entry is test mode only | "This taf only works with test payments for now. Nothing was refunded." |
 | Refused: another currency | The Card caps refunds in euros | "That payment isn't in euros, so this taf can't refund it. Refund it in Stripe directly." |
 | Refused: more than was paid, or already refunded | Stripe checks what's left to refund | "That payment was already refunded, or the amount is more than what's left. Nothing new was refunded." |
-| Not found | A wrong id, or a payment in the other mode | "I can't find that payment in this Stripe account. Check the id, or whether it's a test payment." |
+| Not found | A wrong id, or a payment in the other mode | "I can't find that payment in this Stripe account. Is it a test payment?" |
 | Too many calls (429) | Over Stripe's rate | "Stripe asked us to slow down. The taf will try again in a moment." |
-| The sign-in no longer works (401) | The owner disconnected it in Stripe | "Stripe needs you to sign in again. Nothing was refunded." |
-| An invoice isn't found | A wrong id, or an invoice in the other mode | "I can't find that invoice in this Stripe account. Check it, or whether it's a test invoice." |
+| Not sent: "refused planque's token" | The owner disconnected it in Stripe | "Stripe needs you to sign in again. Nothing was refunded." |
+| An invoice isn't found | A wrong id, or an invoice in the other mode | "I can't find that invoice in this Stripe account. Is it a test invoice?" |
 | The invoice is no longer open | It was paid, voided or written off since the list | "That invoice is already paid or closed, so no reminder went out." |
 | Charged automatically | Its collection method isn't `send_invoice`: don't send | "Stripe charges that customer's card automatically, so I didn't send a reminder for it." |
 | Sent, but no email arrived | A test-mode invoice | "That's a test invoice, so Stripe didn't email anyone." |
 | The send is refused | Stripe's server doesn't offer it | "Stripe doesn't let this taf send invoices. It can list overdue ones for you." |
 
-After any refusal the taf stops that step and says so. A refused refund is
-never tried again with a different amount.
+A refused refund is never tried again with a different amount.

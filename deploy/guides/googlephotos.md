@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Photos tool
 definitions as planque reads them (13 tools, [generated](generated/googlephotos.md)),
 and Google's Photos API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -42,6 +43,11 @@ album the owner made by hand.
 
 ## Access and plans
 
+- **What Google's page asks for:** planque has no reviewed order of Google
+  Photos's
+  access yet, so the sign-in asks for what the connection service recommends
+  for the taf's tools. That can be more than they need, and the approval says
+  so. Name the taf's tools when it connects.
 - **Storage is the owner's:** 15 GB free across Gmail, Drive and Photos.
   Uploads count against it.
 - **Size:** photos up to 200 MB and videos up to 20 GB each.
@@ -50,12 +56,14 @@ album the owner made by hand.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Photos's own answers: a refusal reaches the taf as
+"Google Photos refused it (it answered …): …", with Google Photos's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Nothing found, or refused, on a photo the owner took | Outside apps see only what they uploaded | "I can only see photos I added myself. Send me the photo and I'll add it." |
-| Storage full (403) | The owner's storage is used up | "Your Google storage is full, so the photo wasn't saved." |
-| Not found (404) | The owner deleted it in the app | "That photo isn't there any more." |
-| Too many calls (429) | Over the day's limit | "Google asked us to slow down. The taf will continue later." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Photos needs you to sign in again." |
-
-After any refusal the taf stops that step and says so.
+| Refused (403), storage full | The owner's storage is used up | "Your Google storage is full, so the photo wasn't saved." |
+| Refused (404), not found | The owner deleted it in the app | "That photo isn't there any more." |
+| Refused (429), too many calls | Over the day's limit | "Google asked us to slow down. The taf will continue later." |
+| Google Photos's sign-in has expired (401) | Removed, or expired | "Google Photos needs you to sign in again." |

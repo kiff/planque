@@ -420,6 +420,13 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// Tools, optional, are the provider's tools the taf will use, as the
 		// tools search names them: the sign-in asks only for what they need.
 		Tools []string `json:"tools"`
+		// SetupReads, optional, are the provider's reads Setup will make
+		// to set the taf up, as a server connect names them: on an app's
+		// entry they're planned tools like the rest, so the sign-in covers
+		// them and they can be bound later (14 Nov: refused as an unknown
+		// field, and Coach's retry left the tools out, so the sign-in asked
+		// for full mail).
+		SetupReads []string `json:"setup_reads"`
 		// NewSignIn asks for a sign-in of its own even when the account
 		// holds one to this app: another account at the app, say.
 		NewSignIn bool `json:"new_sign_in"`
@@ -431,6 +438,11 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	// Provider slugs are upper case: one asked in lower case is the same tool.
 	for i, t := range ask.Tools {
 		ask.Tools[i] = strings.ToUpper(strings.TrimSpace(t))
+	}
+	for _, t := range ask.SetupReads {
+		if t = strings.ToUpper(strings.TrimSpace(t)); !slices.Contains(ask.Tools, t) {
+			ask.Tools = append(ask.Tools, t)
+		}
 	}
 	if msg := checkAskedTools(ask.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
@@ -465,7 +477,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// sign-in the vendor no longer takes. One the provider says is gone is marked so (sign in again).
 		if held != nil {
 			if err := s.checkConnector(r.Context(), held); err != nil {
-				s.log().WarnContext(r.Context(), "held sign-in not reused", slog.String("grant", held.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "held sign-in not reused", append([]any{slog.String("grant", held.ID)}, errAttrs(err)...)...)
 				if errors.Is(err, connector.ErrAccount) {
 					s.signInRefused(r.Context(), held, vendorName(held)+" no longer accepts this sign-in")
 				}
@@ -508,12 +520,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 				writeErr(w, http.StatusServiceUnavailable, "This app is being set up. Try again in a moment.")
 			default:
 				// The provider's cause, kept here: the person reads only that it can't be set up.
-				attrs := []any{slog.String("toolkit", toolkit), slog.String("err", err.Error())}
-				if ce := (*connector.CallError)(nil); errors.As(err, &ce) && ce.Message != "" {
-					// Its own words, made safe by Reason: one line, secrets redacted.
-					attrs = append(attrs, slog.String("reason", ce.Message))
-				}
-				s.log().WarnContext(r.Context(), "app set-up failed", attrs...)
+				s.log().WarnContext(r.Context(), "app set-up failed", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 				writeErr(w, http.StatusServiceUnavailable, "This app can't be set up right now. Try again later.")
 			}
 			return
@@ -547,7 +554,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// and none without it can be set up now: nothing is asked (the owner,
 		// 14 Nov: "very intrusive"). It isn't the usual sign-in instead.
 		if errors.Is(err, connector.ErrPersonal) {
-			s.log().WarnContext(r.Context(), "sign-in not set up without personal data", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+			s.log().WarnContext(r.Context(), "sign-in not set up without personal data", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 			if errors.Is(err, errAllowance) {
 				writeErr(w, http.StatusTooManyRequests, "You've set up "+strconv.Itoa(onDemandADay)+" new apps today, and "+label(app.Name)+" can't be connected without asking for personal data this taf doesn't use. Try again tomorrow.")
 				return
@@ -564,7 +571,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		} else {
 			conn.UsualAccess = true
 			if !errors.Is(err, connector.ErrUnscoped) {
-				s.log().WarnContext(r.Context(), "sign-in not narrowed", slog.String("toolkit", toolkit), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "sign-in not narrowed", append([]any{slog.String("toolkit", toolkit)}, errAttrs(err)...)...)
 			}
 		}
 	}
@@ -724,7 +731,7 @@ func (s *Server) resumeConnectorSignIn(w http.ResponseWriter, r *http.Request, s
 		}
 		if old.Account != "" && old.Account != g.Connector.Account {
 			if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
-				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
 			}
 		}
 	default:
@@ -777,11 +784,16 @@ func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var pending pendingSignIn
-	if !ok || json.Unmarshal(it.Doc, &pending) != nil || !s.now().Before(pending.Expires) {
+	if !ok {
+		s.spentLink(w, r, state)
+		return
+	}
+	if json.Unmarshal(it.Doc, &pending) != nil || !s.now().Before(pending.Expires) {
 		lang, l := speech(r, nil)
 		s.page(w, lang, http.StatusBadRequest, l.NotConnected, l.LinkUnknown)
 		return
 	}
+	s.keepUsedLink(r.Context(), state, pending)
 	g, err := s.loadGrant(r.Context(), pending.Tenant, pending.Grant)
 	if err != nil {
 		s.failPage(w, r, nil, err)
@@ -1155,7 +1167,12 @@ const legacySignInThenChoose = " Sign in and confirm on this device, then choose
 // A grant made with the app's title names the app and the taf in a person's
 // words, and no connection provider; one made before keeps the words it was
 // signed with.
-func connectorText(w words.Approval, q Request) string {
+func connectorText(w words.Approval, q Request) string { return connectorTextSaid(w, q, false) }
+
+// connectorTextSaid is connectorText; reusedSaid: the words before it
+// already say the sign-in is reused (the account's line, "no second
+// sign-in"), so a reused sign-in's own sentence doesn't say it twice.
+func connectorTextSaid(w words.Approval, q Request, reusedSaid bool) string {
 	c := q.Connector
 	if c.Title == "" {
 		// Made before titles: kept as signed, for the agent it was asked
@@ -1173,8 +1190,11 @@ func connectorText(w words.Approval, q Request) string {
 	taf := tafWords(w, q)
 	text := fmt.Sprintf(w.ConnectTitledF, c.Title, taf)
 	if q.Reuse != "" {
-		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2).
-		text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		// Another taf's sign-in, reused: no second sign-in or key (kiff/tafs#476, gap 2),
+		// said once (14 Nov: the owner's card said "no second sign-in" twice).
+		if !reusedSaid {
+			text = fmt.Sprintf(w.ConnectReusedF, c.Title, taf)
+		}
 		// Nothing more is asked of the app: the held sign-in's own tools, or a
 		// wider ask, aren't this taf's, so they're never listed as if they were.
 		if len(q.Tools) == 0 {
@@ -1376,7 +1396,7 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 		s.log().InfoContext(ctx, "sign in again refused", slog.String("grant", g.ID), slog.String("code", code))
 		if p, err := s.provider(g); err == nil {
 			if _, err := p.Revoke(ctx, s.connectorIdentity(g), g.Connector.Account); err != nil {
-				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", slog.String("grant", g.ID), slog.String("err", err.Error()))
+				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
 			}
 		}
 		g.Status, g.Reconnect = StatusNeedsReconnect, false
@@ -1402,4 +1422,18 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 // and where to sign in again. Never the vendor's own error body.
 func signInExpiredWords(vendor string) string {
 	return vendor + "'s sign-in has expired (it answered 401), so nothing was done. The owner taps Connect again on this taf to sign in to " + vendor + " again."
+}
+
+// errAttrs is err for a log line, and, when a provider answered it with a
+// reason of its own, that reason as "reason": Reason has already made it
+// one line with its secrets redacted. The provider's cause is then in the
+// log, never in what the person reads (14 Nov: a sign-in set-up the
+// provider answered 403 was logged with no reason, and no one could say
+// why).
+func errAttrs(err error) []any {
+	attrs := []any{slog.String("err", err.Error())}
+	if ce := (*connector.CallError)(nil); errors.As(err, &ce) && ce.Message != "" {
+		attrs = append(attrs, slog.String("reason", ce.Message))
+	}
+	return attrs
 }

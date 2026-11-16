@@ -32,7 +32,7 @@ func TestEveryConnectableAppGetsItsGeneratedGuide(t *testing.T) {
 		t.Fatalf("the desk app: %+v", apps)
 	}
 	md := GeneratedGuide(*desk, "2026-11-13")
-	for _, want := range []string{"Checked: 2026-11-13", "`DESK_DEMO_REPLY`", "`data.ticket_id`, `data.url`", "| `DESK_DEMO_SEARCH` | Search tickets | write | *q* |", "`drive.readonly`", "2 tools: 0 read, 2 write"} {
+	for _, want := range []string{"Checked: 2026-11-13", "`DESK_DEMO_REPLY`", "`ticket_id`, `url`", "| `DESK_DEMO_SEARCH` | Search tickets | write | *q* |", "`drive.readonly`", "2 tools: 0 read, 2 write"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("the guide lacks %q:\n%s", want, md)
 		}
@@ -67,7 +67,7 @@ func TestEveryAdaptedGuideIsDatedAndShort(t *testing.T) {
 		t.Fatalf("no guides: %v", err)
 	}
 	for _, f := range files {
-		if strings.HasSuffix(f, "README.md") || strings.HasSuffix(f, "apps.md") {
+		if strings.HasSuffix(f, "README.md") || strings.HasSuffix(f, "apps.md") || strings.HasSuffix(f, "_refusals.md") {
 			continue
 		}
 		raw, _ := os.ReadFile(f)

@@ -92,16 +92,40 @@ func TestAnArrayArgumentsSchemaIsChecked(t *testing.T) {
 	}{
 		"no schema":            {Argument{Path: "items", Type: "array"}, "schema"},
 		"not an array":         {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`)}, "is an array"},
-		"items not objects":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"array","items":{"type":"string"}}}`)}, "items are objects or plain values"},
+		"items of no type":     {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"null"}}`)}, "items are objects, plain values"},
+		"rows of objects":      {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}}}}}`)}, "a row's items are plain values"},
+		"rows of rows":         {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"array","items":{"type":"array","items":{"type":"string"}}}}`)}, "a row's items are plain values"},
 		"open fields":          {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":true}}`)}, "only the fields it names"},
 		"an object unnamed":    {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object"}}`)}, "names its fields"},
 		"a keyword unchecked":  {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string","pattern":"x"}}}}`)}, "JSON Schema of"},
 		"required not a field": {Argument{Path: "items", Type: "array", Schema: json.RawMessage(`{"type":"array","items":{"type":"object","properties":{"a":{"type":"string"}},"required":["b"]}}`)}, "required field b"},
-		"a scalar with schema": {Argument{Path: "n", Type: "string", Schema: lines}, "only an array argument"},
+		"a scalar with schema": {Argument{Path: "n", Type: "string", Schema: lines}, "only an array or object argument"},
 	} {
 		tool := ToolRequest{Tool: "create", Fixed: map[string]json.RawMessage{"status": json.RawMessage(`"draft"`)}, Arguments: map[string]Argument{"items": c.arg}}
 		if msg := checkNarrowing(tool); msg == nil || !strings.Contains(msg.Msg, c.want) {
 			t.Errorf("%s: %q, want %q", name, msg, c.want)
+		}
+	}
+}
+
+// A sheet's values are rows of plain values ([["Ana", 12]]): an array argument may say so, one level deep, and a
+// call's rows are checked cell by cell (the Eval's intros: Coach had no way to declare values, guessed, and was refused).
+func TestAnArrayArgumentTakesRowsOfPlainValues(t *testing.T) {
+	rows := json.RawMessage(`{"type":"array","maxItems":50,"items":{"type":"array","maxItems":20,"items":{"type":"string"}}}`)
+	tool := ToolRequest{Tool: "append", Name: "append_rows", Arguments: map[string]Argument{"values": {Path: "values", Type: "array", Schema: rows}}}
+	if msg := checkNarrowing(tool); msg != nil {
+		t.Fatalf("rows of plain values: %v", msg)
+	}
+	if _, err := tool.vendorArgs(map[string]any{"values": []any{[]any{"Ana", "Brest"}, []any{"Ben"}}}); err != nil {
+		t.Fatalf("a call's rows: %v", err)
+	}
+	for name, v := range map[string]any{
+		"a cell that's an object":  []any{[]any{"Ana", map[string]any{"x": "1"}}},
+		"a row that isn't a list":  []any{"Ana"},
+		"a cell of the wrong type": []any{[]any{"Ana", 12}},
+	} {
+		if _, err := tool.vendorArgs(map[string]any{"values": v}); err == nil {
+			t.Errorf("%s: taken", name)
 		}
 	}
 }

@@ -47,6 +47,11 @@ owner's. Without the key it writes the reviewed entries only.
 - **Short.** Under 1,200 words each.
 - **Plain words for the owner.** The "Tell the owner" lines are what Coach
   says. They never name the connection service, a status code or a scope.
+- **Failures as the taf sees them.** planque ends every served guide with
+  [_refusals.md](_refusals.md): what a failed call returns whatever the app
+  (planque's own refusals and their codes, an expired sign-in, a result it
+  can't confirm), with the app's name put in. A guide's own "When it fails"
+  table lists only the app's own refusals, by the status the taf gets back.
 - **Not a permission.** A guide never widens what a taf may do. The Card and
   the grant decide; a guide only helps Coach offer what will work.
 

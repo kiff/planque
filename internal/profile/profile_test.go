@@ -13,7 +13,7 @@ import (
 // These are KIFF's synthetic kiff.profile.v1 / kiff.words.v1 vectors.
 func TestContractVectors(t *testing.T) {
 	files, err := filepath.Glob("testdata/*.expected.json")
-	if err != nil || len(files) != 5 {
+	if err != nil || len(files) != 7 {
 		t.Fatal("missing contract vectors")
 	}
 	for _, file := range files {
@@ -263,5 +263,67 @@ func TestAClaimAndAClaimRelated(t *testing.T) {
 		if err := with(c.tool, c.changes); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// outside marks a draft that reaches people outside once the owner sends it (a draft email or reply), as KIFF's
+// profile takes it; on any other effect but sends it's still refused.
+func TestOutsideMarksASendOrADraftOnly(t *testing.T) {
+	prof := func(effect string) []byte {
+		return []byte(`{"v":"kiff.profile.v1","vendor":"Gmail","transport":"rest","pin":{"kind":"base_path","value":"/gmail/v1"},` +
+			`"source":"catalog","catalog_entry":"google-gmail@2","test_proven":false,"operations":[{"tool":"drafts_create","title":"Draft a reply",` +
+			`"kind":"write","effect":"` + effect + `","shape":"single","resource":{"arg":"thread_id","noun":"thread","outside":true}}]}`)
+	}
+	for _, effect := range []string{"none_until_approved", "sends"} {
+		if _, err := Parse(prof(effect)); err != nil {
+			t.Errorf("%s with outside: %v", effect, err)
+		}
+	}
+	if _, err := Parse(prof("writes")); err == nil || !strings.Contains(err.Error(), "resource.outside is only for a sends operation, or a draft") {
+		t.Errorf("writes with outside: %v", err)
+	}
+}
+
+// outside is kept as said: KIFF's shared vector (a draft that stays inside, outside: false) and the same
+// draft with outside true or not said each come back from Parse and json.Marshal with their own digest, so
+// a profile planque re-serializes hashes like the one the owner approved. false on a write is refused.
+func TestOutsideIsKeptAsSaid(t *testing.T) {
+	vector, err := os.ReadFile("testdata/gmail-internal-drafts.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	said := map[string][]byte{
+		"false":  vector,
+		"true":   []byte(strings.Replace(string(vector), `"outside": false`, `"outside": true`, 1)),
+		"absent": []byte(strings.Replace(string(vector), `, "outside": false`, ``, 1)),
+	}
+	want := map[string]*bool{"false": new(false), "true": new(true), "absent": nil}
+	digests := map[string]bool{}
+	for name, raw := range said {
+		p, err := Parse(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := p.Operations[0].Resource.Outside
+		if (got == nil) != (want[name] == nil) || got != nil && *got != *want[name] {
+			t.Fatalf("%s: outside parsed as %v", name, got)
+		}
+		again, err := json.Marshal(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, _ := Digest(raw)
+		after, _ := Digest(again)
+		if before != after {
+			t.Fatalf("%s: digest moved on a round trip, %s to %s: %s", name, before, after, again)
+		}
+		digests[before] = true
+	}
+	if len(digests) != 3 {
+		t.Fatalf("false, true and absent must give three digests, got %d", len(digests))
+	}
+	write := []byte(`{"v":"kiff.profile.v1","vendor":"Notion","transport":"mcp","pin":{"kind":"none"},"source":"drafted","test_proven":false,"operations":[{"tool":"update_page","title":"Update a page","kind":"write","effect":"writes","resource":{"arg":"page_id","noun":"page","outside":false}}]}`)
+	if _, err := Parse(write); err == nil {
+		t.Fatal("accepted outside: false on a write")
 	}
 }

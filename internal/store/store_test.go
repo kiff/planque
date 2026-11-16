@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/awsapi"
 )
@@ -103,5 +104,129 @@ func TestDynamoReadsAgainWhenTheConnectionDrops(t *testing.T) {
 	defer mu.Unlock()
 	if calls["DynamoDB_20120810.Query"] != 2 || calls["DynamoDB_20120810.GetItem"] != 2 || calls["DynamoDB_20120810.PutItem"] != 1 {
 		t.Fatalf("calls: %v", calls)
+	}
+}
+
+func testDynamo(url string) *Dynamo {
+	return &Dynamo{Table: "t", API: &awsapi.Client{Service: "dynamodb", Region: "eu-west-1", Target: "DynamoDB_20120810",
+		JSONType: "application/x-amz-json-1.0", Endpoint: url,
+		Creds: func() (awsapi.Credentials, error) {
+			return awsapi.Credentials{AccessKey: "AKID", SecretKey: "secret"}, nil
+		}},
+		Backoff: func(int) time.Duration { return 0 }}
+}
+
+// A throttled read is sent again, page by page, keeping its place; one that
+// stays throttled fails after throttleTries. A throttled write is sent again
+// too: DynamoDB wrote nothing (a write whose answer was lost never is).
+func TestDynamoReadsAgainWhenThrottled(t *testing.T) {
+	var mu sync.Mutex
+	var bodies []map[string]any
+	throttle := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		mu.Lock()
+		defer mu.Unlock()
+		bodies = append(bodies, in)
+		if throttle > 0 {
+			throttle--
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"__type":"com.amazonaws.dynamodb.v20120810#ThrottlingException","message":"Throughput exceeds the current capacity"}`)
+			return
+		}
+		if _, ok := in["ExclusiveStartKey"]; ok {
+			_, _ = io.WriteString(w, `{"Items":[{"pk":{"S":"TENANT#a"},"sk":{"S":"OP#g#2"},"doc":{"B":"e30="}}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"Items":[{"pk":{"S":"TENANT#a"},"sk":{"S":"OP#g#1"},"doc":{"B":"e30="}}],"LastEvaluatedKey":{"pk":{"S":"TENANT#a"},"sk":{"S":"OP#g#1"}}}`)
+	}))
+	defer srv.Close()
+	d, ctx := testDynamo(srv.URL), context.Background()
+	mu.Lock()
+	throttle = 2
+	mu.Unlock()
+	items, next, err := d.ScanPage(ctx, "OP#", "", 100)
+	if err != nil || len(items) != 1 || items[0].SK != "OP#g#1" || next == "" {
+		t.Fatalf("first page after two throttles: %v %q %v", items, next, err)
+	}
+	mu.Lock()
+	first := bodies[len(bodies)-1]
+	if len(bodies) != 3 || first["Limit"] != float64(100) || first["ConsistentRead"] != nil {
+		t.Fatalf("calls %d, last %v: want 3 calls, Limit 100, eventually consistent", len(bodies), first)
+	}
+	throttle = 1
+	mu.Unlock()
+	items, next, err = d.ScanPage(ctx, "OP#", next, 100)
+	if err != nil || len(items) != 1 || items[0].SK != "OP#g#2" || next != "" {
+		t.Fatalf("second page from the cursor: %v %q %v", items, next, err)
+	}
+	mu.Lock()
+	if start, _ := json.Marshal(bodies[len(bodies)-1]["ExclusiveStartKey"]); !strings.Contains(string(start), "OP#g#1") {
+		t.Fatalf("the cursor wasn't sent: %s", start)
+	}
+	throttle = 100
+	mu.Unlock()
+	if _, _, err := d.ScanPage(ctx, "OP#", "", 100); !awsapi.Is(err, "ThrottlingException") {
+		t.Fatalf("a read throttled every time: %v", err)
+	}
+	mu.Lock()
+	n := len(bodies)
+	mu.Unlock()
+	// A throttle is DynamoDB's answer that nothing was written: a write it
+	// throttled is sent again, a conditional one included, up to throttleTries.
+	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}")}, Cond{}); !awsapi.Is(err, "ThrottlingException") {
+		t.Fatalf("a put throttled every time: %v", err)
+	}
+	mu.Lock()
+	if len(bodies) != n+throttleTries {
+		t.Fatalf("a put throttled every time was sent %d times, want %d", len(bodies)-n, throttleTries)
+	}
+	throttle, n = 1, len(bodies)
+	mu.Unlock()
+	ver := int64(1)
+	if err := d.Put(ctx, Item{PK: "pk", SK: "sk", Doc: []byte("{}"), Ver: 2}, Cond{Ver: &ver}); err != nil {
+		t.Fatalf("a conditional put throttled once: %v", err)
+	}
+	mu.Lock()
+	if len(bodies) != n+2 {
+		t.Fatalf("a put throttled once was sent %d times, want 2", len(bodies)-n)
+	}
+	throttle, n = 1, len(bodies)
+	mu.Unlock()
+	if _, _, err := d.Delete(ctx, "pk", "sk"); err != nil {
+		t.Fatalf("a delete throttled once: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != n+2 {
+		t.Fatalf("a delete throttled once was sent %d times, want 2", len(bodies)-n)
+	}
+}
+
+// Memory's pages cover every pk, in order, each item once.
+func TestMemoryScanPages(t *testing.T) {
+	m, ctx := &Memory{}, context.Background()
+	for _, k := range [][2]string{{"TENANT#b", "OP#1"}, {"TENANT#a", "OP#2"}, {"TENANT#a", "OP#1"}, {"TENANT#a", "GRANT#1"}} {
+		if err := m.Put(ctx, Item{PK: k[0], SK: k[1], Doc: []byte("{}")}, Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	cursor := ""
+	for range 10 {
+		items, next, err := m.ScanPage(ctx, "OP#", cursor, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range items {
+			got = append(got, it.PK+" "+it.SK)
+		}
+		if cursor = next; cursor == "" {
+			break
+		}
+	}
+	if strings.Join(got, ",") != "TENANT#a OP#1,TENANT#a OP#2,TENANT#b OP#1" {
+		t.Fatalf("pages: %v", got)
 	}
 }

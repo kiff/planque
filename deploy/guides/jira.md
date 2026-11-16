@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Jira tool
 definitions as planque reads them (166 tools), and Jira's REST API
 documentation (its published API description, rate limiting, and sign-in
 for outside apps).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -89,17 +90,19 @@ assignments notify other people in Jira.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Jira's own answers: a refusal reaches the taf as "Jira refused
+it (it answered …): …", with Jira's reason. planque's own refusals, and an
+expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing permission (403) | The person can't do this in that project, or the sign-in's access doesn't cover it | "Jira didn't let the taf do this in that project. Check your permissions there, or do without this step." |
-| Issue not found (404) | The issue was deleted, or the person can't see it | "The taf can't see that issue in Jira. It may be deleted or in a project you can't open." |
-| Change rejected (400) | A required field is missing, a field isn't on the screen, or the status move isn't open from here | "Jira didn't accept that change. The taf has stopped and will show you what it tried." |
-| Jira's set-up blocks it (422) | A project or workflow setting prevents the change | "Jira's project settings block this change. Your Jira admin can check them." |
-| Conflicting change (409) | Someone else changed the issue at the same moment | "Someone was changing the same issue. The taf will try once more." |
-| Issue full (413) | The issue has reached its cap on comments, attachments or links | "That issue has reached Jira's limit for comments or attachments. The taf will skip it." |
-| Too many calls (429) | Over the hourly allowance, the per-second limit or the per-issue limit; Jira says how long to wait | "Jira asked us to slow down. The taf will try again shortly." |
-| The sign-in no longer works (401) | Access was removed, or unused for 90 days | "Jira needs you to sign in again. Nothing was changed." |
+| Refused (404), issue not found | The issue was deleted, or the person can't see it | "The taf can't see that issue in Jira. It may be deleted or in a project you can't open." |
+| Refused (400), change rejected | A required field is missing, a field isn't on the screen, or the status move isn't open from here | "Jira didn't accept that change. The taf has stopped and will show you what it tried." |
+| Refused (422), Jira's set-up blocks it | A project or workflow setting prevents the change | "Jira's project settings block this change. Your Jira admin can check them." |
+| Refused (409), conflicting change | Someone else changed the issue at the same moment | "Someone was changing the same issue. The taf will try once more." |
+| Refused (413), issue full | The issue has reached its cap on comments, attachments or links | "That issue has reached Jira's limit for comments or attachments. The taf will skip it." |
+| Refused (429), too many calls | Over the hourly allowance, the per-second limit or the per-issue limit; Jira says how long to wait | "Jira asked us to slow down. The taf will try again shortly." |
+| Jira's sign-in has expired (401) | Access was removed, or unused for 90 days | "Jira needs you to sign in again. Nothing was changed." |
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write: a taf that can't find its issue asks, rather than opening
-another one.
+A taf that can't find its issue asks, rather than opening another one.
