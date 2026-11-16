@@ -100,4 +100,5 @@ refusals, and an expired sign-in, are in the part below.
 | Gmail's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
 | At sign-in: "App is blocked" | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
 | Refused (404), message or draft not found | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
+| Refused (400), `FAILED_PRECONDITION` | The signed-in Google account has no Gmail mailbox (seen on a real taf, 16 Nov) | "The Google account you connected has no Gmail inbox, so I can't read your mail. Connect Gmail again with the account you use for email." |
 | Refused, daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |
