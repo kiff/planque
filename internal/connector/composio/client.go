@@ -246,8 +246,9 @@ func (a wireApp) setUp(app *connector.App, config authConfig, ok bool) {
 		}
 		return out
 	}
+	// Managed here: the sign-in set up on demand will be the provider's own.
 	if managed := schemes(a.ManagedSchemes); len(managed) > 0 {
-		app.AuthScheme, app.Setup = managed[0], connector.SetupOnDemand
+		app.AuthScheme, app.Setup, app.Managed = managed[0], connector.SetupOnDemand, true
 		for _, s := range managed {
 			if s == "OAUTH2" {
 				app.AuthScheme = s
@@ -376,11 +377,13 @@ func (c *Client) App(ctx context.Context, id string) (connector.App, error) {
 	return app, err
 }
 
-// SetUp sets up the provider-managed sign-in for an app it can sign people
-// in to with its own credentials (kiff/planque#87): one auth config, of the
-// managed kind, with nothing of ours in it. The answer is taken only when
-// the provider says it manages it; the sign-in is then pinned by every
-// grant as a pre-set app's is. The cached sign-ins take it at once, and the
+// SetUp sets up an app's sign-in on the owner's pick (kiff/planque#87): one
+// auth config with nothing of ours in it. For an app the provider signs
+// people in to with its own credentials, the managed kind, taken only when
+// the provider says it manages it. For one that takes a key or token, or
+// needs no sign-in, one of that scheme with no credentials, taken only as
+// that scheme and not managed: the owner gives their key on the provider's
+// page. The sign-in is then pinned by every grant as a pre-set app's is. The cached sign-ins take it at once, and the
 // first catalog page is read again, so the app is offered from now on.
 func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 	if !identifier.MatchString(id) {
@@ -411,15 +414,23 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 			Managed bool   `json:"is_composio_managed"`
 		} `json:"auth_config"`
 	}
-	body := map[string]any{"toolkit": map[string]string{"slug": id}, "auth_config": map[string]any{"type": "use_composio_managed_auth"}}
+	// The provider's own sign-in when it has one; else, for an app that takes
+	// a key or token or needs no sign-in, one of its scheme with no
+	// credentials of ours: the owner gives their key on the provider's page.
+	config := map[string]any{"type": "use_composio_managed_auth"}
+	if !app.Managed {
+		config = map[string]any{"type": "use_custom_auth", "authScheme": app.AuthScheme, "credentials": map[string]any{}}
+	}
+	body := map[string]any{"toolkit": map[string]string{"slug": id}, "auth_config": config}
 	if _, err := c.request(ctx, "POST", "/auth_configs", nil, body, &made); err != nil {
 		return connector.App{}, err
 	}
 	scheme := strings.ToUpper(made.Config.Scheme)
-	if !strings.EqualFold(made.Toolkit.Slug, id) || !made.Config.Managed || !identifier.MatchString(made.Config.ID) || !identifier.MatchString(scheme) {
+	if !strings.EqualFold(made.Toolkit.Slug, id) || made.Config.Managed != app.Managed || !identifier.MatchString(made.Config.ID) || !identifier.MatchString(scheme) ||
+		!app.Managed && scheme != app.AuthScheme {
 		return connector.App{}, connector.ErrDefinition
 	}
-	config := authConfig{ID: made.Config.ID, Scheme: scheme, Managed: true}
+	pinned := authConfig{ID: made.Config.ID, Scheme: scheme, Managed: app.Managed}
 	// The sign-ins handed out by signInSetUp are read without the lock, so
 	// the map they hold is never written: a new map takes its place.
 	c.mu.Lock()
@@ -427,14 +438,14 @@ func (c *Client) SetUp(ctx context.Context, id string) (connector.App, error) {
 	for k, v := range c.configured {
 		next[k] = v
 	}
-	if old, ok := next[strings.ToLower(id)]; !ok || config.ID < old.ID {
-		next[strings.ToLower(id)] = config
+	if old, ok := next[strings.ToLower(id)]; !ok || pinned.ID < old.ID {
+		next[strings.ToLower(id)] = pinned
 	}
-	config = next[strings.ToLower(id)]
+	pinned = next[strings.ToLower(id)]
 	c.configured = next
 	c.firstAt = time.Time{}
 	c.mu.Unlock()
-	app.AuthConfig, app.AuthScheme, app.Setup, app.Managed = config.ID, config.Scheme, connector.SetupReady, config.Managed
+	app.AuthConfig, app.AuthScheme, app.Setup, app.Managed = pinned.ID, pinned.Scheme, connector.SetupReady, pinned.Managed
 	return app, nil
 }
 
