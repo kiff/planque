@@ -195,7 +195,8 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # besides Stripe's own (PLANQUE_DESCRIBER_SERVERS): live planque sets
     # it for the Eval's vendor, a host we run, so the Eval measures the
     # path a Stripe customer gets; a rerun keeps it.
-    # planque's switches (PLANQUE_DIGEST=v2, PLANQUE_WINDOW_REQUIRED=true)
+    # planque's switches (PLANQUE_DIGEST=v2, PLANQUE_WINDOW_REQUIRED=true,
+    # PLANQUE_COMPUTER_WINDOW_REQUIRED=true)
     # are taken from the environment when given, else kept from the
     # function, so a rerun never turns one off; set one to another value
     # ("v1", "false") to turn it off. cmd/planque checks every PLANQUE_
@@ -207,7 +208,7 @@ for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_R
 now=json.load(sys.stdin) or {}
 for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
     if now.get(k) and not v.get(k): v[k]=now[k]
-for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED"):
+for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi

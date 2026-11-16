@@ -4,7 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Shopify tool
 definitions as planque reads them (386 tools), and Shopify's Admin API
 documentation (access scopes, rate limits, status codes).
 Failure table checked against planque's answers on 2026-11-16.
-Tools checked against the sign-in's scopes on 2026-11-16.
+Sign-in checked against planque's integrations record on 2026-11-16.
 
 ## How it connects
 
@@ -43,15 +43,10 @@ carry.
 | `SHOPIFY_UPDATE_FULFILLMENT_TRACKING` | Adds or corrects a shipment's tracking | write | the fulfilment id |
 | `SHOPIFY_CREATE_REFUND` | Refunds money on an order | write, money | the refund id |
 
-**What today's sign-in allows (16 Nov):** Shopify is asked for
-`read_orders`, `read_customers` and `write_orders` only. So:
-- the other reads run;
-- `SHOPIFY_SEARCH_PRODUCTS` and `SHOPIFY_GET_INVENTORY_LEVELS` (products,
-  stock) and `SHOPIFY_CREATE_DRAFT_ORDER` (draft orders) are refused: don't
-  offer them;
-- `write_orders` is for `SHOPIFY_CREATE_REFUND`. `SHOPIFY_UPDATE_ORDER` and
-  `SHOPIFY_UPDATE_FULFILLMENT_TRACKING` run on it too: offer them only when
-  the owner asks.
+**What the sign-in asks for:** Shopify's full managed access (34 scopes,
+16 Nov). The Card decides what a taf may do: offer the tools the job
+needs, and writes only when the owner asked. A tool the store's install
+doesn't cover is under the catalog's `unusable`.
 
 **What to keep:** the order id and customer id the taf worked on, to come
 back to the same order next run; each draft order and refund id the taf
@@ -89,8 +84,8 @@ stays within the Card's limit.
 
 ## Access and plans
 
-- **Orders older than 60 days** need a separate "all orders" access, which
-  today's sign-in doesn't ask for: older orders aren't returned.
+- **Orders older than 60 days** need a separate "all orders" access.
+  Without it, older orders aren't returned.
 - **Customer names, emails and addresses** are protected data on Shopify.
   An app must be approved by Shopify to read them on a live store. If
   the app isn't approved, Shopify doesn't return those fields.
