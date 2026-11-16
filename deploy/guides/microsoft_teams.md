@@ -91,8 +91,9 @@ A note to self is the gentlest way to report.
 ## When it fails
 
 The rows are Microsoft Teams's own answers: a refusal reaches the taf as
-"Microsoft Teams refused it (it answered …): …", with Microsoft Teams's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Microsoft Teams refused it (it answered …): …", with Microsoft Teams's
+reason. planque's own refusals, and an expired sign-in, are in the part
+below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

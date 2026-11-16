@@ -89,8 +89,8 @@ offer it only when asked, and each change waits for the owner's yes.
 ## When it fails
 
 The rows are Pipedrive's own answers: a refusal reaches the taf as
-"Pipedrive refused it (it answered …): …", with Pipedrive's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Pipedrive refused it (it answered …): …", with Pipedrive's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

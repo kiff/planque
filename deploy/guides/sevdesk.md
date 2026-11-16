@@ -85,9 +85,9 @@ emailed it's marked sent, and Sevdesk doesn't let it change after that.
 
 ## When it fails
 
-The rows are Sevdesk's own answers: a refusal reaches the taf as
-"Sevdesk refused it (it answered …): …", with Sevdesk's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Sevdesk's own answers: a refusal reaches the taf as "Sevdesk
+refused it (it answered …): …", with Sevdesk's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

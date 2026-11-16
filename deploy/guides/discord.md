@@ -81,9 +81,9 @@ app posts anything.
 
 ## When it fails
 
-The rows are Discord's own answers: a refusal reaches the taf as
-"Discord refused it (it answered …): …", with Discord's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Discord's own answers: a refusal reaches the taf as "Discord
+refused it (it answered …): …", with Discord's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

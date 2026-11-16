@@ -97,8 +97,8 @@ for their yes: the whole channel sees it.
 ## When it fails
 
 The rows are Discord Bot's own answers: a refusal reaches the taf as
-"Discord Bot refused it (it answered …): …", with Discord Bot's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Discord Bot refused it (it answered …): …", with Discord Bot's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

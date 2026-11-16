@@ -90,9 +90,9 @@ tools only. Offer a write only for what the owner asked to change.
 
 ## When it fails
 
-The rows are HubSpot's own answers: a refusal reaches the taf as
-"HubSpot refused it (it answered …): …", with HubSpot's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are HubSpot's own answers: a refusal reaches the taf as "HubSpot
+refused it (it answered …): …", with HubSpot's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

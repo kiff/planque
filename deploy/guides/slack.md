@@ -67,9 +67,9 @@ posted to the owner alone goes as a direct message to themselves.
 
 ## When it fails
 
-The rows are Slack's own answers: a refusal reaches the taf as
-"Slack refused it (it answered …): …", with Slack's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Slack's own answers: a refusal reaches the taf as "Slack
+refused it (it answered …): …", with Slack's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

@@ -82,9 +82,9 @@ and notify people.
 
 ## When it fails
 
-The rows are Monday's own answers: a refusal reaches the taf as
-"Monday refused it (it answered …): …", with Monday's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Monday's own answers: a refusal reaches the taf as "Monday
+refused it (it answered …): …", with Monday's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

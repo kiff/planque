@@ -80,9 +80,9 @@ waits for their yes.
 
 ## When it fails
 
-The rows are Odoo's own answers: a refusal reaches the taf as
-"Odoo refused it (it answered …): …", with Odoo's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Odoo's own answers: a refusal reaches the taf as "Odoo refused
+it (it answered …): …", with Odoo's reason. planque's own refusals, and an
+expired sign-in, are in the part below.
 
 The document-reading service answers most problems inside a normal answer,
 with a status word, rather than as an error.

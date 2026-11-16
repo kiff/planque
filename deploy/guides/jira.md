@@ -90,9 +90,9 @@ assignments notify other people in Jira.
 
 ## When it fails
 
-The rows are Jira's own answers: a refusal reaches the taf as
-"Jira refused it (it answered …): …", with Jira's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Jira's own answers: a refusal reaches the taf as "Jira refused
+it (it answered …): …", with Jira's reason. planque's own refusals, and an
+expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

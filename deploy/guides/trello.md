@@ -3,6 +3,7 @@
 Checked: 2026-11-13 · Sources: the connection service's Trello tool
 definitions as planque reads them (329 tools), and Trello's REST API and help
 documentation.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -74,15 +75,16 @@ and name the board and columns the taf may touch.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
-|---|---|---|
-| Refused for missing access (401 or 403) | The sign-in gave read access only, or the person isn't on that board | "Trello is only partly connected: this step needs access you didn't give, or that board isn't shared with you. Want to sign in again and allow it, or do without this step?" |
-| The sign-in no longer works (401, "invalid token") | The owner revoked it in Trello's settings, or it expired | "Trello needs you to sign in again. Nothing was changed." |
-| Too many calls (429) | Over Trello's short-term limit | "Trello asked us to slow down. The taf will try again in a moment." |
-| Too much asked at once (429, too many cards) | One call asked for too many cards with their history | "That board is too big to read in one go. The taf will read it in parts." |
-| A board, list or card isn't found (404) | It was deleted, or moved to a board the person can't open | "That card or board isn't there any more. The taf will skip it." |
-| An upload is refused | The file is over the plan's size limit | "That file is too big for your Trello plan. Want a link to it instead?" |
-| A collaborator can't be added | The free workspace already has 10 | "Your free Trello workspace is full. Remove someone or upgrade, then try again." |
+The rows are Trello's own answers: a refusal reaches the taf as "Trello
+refused it (it answered …): …", with Trello's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| What the taf gets | Why | Tell the owner |
+|---|---|---|
+| Refused (403), missing access; a 401 arrives as an expired sign-in | The sign-in gave read access only, or the person isn't on that board | "Trello is only partly connected: this step needs access you didn't give, or that board isn't shared with you. Want to sign in again and allow it, or do without this step?" |
+| Trello's sign-in has expired | The owner revoked it in Trello's settings, or it expired | "Trello needs you to sign in again. Nothing was changed." |
+| Refused (429), too many calls | Over Trello's short-term limit | "Trello asked us to slow down. The taf will try again in a moment." |
+| Refused (429), too much asked at once, too many cards | One call asked for too many cards with their history | "That board is too big to read in one go. The taf will read it in parts." |
+| Refused (404), board, list or card not found | It was deleted, or moved to a board the person can't open | "That card or board isn't there any more. The taf will skip it." |
+| Refused, upload | The file is over the plan's size limit | "That file is too big for your Trello plan. Want a link to it instead?" |
+| Refused, collaborator not added | The free workspace already has 10 | "Your free Trello workspace is full. Remove someone or upgrade, then try again." |

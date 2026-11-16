@@ -82,9 +82,9 @@ it; each shows under the owner's name.
 
 ## When it fails
 
-The rows are Linear's own answers: a refusal reaches the taf as
-"Linear refused it (it answered …): …", with Linear's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Linear's own answers: a refusal reaches the taf as "Linear
+refused it (it answered …): …", with Linear's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

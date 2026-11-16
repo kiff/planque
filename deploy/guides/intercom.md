@@ -81,9 +81,9 @@ and each reply waits for the owner's yes.
 
 ## When it fails
 
-The rows are Intercom's own answers: a refusal reaches the taf as
-"Intercom refused it (it answered …): …", with Intercom's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Intercom's own answers: a refusal reaches the taf as "Intercom
+refused it (it answered …): …", with Intercom's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

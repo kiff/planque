@@ -60,9 +60,9 @@ adds.
 
 ## When it fails
 
-The rows are Supabase's own answers: a refusal reaches the taf as
-"Supabase refused it (it answered …): …", with Supabase's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Supabase's own answers: a refusal reaches the taf as "Supabase
+refused it (it answered …): …", with Supabase's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

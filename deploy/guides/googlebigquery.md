@@ -60,8 +60,9 @@ one runs every time.
 ## When it fails
 
 The rows are Google BigQuery's own answers: a refusal reaches the taf as
-"Google BigQuery refused it (it answered …): …", with Google BigQuery's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google BigQuery refused it (it answered …): …", with Google BigQuery's
+reason. planque's own refusals, and an expired sign-in, are in the part
+below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

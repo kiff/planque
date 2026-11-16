@@ -83,9 +83,9 @@ waits for the owner's yes.
 
 ## When it fails
 
-The rows are OneDrive's own answers: a refusal reaches the taf as
-"OneDrive refused it (it answered …): …", with OneDrive's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are OneDrive's own answers: a refusal reaches the taf as "OneDrive
+refused it (it answered …): …", with OneDrive's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

@@ -87,8 +87,9 @@ calendar's own; never assume the server's.
 ## When it fails
 
 The rows are Google Calendar's own answers: a refusal reaches the taf as
-"Google Calendar refused it (it answered …): …", with Google Calendar's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Calendar refused it (it answered …): …", with Google Calendar's
+reason. planque's own refusals, and an expired sign-in, are in the part
+below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

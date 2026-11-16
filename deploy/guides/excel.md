@@ -59,9 +59,9 @@ writes over what's there; writing a range can.
 
 ## When it fails
 
-The rows are Excel's own answers: a refusal reaches the taf as
-"Excel refused it (it answered …): …", with Excel's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Excel's own answers: a refusal reaches the taf as "Excel
+refused it (it answered …): …", with Excel's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

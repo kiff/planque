@@ -85,9 +85,9 @@ and each change waits for their yes. Sentry changes only the fields sent.
 
 ## When it fails
 
-The rows are Sentry's own answers: a refusal reaches the taf as
-"Sentry refused it (it answered …): …", with Sentry's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Sentry's own answers: a refusal reaches the taf as "Sentry
+refused it (it answered …): …", with Sentry's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

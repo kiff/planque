@@ -57,9 +57,9 @@ asks for the ones after it and never answers twice.
 
 ## When it fails
 
-The rows are Telegram's own answers: a refusal reaches the taf as
-"Telegram refused it (it answered …): …", with Telegram's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Telegram's own answers: a refusal reaches the taf as "Telegram
+refused it (it answered …): …", with Telegram's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

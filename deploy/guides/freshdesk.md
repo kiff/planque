@@ -57,8 +57,8 @@ never answers twice.
 ## When it fails
 
 The rows are Freshdesk's own answers: a refusal reaches the taf as
-"Freshdesk refused it (it answered …): …", with Freshdesk's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Freshdesk refused it (it answered …): …", with Freshdesk's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

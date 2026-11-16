@@ -63,9 +63,9 @@ app's name, and it sees only the channels it's been added to.
 
 ## When it fails
 
-The rows are Slackbot's own answers: a refusal reaches the taf as
-"Slackbot refused it (it answered …): …", with Slackbot's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Slackbot's own answers: a refusal reaches the taf as "Slackbot
+refused it (it answered …): …", with Slackbot's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

@@ -56,8 +56,8 @@ answers faster.
 ## When it fails
 
 The rows are Google Maps's own answers: a refusal reaches the taf as
-"Google Maps refused it (it answered …): …", with Google Maps's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Maps refused it (it answered …): …", with Google Maps's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

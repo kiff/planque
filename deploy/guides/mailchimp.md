@@ -90,8 +90,8 @@ agreed to it; otherwise it keeps them out of the audience.
 ## When it fails
 
 The rows are Mailchimp's own answers: a refusal reaches the taf as
-"Mailchimp refused it (it answered …): …", with Mailchimp's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Mailchimp refused it (it answered …): …", with Mailchimp's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

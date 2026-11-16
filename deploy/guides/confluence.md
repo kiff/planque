@@ -79,8 +79,8 @@ first.
 ## When it fails
 
 The rows are Confluence's own answers: a refusal reaches the taf as
-"Confluence refused it (it answered …): …", with Confluence's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Confluence refused it (it answered …): …", with Confluence's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

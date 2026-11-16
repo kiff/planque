@@ -53,9 +53,9 @@ only on their yes. Offer "Delete a post" only for posts the taf made.
 
 ## When it fails
 
-The rows are LinkedIn's own answers: a refusal reaches the taf as
-"LinkedIn refused it (it answered …): …", with LinkedIn's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are LinkedIn's own answers: a refusal reaches the taf as "LinkedIn
+refused it (it answered …): …", with LinkedIn's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

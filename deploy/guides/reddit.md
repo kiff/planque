@@ -86,9 +86,9 @@ only for posts the taf made, and each one waits for the owner's yes too.
 
 ## When it fails
 
-The rows are Reddit's own answers: a refusal reaches the taf as
-"Reddit refused it (it answered …): …", with Reddit's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Reddit's own answers: a refusal reaches the taf as "Reddit
+refused it (it answered …): …", with Reddit's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 Reddit's reference lists few error codes, so these rows give none.
 

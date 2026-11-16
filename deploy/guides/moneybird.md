@@ -84,8 +84,8 @@ with the owner's yes for each payment.
 ## When it fails
 
 The rows are Moneybird's own answers: a refusal reaches the taf as
-"Moneybird refused it (it answered …): …", with Moneybird's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Moneybird refused it (it answered …): …", with Moneybird's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

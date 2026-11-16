@@ -79,8 +79,8 @@ so a taf can't email an invoice from QuickBooks; it can read the invoice
 ## When it fails
 
 The rows are QuickBooks's own answers: a refusal reaches the taf as
-"QuickBooks refused it (it answered …): …", with QuickBooks's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"QuickBooks refused it (it answered …): …", with QuickBooks's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

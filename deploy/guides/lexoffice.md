@@ -75,8 +75,8 @@ owner's call, not the taf's.
 ## When it fails
 
 The rows are Lexoffice's own answers: a refusal reaches the taf as
-"Lexoffice refused it (it answered …): …", with Lexoffice's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Lexoffice refused it (it answered …): …", with Lexoffice's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

@@ -84,8 +84,8 @@ named.
 ## When it fails
 
 The rows are Airtable's own refusals: the taf gets "Airtable refused it (it
-answered …): …" with Airtable's reason. planque's own refusals, and a
-sign-in Airtable no longer takes (401), are in the part below.
+answered …): …" with Airtable's reason. planque's own refusals, and a sign-
+in Airtable no longer takes (401), are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

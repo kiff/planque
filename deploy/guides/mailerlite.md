@@ -87,8 +87,8 @@ only when the person asked to subscribe again. A taf never tries.
 ## When it fails
 
 The rows are MailerLite's own answers: a refusal reaches the taf as
-"MailerLite refused it (it answered …): …", with MailerLite's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"MailerLite refused it (it answered …): …", with MailerLite's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

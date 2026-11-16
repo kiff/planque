@@ -84,8 +84,8 @@ Each update is shown to the owner first.
 ## When it fails
 
 The rows are Dynamics 365's own answers: a refusal reaches the taf as
-"Dynamics 365 refused it (it answered …): …", with Dynamics 365's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Dynamics 365 refused it (it answered …): …", with Dynamics 365's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

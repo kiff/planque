@@ -78,8 +78,8 @@ each write that depends on a position, or replace by phrase instead.
 ## When it fails
 
 The rows are Google Docs's own answers: a refusal reaches the taf as
-"Google Docs refused it (it answered …): …", with Google Docs's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Docs refused it (it answered …): …", with Google Docs's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

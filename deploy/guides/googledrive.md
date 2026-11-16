@@ -80,8 +80,8 @@ makes a second folder with that name.
 ## When it fails
 
 The rows are Google Drive's own answers: a refusal reaches the taf as
-"Google Drive refused it (it answered …): …", with Google Drive's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Drive refused it (it answered …): …", with Google Drive's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

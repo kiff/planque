@@ -92,8 +92,8 @@ write.
 ## When it fails
 
 The rows are Google Sheets's own answers: a refusal reaches the taf as
-"Google Sheets refused it (it answered …): …", with Google Sheets's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Sheets refused it (it answered …): …", with Google Sheets's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

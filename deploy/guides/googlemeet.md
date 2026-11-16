@@ -63,8 +63,8 @@ names who gets the summary, and the Card says so.
 ## When it fails
 
 The rows are Google Meet's own answers: a refusal reaches the taf as
-"Google Meet refused it (it answered …): …", with Google Meet's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Meet refused it (it answered …): …", with Google Meet's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

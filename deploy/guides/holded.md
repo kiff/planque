@@ -71,9 +71,9 @@ check the answer after.
 
 ## When it fails
 
-The rows are Holded's own answers: a refusal reaches the taf as
-"Holded refused it (it answered …): …", with Holded's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+The rows are Holded's own answers: a refusal reaches the taf as "Holded
+refused it (it answered …): …", with Holded's reason. planque's own
+refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

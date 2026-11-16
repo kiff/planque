@@ -84,8 +84,8 @@ Everything each app's guide says not to offer, and in particular:
 ## When it fails
 
 The rows are Google Super's own answers: a refusal reaches the taf as
-"Google Super refused it (it answered …): …", with Google Super's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Super refused it (it answered …): …", with Google Super's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 As in each app's guide. One more:
 

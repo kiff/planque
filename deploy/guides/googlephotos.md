@@ -57,8 +57,8 @@ album the owner made by hand.
 ## When it fails
 
 The rows are Google Photos's own answers: a refusal reaches the taf as
-"Google Photos refused it (it answered …): …", with Google Photos's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Google Photos refused it (it answered …): …", with Google Photos's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|

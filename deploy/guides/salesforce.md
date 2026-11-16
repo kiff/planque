@@ -86,8 +86,8 @@ asked, and each change waits for the owner's yes.
 ## When it fails
 
 The rows are Salesforce's own answers: a refusal reaches the taf as
-"Salesforce refused it (it answered …): …", with Salesforce's reason. planque's
-own refusals, and an expired sign-in, are in the part below.
+"Salesforce refused it (it answered …): …", with Salesforce's reason.
+planque's own refusals, and an expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
