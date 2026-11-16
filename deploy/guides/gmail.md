@@ -4,6 +4,7 @@ Checked: 2026-11-15 · Sources: the connection service's Gmail tool
 definitions as planque reads them (61 tools), Google's Gmail API reference,
 test runs on a phone on 13 and 14 Nov 2026, and planque's scope choice for
 the managed sign-in (`docs/managed-connectors.md`).
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -88,14 +89,15 @@ can do more (below).
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Gmail's own answers: a refusal reaches the taf as
+"Gmail refused it (it answered …): …", with Gmail's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | The sign-in didn't give this tool's access: an older sign-in, or one made another way than the managed one | "Gmail is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Refused, "rate limit exceeded" (403) or too many calls (429) | Too many calls in a short time | "Gmail asked us to slow down. The taf will try again in a few minutes." |
-| The sign-in no longer works (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
-| "App is blocked" at sign-in | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
-| A message or draft isn't found (404) | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
-| Daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a write.
+| Gmail's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
+| At sign-in: "App is blocked" | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
+| Refused (404), message or draft not found | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
+| Refused, daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |

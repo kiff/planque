@@ -4,7 +4,9 @@ planque adds this part to every guide. It says what a failed call returns,
 whatever the app, so Coach can tell the owner what actually went wrong. The
 app's own table above says what {app}'s answers mean.
 
-**Five kinds of answer, told apart by their first words:**
+**Five kinds of answer, told apart by their first words** (the app's name
+in them is the catalog's, which may differ a little from this guide's
+title):
 
 - **"Not sent: …" or "Refused by planque: …":** planque stopped the call, and
   nothing reached {app}. The answer's `code`, when it has one, says why (the

@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Drive tool
 definitions as planque reads them (92 tools, [generated](generated/googledrive.md)),
 Google's Drive API reference, and a test run on a phone on 13 Nov 2026.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -78,14 +79,17 @@ makes a second folder with that name.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Drive's own answers: a refusal reaches the taf as
+"Google Drive refused it (it answered …): …", with Google Drive's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403, "insufficient scopes") | The sign-in only covers the taf's own files, and this one isn't | "I can only see the files I made in your Drive. To use your other files, sign in again and allow access to your whole Drive." |
-| The file isn't found (404) | It's deleted, or not visible on this access | "I can't open that file. It may have been deleted, or it isn't shared with this account." |
-| Drive is full (403, storage quota) | The owner's storage is used up | "Your Google storage is full, so the file wasn't saved. Free some space or add storage." |
-| Too many calls (403 rate limit, or 429) | Over Google's limit | "Google Drive asked us to slow down. The taf will continue in a minute." |
-| The sign-in no longer works (401) | Removed, or expired | "Google Drive needs you to sign in again. Nothing was changed." |
-| Sharing is refused (403) | The business doesn't allow sharing outside | "Your Google admin doesn't allow sharing outside the business." |
+| Refused (404), file not found | It's deleted, or not visible on this access | "I can't open that file. It may have been deleted, or it isn't shared with this account." |
+| Refused (403), drive full (storage quota) | The owner's storage is used up | "Your Google storage is full, so the file wasn't saved. Free some space or add storage." |
+| Refused (403 or 429), rate limit | Over Google's limit | "Google Drive asked us to slow down. The taf will continue in a minute." |
+| Google Drive's sign-in has expired (401) | Removed, or expired | "Google Drive needs you to sign in again. Nothing was changed." |
+| Refused (403), sharing | The business doesn't allow sharing outside | "Your Google admin doesn't allow sharing outside the business." |
 
-After any refusal the taf stops that step and says so. A failed search never
-leads to creating a second copy.
+A failed search never leads to creating a second copy.

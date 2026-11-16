@@ -3,6 +3,7 @@
 Checked: 2026-11-14 · Sources: the connection service's Google Calendar tool
 definitions as planque reads them (47 tools, [generated](generated/googlecalendar.md)),
 and Google's Calendar API reference.
+Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
@@ -85,14 +86,15 @@ calendar's own; never assume the server's.
 
 ## When it fails
 
-| What happens | Why | Tell the owner |
+The rows are Google Calendar's own answers: a refusal reaches the taf as
+"Google Calendar refused it (it answered …): …", with Google Calendar's reason. planque's
+own refusals, and an expired sign-in, are in the part below.
+
+| What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) | The sign-in gave read-only or free-time access, and the tool writes | "Google Calendar is only partly connected: adding events needs access you didn't give. Sign in again and allow it, or I'll only read." |
 | Refused, rate or invitation limit (403 or 429) | Too many calls, or too many invitations sent | "Google asked us to slow down. The rest goes in a few minutes." |
-| The event isn't found (404, or 410 "deleted") | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
-| A conflict (409) | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |
-| The sign-in no longer works (401) | Removed, or expired | "Google Calendar needs you to sign in again. Nothing was changed." |
-| A time is refused (400) | A time without a zone, or an end before its start | Fix the time and try once; else "Google didn't accept that time. Nothing was booked." |
-
-After any refusal the taf stops that step and says so. A refused read never
-leads to a create.
+| Refused (404), event not found, or (410) "deleted" | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
+| Refused (409), conflict | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |
+| Google Calendar's sign-in has expired (401) | Removed, or expired | "Google Calendar needs you to sign in again. Nothing was changed." |
+| Refused (400), bad time | A time without a zone, or an end before its start | Fix the time and try once; else "Google didn't accept that time. Nothing was booked." |
