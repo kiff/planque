@@ -111,6 +111,14 @@ type Server struct {
 	// as before, for apps from before the window; a signature that names a
 	// window must name an open one either way.
 	WindowRequired bool
+	// ComputerWindowRequired is WindowRequired for computers alone: a routine
+	// signed call by the device key of a device KIFF doesn't name as a phone's
+	// or a tablet's (its platform ios, ipados or android) must name an open
+	// approval window. A computer's device key (a TPM's, a Mac's, a software
+	// key on disk) signs with nobody asked, so with no window it would approve
+	// a connection nobody was present for. Phones are left to WindowRequired,
+	// until their apps sign every routine call inside a window.
+	ComputerWindowRequired bool
 	// AppReturn is where the browser that completed a vendor sign-in is
 	// sent, with the code that confirms it: the owner's app (tafs), for
 	// example tafs://planque/signed-in. The operator sets it; no request
@@ -440,7 +448,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 			s.log().WarnContext(r.Context(), "a signature over two requests not by the approval key", slog.String("tenant", tenant), slog.String("device", sg.Device), slog.String("key", v.Key))
 			return Approval{}, apiError{http.StatusForbidden, "two requests signed together need the phone's approval key, behind its fingerprint"}
 		}
-		if err := keyFits(kind, v, sg.Window, s.WindowRequired); err != nil {
+		if err := keyFits(kind, v, sg.Window, s.WindowRequired || s.ComputerWindowRequired && !phonePlatforms[v.Platform]); err != nil {
 			s.log().WarnContext(r.Context(), "device key short of the route", slog.String("tenant", tenant), slog.String("device", sg.Device),
 				slog.String("kind", kind), slog.String("key", v.Key), slog.String("window", sg.Window))
 			return Approval{}, err
@@ -467,6 +475,12 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 	}
 	return a, nil
 }
+
+// phonePlatforms are the platforms KIFF names for a phone or a tablet, whose
+// device key is the hardware key its app pairs (the Secure Enclave, Android's
+// keystore). Any other, a computer's or one KIFF didn't name, is a computer's
+// for ComputerWindowRequired.
+var phonePlatforms = map[string]bool{"ios": true, "ipados": true, "android": true}
 
 // keyFits says whether the key KIFF found, and the window the signature
 // named, are enough for a route of this kind (kiff/tafs#494). The approval

@@ -92,7 +92,11 @@ whether that window is open for the device. A signature naming a window
 that isn't open is refused, 403 with `"code": "window_required"`: the app
 opens one and signs again. With `PLANQUE_WINDOW_REQUIRED=true`, a device-key
 signature naming no window is refused the same way on a routine route;
-until then it is taken as before, for apps from before the window. Each
+until then it is taken as before, for apps from before the window. With
+`PLANQUE_COMPUTER_WINDOW_REQUIRED=true`, the same holds for a computer alone:
+a device-key signature with no window is refused when KIFF names the device's
+platform as anything but `ios`, `ipados` or `android` (a computer's key signs
+with nobody asked), while a phone's is still taken. Each
 grant's approval records which key signed (`key`: `device` or `critical`)
 and the window, so an audit tells a tap from a fingerprint.
 
