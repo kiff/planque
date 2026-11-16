@@ -89,9 +89,8 @@ can do more (below).
 
 ## When it fails
 
-The rows are Gmail's own answers: a refusal reaches the taf as "Gmail
-refused it (it answered …): …", with Gmail's reason. planque's own
-refusals, and an expired sign-in, are in the part below.
+The rows are Gmail's own refusals. planque's own, and an expired sign-in,
+are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
