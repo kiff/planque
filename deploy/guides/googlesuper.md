@@ -92,3 +92,4 @@ As in each app's guide. One more:
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
 | Refused for missing access (403) on one app's tool | The sign-in was made for other apps' tools | "Your Google connection doesn't cover this step yet. Sign in again and allow it, or I'll do without." |
+| Refused (400), `FAILED_PRECONDITION` on a Gmail tool | The connected Google account has no Gmail mailbox it can read | "The Google account you connected has no Gmail mailbox I can read. Connect again with the account whose inbox you want." |
