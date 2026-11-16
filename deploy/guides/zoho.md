@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
   lives in one data centre (EU accounts are on `zoho.eu`), and every call
   goes to that centre's address. The tools are Zoho CRM's: leads, contacts,
   accounts, deals.
-- The catalog lists the tools and puts the ones its access doesn't cover
+- The grant's catalog lists the tools and puts the ones its access doesn't cover
   under `unusable`. Offer only what's under `tools`.
 - **One approval for the sign-in, one for the tools and the Card.**
 

@@ -13,7 +13,7 @@ Failure table checked against planque's answers on 2026-11-16.
 - **The taf acts as the person who signed in.** It sees only the teams,
   channels and chats that person belongs to, and what it posts shows under
   their name.
-- **With a known sign-in,** planque's catalog puts the tools its access
+- **With a known sign-in,** the grant's catalog puts the tools its access
   doesn't cover under `unusable`, with why. A held sign-in is reused for a
   new taf when it covers the tools asked: ask for every tool the job needs
   in the first request.

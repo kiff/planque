@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in with the owner's work account**, held by the
-  connection service; the taf never sees a password or token. planque's
+  connection service; the taf never sees a password or token. the grant's
   catalog lists the tools and, with a known sign-in, puts the ones its
   access doesn't cover under `unusable`, with why.
 - **One organisation's environment.** Each company's Dynamics 365 lives at

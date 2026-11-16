@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
   bexio's developer portal (developer.bexio.com/pat), held by the
   connection service. The taf never sees the key after it is pasted.
 - **A key opens the whole company.** bexio gives a personal access token
-  every default access, so the catalog's `unusable` list rarely narrows
+  every default access, so the grant's catalog's `unusable` list rarely narrows
   anything. The Card and the grant are what keep a taf to its tools: ask for
   only the tools the job needs, all in the first request.
 - **The key lasts 60 days.** bexio stops accepting it 60 days after it was

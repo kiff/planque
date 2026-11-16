@@ -12,7 +12,7 @@ Failure table checked against planque's answers on 2026-11-16.
 - **A key can be limited** to some kinds of record (contacts, sales
   invoices) and to reading or writing them. A key made for reading doesn't
   let the taf create or change anything.
-- **With a known sign-in**, planque's catalog puts the tools the key can't
+- **With a known sign-in**, the grant's catalog puts the tools the key can't
   run under `unusable`. Ask for every tool the job needs in the first
   request, so nothing is asked twice.
 

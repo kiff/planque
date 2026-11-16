@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Attio**, held by the connection service; the taf never sees
-  a password or token. The sign-in is for one Attio workspace. planque's
+  a password or token. The sign-in is for one Attio workspace. the grant's
   catalog lists the tools and, with a known sign-in, puts the ones its
   access doesn't cover under `unusable`, with why.
 - **Access is per area:** records, lists, notes, tasks, comments, meetings

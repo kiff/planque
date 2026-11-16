@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Google**, held by the connection service; the taf never sees
-  a password or token. planque's catalog lists the tools and, with a known
+  a password or token. The grant's catalog lists the tools and, with a known
   sign-in, puts the ones its access doesn't cover under `unusable`, with why.
 - **An account that already holds Gmail reuses that sign-in** for a new taf,
   with no browser, when it covers the tools asked. Through the managed

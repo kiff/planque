@@ -8,7 +8,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to Microsoft**, held by the connection service: a personal
-  Outlook account, or a work or school one. The catalog lists the tools and,
+  Outlook account, or a work or school one. The grant's catalog lists the tools and,
   with a known sign-in, puts the ones its access doesn't cover under
   `unusable`, with why. Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked:

@@ -10,7 +10,7 @@ Sign-in checked against planque's integrations record on 2026-11-16.
 
 - **A sign-in to the owner's Shopify store**, held by the connection
   service; the taf never sees a password or token. The owner approves the
-  access on Shopify's own install page. planque's catalog lists the tools
+  access on Shopify's own install page. The grant's catalog lists the tools
   and, with a known sign-in, puts the ones its access doesn't cover under
   `unusable`, with why.
 - **Type only the store's subdomain.** Before Shopify's page, the
@@ -46,7 +46,7 @@ carry.
 **What the sign-in asks for:** Shopify's full managed access (34 scopes,
 16 Nov). The Card decides what a taf may do: offer the tools the job
 needs, and writes only when the owner asked. A tool the store's install
-doesn't cover is under the catalog's `unusable`.
+doesn't cover is under the grant's catalog's `unusable`.
 
 **What to keep:** the order id and customer id the taf worked on, to come
 back to the same order next run; each draft order and refund id the taf

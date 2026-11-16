@@ -7,7 +7,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
-- **A sign-in to Google**, held by the connection service. The catalog lists
+- **A sign-in to Google**, held by the connection service. The grant's catalog lists
   the tools and, with a known sign-in, puts the ones its access doesn't cover
   under `unusable`. Offer only what's under `tools`.
 - **The owner needs a Google Cloud project** with BigQuery in it, and a role

@@ -26,7 +26,7 @@ name prefix.
 
 ## How it connects
 
-- **A sign-in to Google**, held by the connection service. The catalog lists
+- **A sign-in to Google**, held by the connection service. The grant's catalog lists
   the tools and, with a known sign-in, puts the ones its access doesn't cover
   under `unusable`, with why. Offer only what's under `tools`.
 - **One approval for the sign-in, one for the tools and the Card.** With

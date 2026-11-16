@@ -8,7 +8,7 @@ Failure table checked against planque's answers on 2026-11-16.
 ## How it connects
 
 - **A sign-in to the owner's Zendesk** (`yourcompany.zendesk.com`), held by
-  the connection service. The taf acts as the owner's account. The catalog lists the tools and puts the ones its access doesn't
+  the connection service. The taf acts as the owner's account. The grant's catalog lists the tools and puts the ones its access doesn't
   cover under `unusable`. Offer only what's under `tools`.
 - **One approval for the sign-in, one for the tools and the Card.**
 - **In the gallery:** "Acknowledge every ticket" uses Zendesk.
