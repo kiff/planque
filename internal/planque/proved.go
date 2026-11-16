@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
@@ -116,4 +117,26 @@ func proofOf(proved map[string]Proof, entry, how string) *Proof {
 		}
 	}
 	return nil
+}
+
+// publicProof is what a reader with no account sees of a proof: the day the
+// app has been listed as working since, the way it was run, and the public
+// link to where that's recorded. Never which reviewed entries reach it.
+type publicProof struct {
+	At   string `json:"at"`
+	How  string `json:"how"`
+	Link string `json:"link,omitempty"`
+}
+
+// servePublicProofs answers GET /v1/proved with no account: {"proved": {app:
+// {at, how, link}}}, by folded name, the same map the catalog's top level
+// carries. kiff.dev's apps list reads it, so the site and tafs cloud's gallery
+// read one source. It holds nothing but proved.json, which is public already;
+// the reader keeps its own copy (kiff.dev re-reads it every 10 minutes).
+func servePublicProofs(w http.ResponseWriter, _ *http.Request) {
+	out := make(map[string]publicProof, len(Proved))
+	for name, p := range Proved {
+		out[name] = publicProof{At: p.At, How: p.How, Link: p.Link}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"proved": out})
 }

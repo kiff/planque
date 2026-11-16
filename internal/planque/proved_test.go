@@ -1,6 +1,8 @@
 package planque
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"strings"
@@ -145,5 +147,39 @@ func TestTheCatalogSaysWhichAppsAreProved(t *testing.T) {
 	// entry is proved there.
 	if all, _ := out["proved"].(map[string]any); out["by_key"] != true || len(all) != 1 || all["deskdemo"] == nil {
 		t.Errorf("proved by app: %v", out["proved"])
+	}
+}
+
+// kiff.dev's apps list reads the proofs with no account: the same map the
+// catalog carries, with no reviewed entries, and nothing else.
+func TestTheProofsAreReadWithNoAccount(t *testing.T) {
+	w := httptest.NewRecorder()
+	(&Server{}).Handler().ServeHTTP(w, httptest.NewRequest("GET", "/v1/proved", nil))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("%d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+	var got map[string]map[string]map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || len(got) != 1 || got["proved"] == nil {
+		t.Fatalf("%v %s", err, w.Body)
+	}
+	if len(got["proved"]) != len(Proved) {
+		t.Fatalf("%d apps, want %d", len(got["proved"]), len(Proved))
+	}
+	for name, p := range Proved {
+		g := got["proved"][name]
+		if g["at"] != p.At || g["how"] != p.How || (p.Link != "" && g["link"] != p.Link) {
+			t.Errorf("%s: %v, want %+v", name, g, p)
+		}
+		for k := range g {
+			if k != "at" && k != "how" && k != "link" {
+				t.Errorf("%s carries %q to a reader with no account", name, k)
+			}
+		}
+	}
+	// It's a read: anything else is refused.
+	w = httptest.NewRecorder()
+	(&Server{}).Handler().ServeHTTP(w, httptest.NewRequest("POST", "/v1/proved", nil))
+	if w.Code != 405 {
+		t.Fatalf("POST: %d", w.Code)
 	}
 }
