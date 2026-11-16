@@ -253,6 +253,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		REST:                   &rest.Client{HTTP: vendors},
 		Logger:                 logger,
 		WindowRequired:         strings.EqualFold(strings.TrimSpace(os.Getenv("PLANQUE_WINDOW_REQUIRED")), "true"),
+		ComputerWindowRequired: strings.EqualFold(strings.TrimSpace(os.Getenv("PLANQUE_COMPUTER_WINDOW_REQUIRED")), "true"),
 		CatalogEntries:         catalog,
 		CatalogOperators:       operators,
 		ServerApps:             serverApps,

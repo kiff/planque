@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -367,6 +368,70 @@ func TestARoutineCallIsSignedInsideAnApprovalWindow(t *testing.T) {
 	// Disconnecting stays the device key's.
 	if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id3, nil, phone, ""); st != 200 {
 		t.Fatalf("disconnect, window required: %d", st)
+	}
+}
+
+// With ComputerWindowRequired, a routine call signed by a computer's device
+// key needs an open window: KIFF naming the device a Mac's, a Windows PC's, a
+// Linux computer's, or no platform at all, it's refused with window_required,
+// and inside an open window it goes. A phone's or a tablet's device key with
+// no window is still taken (WindowRequired is off), the approval key always,
+// and a safe call takes the computer's device key with no window.
+func TestAComputerApprovesOnlyInsideAWindow(t *testing.T) {
+	e := newEnv(t)
+	phone := e.device("dev_phone")
+	if st, _ := e.enrolAs(phone); st != 201 {
+		t.Fatal("enrol")
+	}
+	e.s.ComputerWindowRequired = true
+	approve := func(p *fakes.Phone) (int, map[string]any, string) {
+		id, digest := e.request()
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, p, "")
+		return st, out, id
+	}
+	for _, platform := range []string{"macos", "windows", "linux", ""} {
+		computer := e.device("dev_" + cmp.Or(platform, "unnamed"))
+		d := e.kiff.Devices[computer.DeviceID]
+		d.Platform = platform
+		e.kiff.Devices[computer.DeviceID] = d
+		if st, out, _ := approve(computer); st != 403 || out["code"] != "window_required" {
+			t.Fatalf("%q's device key, no window: %d %v", platform, st, out)
+		}
+		window := "win_" + strings.Repeat(cmp.Or(platform, "u")[:1], 26)
+		e.kiff.Windows[window] = computer.DeviceID
+		computer.Window = window
+		st, out, id := approve(computer)
+		if st != 200 {
+			t.Fatalf("%q's device key inside its window: %d %v", platform, st, out)
+		}
+		computer.Window = ""
+		if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, computer, ""); st != 200 {
+			t.Fatalf("%q disconnects with no window: %d", platform, st)
+		}
+	}
+	for _, platform := range []string{"ios", "ipados", "android"} {
+		p := e.device("dev_" + platform)
+		d := e.kiff.Devices[p.DeviceID]
+		d.Platform = platform
+		e.kiff.Devices[p.DeviceID] = d
+		if st, out, _ := approve(p); st != 200 {
+			t.Fatalf("%q's device key, no window, phones not yet required: %d %v", platform, st, out)
+		}
+	}
+	// A computer's approval key goes with no window.
+	mac := e.device("dev_mac")
+	approval := fakes.NewPhone()
+	approval.DeviceID = "dev_mac"
+	d := e.kiff.Devices["dev_mac"]
+	d.Platform, d.Approval = "macos", approval
+	e.kiff.Devices["dev_mac"] = d
+	if st, out, _ := approve(approval); st != 200 {
+		t.Fatalf("a computer's approval key: %d %v", st, out)
+	}
+	// Off, a computer's device key with no window is taken as before.
+	e.s.ComputerWindowRequired = false
+	if st, out, _ := approve(mac); st != 200 {
+		t.Fatalf("switch off: %d %v", st, out)
 	}
 }
 
