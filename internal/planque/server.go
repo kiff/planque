@@ -154,6 +154,9 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("User-agent: *\nDisallow: /\n"))
 	})
+	// The apps that connect today, the way a check ran them (proved.json), for
+	// readers with no account: kiff.dev's apps list. Public, reviewed data only.
+	mux.HandleFunc("GET /v1/proved", s.servePublicProofs)
 	mux.HandleFunc("POST /v1/sweep", s.sweep)
 	// The one-time clean-up of stored answers alone, for a schedule more
 	// frequent than the sweep's while it runs (sweep.go).
