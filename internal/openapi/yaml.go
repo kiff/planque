@@ -16,6 +16,19 @@ import (
 // as written, digit for digit.
 var jsonNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
+// AsJSON is a description as the JSON it stands for: a JSON one as it is, a
+// YAML one read as yamlAsJSON reads it. A description a catalog entry pins is
+// kept as this JSON, so every check that reads shipped descriptions reads it.
+func AsJSON(raw []byte) ([]byte, error) {
+	if len(raw) > MaxBytes {
+		return nil, refuse("it is over 16 MB")
+	}
+	if json.Valid(raw) {
+		return raw, nil
+	}
+	return yamlAsJSON(raw)
+}
+
 // yamlAsJSON reads a YAML description as the JSON it stands for, so it is
 // checked, digested and limited as a JSON one is. Only plain data is read:
 // one document of mappings, sequences and scalars. Anchors, aliases and merge

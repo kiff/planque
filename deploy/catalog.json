@@ -1,4 +1,800 @@
 {
+  "bexio-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "base": "https://api.bexio.com",
+      "operations": [
+        "v2ListInvoices",
+        "v2ShowInvoice",
+        "v2ListInvoicePayments",
+        "v2ListInvoiceReminders",
+        "v2ListContacts",
+        "v2ShowContact"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/bexio-key-openapi.json"
+    },
+    "description_sha256": "423348499f849015123490aed75596a72b68a7d6993c2cf3bd5c7836cea7ed29",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "bexio-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the invoices",
+          "tool": "bexio_list_invoices"
+        },
+        {
+          "kind": "read",
+          "title": "Read one invoice",
+          "tool": "bexio_read_invoice"
+        },
+        {
+          "kind": "read",
+          "title": "List the payments on an invoice",
+          "tool": "bexio_list_payments"
+        },
+        {
+          "kind": "read",
+          "title": "List the reminders on an invoice",
+          "tool": "bexio_list_reminders"
+        },
+        {
+          "kind": "read",
+          "title": "List the contacts",
+          "tool": "bexio_list_contacts"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "bexio_read_contact"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "bexio"
+    },
+    "title": "bexio: read invoices, reminders, payments and contacts",
+    "tools": [
+      {
+        "tool": "v2ListInvoices",
+        "name": "bexio_list_invoices",
+        "title": "List the invoices",
+        "read_only": true
+      },
+      {
+        "tool": "v2ShowInvoice",
+        "name": "bexio_read_invoice",
+        "title": "Read one invoice",
+        "read_only": true
+      },
+      {
+        "tool": "v2ListInvoicePayments",
+        "name": "bexio_list_payments",
+        "title": "List the payments on an invoice",
+        "read_only": true
+      },
+      {
+        "tool": "v2ListInvoiceReminders",
+        "name": "bexio_list_reminders",
+        "title": "List the reminders on an invoice",
+        "read_only": true
+      },
+      {
+        "tool": "v2ListContacts",
+        "name": "bexio_list_contacts",
+        "title": "List the contacts",
+        "read_only": true
+      },
+      {
+        "tool": "v2ShowContact",
+        "name": "bexio_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      }
+    ],
+    "vendor": "bexio"
+  },
+  "freshdesk-key@1": {
+    "api": {
+      "auth": {
+        "in": "basic",
+        "name": "",
+        "password": "X"
+      },
+      "base": "https://{account}.freshdesk.com/api/v2",
+      "operations": [
+        "listTickets",
+        "searchTickets",
+        "viewTicket",
+        "listTicketConversations",
+        "viewContact",
+        "replyToTicket",
+        "addTicketNote"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/freshdesk-key-openapi.json"
+    },
+    "description_sha256": "3e49ba0b69b7cb17ee04809377b947331dac0e628ac5be6505320be2341d6eef",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "freshdesk-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the tickets",
+          "tool": "freshdesk_list_tickets"
+        },
+        {
+          "kind": "read",
+          "title": "Search the tickets",
+          "tool": "freshdesk_search_tickets"
+        },
+        {
+          "kind": "read",
+          "title": "Read one ticket",
+          "tool": "freshdesk_read_ticket"
+        },
+        {
+          "kind": "read",
+          "title": "Read a ticket's replies and notes",
+          "tool": "freshdesk_read_conversations"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "freshdesk_read_contact"
+        },
+        {
+          "effect": "sends",
+          "kind": "write",
+          "required_arguments": [
+            "body",
+            "id"
+          ],
+          "shape": "single",
+          "title": "Reply to a ticket",
+          "tool": "freshdesk_reply"
+        },
+        {
+          "effect": "writes",
+          "kind": "write",
+          "required_arguments": [
+            "body",
+            "id"
+          ],
+          "shape": "single",
+          "title": "Add a note to a ticket",
+          "tool": "freshdesk_add_note"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Freshdesk"
+    },
+    "title": "Freshdesk: read tickets and contacts, reply, add a note",
+    "tools": [
+      {
+        "tool": "listTickets",
+        "name": "freshdesk_list_tickets",
+        "title": "List the tickets",
+        "read_only": true
+      },
+      {
+        "tool": "searchTickets",
+        "name": "freshdesk_search_tickets",
+        "title": "Search the tickets",
+        "read_only": true
+      },
+      {
+        "tool": "viewTicket",
+        "name": "freshdesk_read_ticket",
+        "title": "Read one ticket",
+        "read_only": true
+      },
+      {
+        "tool": "listTicketConversations",
+        "name": "freshdesk_read_conversations",
+        "title": "Read a ticket's replies and notes",
+        "read_only": true
+      },
+      {
+        "tool": "viewContact",
+        "name": "freshdesk_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      },
+      {
+        "tool": "replyToTicket",
+        "name": "freshdesk_reply",
+        "title": "Reply to a ticket"
+      },
+      {
+        "tool": "addTicketNote",
+        "name": "freshdesk_add_note",
+        "title": "Add a note to a ticket"
+      }
+    ],
+    "vendor": "Freshdesk"
+  },
+  "github-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "base": "https://api.github.com",
+      "operations": [
+        "pulls_list",
+        "pulls_get",
+        "checks_list_for_ref",
+        "repos_get_combined_status_for_ref",
+        "actions_list_workflow_runs_for_repo",
+        "actions_get_workflow_run",
+        "actions_list_jobs_for_workflow_run"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/github-key-openapi.json"
+    },
+    "description_sha256": "001ea94adc9e34bf959fdd09050bde278719c44e0fb4d6ad1fe5306a4d4dc585",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "github-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List a repository's pull requests",
+          "tool": "github_list_pull_requests"
+        },
+        {
+          "kind": "read",
+          "title": "Read one pull request",
+          "tool": "github_read_pull_request"
+        },
+        {
+          "kind": "read",
+          "title": "List the checks run on a commit or branch",
+          "tool": "github_list_checks"
+        },
+        {
+          "kind": "read",
+          "title": "Read the combined status of a commit or branch",
+          "tool": "github_read_status"
+        },
+        {
+          "kind": "read",
+          "title": "List a repository's workflow runs",
+          "tool": "github_list_runs"
+        },
+        {
+          "kind": "read",
+          "title": "Read one workflow run",
+          "tool": "github_read_run"
+        },
+        {
+          "kind": "read",
+          "title": "List the jobs of a workflow run",
+          "tool": "github_list_run_jobs"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "GitHub"
+    },
+    "title": "GitHub: read pull requests, checks and workflow runs",
+    "tools": [
+      {
+        "tool": "pulls_list",
+        "name": "github_list_pull_requests",
+        "title": "List a repository's pull requests",
+        "read_only": true
+      },
+      {
+        "tool": "pulls_get",
+        "name": "github_read_pull_request",
+        "title": "Read one pull request",
+        "read_only": true
+      },
+      {
+        "tool": "checks_list_for_ref",
+        "name": "github_list_checks",
+        "title": "List the checks run on a commit or branch",
+        "read_only": true
+      },
+      {
+        "tool": "repos_get_combined_status_for_ref",
+        "name": "github_read_status",
+        "title": "Read the combined status of a commit or branch",
+        "read_only": true
+      },
+      {
+        "tool": "actions_list_workflow_runs_for_repo",
+        "name": "github_list_runs",
+        "title": "List a repository's workflow runs",
+        "read_only": true
+      },
+      {
+        "tool": "actions_get_workflow_run",
+        "name": "github_read_run",
+        "title": "Read one workflow run",
+        "read_only": true
+      },
+      {
+        "tool": "actions_list_jobs_for_workflow_run",
+        "name": "github_list_run_jobs",
+        "title": "List the jobs of a workflow run",
+        "read_only": true
+      }
+    ],
+    "vendor": "GitHub"
+  },
+  "intercom-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "bases": [
+        "https://api.intercom.io",
+        "https://api.eu.intercom.io",
+        "https://api.au.intercom.io"
+      ],
+      "operations": [
+        "listConversations",
+        "retrieveConversation",
+        "ShowContact",
+        "replyConversation",
+        "createNote"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/intercom-key-openapi.json"
+    },
+    "description_sha256": "86dfa04cec4fb8e17eac928ef3318102de4f2f199c99f1ba38adb4e1f056ca7f",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "intercom-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the conversations",
+          "tool": "intercom_list_conversations"
+        },
+        {
+          "kind": "read",
+          "title": "Read one conversation",
+          "tool": "intercom_read_conversation"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "intercom_read_contact"
+        },
+        {
+          "effect": "sends",
+          "kind": "write",
+          "required_arguments": [
+            "conversation_id"
+          ],
+          "resource": {
+            "arg": "conversation_id",
+            "noun": "conversation"
+          },
+          "shape": "single",
+          "title": "Reply to a conversation",
+          "tool": "intercom_reply"
+        },
+        {
+          "effect": "writes",
+          "kind": "write",
+          "required_arguments": [
+            "contact_id"
+          ],
+          "resource": {
+            "arg": "contact_id",
+            "noun": "contact"
+          },
+          "shape": "single",
+          "title": "Add a note to a contact",
+          "tool": "intercom_add_note"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Intercom"
+    },
+    "title": "Intercom: read conversations and contacts, reply, add a note",
+    "tools": [
+      {
+        "tool": "listConversations",
+        "name": "intercom_list_conversations",
+        "title": "List the conversations",
+        "read_only": true
+      },
+      {
+        "tool": "retrieveConversation",
+        "name": "intercom_read_conversation",
+        "title": "Read one conversation",
+        "read_only": true
+      },
+      {
+        "tool": "ShowContact",
+        "name": "intercom_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      },
+      {
+        "tool": "replyConversation",
+        "name": "intercom_reply",
+        "title": "Reply to a conversation",
+        "fixed_arguments": {
+          "message_type": "comment",
+          "type": "admin"
+        },
+        "arguments": {
+          "admin_id": {
+            "path": "admin_id",
+            "type": "string",
+            "required": true
+          },
+          "body": {
+            "path": "body",
+            "type": "string",
+            "required": true
+          },
+          "conversation_id": {
+            "path": "conversation_id",
+            "type": "string",
+            "required": true
+          }
+        },
+        "resource_argument": "conversation_id"
+      },
+      {
+        "tool": "createNote",
+        "name": "intercom_add_note",
+        "title": "Add a note to a contact",
+        "resource_argument": "contact_id"
+      }
+    ],
+    "vendor": "Intercom"
+  },
+  "lexoffice-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "base": "https://api.lexware.io",
+      "operations": [
+        "listVouchers",
+        "retrieveInvoice",
+        "retrievePayment",
+        "listContacts",
+        "retrieveContact"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/lexoffice-key-openapi.json"
+    },
+    "description_sha256": "b8cf31e4e85ce031377a0734fa79191c2ff7349d009343e6bc79ba0d25888262",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "lexoffice-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List invoices and other vouchers",
+          "tool": "lexoffice_list_vouchers"
+        },
+        {
+          "kind": "read",
+          "title": "Read one invoice",
+          "tool": "lexoffice_read_invoice"
+        },
+        {
+          "kind": "read",
+          "title": "Read the payment status of a voucher",
+          "tool": "lexoffice_read_payment"
+        },
+        {
+          "kind": "read",
+          "title": "List the contacts",
+          "tool": "lexoffice_list_contacts"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "lexoffice_read_contact"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Lexware Office"
+    },
+    "title": "Lexware Office: read invoices, payments and contacts",
+    "tools": [
+      {
+        "tool": "listVouchers",
+        "name": "lexoffice_list_vouchers",
+        "title": "List invoices and other vouchers",
+        "read_only": true
+      },
+      {
+        "tool": "retrieveInvoice",
+        "name": "lexoffice_read_invoice",
+        "title": "Read one invoice",
+        "read_only": true
+      },
+      {
+        "tool": "retrievePayment",
+        "name": "lexoffice_read_payment",
+        "title": "Read the payment status of a voucher",
+        "read_only": true
+      },
+      {
+        "tool": "listContacts",
+        "name": "lexoffice_list_contacts",
+        "title": "List the contacts",
+        "read_only": true
+      },
+      {
+        "tool": "retrieveContact",
+        "name": "lexoffice_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      }
+    ],
+    "vendor": "Lexware Office"
+  },
+  "moneybird-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "base": "https://moneybird.com/api/v2",
+      "operations": [
+        "get_administrations",
+        "get_administration_id_sales_invoices",
+        "get_administration_id_sales_invoices_id",
+        "get_administration_id_contacts",
+        "get_administration_id_contacts_id"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/moneybird-key-openapi.json"
+    },
+    "description_sha256": "b2c16ddc520d8d341c631d1fdd71c22bb0c606db175954ba0fcad4f6ab977e14",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "moneybird-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the administrations",
+          "tool": "moneybird_list_administrations"
+        },
+        {
+          "kind": "read",
+          "title": "List the sales invoices",
+          "tool": "moneybird_list_invoices"
+        },
+        {
+          "kind": "read",
+          "title": "Read one sales invoice",
+          "tool": "moneybird_read_invoice"
+        },
+        {
+          "kind": "read",
+          "title": "List the contacts",
+          "tool": "moneybird_list_contacts"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "moneybird_read_contact"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Moneybird"
+    },
+    "title": "Moneybird: read sales invoices and contacts",
+    "tools": [
+      {
+        "tool": "get_administrations",
+        "name": "moneybird_list_administrations",
+        "title": "List the administrations",
+        "read_only": true
+      },
+      {
+        "tool": "get_administration_id_sales_invoices",
+        "name": "moneybird_list_invoices",
+        "title": "List the sales invoices",
+        "read_only": true
+      },
+      {
+        "tool": "get_administration_id_sales_invoices_id",
+        "name": "moneybird_read_invoice",
+        "title": "Read one sales invoice",
+        "read_only": true
+      },
+      {
+        "tool": "get_administration_id_contacts",
+        "name": "moneybird_list_contacts",
+        "title": "List the contacts",
+        "read_only": true
+      },
+      {
+        "tool": "get_administration_id_contacts_id",
+        "name": "moneybird_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      }
+    ],
+    "vendor": "Moneybird"
+  },
+  "pipedrive-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "x-api-token"
+      },
+      "base": "https://api.pipedrive.com/api/v2",
+      "operations": [
+        "getPersons",
+        "getPerson",
+        "getDeals",
+        "getDeal",
+        "getActivities",
+        "getActivity",
+        "addPerson",
+        "addActivity"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/pipedrive-key-openapi.json"
+    },
+    "description_sha256": "436cf8031a952bc06e6b97e93e86de0c991f9224952cae21c32b7f9871fb8808",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "pipedrive-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the people",
+          "tool": "pipedrive_list_persons"
+        },
+        {
+          "kind": "read",
+          "title": "Read one person",
+          "tool": "pipedrive_read_person"
+        },
+        {
+          "kind": "read",
+          "title": "List the deals",
+          "tool": "pipedrive_list_deals"
+        },
+        {
+          "kind": "read",
+          "title": "Read one deal",
+          "tool": "pipedrive_read_deal"
+        },
+        {
+          "kind": "read",
+          "title": "List the activities",
+          "tool": "pipedrive_list_activities"
+        },
+        {
+          "kind": "read",
+          "title": "Read one activity",
+          "tool": "pipedrive_read_activity"
+        },
+        {
+          "effect": "writes",
+          "kind": "write",
+          "required_arguments": null,
+          "shape": "single",
+          "title": "Add a person",
+          "tool": "pipedrive_add_person"
+        },
+        {
+          "effect": "writes",
+          "kind": "write",
+          "required_arguments": null,
+          "shape": "single",
+          "title": "Add an activity (a follow-up task)",
+          "tool": "pipedrive_add_activity"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Pipedrive"
+    },
+    "title": "Pipedrive: read people, deals and activities, add a person or an activity",
+    "tools": [
+      {
+        "tool": "getPersons",
+        "name": "pipedrive_list_persons",
+        "title": "List the people",
+        "read_only": true
+      },
+      {
+        "tool": "getPerson",
+        "name": "pipedrive_read_person",
+        "title": "Read one person",
+        "read_only": true
+      },
+      {
+        "tool": "getDeals",
+        "name": "pipedrive_list_deals",
+        "title": "List the deals",
+        "read_only": true
+      },
+      {
+        "tool": "getDeal",
+        "name": "pipedrive_read_deal",
+        "title": "Read one deal",
+        "read_only": true
+      },
+      {
+        "tool": "getActivities",
+        "name": "pipedrive_list_activities",
+        "title": "List the activities",
+        "read_only": true
+      },
+      {
+        "tool": "getActivity",
+        "name": "pipedrive_read_activity",
+        "title": "Read one activity",
+        "read_only": true
+      },
+      {
+        "tool": "addPerson",
+        "name": "pipedrive_add_person",
+        "title": "Add a person"
+      },
+      {
+        "tool": "addActivity",
+        "name": "pipedrive_add_activity",
+        "title": "Add an activity (a follow-up task)"
+      }
+    ],
+    "vendor": "Pipedrive"
+  },
   "qonto-key@1": {
     "vendor": "Qonto",
     "title": "Qonto invoicing, read only",
@@ -396,5 +1192,284 @@
         }
       ]
     }
+  },
+  "sevdesk-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization"
+      },
+      "base": "https://my.sevdesk.de/api/v1",
+      "operations": [
+        "getInvoices",
+        "getInvoiceById",
+        "getIsInvoicePartiallyPaid",
+        "getContacts",
+        "getContactById"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/sevdesk-key-openapi.json"
+    },
+    "description_sha256": "89d01582b0ce8c6b2b1bb928e4a7520b311ed13dc7cbc6b897c2d43022025432",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "sevdesk-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the invoices",
+          "tool": "sevdesk_list_invoices"
+        },
+        {
+          "kind": "read",
+          "title": "Read one invoice",
+          "tool": "sevdesk_read_invoice"
+        },
+        {
+          "kind": "read",
+          "title": "Check whether an invoice is partly paid",
+          "tool": "sevdesk_invoice_partly_paid"
+        },
+        {
+          "kind": "read",
+          "title": "List the contacts",
+          "tool": "sevdesk_list_contacts"
+        },
+        {
+          "kind": "read",
+          "title": "Read one contact",
+          "tool": "sevdesk_read_contact"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "sevdesk"
+    },
+    "title": "sevdesk: read invoices and contacts",
+    "tools": [
+      {
+        "tool": "getInvoices",
+        "name": "sevdesk_list_invoices",
+        "title": "List the invoices",
+        "read_only": true
+      },
+      {
+        "tool": "getInvoiceById",
+        "name": "sevdesk_read_invoice",
+        "title": "Read one invoice",
+        "read_only": true
+      },
+      {
+        "tool": "getIsInvoicePartiallyPaid",
+        "name": "sevdesk_invoice_partly_paid",
+        "title": "Check whether an invoice is partly paid",
+        "read_only": true
+      },
+      {
+        "tool": "getContacts",
+        "name": "sevdesk_list_contacts",
+        "title": "List the contacts",
+        "read_only": true
+      },
+      {
+        "tool": "getContactById",
+        "name": "sevdesk_read_contact",
+        "title": "Read one contact",
+        "read_only": true
+      }
+    ],
+    "vendor": "sevdesk"
+  },
+  "shippo-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "ShippoToken "
+      },
+      "base": "https://api.goshippo.com",
+      "operations": [
+        "ListShipments",
+        "GetShipment",
+        "GetTrack",
+        "ListOrders",
+        "GetOrder",
+        "ListTransactions",
+        "GetTransaction"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/shippo-key-openapi.json"
+    },
+    "description_sha256": "942a17b9b130ea36371dd71e4a8a3b25726f26b3e3753d4cf8dd7c4880d5b48f",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "shippo-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the shipments",
+          "tool": "shippo_list_shipments"
+        },
+        {
+          "kind": "read",
+          "title": "Read one shipment",
+          "tool": "shippo_read_shipment"
+        },
+        {
+          "kind": "read",
+          "title": "Get a parcel's tracking status",
+          "tool": "shippo_track_parcel"
+        },
+        {
+          "kind": "read",
+          "title": "List the orders",
+          "tool": "shippo_list_orders"
+        },
+        {
+          "kind": "read",
+          "title": "Read one order",
+          "tool": "shippo_read_order"
+        },
+        {
+          "kind": "read",
+          "title": "List the shipping labels",
+          "tool": "shippo_list_labels"
+        },
+        {
+          "kind": "read",
+          "title": "Read one shipping label",
+          "tool": "shippo_read_label"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Shippo"
+    },
+    "title": "Shippo: read shipments, tracking, orders and labels",
+    "tools": [
+      {
+        "tool": "ListShipments",
+        "name": "shippo_list_shipments",
+        "title": "List the shipments",
+        "read_only": true
+      },
+      {
+        "tool": "GetShipment",
+        "name": "shippo_read_shipment",
+        "title": "Read one shipment",
+        "read_only": true
+      },
+      {
+        "tool": "GetTrack",
+        "name": "shippo_track_parcel",
+        "title": "Get a parcel's tracking status",
+        "read_only": true
+      },
+      {
+        "tool": "ListOrders",
+        "name": "shippo_list_orders",
+        "title": "List the orders",
+        "read_only": true
+      },
+      {
+        "tool": "GetOrder",
+        "name": "shippo_read_order",
+        "title": "Read one order",
+        "read_only": true
+      },
+      {
+        "tool": "ListTransactions",
+        "name": "shippo_list_labels",
+        "title": "List the shipping labels",
+        "read_only": true
+      },
+      {
+        "tool": "GetTransaction",
+        "name": "shippo_read_label",
+        "title": "Read one shipping label",
+        "read_only": true
+      }
+    ],
+    "vendor": "Shippo"
+  },
+  "typeform-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "bases": [
+        "https://api.typeform.com",
+        "https://api.eu.typeform.com",
+        "https://api.typeform.eu"
+      ],
+      "operations": [
+        "listForms",
+        "retrieveForm",
+        "listResponses"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/typeform-key-openapi.json"
+    },
+    "description_sha256": "e68ab5fcbb99de3df91e15a2a711a72529ff2527bf6d116c8c0aba0c6e27fa2d",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "typeform-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the forms",
+          "tool": "typeform_list_forms"
+        },
+        {
+          "kind": "read",
+          "title": "Read one form",
+          "tool": "typeform_read_form"
+        },
+        {
+          "kind": "read",
+          "title": "List a form's responses",
+          "tool": "typeform_list_responses"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Typeform"
+    },
+    "title": "Typeform: read forms and their responses",
+    "tools": [
+      {
+        "tool": "listForms",
+        "name": "typeform_list_forms",
+        "title": "List the forms",
+        "read_only": true
+      },
+      {
+        "tool": "retrieveForm",
+        "name": "typeform_read_form",
+        "title": "Read one form",
+        "read_only": true
+      },
+      {
+        "tool": "listResponses",
+        "name": "typeform_list_responses",
+        "title": "List a form's responses",
+        "read_only": true
+      }
+    ],
+    "vendor": "Typeform"
   }
 }

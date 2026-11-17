@@ -31,6 +31,13 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	if e.s.CatalogEntries, err = DecodeCatalog(conf, nil); err != nil {
 		t.Fatal(err)
 	}
+	// This is about Qonto's entries: another vendor's tools that share a word
+	// ("invoices") would move its counts, whatever else the catalog holds.
+	for id := range e.s.CatalogEntries {
+		if !strings.HasPrefix(id, "qonto-key@") {
+			delete(e.s.CatalogEntries, id)
+		}
+	}
 	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}
 	search := func(query string) (int, []map[string]any, map[string]any) {
 		t.Helper()
