@@ -63,6 +63,9 @@ each write that depends on a position, or replace by phrase instead.
   - The tools are named in the connect: a connect that names none asks for the
     app's widest access, so the taf's planned tools are always named when it
     connects.
+- **The approval shows how far Google's sign-in reaches,** from planque's
+  grant (`usual_access`, its `scopes`). Coach doesn't restate it, at any
+  step: not in a question, its options, the plan or a message.
 - **No paid plan is needed.** A business admin can block outside apps.
 - **Size:** a document can hold about 1.02 million characters. A taf that
   appends a line every day for years should start a new document each year.

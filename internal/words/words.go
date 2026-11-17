@@ -26,6 +26,8 @@ type Lines struct {
 	LinkUnknown           string
 	LinkUsed              string
 	SignInWentThroughF    string // the app's name
+	SignedInOpenF         string // the app's name: a computer's sign-in, finished with the Open tafs link
+	OpenTafs              string // that link's words
 	LinkUsedStartAgain    string
 	NotCompletedF         string // the vendor's host
 	NotCompletedRenewF    string // the vendor's host
@@ -66,6 +68,7 @@ type Lines struct {
 
 func (l Lines) NotCompleted(host string) string      { return fmt.Sprintf(l.NotCompletedF, host) }
 func (l Lines) SignInWentThrough(app string) string  { return fmt.Sprintf(l.SignInWentThroughF, app) }
+func (l Lines) SignedInOpen(app string) string       { return fmt.Sprintf(l.SignedInOpenF, app) }
 func (l Lines) NotCompletedRenew(host string) string { return fmt.Sprintf(l.NotCompletedRenewF, host) }
 func (l Lines) NotFinished(host string) string       { return fmt.Sprintf(l.NotFinishedF, host) }
 func (l Lines) NotFinishedRenew(host string) string  { return fmt.Sprintf(l.NotFinishedRenewF, host) }

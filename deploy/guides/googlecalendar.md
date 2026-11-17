@@ -65,12 +65,15 @@ calendar's own; never assume the server's.
     events ("view and edit events on all your calendars"), even for a job
     that writes nothing;
   - **managing calendars themselves** (creating, clearing, deleting or
-    sharing a calendar, its access list): full calendar access, which also
-    lets it share and delete calendars. Offer these only when the job needs
+    sharing a calendar, its access list): the widest Calendar sign-in, which
+    also lets it share and delete calendars. Offer these only when the job needs
     them.
   - The tools are named in the connect: a connect that names none asks for the
     app's widest access, so the taf's planned tools are always named when it
     connects.
+- **The approval shows how far Google's sign-in reaches,** from planque's
+  grant (`usual_access`, its `scopes`). Coach doesn't restate it, at any
+  step: not in a question, its options, the plan or a message.
 - **No paid plan is needed.** Rooms and buildings
   (`GOOGLECALENDAR_LIST_BUILDINGS`, `GOOGLECALENDAR_LIST_CALENDAR_RESOURCES`)
   exist only on business accounts.

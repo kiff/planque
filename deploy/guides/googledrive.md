@@ -25,9 +25,9 @@ Drive access between files-the-taf-made and full, so:
   the taf made is narrower, but planque doesn't ask for it: a tool that lists
   it may still need more, and the taf then fails on the owner's own files.
 - **The Card limits the taf, not the sign-in.** planque's grant says when the
-  sign-in is wider than the job (`usual_access`, and its `scopes`). Tell the
-  owner what Google's page will ask for, and never describe the connection or
-  its sign-in as limited to reading.
+  sign-in is wider than the job (`usual_access`, and its `scopes`). The
+  approval shows it, from the grant; Coach doesn't restate it, at any step,
+  and never describes the connection or its sign-in as limited to reading.
 - The tools are named in the connect: a connect that names none asks for the
   app's widest access, so the taf's planned tools are always named when it
   connects.
