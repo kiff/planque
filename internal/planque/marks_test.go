@@ -1,7 +1,9 @@
 package planque
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -198,6 +200,13 @@ func intercomHosts2() []string {
 func TestTheMarkHistoryIsKeptAndTheCatalogSaysManaged(t *testing.T) {
 	e, _, devices := catalogEnv(t)
 	ada := devices["op_ada"]
+	// Three changes within a fraction of a second, at times whose text sorts
+	// wrongly when trailing zeros are dropped (.12, .123, .125): the history
+	// must still read in the order they happened.
+	base := time.Now().UTC().Truncate(time.Second)
+	var offset time.Duration
+	e.s.Now = func() time.Time { return base.Add(offset) }
+	offset = 120 * time.Millisecond
 	if st, _ := markAsk(t, e, ada, "op_ada", "Qonto", []string{"thirdparty.qonto.com"}, "2026-11-17"); st != http.StatusOK {
 		t.Fatal("set")
 	}
@@ -213,9 +222,11 @@ func TestTheMarkHistoryIsKeptAndTheCatalogSaysManaged(t *testing.T) {
 		t.Fatalf("the catalog read doesn't say Qonto's entry is managed: %v", out)
 	}
 	cur := e.s.managedMarks()["qonto"]
+	offset = 123 * time.Millisecond
 	if st, _ := markWithdraw(t, e, ada, "op_ada", "Qonto", cur.Digest); st != http.StatusOK {
 		t.Fatal("withdraw")
 	}
+	offset = 125 * time.Millisecond
 	if st, _ := markAsk(t, e, ada, "op_ada", "Qonto", []string{"thirdparty.qonto.com"}, "2026-11-18"); st != http.StatusOK {
 		t.Fatal("set again")
 	}
@@ -274,3 +285,128 @@ func TestAForgedOrAlteredMarkRowIsNotAMark(t *testing.T) {
 func storeItem(pk, sk string, doc []byte) store.Item { return store.Item{PK: pk, SK: sk, Doc: doc} }
 func storeCond() store.Cond                          { return store.Cond{NotExists: true} }
 func storeCondVer(v *int64) store.Cond               { return store.Cond{Ver: v} }
+
+// A mark is read only while the operator whose device signed it is still
+// enrolled: removing an operator (rotating their device out) stops what they
+// signed from counting, as it does for a published catalog revision, and
+// enrolling them again, or another operator signing the mark again, brings it
+// back.
+func TestMarksSignedByAnOperatorNoLongerEnrolledStopCounting(t *testing.T) {
+	e, _, devices := catalogEnv(t)
+	if st, _ := markAsk(t, e, devices["op_ben"], "op_ben", "Moneybird", []string{"moneybird.com"}, "2026-11-17"); st != http.StatusOK {
+		t.Fatal("set")
+	}
+	entry := CatalogEntry{Vendor: "Moneybird", API: &apiAsk{Base: "https://moneybird.com/api/v2"}}
+	if !e.s.managedAllowed("tnt_x", "moneybird") || !e.s.entryManaged(entry) {
+		t.Fatal("a mark by an enrolled operator")
+	}
+	all := e.s.CatalogOperators
+	rotated := map[string]CatalogOperator{}
+	for id, op := range all {
+		if id != "op_ben" {
+			rotated[id] = op
+		}
+	}
+	e.s.CatalogOperators = rotated
+	e.s.forgetMarks()
+	if e.s.managedAllowed("tnt_x", "moneybird") || e.s.entryManaged(entry) {
+		t.Fatal("a mark by an operator no longer enrolled still counts")
+	}
+	if got := e.s.managedMarks(); len(got) != 0 {
+		t.Fatalf("marks read with no signer: %v", got)
+	}
+	// Another operator signs it again: it counts under that signature.
+	if st, _ := markAsk(t, e, devices["op_ada"], "op_ada", "Moneybird", []string{"moneybird.com"}, "2026-11-17"); st != http.StatusOK {
+		t.Fatal("signed again")
+	}
+	if !e.s.managedAllowed("tnt_x", "moneybird") {
+		t.Fatal("a mark signed again by an enrolled operator")
+	}
+	// The first operator back: nothing changes the mark in the table.
+	e.s.CatalogOperators = all
+	e.s.forgetMarks()
+	if !e.s.managedAllowed("tnt_x", "moneybird") {
+		t.Fatal("still marked")
+	}
+}
+
+// kiff-qa's reproduction: rotating an operator out also drops the withdrawals
+// they signed, and a seeded vendor must not become managed again. A row that
+// exists but no longer counts reads off, never the seed.
+func TestRotatingOutAWithdrawingOperatorDoesNotBringTheSeedBack(t *testing.T) {
+	e, _, devices := catalogEnv(t)
+	e.s.ManagedApps = map[string]bool{"googlesheets": true}
+	ben := devices["op_ben"]
+	if st, _ := markAsk(t, e, ben, "op_ben", "Google Sheets", []string{"sheets.googleapis.com"}, "2026-11-17"); st != http.StatusOK {
+		t.Fatal("set")
+	}
+	cur := e.s.managedMarks()["googlesheets"]
+	if st, _ := markWithdraw(t, e, ben, "op_ben", "Google Sheets", cur.Digest); st != http.StatusOK {
+		t.Fatal("withdraw")
+	}
+	if e.s.managedAllowed("tnt_x", "googlesheets") {
+		t.Fatal("withdrawn, and the seed let it through")
+	}
+	all := e.s.CatalogOperators
+	rotated := map[string]CatalogOperator{}
+	for id, op := range all {
+		if id != "op_ben" {
+			rotated[id] = op
+		}
+	}
+	e.s.CatalogOperators = rotated
+	e.s.forgetMarks()
+	if e.s.managedAllowed("tnt_x", "googlesheets") {
+		t.Fatal("rotating the withdrawing operator out brought the seeded vendor back")
+	}
+	// Every other seeded vendor, with no row at all, still follows the seed.
+	e.s.ManagedApps["moneybird"] = true
+	if !e.s.managedAllowed("tnt_x", "moneybird") {
+		t.Fatal("a vendor with no row follows the seed")
+	}
+	// A row altered after signing reads off too.
+	it, _, _ := e.s.KV.Get(t.Context(), markPK, "MANAGED#googlesheets")
+	var m managedMark
+	_ = json.Unmarshal(it.Doc, &m)
+	m.State = markActive
+	doc, _ := json.Marshal(m)
+	ver := it.Ver
+	e.s.CatalogOperators = all
+	if err := e.s.KV.Put(t.Context(), storeItem(markPK, "MANAGED#googlesheets", doc), storeCondVer(&ver)); err != nil {
+		t.Fatal(err)
+	}
+	e.s.forgetMarks()
+	if e.s.managedAllowed("tnt_x", "googlesheets") {
+		t.Fatal("a withdrawal turned back to active by editing the row was honoured")
+	}
+}
+
+// failQuery is a table that can't be read.
+type failQuery struct{ store.KV }
+
+func (failQuery) Query(context.Context, string, string) ([]store.Item, error) {
+	return nil, errors.New("down")
+}
+
+// While the table can't be read, and nothing was read before, the gate
+// refuses managed connections: it never follows a seed it can't check
+// against a withdrawal. A test tenant is still let through.
+func TestAnUnreadableMarksTableRefusesManaged(t *testing.T) {
+	e, _, _ := catalogEnv(t)
+	e.s.ManagedApps = map[string]bool{"googlesheets": true}
+	e.s.ManagedTestTenants = map[string]bool{"tnt_test": true}
+	good := e.s.KV
+	e.s.KV = failQuery{good}
+	e.s.forgetMarks()
+	if e.s.managedAllowed("tnt_x", "googlesheets") {
+		t.Fatal("a seeded vendor was allowed while the marks couldn't be read")
+	}
+	if !e.s.managedAllowed("tnt_test", "googlesheets") {
+		t.Fatal("a test tenant is let through whatever")
+	}
+	e.s.KV = good
+	e.s.forgetMarks()
+	if !e.s.managedAllowed("tnt_x", "googlesheets") {
+		t.Fatal("readable again: the seed")
+	}
+}
