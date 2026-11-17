@@ -1785,8 +1785,8 @@ func TestASignOutKIFFDidntTakeIsToldBySweep(t *testing.T) {
 // A second taf's request reuses a connected sign-in and waits for approval.
 // The first is disconnected and keeps the sign-in for the second; then the
 // second's hold runs out, the last on it, and the sign-in is revoked at the
-// vendor and dropped, never left live with no grant to revoke it (qa-kiff
-// on #108).
+// vendor and dropped, never left live with no grant to revoke it
+// (#108).
 func TestASharedSignInIsRevokedWhenTheLastOnItExpires(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

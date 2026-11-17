@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// R6's guard (qa-kiff): an account's own address stays on the description's own server domain, https only, so the
+// R6's guard: an account's own address stays on the description's own server domain, https only, so the
 // key never goes where a page or a request names. "https://{subdomain}.pay.example/v1": acme.pay.example, never
 // pay.example.attacker.example, attacker.example or acme.pay.example.attacker.example.
 func TestAnAccountsAddressStaysOnTheDescriptionsDomain(t *testing.T) {

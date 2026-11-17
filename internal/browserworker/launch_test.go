@@ -16,7 +16,7 @@ import (
 )
 
 // The browser's every way out is the proxy: the proxy flag, no bypass for
-// loopback, and WebRTC's UDP confined to it (agentgabo's review of
+// loopback, and WebRTC's UDP confined to it (the review of
 // kiff/planque#89: a STUN or TURN candidate would otherwise go around an
 // HTTP proxy to any address).
 func TestLaunchArgsSendEverythingThroughTheProxy(t *testing.T) {
@@ -108,7 +108,7 @@ func TestWorkerWebRTCProbesNoAddress(t *testing.T) {
 // A cross-site iframe is its own target under site isolation: WebRTC is
 // gone there too, before its script runs, and the trap gets nothing. The
 // page on 127.0.0.1 embeds a frame from localhost, another site to the
-// browser. (agentgabo's review of kiff/planque#89, round 2.)
+// browser. (kiff/planque#89, round 2.)
 func TestWorkerWebRTCIsGoneInACrossSiteFrame(t *testing.T) {
 	w, s := worker(t), shop(t)
 	trap, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -200,7 +200,7 @@ func TestWorkerWebRTCIsGoneInACrossSiteFrame(t *testing.T) {
 
 // A tap lands where the frame says: the frame is the browser's own pixels
 // (its size is the window's), and a tap at an element's centre in those
-// pixels focuses it, so what is typed next goes there. (agentgabo's
+// pixels focuses it, so what is typed next goes there. (The
 // review of kiff/planque#95: the view maps taps by the frame's size.)
 func TestWorkerTapLandsWhereTheFrameSays(t *testing.T) {
 	w, s := worker(t), shop(t)

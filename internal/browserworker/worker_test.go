@@ -173,7 +173,7 @@ func TestWorkerReadsTheShopAndMasksSecrets(t *testing.T) {
 // 2. Placing an order is a fact read from the page, in no language: an
 // unlabelled icon button posting to /buy on a page that isn't a checkout,
 // and "Commander" on a French checkout whose total is "2,50 €".
-// (agentgabo's ask on kiff/planque#88.)
+// (ask on kiff/planque#88.)
 func TestWorkerReadsPlacesOrderWithoutWords(t *testing.T) {
 	w, s := worker(t), shop(t)
 	ctx := context.Background()

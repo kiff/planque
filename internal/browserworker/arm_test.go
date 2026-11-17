@@ -20,7 +20,7 @@ func (f *fakeCaller) call(_ context.Context, _ string, method string, _ any, _ a
 }
 
 // A frame that can't be armed against WebRTC is closed, never released:
-// no runIfWaitingForDebugger reaches it (agentgabo's condition on
+// no runIfWaitingForDebugger reaches it (the review's condition on
 // kiff/planque#89 before the worker is deployed). One that is armed is
 // released; a worker, which has no Page domain, is released without it.
 func TestArmTargetFailsClosed(t *testing.T) {

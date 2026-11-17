@@ -245,7 +245,7 @@ func TestBrowserSignInViewAnotherAskReplacesTheOpenOne(t *testing.T) {
 
 // 3. A call that started before the owner's Done seals nothing over the
 // fresh sign-in: it seals only over the state it started from, and that
-// state moved on. (agentgabo's follow-up on #95.)
+// state moved on. (follow-up on #95.)
 func TestBrowserCallAcrossDoneKeepsTheFreshSignIn(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
