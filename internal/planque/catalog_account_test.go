@@ -1,10 +1,13 @@
 package planque
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kiff/planque/internal/openapi"
 )
 
 const zendeskTemplate = "https://{account}.zendesk.com/api/v2"
@@ -41,7 +44,7 @@ func TestOnlyAnAccountOnTheVendorsOwnDomainIsATemplate(t *testing.T) {
 // vendor's own domain.
 func TestAnAccountIsOneLabelOnTheVendorsDomain(t *testing.T) {
 	a := &apiAsk{URL: "https://example.com/spec.json", Base: zendeskTemplate}
-	got, why := resolveEntryAPI(a, "Acme", "")
+	got, why := resolveEntryAPI(a, "Acme", "", "")
 	if why != "" || got.Base != "https://acme.zendesk.com/api/v2" || a.Base != zendeskTemplate {
 		t.Fatalf("acme: %q %+v (the entry must stay a template: %s)", why, got, a.Base)
 	}
@@ -50,22 +53,22 @@ func TestAnAccountIsOneLabelOnTheVendorsDomain(t *testing.T) {
 		strings.Repeat("a", 64), "аcme", // a Cyrillic а
 		"acme/..", "acme%2f", "acme\n", "acme evil", "a.b", "[::1]",
 	} {
-		if got, why := resolveEntryAPI(a, bad, ""); why == "" {
+		if got, why := resolveEntryAPI(a, bad, "", ""); why == "" {
 			t.Errorf("account %q was accepted as %s", bad, got.Base)
 		}
 	}
 	// 63 characters is the most a label can be.
-	if _, why := resolveEntryAPI(a, strings.Repeat("a", 63), ""); why != "" {
+	if _, why := resolveEntryAPI(a, strings.Repeat("a", 63), "", ""); why != "" {
 		t.Errorf("63 characters: %s", why)
 	}
 	// An entry at an account's address takes the account, never a base; the other kinds take neither.
-	if _, why := resolveEntryAPI(a, "acme", "https://evil.example"); why == "" {
+	if _, why := resolveEntryAPI(a, "acme", "https://evil.example", ""); why == "" {
 		t.Error("a base was taken beside an account")
 	}
-	if _, why := resolveEntryAPI(&apiAsk{URL: a.URL, Base: "https://api.example.com/v1"}, "acme", ""); why == "" {
+	if _, why := resolveEntryAPI(&apiAsk{URL: a.URL, Base: "https://api.example.com/v1"}, "acme", "", ""); why == "" {
 		t.Error("a fixed entry took an account")
 	}
-	if _, why := resolveEntryAPI(&apiAsk{URL: a.URL, Base: "https://api.example.com/v1"}, "", ""); why != "" {
+	if _, why := resolveEntryAPI(&apiAsk{URL: a.URL, Base: "https://api.example.com/v1"}, "", "", ""); why != "" {
 		t.Error("a fixed entry refused an ask with none")
 	}
 }
@@ -73,16 +76,16 @@ func TestAnAccountIsOneLabelOnTheVendorsDomain(t *testing.T) {
 // Regions are a closed list per entry, the owner picking one; nothing else.
 func TestRegionsAreAClosedList(t *testing.T) {
 	a := &apiAsk{URL: "https://example.com/spec.json", Bases: []string{"https://api.example.com", "https://api.eu.example.com"}}
-	got, why := resolveEntryAPI(a, "", "https://api.eu.example.com")
+	got, why := resolveEntryAPI(a, "", "https://api.eu.example.com", "")
 	if why != "" || got.Base != "https://api.eu.example.com" || len(got.Bases) != 0 {
 		t.Fatalf("eu: %q %+v", why, got)
 	}
 	for _, bad := range []string{"", "https://api.evil.example", "https://api.eu.example.com/", "http://api.eu.example.com", "https://api.eu.example.com:444"} {
-		if got, why := resolveEntryAPI(a, "", bad); why == "" {
+		if got, why := resolveEntryAPI(a, "", bad, ""); why == "" {
 			t.Errorf("region %q was accepted as %s", bad, got.Base)
 		}
 	}
-	if _, why := resolveEntryAPI(a, "acme", ""); why == "" {
+	if _, why := resolveEntryAPI(a, "acme", "", ""); why == "" {
 		t.Error("an account was taken on an entry with regions")
 	}
 }
@@ -190,5 +193,91 @@ func TestAGrantFromAnAccountEntryKeepsItsAddress(t *testing.T) {
 	}
 	if strings.Contains(g.Text, "{account}") {
 		t.Fatalf("the approval shows the template: %s", g.Text)
+	}
+}
+
+// The owner's login is one email address that fills a Basic username as given:
+// Zendesk's "{login}/token" and Gorgias's "{login}". Nothing in it can end the
+// username early, add a path or a second address, and an entry without the
+// variable takes no login at all.
+func TestALoginFillsTheBasicUsernameAndNothingElse(t *testing.T) {
+	zendesk := &apiAsk{URL: "https://example.com/spec.json", Base: zendeskTemplate, Auth: openapi.Auth{In: "basic", User: "{login}/token"}}
+	got, why := resolveEntryAPI(zendesk, "acme", "", "ana@example.com")
+	if why != "" || got.Auth.User != "ana@example.com/token" || zendesk.Auth.User != "{login}/token" {
+		t.Fatalf("zendesk: %q %+v (the entry must stay a template: %s)", why, got, zendesk.Auth.User)
+	}
+	plain := &apiAsk{URL: "https://example.com/spec.json", Base: zendeskTemplate, Auth: openapi.Auth{In: "basic", User: "{login}"}}
+	if got, why := resolveEntryAPI(plain, "acme", "", "ana+tafs@example.co.uk"); why != "" || got.Auth.User != "ana+tafs@example.co.uk" {
+		t.Fatalf("gorgias: %q %+v", why, got)
+	}
+	for _, bad := range []string{
+		"", " ", "ana", "ana@", "@example.com", "ana@example", "ana@@example.com", "ana@example.com ", " ana@example.com",
+		"ana@example.com/token", "ana:pw@example.com", "ana@example.com\n", "ana@exa mple.com", "a,b@example.com",
+		"ana@example.com,bob@example.com", `"ana"@example.com`, "ana<x>@example.com", strings.Repeat("a", 65) + "@example.com",
+		"аna@example.com", // a Cyrillic а
+	} {
+		if got, why := resolveEntryAPI(zendesk, "acme", "", bad); why == "" {
+			t.Errorf("login %q was taken: %+v", bad, got)
+		}
+	}
+	if _, why := resolveEntryAPI(&apiAsk{URL: zendesk.URL, Base: zendeskTemplate, Auth: openapi.Auth{In: "header", Name: "X-Key"}}, "acme", "", "ana@example.com"); why == "" {
+		t.Error("an entry whose key is the whole credential took a login")
+	}
+	if _, why := resolveEntryAPI(nil, "", "", "ana@example.com"); why == "" {
+		t.Error("an entry with no API took a login")
+	}
+}
+
+// A catalog entry may only use the login in a Basic username, as the login or
+// the login and "/token": any other braces are refused when the catalog loads.
+// It is the shipped Freshdesk entry with its Basic auth replaced.
+func TestACatalogEntryUsesTheLoginOnlyAsABasicUsername(t *testing.T) {
+	conf, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var all map[string]map[string]any
+	if err := json.Unmarshal(conf, &all); err != nil {
+		t.Fatal(err)
+	}
+	entry := all["freshdesk-key@1"]
+	for _, tc := range []struct {
+		auth string
+		ok   bool
+	}{
+		{`{"in":"basic","user":"{login}/token"}`, true},
+		{`{"in":"basic","user":"{login}"}`, true},
+		{`{"in":"basic","user":"me@example.com/token"}`, true},
+		{`{"in":"basic","user":"{login}/other"}`, false},
+		{`{"in":"basic","user":"x{login}"}`, false},
+		{`{"in":"basic","user":"{login}{login}"}`, false},
+		{`{"in":"basic","user":"{other}"}`, false},
+		{`{"in":"basic","user":"{login"}`, false},
+	} {
+		var auth map[string]any
+		if err := json.Unmarshal([]byte(tc.auth), &auth); err != nil {
+			t.Fatal(err)
+		}
+		changed := map[string]any{}
+		for k, v := range entry {
+			changed[k] = v
+		}
+		api := map[string]any{}
+		for k, v := range entry["api"].(map[string]any) {
+			api[k] = v
+		}
+		api["auth"] = auth
+		changed["api"] = api
+		raw, err := json.Marshal(map[string]any{"freshdesk-key@1": changed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = DecodeCatalog(raw, nil)
+		if tc.ok && err != nil {
+			t.Errorf("%s was refused: %v", tc.auth, err)
+		}
+		if !tc.ok && (err == nil || !strings.Contains(err.Error(), "Basic username")) {
+			t.Errorf("%s was taken, or refused for another reason: %v", tc.auth, err)
+		}
 	}
 }

@@ -100,6 +100,9 @@ func TestEveryShippedKeyEntryPinsItsDescriptionAndHoldsItsWrites(t *testing.T) {
 			case accountTemplate(entry.API.Base):
 				ask["account"] = "acme"
 			}
+			if loginTemplate(entry.API.Auth) {
+				ask["login"] = "ana@example.com"
+			}
 			st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/"+id+"/grants", ask, nil, "k_setup")
 			if st != 201 || out["needs_key"] != true {
 				t.Fatalf("key grant: %d %v", st, out)
@@ -303,5 +306,58 @@ func TestThePipedriveNoteWriteTakesItsWordsAndItsLeadOnly(t *testing.T) {
 	}
 	if len(toolArguments(t, entry, write)) != 2 {
 		t.Errorf("pipedrive_add_note must take exactly content and lead_id: %v", toolArguments(t, entry, write))
+	}
+}
+
+// Zendesk takes the owner's login: the grant is asked with it, keeps it as the
+// Basic username it was approved with (the key stays the password), and a login
+// that isn't one email address is refused before any grant exists.
+func TestAZendeskGrantKeepsTheOwnersLoginAsItsUsername(t *testing.T) {
+	conf, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := DecodeCatalog(conf, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := entries["zendesk-key@1"]
+	description, err := os.ReadFile("../../deploy/specs/" + path.Base(entry.API.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newInProcessEnv(t)
+	e.enrol()
+	e.s.CatalogEntries = entries
+	e.s.REST.HTTP = &http.Client{Transport: applicationTransport(func(r *http.Request) (*http.Response, error) {
+		return profileResponse(200, string(description)), nil
+	})}
+	ask := func(login string) map[string]string {
+		m := map[string]string{"agent": "agt_taf", "account": "acme"}
+		if login != "" {
+			m["login"] = login
+		}
+		return m
+	}
+	grants := "/v1/accounts/" + tenant + "/catalog/zendesk-key@1/grants"
+	for _, bad := range []string{"", "ana", "ana@example.com/token", "ana@example.com,bob@example.com", "ana:x@example.com"} {
+		if st, out := e.do("POST", grants, ask(bad), nil, "k_setup"); st != 400 {
+			t.Errorf("login %q: %d %v", bad, st, out)
+		}
+	}
+	st, out := e.do("POST", grants, ask("ana@example.com"), nil, "k_setup")
+	if st != 201 || out["needs_key"] != true {
+		t.Fatalf("key grant: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(t.Context(), tenant, out["grant"].(map[string]any)["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Request.API.Base != "https://acme.zendesk.com" || g.Request.API.Auth.User != "ana@example.com/token" || g.Request.API.Auth.Password != "" {
+		t.Fatalf("the grant's address and username: %+v", g.Request.API)
+	}
+	// The entry stays a template: one owner's login never reaches another's grant.
+	if entries["zendesk-key@1"].API.Auth.User != "{login}/token" {
+		t.Fatal("the catalog entry was changed by a grant")
 	}
 }

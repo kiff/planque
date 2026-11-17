@@ -631,6 +631,20 @@ label and an IDN look-alike are refused with a 400. The catalog read lists the
 template as `account` and the list as `regions`, so the asking agent knows
 which to give.
 
+**A login in the Basic username.** Some vendors take the customer's own login
+beside the key: an API token is the password and the username is an email
+address (Zendesk's `login/token`). An entry says so with `"auth": {"in":
+"basic", "user": "{login}/token"}`, or `"user": "{login}"`: those two forms
+only, and any other brace in a username is refused when the catalog loads. The
+grant request then names `login`: one email address of letters, digits and
+`. _ % + -` before the `@`, a domain of at least two labels, at most 254
+characters. A space, colon, slash, comma, quote, bracket or non-ASCII character,
+a second address, or a login on an entry that has no `{login}` is a 400. The
+grant keeps the one username it was approved with, the owner reads it in the
+approval as for any Basic username, the key stays the password and is never
+shown, and the entry itself stays a template. The catalog read lists such an
+entry with `"login": true`.
+
 The address is fixed in the grant: the signed request holds the one address it
 was approved with (`api.base`), the approval shows its host ("acme.example.com"),
 and no tool has an argument that can change it. Changing it is a new

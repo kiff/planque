@@ -144,6 +144,9 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 		if e.API.Auth.Check() != nil {
 			return errors.New("a key catalog entry must say where the key goes")
 		}
+		if strings.ContainsAny(e.API.Auth.User, "{}") && (e.API.Auth.In != "basic" || !loginUserValid(e.API.Auth.User)) {
+			return errors.New("a key catalog entry's Basic username is fixed, or {login} or {login}/token, the owner's own login")
+		}
 		server, api = e.API.Base, &APIRequest{}
 		if len(e.API.Bases) > 0 {
 			server = e.API.Bases[0]
@@ -181,8 +184,10 @@ type catalogEntryView struct {
 	// these, the grant asks which.
 	Account string   `json:"account,omitempty"`
 	Regions []string `json:"regions,omitempty"`
-	State   string   `json:"state"`
-	Grant   string   `json:"grant,omitempty"`
+	// Login: the grant asks for the owner's login at the vendor, an email.
+	Login bool   `json:"login,omitempty"`
+	State string `json:"state"`
+	Grant string `json:"grant,omitempty"`
 	// Proved: the app connects today this entry's way, as a check connected
 	// it, since when and where that's recorded (proved.json). None for an
 	// app no check has connected this way.
@@ -215,6 +220,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 				v.Account = e.API.Base
 			}
 			v.Regions = e.API.Bases
+			v.Login = loginTemplate(e.API.Auth)
 		}
 		if state, ok := states[id]; ok {
 			v.State, v.Grant = state.State, state.Grant

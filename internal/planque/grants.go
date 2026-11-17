@@ -231,6 +231,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			// grant, shown on the approval, never a tool's argument.
 			Account string `json:"account"`
 			Base    string `json:"base"`
+			// Login is the owner's own login at the vendor, an email, for an
+			// entry whose HTTP Basic username is it: shown on the approval
+			// as the username, never a tool's argument.
+			Login string `json:"login"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
@@ -242,7 +246,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			s.fail(w, r, err)
 			return
 		}
-		api, why := resolveEntryAPI(entry.API, ask.Account, ask.Base)
+		api, why := resolveEntryAPI(entry.API, ask.Account, ask.Base, ask.Login)
 		if why != "" {
 			writeErr(w, http.StatusBadRequest, why)
 			return

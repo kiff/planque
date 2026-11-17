@@ -1543,5 +1543,114 @@
       }
     ],
     "vendor": "Typeform"
+  },
+  "zendesk-key@1": {
+    "api": {
+      "auth": {
+        "in": "basic",
+        "name": "",
+        "user": "{login}/token"
+      },
+      "base": "https://{account}.zendesk.com",
+      "operations": [
+        "ListTickets",
+        "ListSearchResults",
+        "ShowTicket",
+        "ListTicketComments",
+        "ShowUser",
+        "UpdateTicket"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/zendesk-key-openapi.json"
+    },
+    "description_sha256": "b1fb65fc2eedb2a0870db09705c46df281ba9e89d1787eabefdf2595d04d2ce9",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "zendesk-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the tickets",
+          "tool": "zendesk_list_tickets"
+        },
+        {
+          "kind": "read",
+          "title": "Search tickets",
+          "tool": "zendesk_search"
+        },
+        {
+          "kind": "read",
+          "title": "Read one ticket",
+          "tool": "zendesk_read_ticket"
+        },
+        {
+          "kind": "read",
+          "title": "Read a ticket's comments",
+          "tool": "zendesk_read_comments"
+        },
+        {
+          "kind": "read",
+          "title": "Read one user",
+          "tool": "zendesk_read_user"
+        },
+        {
+          "effect": "sends",
+          "kind": "write",
+          "required_arguments": [
+            "ticket",
+            "ticket_id"
+          ],
+          "shape": "single",
+          "title": "Reply to a ticket or set its status",
+          "tool": "zendesk_update_ticket"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Zendesk"
+    },
+    "title": "Zendesk: read tickets, comments and users, reply or set the status",
+    "tools": [
+      {
+        "tool": "ListTickets",
+        "name": "zendesk_list_tickets",
+        "title": "List the tickets",
+        "read_only": true
+      },
+      {
+        "tool": "ListSearchResults",
+        "name": "zendesk_search",
+        "title": "Search tickets",
+        "read_only": true
+      },
+      {
+        "tool": "ShowTicket",
+        "name": "zendesk_read_ticket",
+        "title": "Read one ticket",
+        "read_only": true
+      },
+      {
+        "tool": "ListTicketComments",
+        "name": "zendesk_read_comments",
+        "title": "Read a ticket's comments",
+        "read_only": true
+      },
+      {
+        "tool": "ShowUser",
+        "name": "zendesk_read_user",
+        "title": "Read one user",
+        "read_only": true
+      },
+      {
+        "tool": "UpdateTicket",
+        "name": "zendesk_update_ticket",
+        "title": "Reply to a ticket or set its status"
+      }
+    ],
+    "vendor": "Zendesk"
   }
 }
