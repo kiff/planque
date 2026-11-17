@@ -469,8 +469,15 @@ to `access_type`, `prompt`, `include_granted_scopes` and `audience`; they
 cannot override the client, redirect or one-use state.
 
 `PLANQUE_APP_SECRETS` is a JSON object mapping configured application ids
-to Secrets Manager references. The process's role needs `GetSecretValue`
-only for those references. Each secret contains `client_id` and
+to Secrets Manager references. With `PLANQUE_APP_SECRET_PREFIX`
+(`planque/apps/` as deployed), an application with no reference of its own
+uses the secret named that prefix plus its id (`planque/apps/googlesheets`),
+so a new application needs only its definition and its secret. The id must
+still be an application id by its pattern, so no grant can name another
+secret. The process's role needs `GetSecretValue` only for those references,
+or under that prefix. As deployed, the definitions are `deploy/apps.json`,
+reviewed like the catalog, with a security read of every scope, since a
+scope's breadth is the definition's to keep narrow: no code can check it. Each secret contains `client_id` and
 `client_secret`; reads use `AWSCURRENT`. No reference or secret value is
 accepted in a grant request. Without this setting, the operator may provision
 credentials through the Go `appcredentials.Sealed` interface, backed by the

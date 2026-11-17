@@ -31,6 +31,13 @@
 # server is, ships with the function and is read at start
 # (PLANQUE_SERVER_APPS_FILE).
 #
+# deploy/apps.json, the reviewed definitions of the apps planque signs in to
+# with KIFF's own OAuth client (PLANQUE_APPS_FILE), ships the same way. Each
+# app's client is the Secrets Manager secret planque/apps/<its id>
+# (PLANQUE_APP_SECRET_PREFIX), and the function may read secrets under that
+# prefix alone: a new app needs its definition row and its secret, nothing
+# here.
+#
 # deploy/catalog.json, the reviewed vendor catalog (connections an agent asks
 # for by entry, such as Qonto by key), ships with it too and is read at start
 # (PLANQUE_CATALOG_FILE). Each key entry pins its description's SHA-256; the
@@ -77,7 +84,9 @@ build() {
     cp "$ROOT/deploy/server-apps.json" "$out/server-apps.json"
     # The reviewed vendor catalog, read at start too.
     cp "$ROOT/deploy/catalog.json" "$out/catalog.json"
-    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json)
+    # The reviewed apps planque signs in to with KIFF's own client.
+    cp "$ROOT/deploy/apps.json" "$out/apps.json"
+    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json apps.json)
   else
     (cd "$out" && zip -q function.zip bootstrap)
   fi
@@ -98,6 +107,8 @@ role() {
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
+    # KIFF's own OAuth clients, one secret per app, under planque/apps/ alone.
+    stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"arn:aws:secretsmanager:$REGION:$ACCOUNT:secret:planque/apps/*\"}"
     # KIFF's receiver and its signing secret go together, as planque checks
     # at start: half of the pair is refused here, before anything changes.
     if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then
@@ -202,7 +213,7 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # ("v1", "false") to turn it off. cmd/planque checks every PLANQUE_
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
-    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json"}
+    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}

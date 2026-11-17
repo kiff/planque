@@ -1,3 +1,10 @@
 # Either listed maintainer can be requested to review a change.
 # CODEOWNERS requests review; branch protection/rulesets enforce approval.
 * @gabosarmiento @agentgabo
+
+# The apps planque signs in to with KIFF's own OAuth client, and the code that
+# reads their definitions and clients: a scope's breadth is a definition's,
+# which no code can check, so each change gets a security read.
+/deploy/apps.json @gabosarmiento @agentgabo @kiff-qa
+/internal/appconfig/ @gabosarmiento @agentgabo @kiff-qa
+/internal/appcredentials/ @gabosarmiento @agentgabo @kiff-qa
