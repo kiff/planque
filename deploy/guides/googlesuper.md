@@ -77,6 +77,9 @@ Everything each app's guide says not to offer, and in particular:
   Card limits the taf, not the sign-in. The apps with no reviewed
   order (Tasks, Meet, Photos and the others) ask for what the connection
   service recommends.
+- **The approval shows how far Google's sign-in reaches,** from planque's
+  grant (`usual_access`, its `scopes`). Coach doesn't restate it, at any
+  step: not in a question, its options, the plan or a message.
 - **The limits are each app's own,** per user: Gmail's sending caps, Drive's
   storage, Sheets' per-minute writes.
 - **A business admin** can block outside apps, and is more likely to for a

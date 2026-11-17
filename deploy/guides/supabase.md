@@ -9,7 +9,7 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **A sign-in to the owner's Supabase account**, held by the connection
   service. The owner picks an organisation at sign-in, and the sign-in gets
-  **full management access to its projects** on the owner's behalf: offer
+  **management of all its projects** on the owner's behalf: offer
   it only to an owner who said they use Supabase, and name the one project
   the job uses.
 - **One approval for the sign-in, one for the tools and the Card.**

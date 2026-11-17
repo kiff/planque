@@ -43,7 +43,7 @@ ids below are what Shopify's answers carry.
 | `SHOPIFY_UPDATE_FULFILLMENT_TRACKING` | Adds or corrects a shipment's tracking | write | the fulfilment id |
 | `SHOPIFY_CREATE_REFUND` | Refunds money on an order | write, money | the refund id |
 
-**What the sign-in asks for:** Shopify's full managed access (34 scopes,
+**What the sign-in asks for:** every scope the managed sign-in offers (34,
 16 Nov). The Card decides what a taf may do: offer the tools the job
 needs, and writes only when the owner asked. A tool the store's install
 doesn't cover is under the grant's catalog's `unusable`.
