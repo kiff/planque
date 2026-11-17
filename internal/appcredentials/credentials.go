@@ -22,6 +22,18 @@ type Credentials struct {
 	Secret   string `json:"-"`
 }
 
+// String names the client and hides its secret, so no log or %v/%+v of a
+// Credentials can print it.
+func (c Credentials) String() string {
+	if c.Secret == "" {
+		return "client " + c.ClientID + " (no secret)"
+	}
+	return "client " + c.ClientID + " (secret hidden)"
+}
+
+// GoString is String for %#v.
+func (c Credentials) GoString() string { return c.String() }
+
 // Reader resolves an operator-configured app id to its credentials.
 type Reader interface {
 	Read(context.Context, string) (Credentials, error)
@@ -35,15 +47,23 @@ var appID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 var ErrUnavailable = errors.New("registered app credentials are unavailable")
 
-// SecretsManager reads only the exact references configured by the operator.
-// A grant cannot turn an app id into an arbitrary secret-store lookup.
+// SecretsManager reads only the references configured by the operator: an
+// app id's own reference, or, with Prefix, the secret named Prefix + id
+// (planque/apps/googlesheets), which the process's role may read under
+// that prefix alone. Either way the id must be a configured app's, by its
+// pattern, so a grant cannot turn an id into an arbitrary secret-store
+// lookup, and a new app needs only its definition and its secret.
 type SecretsManager struct {
 	API        JSONAPI
 	References map[string]string
+	Prefix     string
 }
 
 func (s *SecretsManager) Read(ctx context.Context, id string) (Credentials, error) {
 	ref, ok := s.References[id]
+	if !ok && s.Prefix != "" {
+		ref, ok = s.Prefix+id, true
+	}
 	if !appID.MatchString(id) || !ok || strings.TrimSpace(ref) == "" || s.API == nil {
 		return Credentials{}, ErrUnavailable
 	}

@@ -50,7 +50,8 @@ func newInProcessEnv(t *testing.T) *env {
 	e.s = &Server{BaseURL: e.url, AppReturn: "https://app.example/signed-in", KV: e.kv, Sealer: &seal.Local{Key: make([]byte, 32)},
 		KIFF:    &kiff.Client{API: e.kiff.Issuer, Gateway: e.kiff.Issuer, HTTP: e.client},
 		Permits: &permit.Verifier{Issuer: e.kiff.Issuer, Keys: &permit.JWKS{URL: e.kiff.Issuer + "/.well-known/kiff-permit-keys.json", HTTP: e.client}},
-		OAuth:   &oauth.Client{}, MCP: &mcp.Client{}, REST: &rest.Client{}}
+		OAuth:   &oauth.Client{}, MCP: &mcp.Client{}, REST: &rest.Client{},
+		ManagedTestTenants: map[string]bool{tenant: true}}
 	handler = e.s.Handler()
 	e.phone = e.device("dev_phone")
 	return e

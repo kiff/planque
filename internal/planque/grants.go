@@ -564,6 +564,11 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 // app was asked for by its entry, and the account already holds its sign-in.
 func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant, fromCatalog bool) {
 	switch {
+	// A new connection on a held sign-in, by either route: only to an app
+	// the published list names (managed_apps.go).
+	case !s.managedAllowed(tenant, from.Request.Connector.Toolkit):
+		writeErr(w, http.StatusForbidden, errNotDisclosed)
+		return
 	case more:
 		writeErr(w, http.StatusBadRequest, "reusing a managed app's sign-in takes agent, agent_name and tools: [] alone: pick its tools from the catalog once it's listed")
 		return

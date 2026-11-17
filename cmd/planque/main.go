@@ -24,6 +24,12 @@
 //	PLANQUE_ADDR       listen address outside Lambda, default :8080
 //	PLANQUE_APPS_FILE  optional credential-free registered app definitions
 //	PLANQUE_APP_SECRETS optional JSON map of app ids to secret references
+//	PLANQUE_APP_SECRET_PREFIX optional: an app's secret is the one named
+//	                   this prefix plus its id (planque/apps/), unless
+//	                   PLANQUE_APP_SECRETS names its own
+//	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
+//	                   accounts that may make a managed connection to any app;
+//	                   set at deploy, never kept in the repository
 //	PLANQUE_SIGNIN_READER_SHA256 optional: the hex SHA-256 of the one key that
 //	                   reads an app's managed sign-in state; unset, no one can
 //	PLANQUE_DESCRIBER_SERVERS optional JSON map of HTTPS servers, besides
@@ -45,6 +51,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -67,6 +74,10 @@ import (
 	"github.com/kiff/planque/internal/secretstore"
 	"github.com/kiff/planque/internal/store"
 )
+
+// appSecretPrefix is a Secrets Manager name path: letters, digits and
+// /_+=.@-, ending in a slash, so Prefix+id names one secret under it.
+var appSecretPrefix = regexp.MustCompile(`^[A-Za-z0-9/_+=.@-]{1,200}/$`)
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "guides" {
@@ -170,12 +181,16 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		}
 	}
 	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
-	if raw := os.Getenv("PLANQUE_APP_SECRETS"); raw != "" {
+	raw, prefix := os.Getenv("PLANQUE_APP_SECRETS"), os.Getenv("PLANQUE_APP_SECRET_PREFIX")
+	if raw != "" || prefix != "" {
 		var references map[string]string
-		if json.Unmarshal([]byte(raw), &references) != nil || len(references) == 0 {
+		if raw != "" && (json.Unmarshal([]byte(raw), &references) != nil || len(references) == 0) {
 			return nil, errors.New("PLANQUE_APP_SECRETS must map application ids to secret references")
 		}
-		applicationCredentials = &appcredentials.SecretsManager{References: references, API: &awsapi.Client{
+		if prefix != "" && !appSecretPrefix.MatchString(prefix) {
+			return nil, errors.New("PLANQUE_APP_SECRET_PREFIX must be a secret-name path ending in /")
+		}
+		applicationCredentials = &appcredentials.SecretsManager{References: references, Prefix: prefix, API: &awsapi.Client{
 			Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}}
 	}
 	api := cmp.Or(os.Getenv("KIFF_API"), "https://api.kiff.dev")
@@ -230,12 +245,17 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		}
 		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
 	}
+	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
+	if err != nil {
+		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
+	}
 	return &planque.Server{
-		DigestV2:      os.Getenv("PLANQUE_DIGEST") == "v2",
-		Browser:       browserWorker,
-		DoorSink:      doorSink,
-		EventSink:     eventSink,
-		KIFFEventSink: kiffEventSink,
+		ManagedTestTenants: testTenants,
+		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
+		Browser:            browserWorker,
+		DoorSink:           doorSink,
+		EventSink:          eventSink,
+		KIFFEventSink:      kiffEventSink,
 		// The reviewed Stripe refunds profile, off unless turned on.
 		StripeRefunds:        os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
 		StripeRefundsTenants: refundTenants(os.Getenv("PLANQUE_STRIPE_REFUNDS")),

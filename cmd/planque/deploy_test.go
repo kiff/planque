@@ -117,10 +117,16 @@ aws() {
 			if json.Unmarshal([]byte(lines[0]), &policy) != nil {
 				t.Fatal("invalid IAM policy")
 			}
-			granted := 0
+			granted, apps := 0, 0
 			for _, stmt := range policy.Statement {
 				for _, action := range stmt.Action {
 					if strings.HasPrefix(action, "secretsmanager:") {
+						// KIFF's own OAuth clients: one secret per app, under
+						// planque/apps/ alone, never wider; counted apart.
+						if action == "secretsmanager:GetSecretValue" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:planque/apps/*" {
+							apps++
+							continue
+						}
 						granted++
 						if action != "secretsmanager:GetSecretValue" || (stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" &&
 							!(scenario == "handoff" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu") &&
@@ -133,6 +139,15 @@ aws() {
 			var env struct{ Variables map[string]string }
 			if json.Unmarshal([]byte(lines[1]), &env) != nil {
 				t.Fatal("invalid Lambda environment")
+			}
+			// The apps' clients are readable, under planque/apps/ alone, exactly
+			// when the apps' secret prefix is set; a real deployment sets it.
+			if prefix := env.Variables["PLANQUE_APP_SECRET_PREFIX"]; (prefix != "") != (apps == 1) || apps > 1 ||
+				prefix != "" && (prefix != "planque/apps/" || env.Variables["PLANQUE_APPS_FILE"] != "/var/task/apps.json") {
+				t.Fatalf("the apps' secret prefix %q and %d statements reading it don't go together", prefix, apps)
+			}
+			if scenario == "enabled" && apps != 1 {
+				t.Fatal("a real deployment can't read its apps' clients")
 			}
 			if scenario == "browser" {
 				if env.Variables["PLANQUE_BROWSER_URL"] != "http://worker.demo.internal:8787" || env.Variables["PLANQUE_BROWSER_KEY"] != "k" || env.Variables["PLANQUE_STALE"] != "" {

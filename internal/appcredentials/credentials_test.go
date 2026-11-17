@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,5 +65,68 @@ func TestApplicationCredentialsAreSealedAndBoundToTheirApp(t *testing.T) {
 	}
 	if _, err := s.Read(ctx, "another"); !errors.Is(err, ErrUnavailable) {
 		t.Fatal("one app could open another app's credentials")
+	}
+}
+
+// namedAPI answers for any one secret it's told the name of, and records
+// which names were asked.
+type namedAPI struct{ asked []string }
+
+func (f *namedAPI) Do(_ context.Context, action string, in, out any) error {
+	id := in.(map[string]string)["SecretId"]
+	f.asked = append(f.asked, id)
+	if action != "GetSecretValue" || id != "planque/apps/googlesheets" {
+		return errors.New("no such secret")
+	}
+	return json.Unmarshal([]byte(`{"SecretString":"{\"client_id\":\"sheets-client\",\"client_secret\":\"sheets-secret\"}"}`), out)
+}
+
+// With a prefix, an app's client is the secret named prefix + its id: a new
+// app needs no configuration change. The id still has to look like an app
+// id, so no grant can reach another name, and an app's own reference wins.
+func TestAnAppsClientIsTheSecretNamedForIt(t *testing.T) {
+	api := &namedAPI{}
+	s := &SecretsManager{API: api, Prefix: "planque/apps/", References: map[string]string{"workspace": "configured-app-secret"}}
+	c, err := s.Read(context.Background(), "googlesheets")
+	if err != nil || c.ClientID != "sheets-client" || c.Secret != "sheets-secret" {
+		t.Fatalf("by name: %v %v", c, err)
+	}
+	for _, id := range []string{"../workspace", "googlesheets/../x", "", "Google", "arn:aws:secretsmanager:example", "a/b"} {
+		if _, err := s.Read(context.Background(), id); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("%q was looked up", id)
+		}
+	}
+	if _, err := s.Read(context.Background(), "nosuchapp"); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("a missing secret isn't unavailable")
+	}
+	if _, err := s.Read(context.Background(), "workspace"); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("the configured reference wasn't the one asked")
+	}
+	want := []string{"planque/apps/googlesheets", "planque/apps/nosuchapp", "configured-app-secret"}
+	if strings.Join(api.asked, ",") != strings.Join(want, ",") {
+		t.Fatalf("asked %v, want %v", api.asked, want)
+	}
+	// Without a prefix, only configured references, as before.
+	plain := &SecretsManager{API: &namedAPI{}, References: map[string]string{}}
+	if _, err := plain.Read(context.Background(), "googlesheets"); !errors.Is(err, ErrUnavailable) {
+		t.Fatal("no prefix, yet an unconfigured app was looked up")
+	}
+}
+
+// No way of printing Credentials prints the secret.
+func TestCredentialsNeverPrintTheirSecret(t *testing.T) {
+	c := Credentials{ClientID: "sheets-client", Secret: "sheets-secret"}
+	for _, f := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
+		if got := fmt.Sprintf(f, c); strings.Contains(got, "sheets-secret") || !strings.Contains(got, "sheets-client") {
+			t.Errorf("%s: %s", f, got)
+		}
+	}
+	for _, f := range []string{"%v", "%+v", "%#v"} {
+		if got := fmt.Sprintf(f, &c); strings.Contains(got, "sheets-secret") {
+			t.Errorf("pointer %s: %s", f, got)
+		}
+		if got := fmt.Sprintf(f, struct{ C Credentials }{c}); strings.Contains(got, "sheets-secret") {
+			t.Errorf("nested %s: %s", f, got)
+		}
 	}
 }
