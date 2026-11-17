@@ -209,6 +209,8 @@ func (s *Server) completed(ctx context.Context, g *Grant, name string, claim sto
 		} else {
 			res = unpending(res)
 		}
+		// A vendor whose amounts are minor: each also in its own unit, so the agent never divides (amounts.go).
+		res = withMajorAmounts(g, res)
 	}
 	return s.finish(ctx, claim, op, state, res)
 }
