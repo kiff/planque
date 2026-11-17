@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -115,7 +116,25 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 			}
 		}
 	case e.Kind == KindAPIKey:
-		if e.API == nil || !catalogHTTPS(e.API.URL) || !catalogHTTPS(e.API.Base) || e.Server != "" && e.Server != e.API.Base {
+		if e.API == nil || !catalogHTTPS(e.API.URL) || e.Server != "" && e.Server != e.API.Base {
+			return errors.New("a key catalog entry needs fixed API source and base URLs")
+		}
+		switch {
+		case len(e.API.Bases) > 0:
+			// A closed list of regions, the owner picking one: each a fixed address, with no base beside them.
+			if e.API.Base != "" || len(e.API.Bases) < 2 || len(e.API.Bases) > 8 {
+				return errors.New("a key catalog entry's regions are 2 to 8 fixed addresses, with no base beside them")
+			}
+			for i, b := range e.API.Bases {
+				if !catalogHTTPS(b) || accountTemplate(b) || slices.Contains(e.API.Bases[:i], b) {
+					return errors.New("each of a key catalog entry's regions is a distinct fixed HTTPS address")
+				}
+			}
+		case accountTemplate(e.API.Base):
+			if !templateValid(e.API.Base) {
+				return errors.New("a key catalog entry's account template is https://{account}.<the vendor's own domain>[/path]: the variable once, alone in the first label, and the domain written out")
+			}
+		case !catalogHTTPS(e.API.Base):
 			return errors.New("a key catalog entry needs fixed API source and base URLs")
 		}
 		sum, err := hex.DecodeString(e.DescriptionSHA256)
@@ -126,6 +145,18 @@ func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 			return errors.New("a key catalog entry must say where the key goes")
 		}
 		server, api = e.API.Base, &APIRequest{}
+		if len(e.API.Bases) > 0 {
+			server = e.API.Bases[0]
+		}
+		if accountTemplate(server) {
+			server = sampleBase(server)
+		}
+		// Every region keeps the pinned path the profile reviewed.
+		for _, b := range e.API.Bases {
+			if err := bindProfileTransport(e.Profile, &APIRequest{}, b, header); err != nil {
+				return err
+			}
+		}
 	case e.Kind == "":
 		if !catalogHTTPS(server) || e.API != nil || e.DescriptionSHA256 != "" {
 			return errors.New("an MCP catalog entry needs its fixed server")
@@ -142,8 +173,13 @@ type catalogEntryView struct {
 	Title  string `json:"title"`
 	Icon   string `json:"icon,omitempty"`
 	How    string `json:"how"`
-	State  string `json:"state"`
-	Grant  string `json:"grant,omitempty"`
+	// Account: the entry is at an account's address, as this template; the
+	// grant asks for the owner's account. Regions: the entry is at one of
+	// these, the grant asks which.
+	Account string   `json:"account,omitempty"`
+	Regions []string `json:"regions,omitempty"`
+	State   string   `json:"state"`
+	Grant   string   `json:"grant,omitempty"`
 	// Proved: the app connects today this entry's way, as a check connected
 	// it, since when and where that's recorded (proved.json). None for an
 	// app no check has connected this way.
@@ -170,6 +206,12 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: e.Title, Icon: e.Icon, How: reviewedHow(e), State: "available"}
+		if e.API != nil {
+			if accountTemplate(e.API.Base) {
+				v.Account = e.API.Base
+			}
+			v.Regions = e.API.Bases
+		}
 		if state, ok := states[id]; ok {
 			v.State, v.Grant = state.State, state.Grant
 		}

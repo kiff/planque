@@ -122,8 +122,12 @@ func (s *Server) dropSnapshot(ctx context.Context, tenant, grant string) {
 
 // apiAsk is what a grant request says about the API it calls.
 type apiAsk struct {
-	URL        string       `json:"url"`
-	Base       string       `json:"base"`
+	URL  string `json:"url"`
+	Base string `json:"base"`
+	// Bases, in a reviewed catalog entry alone, is the closed list of
+	// regional addresses the owner picks one of (api.eu.example.com,
+	// api.example.com), with Base left out.
+	Bases      []string     `json:"bases,omitempty"`
 	Auth       openapi.Auth `json:"auth"`
 	Operations []string     `json:"operations,omitempty"`
 }
@@ -133,6 +137,10 @@ type apiAsk struct {
 // refusal in words, for the agent; err is planque's own failure.
 func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, tools []ToolRequest, expectedDigest ...string) (*APIRequest, *openapi.Snapshot, string, error) {
 	a.URL, a.Base = strings.TrimSpace(a.URL), strings.TrimSpace(a.Base)
+	if len(a.Bases) > 0 || strings.Contains(a.Base, "{") {
+		// A template or a list of regions belongs to a reviewed entry, resolved to one address before this.
+		return nil, nil, "api.base is one address: a template or a list of regions is for a catalog entry", nil
+	}
 	a.Auth.In, a.Auth.Name = strings.TrimSpace(a.Auth.In), strings.TrimSpace(a.Auth.Name)
 	if a.URL == "" {
 		return nil, nil, "api.url is required: the vendor's OpenAPI description, in JSON or YAML", nil

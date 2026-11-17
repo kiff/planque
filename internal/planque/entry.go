@@ -245,7 +245,8 @@ func (s *Server) entryReach(e CatalogEntry) (family, server string) {
 		}
 		return "", ""
 	case e.Kind == KindAPIKey:
-		if e.API == nil {
+		if e.API == nil || accountTemplate(e.API.Base) || len(e.API.Bases) > 0 {
+			// An account's or a region's address is the grant's own: it names its entry.
 			return "", ""
 		}
 		return familyREST, e.API.Base

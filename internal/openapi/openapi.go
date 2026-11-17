@@ -518,6 +518,13 @@ func serverURL(v any) (u string, account bool, err error) {
 // so an address can't leave the vendor's own domain or path.
 const accountPart = `[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`
 
+var accountLabel = regexp.MustCompile("^" + accountPart + "$")
+
+// AccountLabel reports whether s is one account label: letters, digits and
+// dashes, at most 63 characters, none of them a dot, an @, a colon or a
+// non-ASCII look-alike.
+func AccountLabel(s string) bool { return accountLabel.MatchString(s) }
+
 // OnAccountServer reports whether base is one of the account servers, each
 // variable filled with one label, https only.
 func OnAccountServer(accounts []string, base string) bool {
