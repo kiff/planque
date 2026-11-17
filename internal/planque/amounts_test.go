@@ -115,6 +115,24 @@ func TestAnAnswersOwnMajorIsReplaced(t *testing.T) {
 	if c := got["charge"].(map[string]any); c["amount_major"] != "1000 JPY" {
 		t.Errorf("charge.amount_major: %v, want 1000 JPY", c["amount_major"])
 	}
+
+	// Where planque can't place the currency (a Stripe special case, an
+	// unknown one), the answer's own is taken away, at any depth; a
+	// _major with no amount and currency beside it is left alone.
+	in = `{"amount": 700, "currency": "isk", "amount_major": "7.00 ISK", "refund": {"amount": 5, "currency": "xyz", "amount_major": "0.05 XYZ"}, "metadata": {"fee_major": "theirs"}}`
+	got = nil
+	if err := json.Unmarshal([]byte(WithMajorAmounts(in, stripeDecimals)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := got["amount_major"]; ok {
+		t.Errorf("amount_major in isk: %v, want none", v)
+	}
+	if v, ok := got["refund"].(map[string]any)["amount_major"]; ok {
+		t.Errorf("refund.amount_major in xyz: %v, want none", v)
+	}
+	if v := got["metadata"].(map[string]any)["fee_major"]; v != "theirs" {
+		t.Errorf("metadata.fee_major: %v, want it left as theirs", v)
+	}
 }
 
 // Only a vendor whose own API says its amounts are minor gets them: Stripe's

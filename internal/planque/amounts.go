@@ -140,7 +140,8 @@ func WithMajorAmounts(text string, decimals Decimals) string {
 }
 
 // addMajor writes <field>_major beside each amount of an object with a known
-// currency, in v and below, replacing one already there that differs; it says
+// currency, in v and below, replacing one already there that differs, and
+// takes one away beside an amount whose currency it can't place; it says
 // whether it changed anything.
 func addMajor(v any, decimals Decimals, depth int) bool {
 	if depth > MaxAmountsDepth {
@@ -150,27 +151,36 @@ func addMajor(v any, decimals Decimals, depth int) bool {
 	switch x := v.(type) {
 	case map[string]any:
 		if cur, ok := x["currency"].(string); ok {
-			if places, known := decimals(cur); known {
-				for k, raw := range x {
-					n, isNum := raw.(json.Number)
-					if !isNum || !isAmountField(k) || strings.ContainsAny(string(n), ".eE") {
-						continue
-					}
-					minor, ok := new(big.Int).SetString(string(n), 10)
-					if !ok {
-						continue
-					}
-					// planque's own figure wins: a <field>_major the answer
-					// already carries beside the amount and its currency is
-					// replaced, so the taf never reads a figure planque
-					// didn't work out from the amount itself.
-					major := MajorAmount(minor, cur, places)
-					if had, ok := x[k+"_major"].(string); ok && had == major {
-						continue
-					}
-					x[k+"_major"] = major
-					added = true
+			places, known := decimals(cur)
+			for k, raw := range x {
+				n, isNum := raw.(json.Number)
+				if !isNum || !isAmountField(k) || strings.ContainsAny(string(n), ".eE") {
+					continue
 				}
+				minor, ok := new(big.Int).SetString(string(n), 10)
+				if !ok {
+					continue
+				}
+				// planque's own figure wins: a <field>_major the answer
+				// already carries beside the amount and its currency is
+				// replaced, and where planque can't place the currency
+				// (Stripe's special cases, an unknown one) it's taken
+				// away, so the taf never reads a figure planque didn't
+				// work out from the amount itself.
+				had, has := x[k+"_major"]
+				if !known {
+					if has {
+						delete(x, k+"_major")
+						added = true
+					}
+					continue
+				}
+				major := MajorAmount(minor, cur, places)
+				if s, ok := had.(string); ok && s == major {
+					continue
+				}
+				x[k+"_major"] = major
+				added = true
 			}
 		}
 		for _, child := range x {
