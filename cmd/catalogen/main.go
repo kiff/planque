@@ -95,6 +95,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The description is kept, and pinned, as JSON, so that every check on
+	// shipped descriptions reads it, whatever form the vendor published it in.
+	if raw, err = openapi.AsJSON(raw); err != nil {
+		return fmt.Errorf("%s: %w", plan.Spec, err)
+	}
 	if *list {
 		snap, err := openapi.ParseToList(raw, plan.Auth)
 		if err != nil {
@@ -222,7 +227,7 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 		"v": "kiff.profile.v1", "vendor": plan.Vendor, "transport": "rest", "pin": pin,
 		"source": "catalog", "catalog_entry": plan.ID, "test_proven": false, "operations": ops,
 	}
-	specName := m[1] + "-openapi" + ext(raw)
+	specName := m[1] + "-openapi.json"
 	entry := map[string]any{
 		"vendor": plan.Vendor, "title": plan.Title, "kind": "api_key",
 		"api":                map[string]any{"url": urlRaw + specName, "base": plan.Base, "auth": plan.Auth, "operations": selected},
@@ -231,14 +236,6 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 		"profile":            profile,
 	}
 	return entry, specName, nil
-}
-
-// ext is the extension a description is kept under: .json when it is JSON.
-func ext(raw []byte) string {
-	if json.Valid(raw) {
-		return ".json"
-	}
-	return ".yaml"
 }
 
 // requiredArgs are the arguments a call must give: the description's own
