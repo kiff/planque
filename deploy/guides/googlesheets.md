@@ -81,8 +81,8 @@ write.
     connects.
 - **The Card limits the taf, not the sign-in.** The sign-in is often wider
   than the job, and planque's grant says so (`usual_access`, and the
-  `scopes` it asks for). Say what Google's page will ask for only once the
-  grant has said it: never before, in a question, its options or the plan.
+  `scopes` it asks for). The approval shows it, from the grant; Coach
+  doesn't restate it, at any step.
   Never describe the connection, its sign-in or a step as limited to
   reading: what the taf may do is its tools and its Card (what waits for
   the owner's yes, what it must never do).

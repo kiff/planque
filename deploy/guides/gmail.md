@@ -13,7 +13,7 @@ Failure table checked against planque's answers on 2026-11-16.
   sign-in, puts the ones its access doesn't cover under `unusable`, with why.
 - **An account that already holds Gmail reuses that sign-in** for a new taf,
   with no browser, when it covers the tools asked. Through the managed
-  sign-in it always does (full mail access, below).
+  sign-in it always does (it reaches the whole mailbox, below).
 - **One approval for the sign-in, one for the tools and the Card.** Ask for
   every tool the job needs in the first request, so nothing is asked twice.
 
@@ -59,14 +59,13 @@ can do more (below).
 
 ## Access and plans
 
-- **Through the managed sign-in, Google's page asks for full mail access**
-  ("read, compose, send and permanently delete"), whatever the taf's tools:
+- **The managed sign-in reaches the whole mailbox:** Google's page asks to
+  "read, compose, send and permanently delete", whatever the taf's tools:
   that sign-in offers no narrower Gmail access. A job that sends nothing
   still has a sign-in that can send and delete.
-  - The approval says so: "Gmail will ask for more access than this taf
-    uses". Coach says it once planque's grant has (`usual_access`), never
-    before (not in a question, its options or the plan), and never "only
-    what this taf needs".
+  - The approval says so, from planque's grant: "Gmail will ask for more
+    access than this taf uses". Coach doesn't restate it, at any step, and
+    never says "only what this taf needs".
   - What the taf may do is still only its tools and its Card. A taf with no
     sending tool can't send, whatever the sign-in allows.
   - Never describe the connection or its sign-in as limited to reading:
