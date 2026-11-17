@@ -139,8 +139,9 @@ func WithMajorAmounts(text string, decimals Decimals) string {
 	return string(out)
 }
 
-// addMajor adds <field>_major beside each amount of an object with a known
-// currency, in v and below; it says whether it added any.
+// addMajor writes <field>_major beside each amount of an object with a known
+// currency, in v and below, replacing one already there that differs; it says
+// whether it changed anything.
 func addMajor(v any, decimals Decimals, depth int) bool {
 	if depth > MaxAmountsDepth {
 		return false
@@ -159,10 +160,15 @@ func addMajor(v any, decimals Decimals, depth int) bool {
 					if !ok {
 						continue
 					}
-					if _, taken := x[k+"_major"]; taken {
+					// planque's own figure wins: a <field>_major the answer
+					// already carries beside the amount and its currency is
+					// replaced, so the taf never reads a figure planque
+					// didn't work out from the amount itself.
+					major := MajorAmount(minor, cur, places)
+					if had, ok := x[k+"_major"].(string); ok && had == major {
 						continue
 					}
-					x[k+"_major"] = MajorAmount(minor, cur, places)
+					x[k+"_major"] = major
 					added = true
 				}
 			}

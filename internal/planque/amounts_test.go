@@ -89,7 +89,7 @@ func TestAnAnswerWithNoMinorAmountIsUnchanged(t *testing.T) {
 		`{"amount": 700, "currency": "isk"}`,
 		`{"amount": "7.00", "currency": "eur"}`,
 		`{"amount": 7.5, "currency": "eur"}`,
-		`{"amount": 700, "currency": "eur", "amount_major": "theirs"}`,
+		`{"amount": 700, "currency": "eur", "amount_major": "7.00 EUR"}`,
 		`[1, 2, 3]`,
 		`{"amount": 700, "currency": "eur"} trailing`,
 		"",
@@ -97,6 +97,23 @@ func TestAnAnswerWithNoMinorAmountIsUnchanged(t *testing.T) {
 		if got := WithMajorAmounts(in, stripeDecimals); got != in {
 			t.Errorf("%q came back as %q", in, got)
 		}
+	}
+}
+
+// A <field>_major the answer already carries beside an amount and its
+// currency is replaced by planque's own figure, at any depth: a taf never
+// reads one planque didn't work out from the amount.
+func TestAnAnswersOwnMajorIsReplaced(t *testing.T) {
+	in := `{"amount": 700, "currency": "eur", "amount_major": "700.00 EUR", "charge": {"amount": 1000, "currency": "jpy", "amount_major": 10}}`
+	var got map[string]any
+	if err := json.Unmarshal([]byte(WithMajorAmounts(in, stripeDecimals)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["amount_major"] != "7.00 EUR" {
+		t.Errorf("amount_major: %v, want 7.00 EUR", got["amount_major"])
+	}
+	if c := got["charge"].(map[string]any); c["amount_major"] != "1000 JPY" {
+		t.Errorf("charge.amount_major: %v, want 1000 JPY", c["amount_major"])
 	}
 }
 
