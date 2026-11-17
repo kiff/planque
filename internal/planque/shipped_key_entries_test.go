@@ -92,7 +92,14 @@ func TestEveryShippedKeyEntryPinsItsDescriptionAndHoldsItsWrites(t *testing.T) {
 				}
 				return profileResponse(200, string(description)), nil
 			})}
-			st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/"+id+"/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup")
+			ask := map[string]string{"agent": "agt_taf"}
+			switch {
+			case len(entry.API.Bases) > 0:
+				ask["base"] = entry.API.Bases[len(entry.API.Bases)-1] // the last region, as a customer may pick
+			case accountTemplate(entry.API.Base):
+				ask["account"] = "acme"
+			}
+			st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/"+id+"/grants", ask, nil, "k_setup")
 			if st != 201 || out["needs_key"] != true {
 				t.Fatalf("key grant: %d %v", st, out)
 			}

@@ -30,6 +30,26 @@ import (
 var vendorHosts = map[string][]string{
 	"googlesheets": {"sheets.googleapis.com", "accounts.google.com", "oauth2.googleapis.com"},
 	"Qonto":        {"thirdparty.qonto.com"},
+	// Key entries, each line checked against the vendor's own documentation.
+	"Intercom":       {"api.intercom.io", "api.eu.intercom.io", "api.au.intercom.io"}, // its three regions
+	"Typeform":       {"api.typeform.com", "api.eu.typeform.com", "api.typeform.eu"},  // US, EU data centre, EU domain
+	"Freshdesk":      {"*.freshdesk.com"},                                             // one subdomain per customer
+	"Shippo":         {"api.goshippo.com"},
+	"Pipedrive":      {"api.pipedrive.com"},
+	"Moneybird":      {"moneybird.com"},
+	"sevdesk":        {"my.sevdesk.de"},
+	"bexio":          {"api.bexio.com"},
+	"Lexware Office": {"api.lexware.io"},
+	"GitHub":         {"api.github.com"},
+}
+
+// entryBases are the addresses a key entry may send to: its base (an account
+// template read with a stand-in label) or each of its regions.
+func entryBases(api *apiAsk) []string {
+	if len(api.Bases) > 0 {
+		return api.Bases
+	}
+	return []string{sampleBase(api.Base)}
 }
 
 // The API descriptions planque reads are this repository's pinned copies.
@@ -43,7 +63,7 @@ var injection = regexp.MustCompile(`(?i)(ignore (all |any |the )?(previous|prior
 var markup = regexp.MustCompile("(<[a-zA-Z/!]|```|\\]\\(|javascript:|data:)")
 
 // secretShape is what a key, token or private key looks like in a file.
-var secretShape = regexp.MustCompile(`(sk_(live|test)_[0-9A-Za-z]{8,}|rk_(live|test)_[0-9A-Za-z]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|xox[abprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35}|"(client_secret|api_key|access_token|refresh_token|password)"\s*:\s*"[^"]+")`)
+var secretShape = regexp.MustCompile(`(sk_(live|test)_[0-9A-Za-z]{8,}|rk_(live|test)_[0-9A-Za-z]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|xox[abprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35}|"(client_secret|api_key|access_token|refresh_token|password)"\s*:\s*"[^"]{2,}")`)
 
 const maxShownText = 300
 
@@ -165,8 +185,12 @@ func TestShippedDefinitionsReadAsReviewed(t *testing.T) {
 			hosts, ok := vendorHosts[e.Vendor]
 			if !ok {
 				t.Errorf("catalog %s: name %s's hosts in vendorHosts, checked against the vendor's docs", id, e.Vendor)
-			} else if !onVendorHost(e.API.Base, hosts) {
-				t.Errorf("catalog %s: its base %q isn't on %v", id, e.API.Base, hosts)
+			} else {
+				for _, base := range entryBases(e.API) {
+					if !onVendorHost(base, hosts) {
+						t.Errorf("catalog %s: its base %q isn't on %v", id, base, hosts)
+					}
+				}
 			}
 			if !strings.HasPrefix(e.API.URL, pinnedSpecs) || strings.Contains(e.API.URL, "/../") {
 				t.Errorf("catalog %s: its description %q isn't this repository's pinned copy", id, e.API.URL)

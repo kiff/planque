@@ -42,7 +42,8 @@ type Plan struct {
 	Vendor string       `json:"vendor"` // "Pipedrive"
 	Title  string       `json:"title"`  // "Pipedrive: read deals and people, add a note"
 	Spec   string       `json:"spec"`   // the vendor's description, a path from the plan's folder
-	Base   string       `json:"base"`   // the API's fixed HTTPS base
+	Base   string       `json:"base"`   // the API's fixed HTTPS base, or an account template (https://{account}.vendor.com/...)
+	Bases  []string     `json:"bases"`  // instead of Base: the vendor's regions, a closed list the owner picks one of
 	Auth   openapi.Auth `json:"auth"`   // where the customer's key goes
 	Prefix string       `json:"prefix"` // tool names are <prefix>_<what it does>
 	Pin    string       `json:"pin"`    // the base path planque pins ("/v1"); "" for none
@@ -98,6 +99,12 @@ func run(args []string) error {
 	// The description is kept, and pinned, as JSON, so that every check on
 	// shipped descriptions reads it, whatever form the vendor published it in.
 	if raw, err = openapi.AsJSON(raw); err != nil {
+		return fmt.Errorf("%s: %w", plan.Spec, err)
+	}
+	// Examples are annotations the pinned copy doesn't need: they carry sample
+	// data (keys, addresses, names) that reads as real, and they are most of a
+	// big description's size. Everything an operation's behaviour depends on stays.
+	if raw, err = withoutExamples(raw); err != nil {
 		return fmt.Errorf("%s: %w", plan.Spec, err)
 	}
 	if *list {
@@ -219,6 +226,13 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 		}
 	}
 	sum := sha256.Sum256(raw)
+	specName := m[1] + "-openapi.json"
+	api := map[string]any{"url": urlRaw + specName, "auth": plan.Auth, "operations": selected}
+	if len(plan.Bases) > 0 {
+		api["bases"] = plan.Bases
+	} else {
+		api["base"] = plan.Base
+	}
 	pin := map[string]any{"kind": "none"}
 	if plan.Pin != "" {
 		pin = map[string]any{"kind": "base_path", "value": plan.Pin}
@@ -227,10 +241,9 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 		"v": "kiff.profile.v1", "vendor": plan.Vendor, "transport": "rest", "pin": pin,
 		"source": "catalog", "catalog_entry": plan.ID, "test_proven": false, "operations": ops,
 	}
-	specName := m[1] + "-openapi.json"
 	entry := map[string]any{
 		"vendor": plan.Vendor, "title": plan.Title, "kind": "api_key",
-		"api":                map[string]any{"url": urlRaw + specName, "base": plan.Base, "auth": plan.Auth, "operations": selected},
+		"api":                api,
 		"description_sha256": hex.EncodeToString(sum[:]),
 		"tools":              tools,
 		"profile":            profile,
@@ -248,10 +261,18 @@ func requiredArgs(o openapi.Operation) []string {
 	return s.Required
 }
 
-// firstPathParam is the first path parameter of o, the thing it acts on.
+// firstPathParam is the first path parameter of o that is a string, the
+// thing it acts on: KIFF's Card can scope on a string argument only, so a
+// write on a numeric id has no resource.
 func firstPathParam(o openapi.Operation) string {
+	var schema struct {
+		Properties map[string]struct {
+			Type any `json:"type"`
+		} `json:"properties"`
+	}
+	_ = json.Unmarshal(o.InputSchema, &schema)
 	for _, p := range o.Params {
-		if p.In == "path" {
+		if p.In == "path" && schema.Properties[p.Name].Type == "string" {
 			return p.Name
 		}
 	}
@@ -295,4 +316,35 @@ func merge(catalogFile, appsFile, specs, specName string, raw []byte, id string,
 		return err
 	}
 	return os.WriteFile(catalogFile, out, 0o644)
+}
+
+// withoutExamples is a JSON description without its "example" and "examples"
+// annotations. A schema property that is itself named so (under "properties")
+// is kept: it is data, not an annotation.
+func withoutExamples(raw []byte) ([]byte, error) {
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	var strip func(v any, underProperties bool) any
+	strip = func(v any, underProperties bool) any {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, c := range x {
+				if !underProperties && (k == "example" || k == "examples") {
+					delete(x, k)
+					continue
+				}
+				x[k] = strip(c, k == "properties")
+			}
+			return x
+		case []any:
+			for i, c := range x {
+				x[i] = strip(c, false)
+			}
+			return x
+		}
+		return v
+	}
+	return json.Marshal(strip(doc, false))
 }
