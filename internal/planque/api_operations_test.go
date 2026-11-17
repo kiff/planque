@@ -82,7 +82,7 @@ func TestAnAccountsAPIReadsAreCountedADay(t *testing.T) {
 		t.Fatalf("the last of the day: %d %v", st, out)
 	}
 	st, out := e.do("POST", path, map[string]any{"api": api}, nil, "k_setup")
-	if st != 429 || !strings.Contains(mustJSONString(out), "today") {
+	if st != 429 || !strings.Contains(mustJSONString(out), "today") || out["code"] != "api_reads_capped" {
 		t.Fatalf("past the day's reads: %d %v", st, out)
 	}
 }
