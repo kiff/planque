@@ -64,7 +64,9 @@ type ToolRequest struct {
 	// TextFields are an API-key write's arguments that carry words a person
 	// reads (a subject, a body, a message), by their dotted path: planque's
 	// own reading of the operation's schema (textFields), set as the request
-	// is checked, never the asking agent's or the vendor's words. tafs cloud
+	// is checked, never the asking agent's or the vendor's words. A read's is
+	// none, a read being planque's own by the method (ReadOnly), never a
+	// vendor's flag. tafs cloud
 	// counts such a write as reaching people outside unless it's disclosed
 	// (kiff/tafs gap 14): a write with none can't carry a message.
 	TextFields []string `json:"text_fields,omitempty"`

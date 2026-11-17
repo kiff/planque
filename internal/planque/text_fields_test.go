@@ -53,7 +53,9 @@ func TestAKeyWritesTextFieldsArePlanquesReadingOfItsSchema(t *testing.T) {
 	if r := apiToolsCheck(snap, tools); r != nil {
 		t.Fatalf("refused: %+v", r)
 	}
-	markTextFields(snap, tools)
+	if r := markTextFields(snap, tools); r != nil {
+		t.Fatalf("refused: %+v", r)
+	}
 	want := [][]string{{"body", "meta.note", "subject"}, nil, nil, {"text"}, nil}
 	for i, w := range want {
 		if !slices.Equal(tools[i].TextFields, w) {
@@ -71,9 +73,31 @@ func TestTextFieldsReadOnlyTheSchema(t *testing.T) {
 		  "html": {"type": "string", "format": "date"}, "reply": {"type": "string", "enum": ["x"]}}}`: {"Message"},
 		// Three levels at most.
 		`{"properties": {"a": {"properties": {"b": {"properties": {"text": {"type": "string"}, "c": {"properties": {"body": {"type": "string"}}}}}}}}}`: {"a.b.text"},
+		// qa-kiff on #267: a body in parts, a list of strings, and a value only under a text-named parent.
+		`{"properties": {"content": {"type": "array", "items": {"type": "object", "properties": {"type": {"type": "string"}, "value": {"type": "string"}}}},
+		  "meta": {"properties": {"value": {"type": "string"}}}}}`: {"content[].value"},
+		`{"properties": {"notes": {"type": "array", "items": {"type": "string"}}}}`: {"notes[]"},
+		// Words of a name: camelCase, "_" and "-", and the words of a post, an issue or a ticket.
+		`{"properties": {"htmlBody": {"type": "string"}, "body_html": {"type": "string"}, "reply-text": {"type": "string"}, "internal_note": {"type": "string"}}}`: {"body_html", "htmlBody", "internal_note", "reply-text"},
+		`{"properties": {"commentary": {"type": "string"}, "visibility": {"type": "string", "enum": ["PUBLIC"]}}}`:                                                 {"commentary"},
+		`{"properties": {"title": {"type": "string"}, "description": {"type": "string"}, "labels": {"type": "array", "items": {"type": "string"}}}}`:               {"description", "title"},
+		`{"properties": {"to": {"type": "string"}, "Body": {"type": "string"}}}`:                                                                                   {"Body"},
+		// A write that reaches someone with no text-named argument: its free strings are what it says, never an id.
+		`{"properties": {"to": {"type": "string"}, "payload": {"type": "string"}, "template_id": {"type": "string"}, "locale": {"type": "string"}}}`: {"payload"},
+		// One that reaches no one and says nothing: a status and an id.
+		`{"properties": {"ticket_id": {"type": "string"}, "status": {"type": "string", "enum": ["open", "closed"]}}}`: nil,
 	} {
-		if got := textFields([]byte(schema)); !slices.Equal(got, want) {
-			t.Errorf("%s: %v, want %v", schema, got, want)
+		if got, ok := textFields([]byte(schema)); !ok || !slices.Equal(got, want) {
+			t.Errorf("%s: %v (%v), want %v", schema, got, ok, want)
 		}
+	}
+	// More free strings than disclose takes, on a write that reaches someone: it can't be told.
+	if got, ok := textFields([]byte(`{"properties": {"phone": {"type": "string"}, "a": {"type": "string"}, "b": {"type": "string"}, "c": {"type": "string"}, "d": {"type": "string"}, "e": {"type": "string"}}}`)); ok {
+		t.Errorf("five free strings to a phone: %v", got)
+	}
+	// At most four, the longest first.
+	got, ok := textFields([]byte(`{"properties": {"email": {"type": "string", "format": "email"}, "a": {"type": "string", "maxLength": 10}, "b": {"type": "string", "maxLength": 5000}, "c": {"type": "string"}}}`))
+	if !ok || !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("three free strings to an email: %v %v", got, ok)
 	}
 }
