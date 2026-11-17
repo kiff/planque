@@ -399,6 +399,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 				writeRefusal(w, r)
 				return
 			}
+			markTextFields(snap, *req.Tools)
 		}
 	case req.Application != "":
 		if req.API != nil {

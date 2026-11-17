@@ -57,6 +57,7 @@ func (s *Server) applicationRequest(ctx context.Context, tenant, grant, id strin
 		if r := apiToolsCheck(snapshot, tools); r != nil {
 			return nil, nil, r
 		}
+		markTextFields(snapshot, tools)
 		if err := s.saveSnapshot(ctx, tenant, grant, snapshot); err != nil {
 			return nil, nil, err
 		}

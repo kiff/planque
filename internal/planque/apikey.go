@@ -191,11 +191,74 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		// A refusal of the tools goes as an error, so it's answered with its code.
 		return nil, nil, "", r
 	}
+	markTextFields(snap, tools)
 	if err := s.saveSnapshot(ctx, tenant, grant, snap); err != nil {
 		return nil, nil, "", err
 	}
 	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth,
 		Operations: slices.Clone(a.Operations)}, snap, "", nil
+}
+
+// markTextFields sets each tool's TextFields from its operation in snap, as
+// planque reads the schema: none on a read (GET or HEAD), and whatever the
+// asking agent sent is replaced, never kept. Run once apiToolsCheck passed.
+func markTextFields(snap *openapi.Snapshot, tools []ToolRequest) {
+	for i := range tools {
+		tools[i].TextFields = nil
+		j := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == tools[i].Tool })
+		if j < 0 || snap.Operations[j].ReadOnly {
+			continue
+		}
+		tools[i].TextFields = textFields(snap.Operations[j].InputSchema)
+	}
+}
+
+// textNames are the argument names that carry words a person reads, folded:
+// where KIFF's disclosure line goes. An id, a status, an enum or a date
+// never does.
+var textNames = map[string]bool{"subject": true, "body": true, "message": true, "comment": true, "note": true,
+	"text": true, "content": true, "html": true, "reply": true}
+
+// textFields are the dotted paths of schema's free-text arguments: a string
+// with no enum and no format whose name is one of textNames, at the top level
+// or inside an object argument, three levels deep at most. Sorted.
+func textFields(schema json.RawMessage) []string {
+	type node struct {
+		Type       json.RawMessage  `json:"type"`
+		Enum       []any            `json:"enum"`
+		Format     string           `json:"format"`
+		Properties map[string]*node `json:"properties"`
+	}
+	is := func(n *node, want string) bool {
+		var one string
+		if json.Unmarshal(n.Type, &one) == nil {
+			return one == want
+		}
+		var many []string
+		return json.Unmarshal(n.Type, &many) == nil && slices.Contains(many, want)
+	}
+	var root node
+	if json.Unmarshal(schema, &root) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(n *node, prefix string, depth int)
+	walk = func(n *node, prefix string, depth int) {
+		for name, p := range n.Properties {
+			if p == nil {
+				continue
+			}
+			switch {
+			case len(p.Properties) > 0 && depth < 3:
+				walk(p, prefix+name+".", depth+1)
+			case is(p, "string") && len(p.Enum) == 0 && p.Format == "" && textNames[strings.ToLower(name)]:
+				out = append(out, prefix+name)
+			}
+		}
+	}
+	walk(&root, "", 1)
+	slices.Sort(out)
+	return out
 }
 
 // apiToolsCheck says why tools can't be asked for from snap, nil when they can.
