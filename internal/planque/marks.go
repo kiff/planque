@@ -79,11 +79,18 @@ func markDigest(name string, hosts []string, follows string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// markRead is the marks as one read of the table found them.
+type markRead struct {
+	valid   map[string]managedMark // the marks that count, by vendor
+	present map[string]bool        // every vendor that has a row, counting or not
+	failed  bool                   // the table couldn't be read, and nothing was read before
+}
+
 // markCache is the marks as one planque instance last read them.
 type markCache struct {
 	mu   sync.Mutex
 	at   time.Time
-	read map[string]managedMark
+	read *markRead
 }
 
 // markTTL is how long an instance keeps what it read: a mark set or withdrawn
@@ -96,35 +103,46 @@ func (s *Server) forgetMarks() {
 	s.markCache.mu.Unlock()
 }
 
-// managedMarks are the current marks by vendor.
-func (s *Server) managedMarks() map[string]managedMark {
+// readMarks is the table as one planque instance last read it, kept for markTTL.
+func (s *Server) readMarks() *markRead {
 	c := &s.markCache
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.read != nil && s.now().Sub(c.at) < markTTL {
+	if c.read != nil && !c.read.failed && s.now().Sub(c.at) < markTTL {
 		return c.read
 	}
-	out := map[string]managedMark{}
 	// Read for the gate, which has no request of its own to read it under.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	items, err := s.KV.Query(ctx, markPK, "MANAGED#")
 	if err != nil {
-		// Unreadable: keep what was read, else follow the seed alone.
-		if c.read != nil {
+		// Unreadable: keep what was read before, else read nothing and say so,
+		// so the gate refuses rather than follow a seed it can't check.
+		if c.read != nil && !c.read.failed {
 			return c.read
 		}
-		return out
+		c.read, c.at = &markRead{valid: map[string]managedMark{}, present: map[string]bool{}, failed: true}, s.now()
+		return c.read
 	}
+	r := &markRead{valid: map[string]managedMark{}, present: map[string]bool{}}
 	for _, it := range items {
 		var m managedMark
-		if json.Unmarshal(it.Doc, &m) == nil && "MANAGED#"+m.Vendor == it.SK && s.markSigned(m) {
-			out[m.Vendor] = m
+		if json.Unmarshal(it.Doc, &m) != nil || "MANAGED#"+m.Vendor != it.SK {
+			// A row that isn't even one: whoever wrote it meant the vendor, so it counts as present.
+			r.present[strings.TrimPrefix(it.SK, "MANAGED#")] = true
+			continue
+		}
+		r.present[m.Vendor] = true
+		if s.markSigned(m) {
+			r.valid[m.Vendor] = m
 		}
 	}
-	c.read, c.at = out, s.now()
-	return out
+	c.read, c.at = r, s.now()
+	return r
 }
+
+// managedMarks are the current marks that count, by vendor.
+func (s *Server) managedMarks() map[string]managedMark { return s.readMarks().valid }
 
 // markSigned: the mark's signature holds, with the key of an operator still
 // enrolled: a row changed after it was signed, or written by anything but an
@@ -138,14 +156,24 @@ func (s *Server) markSigned(m managedMark) bool {
 		(m.State == markGone || markDigest(m.Name, m.Hosts, m.Follows) == m.Digest)
 }
 
-// managedByMark says whether vendor's managed connections are marked on (true),
-// marked off (false), or not marked (ok false: the seed decides).
+// managedByMark says whether vendor's managed connections are marked on
+// (true), or off (false), or not marked (ok false: the seed decides). It fails
+// closed: a vendor with a row that no longer counts (its signer was rotated out,
+// the row was altered) reads off, never the seed, and so does everything while
+// the table can't be read and nothing was read before.
 func (s *Server) managedByMark(vendor string) (on, ok bool) {
-	m, found := s.managedMarks()[provedKey(vendor)]
-	if !found {
-		return false, false
+	r := s.readMarks()
+	if r.failed {
+		return false, true
 	}
-	return m.State == markActive, true
+	key := provedKey(vendor)
+	if m, found := r.valid[key]; found {
+		return m.State == markActive, true
+	}
+	if r.present[key] {
+		return false, true
+	}
+	return false, false
 }
 
 // hostOnMark reports whether raw is an https address on one of hosts: exact,
@@ -347,7 +375,9 @@ func (s *Server) putMark(w http.ResponseWriter, r *http.Request, m *managedMark)
 		s.fail(w, r, err)
 		return
 	}
-	at := s.now().UTC().Format(time.RFC3339Nano)
+	// A fixed-width time, so the keys sort as the times do (RFC3339Nano drops
+	// trailing zeros, and ".12Z" would sort after ".123Z").
+	at := s.now().UTC().Format("2006-01-02T15:04:05.000000000Z")
 	if err := s.KV.Put(r.Context(), store.Item{PK: markPK, SK: "LOG#" + at + "#" + m.Vendor, Doc: doc}, store.Cond{NotExists: true}); err != nil {
 		s.log().ErrorContext(r.Context(), "mark history not kept", "vendor", m.Vendor, "err", err.Error())
 	}

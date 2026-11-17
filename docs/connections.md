@@ -679,6 +679,17 @@ follows.
   endpoints) is on the mark's hosts. An entry that calls itself by a managed
   vendor's name but points elsewhere, or that adds a host the mark doesn't list,
   is not managed until the owner signs the mark again with that host.
+- **Rotating an operator.** A mark counts only while the operator whose device
+  signed it is still in `PLANQUE_CATALOG_OPERATORS`. Removing an operator, or
+  replacing their device, stops every mark they signed from counting (and
+  every managed connection it allowed from starting) until an enrolled
+  operator signs it again. Plan a rotation as: enrol the new device, have it
+  sign each mark again, then remove the old one. Connections already made stay.
+  **A row that exists but no longer counts reads off, never the seed:** an
+  operator rotated out also drops the withdrawals they signed, and a seeded
+  vendor must not become managed again for it. The same holds for a row altered
+  after signing, and while the table can't be read and nothing was read before:
+  the gate refuses managed connections (a test tenant is still let through).
 - **Withdrawing** (`POST /v1/marks/managed/{vendor}/withdraw`, signed over the
   mark's digest as it is, `unmark-managed`) stops new managed connections within
   seconds (an instance keeps what it read for five). It revokes nothing: a
