@@ -64,8 +64,9 @@ can do more (below).
   that sign-in offers no narrower Gmail access. A job that sends nothing
   still has a sign-in that can send and delete.
   - The approval says so: "Gmail will ask for more access than this taf
-    uses". Coach says it plainly before connecting, and never "only what this
-    taf needs".
+    uses". Coach says it once planque's grant has (`usual_access`), never
+    before (not in a question, its options or the plan), and never "only
+    what this taf needs".
   - What the taf may do is still only its tools and its Card. A taf with no
     sending tool can't send, whatever the sign-in allows.
   - Never describe the connection or its sign-in as limited to reading:

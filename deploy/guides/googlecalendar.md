@@ -71,6 +71,9 @@ calendar's own; never assume the server's.
   - The tools are named in the connect: a connect that names none asks for the
     app's widest access, so the taf's planned tools are always named when it
     connects.
+- **Say how far the sign-in reaches only once planque's grant has said it**
+  (`usual_access`, and the `scopes` it asks for), at the connect step.
+  Never before: not in a question or its options, not in the plan.
 - **No paid plan is needed.** Rooms and buildings
   (`GOOGLECALENDAR_LIST_BUILDINGS`, `GOOGLECALENDAR_LIST_CALENDAR_RESOURCES`)
   exist only on business accounts.
