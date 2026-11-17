@@ -19,8 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the workspace. Returns are the ids a taf
-keeps; they come from ClickUp's API reference, since the catalog lists none.
+A tool marked read fetches from the workspace; one marked write creates,
+changes or sends. Returns are the ids a taf keeps; they come from ClickUp's
+API reference, since the catalog lists none.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -45,7 +46,7 @@ search for a task the taf made: use the id it kept.
 asked, and pages start at 0. Ask for the next page while a page comes
 back with 100 tasks.
 
-**Start read-only.** "Tell me what's overdue" needs only reads. Offer a
+**Start with reads.** "Tell me what's overdue" needs only reads. Offer a
 writing tool only when the owner asked for one. Assignees and watchers are
 notified of new tasks, so every task or comment the taf writes for others
 is shown to the owner first.

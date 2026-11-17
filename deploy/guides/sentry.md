@@ -22,9 +22,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Sentry. The catalog gives no `returns`
-paths for Sentry today; the ids below are those Sentry's documented
-answers show. "Not documented" means the reference shows no answer.
+A tool marked read fetches from Sentry; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Sentry today; the ids below
+are those Sentry's documented answers show. "Not documented" means the
+reference shows no answer.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -43,7 +44,7 @@ update that same issue later; its short id and link, to show the owner. A
 paging cursor is used once, then dropped. Never look an issue up by its
 title: use the id the taf kept.
 
-**Start read-only.** "Tell me each morning what's new and broken" needs only
+**Start with reads.** "Tell me each morning what's new and broken" needs only
 reads. Resolving, ignoring or assigning an issue changes what the team sees
 and is told about, so offer
 `SENTRY_UPDATE_ISSUE_ATTRIBUTES_IN_ORGANIZATION` only when the owner asked,

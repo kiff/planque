@@ -19,9 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Monday. The catalog gives no `returns`
-paths for Monday today; the ids below are those Monday's API reference
-shows where it documents the answer.
+A tool marked read fetches from Monday; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Monday today; the ids below
+are those Monday's API reference shows where it documents the answer.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -47,7 +47,7 @@ item up by its name: use the id the taf kept.
 **Read the columns first.** A value has to fit its column's type; a status
 or date sent in the wrong form is refused.
 
-**Start read-only.** "Tell me what's stuck on this board" needs only read
+**Start with reads.** "Tell me what's stuck on this board" needs only read
 tools. Offer writes when the owner asked for changes. Comments can mention
 and notify people.
 

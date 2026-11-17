@@ -18,9 +18,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Sevdesk. The catalog gives no `returns`
-paths for Sevdesk today; the cells below are what Sevdesk's API description
-shows.
+A tool marked read fetches from Sevdesk; one marked write creates, changes
+or sends. The catalog gives no `returns` paths for Sevdesk today; the cells
+below are what Sevdesk's API description shows.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

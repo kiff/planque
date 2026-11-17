@@ -18,9 +18,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Pipedrive. The catalog gives no `returns`
-paths for Pipedrive today; the ids below are those Pipedrive's documented
-answers carry.
+A tool marked read fetches from Pipedrive; one marked write creates, changes
+or sends. The catalog gives no `returns` paths for Pipedrive today; the ids
+below are those Pipedrive's documented answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -47,7 +47,7 @@ Never look a record up again by name: use the id the taf kept.
 only when nothing matches, so no one is entered twice. A search needs at
 least two characters.
 
-**Start read-only.** "Tell me which deals have no next step" needs only the
+**Start with reads.** "Tell me which deals have no next step" needs only the
 read tools. Adding a follow-up activity or a note is a small write; moving
 a deal's stage or marking it won or lost changes the owner's pipeline, so
 offer it only when asked, and each change waits for the owner's yes.

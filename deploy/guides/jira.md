@@ -20,8 +20,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Jira. The catalog gives no `returns` paths
-for Jira today; the ids below are those Jira's answers carry.
+A tool marked read fetches from Jira; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Jira today; the ids below
+are those Jira's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,10 +50,10 @@ Never search for an issue the taf opened: use the key it kept.
 on its workflow and its status now.
 
 **Search with `JIRA_SEARCH_ISSUES`.** The other search tool,
-`JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET`, isn't marked read-only in the
+`JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET`, isn't marked as a read in the
 catalog, so it counts as a write.
 
-**Start read-only.** "Tell me what's overdue in this project" needs only read
+**Start with reads.** "Tell me what's overdue in this project" needs only read
 tools. Offer writes when the owner asked for changes; comments and
 assignments notify other people in Jira.
 

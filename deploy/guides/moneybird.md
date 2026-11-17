@@ -22,9 +22,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the books. Moneybird's catalog entries give
-no `returns` paths today; the ids below are the ones Moneybird's answers
-carry.
+A tool marked read fetches from the books; one marked write creates, changes
+or sends. Moneybird's catalog entries give no `returns` paths today; the ids
+below are the ones Moneybird's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

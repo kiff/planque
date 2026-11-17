@@ -27,9 +27,9 @@ Failure table checked against planque's answers on 2026-11-16.
 | `SUPABASE_INSERT_TABLE_ROWS` | Adds rows | write | the new rows' ids |
 | `SUPABASE_UPDATE_TABLE_ROWS` | Changes rows matching a filter | write | not checked here |
 
-**Prefer the read-only query** to the general one: it can't change anything,
-whatever the query says. A job that writes names the table and the columns
-on the Card.
+**Prefer `SUPABASE_RUN_READ_ONLY_QUERY`** to the general one: it runs SQL
+that can only read, whatever the query says. A job that writes names the
+table and the columns on the Card.
 
 **An update needs a filter.** `SUPABASE_UPDATE_TABLE_ROWS` with no filter
 changes every row; the taf always names the row by its id.

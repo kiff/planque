@@ -18,8 +18,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Cal. The generated part gives no returns;
-the ids below are the ones Cal's API reference shows.
+A tool marked read fetches from Cal; one marked write creates, changes or
+sends. The generated part gives no returns; the ids below are the ones Cal's
+API reference shows.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -43,7 +44,7 @@ Never search for a booking the taf made: use the uid it kept.
 just returned, in the attendee's time zone, so the booking matches what Cal
 offers.
 
-**Start read-only.** "Tell me what's booked tomorrow" needs only read
+**Start with reads.** "Tell me what's booked tomorrow" needs only read
 tools. Booking, moving, cancelling or declining touches someone else's day:
 offer those tools only when the owner asked, and say each one waits for
 their yes. A cancelled recurring booking can take every later one with it.

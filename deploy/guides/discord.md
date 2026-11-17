@@ -32,8 +32,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing on Discord. The catalog gives no returns for
-this app; the ids below are the ones Discord's reference documents.
+A tool marked read fetches from Discord; one marked write creates, changes
+or sends. The catalog gives no returns for this app; the ids below are the
+ones Discord's reference documents.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -47,7 +48,7 @@ this app; the ids below are the ones Discord's reference documents.
 **What to keep:** the owner's user id and the server id they chose. Use a
 kept id next time; don't look the server up by name.
 
-**Start read-only.** Every tool a job needs here is a read. Nothing in this
+**Start with reads.** Every tool a job needs here is a read. Nothing in this
 app posts anything.
 
 ## Don't offer

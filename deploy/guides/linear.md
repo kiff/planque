@@ -23,9 +23,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Linear. The catalog gives no `returns`
-paths for Linear today; "not documented" means the pages read didn't show
-the answer's fields.
+A tool marked read fetches from Linear; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Linear today; "not
+documented" means the pages read didn't show the answer's fields.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -51,7 +51,7 @@ id it kept.
 **Paging:** lists come 50 at a time unless asked otherwise; the taf passes
 the cursor from one page to get the next, while Linear says there is more.
 
-**Start read-only.** "Tell me what changed this week" needs only the read
+**Start with reads.** "Tell me what changed this week" needs only the read
 tools. Offer creating, updating or commenting only when the owner asked for
 it; each shows under the owner's name.
 

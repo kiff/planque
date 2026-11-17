@@ -51,17 +51,15 @@ each write that depends on a position, or replace by phrase instead.
 
 ## Access and plans
 
-- **What Google's page asks for follows the taf's tools,** each at the
-  narrowest access it runs on (Google's words, roughly, in quotes):
-  - **reading a document:** read-only Docs ("see all your documents");
-  - **writing:** Docs edit access ("see, edit, create and delete all your
-    documents");
-  - **finding a document by name, exporting it as PDF, or reading its file
-    details:** read-only Drive as well ("see and download all your Drive
-    files");
-  - **copying a template, or creating or uploading a file:** full Drive
-    ("see, edit, create and delete all your Drive files"). Offer these only
-    when the job needs them.
+- **What Google's page asks for:** the narrowest access the managed sign-in
+  offers for the taf's tools (Google's words, roughly, in quotes), which can
+  be wider than the job:
+  - **reading or writing a document:** Docs access, up to edit ("see, edit,
+    create and delete all your documents");
+  - **finding a document by name, exporting it as PDF, reading its file
+    details, copying a template, or creating or uploading a file:** Drive
+    access as well ("see, edit, create and delete all your Drive files").
+    Offer these only when the job needs them.
   - The tools are named in the connect: a connect that names none asks for the
     app's widest access, so the taf's planned tools are always named when it
     connects.

@@ -68,19 +68,23 @@ write.
 
 ## Access and plans
 
-- **What Google's page asks for follows the taf's tools,** each at the
-  narrowest access it runs on (Google's words, roughly, in quotes):
-  - **reading cells:** read-only Sheets ("see all your spreadsheets"). A few
-    reads (by data filter, developer metadata, validation rules) list no
-    read-only access and take edit access;
-  - **writing cells or sheets:** Sheets edit access ("see, edit, create and
-    delete all your spreadsheets");
-  - **finding a sheet by name, or exporting it:** read-only Drive as well
-    ("see and download all your Drive files"); moving a sheet to a folder
-    takes full Drive.
+- **What Google's page asks for:** the narrowest access the managed sign-in
+  offers for the taf's tools (Google's words, roughly, in quotes). It offers
+  no Sheets access narrower than edit, so:
+  - **reading or writing cells or sheets:** Sheets edit access ("see, edit,
+    create and delete all your spreadsheets"), even for a job that writes
+    nothing;
+  - **finding a sheet by name, exporting it, or moving it to a folder:** Drive
+    access as well ("see, edit, create and delete all your Drive files").
   - The tools are named in the connect: a connect that names none asks for the
     app's widest access, so the taf's planned tools are always named when it
     connects.
+- **The Card limits the taf, not the sign-in.** The sign-in is often wider
+  than the job, and planque's grant says so (`usual_access`, and the
+  `scopes` it asks for). Tell the owner what Google's page will ask for.
+  Never describe the connection, its sign-in or a step as limited to
+  reading: what the taf may do is its tools and its Card (what waits for
+  the owner's yes, what it must never do).
 - **No paid plan is needed**; any Google account works. A business admin can
   block outside apps.
 - **Rate:** Google allows about 60 reads and 60 writes a minute for one user,

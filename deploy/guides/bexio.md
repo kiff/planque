@@ -21,8 +21,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in bexio. The generated part gives no
-returns; the ids below are the ones bexio's API reference shows.
+A tool marked read fetches from bexio; one marked write creates, changes or
+sends. The generated part gives no returns; the ids below are the ones
+bexio's API reference shows.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -46,7 +47,7 @@ document number. The id is what the next call needs; the document number is
 what the owner and the customer see. Never search for a document the taf
 made: use the id it kept.
 
-**Start read-only.** "Draft the invoice and let me check it" is the read
+**Start with reads.** "Draft the invoice and let me check it" is the read
 tools plus `BEXIO_CREATE_INVOICE`. Issuing and sending are separate steps:
 offer `BEXIO_ISSUE_INVOICE` or `BEXIO_SEND_INVOICE` only when the owner asked
 for it, and say each one waits for their yes.

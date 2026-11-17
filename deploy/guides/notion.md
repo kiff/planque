@@ -20,9 +20,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the workspace. Notion's catalog entries
-give no `returns` paths today; the ids below are those Notion's answers
-carry.
+A tool marked read fetches from the workspace; one marked write creates,
+changes or sends. Notion's catalog entries give no `returns` paths today;
+the ids below are those Notion's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -44,7 +44,7 @@ same one later; a database's id and its property ids, so filters and new
 rows use the right columns. Never search by title for something the taf
 made: titles change and repeat. Use the id it kept.
 
-**Start read-only.** "Summarise what changed in this database" needs only
+**Start with reads.** "Summarise what changed in this database" needs only
 the read tools. For writes, prefer adding a row or a comment over editing
 what a person wrote.
 

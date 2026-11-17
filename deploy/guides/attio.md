@@ -23,9 +23,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the workspace. The catalog's `returns`
-gives exact paths where it has them; where it has none yet, Attio's answer
-carries the record's id and a link to its page in Attio.
+A tool marked read fetches from the workspace; one marked write creates,
+changes or sends. The catalog's `returns` gives exact paths where it has
+them; where it has none yet, Attio's answer carries the record's id and a
+link to its page in Attio.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -58,7 +59,7 @@ one record, Attio refuses.
 text is plain, up to 2,000 characters, and its records are linked separately
 rather than written into the text.
 
-**Start read-only.** "Summarise my open deals" is search and read tools
+**Start with reads.** "Summarise my open deals" is search and read tools
 only. Offer a write only for what the owner asked to change.
 
 ## Don't offer

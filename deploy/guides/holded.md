@@ -18,8 +18,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Holded. The catalog gives no `returns`
-paths for Holded today; the ids below are those Holded's answers carry.
+A tool marked read fetches from Holded; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Holded today; the ids below
+are those Holded's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -67,7 +68,7 @@ check the answer after.
 - **Lists come a page at a time:** up to 200 invoices or 100 contacts a page.
   A taf follows the cursor rather than reading everything each run.
 - **A job that runs every day on a small plan** can use up the month's
-  budget. Read only what changed since the last run.
+  budget. Read just what changed since the last run.
 
 ## When it fails
 

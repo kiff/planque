@@ -11,10 +11,10 @@ Failure table checked against planque's answers on 2026-11-16.
   The owner makes it in Wise's account settings (Accounting integrations,
   Developer tools, API tokens), on the website, with 2-step verification
   set up. It stays active until the owner deletes it there.
-- **Ask for a read-only token.** Wise lets the owner set a token's access
-  to read only or full when making it, and change it later. Ask for read
-  only when the job only reads. Pricing a quote is a write; whether a
-  read-only token allows it isn't checked here. Treat a
+- **Ask for a reading token when the job reads.** Wise lets the owner set a
+  token's access, reading or full, when making it, and change it later.
+  Pricing a quote is a write; whether a reading token allows it isn't
+  checked here. Treat a
   full-access token as able to move money, keep any token to this one
   connection, and the owner can delete it in Wise when the job ends.
 - **The tools only read and quote.** None moves money: there's no transfer
@@ -66,7 +66,7 @@ expired sign-in, are in the part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Wise's sign-in has expired (401), token refused | Wrong, or deleted in Wise | "Wise didn't accept the token. If you still want this job, make a new one (read only) in Wise's settings and paste it again; nothing was moved." |
+| Wise's sign-in has expired (401), token refused | Wrong, or deleted in Wise | "Wise didn't accept the token. If you still want this job, make a new one (reading access) in Wise's settings and paste it again; nothing was moved." |
 | Refused (403) | The token can't reach this, or Wise wants a stronger check | "Wise doesn't let this connection do that step, or wants a stronger check that only you can give in Wise. The taf will do without it." |
 | Refused, quote | A currency pair or amount Wise doesn't take | "Wise can't price that: the currency or amount isn't supported." |
 | Refused, too many calls | Over Wise's rate | "Wise asked us to slow down. The taf will try again in a minute." |

@@ -22,8 +22,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Airtable. Returns are what a taf keeps to
-use next time; the catalog's `returns` gives their exact paths.
+A tool marked read fetches from Airtable; one marked write creates, changes
+or sends. Returns are what a taf keeps to use next time; the catalog's
+`returns` gives their exact paths.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -41,7 +42,7 @@ use next time; the catalog's `returns` gives their exact paths.
 taf creates. Next run, update that record by its id. Prefer ids to names for
 tables and fields: an owner can rename them, and the ids don't change.
 
-**Start read-only.** "Tell me which leads have no next step" is reads only.
+**Start with reads.** "Tell me which leads have no next step" is reads only.
 Offer adding or changing records only when the owner asked for it.
 
 **Update, don't replace.** The tools that replace a whole record clear every

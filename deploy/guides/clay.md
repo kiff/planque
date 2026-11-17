@@ -18,8 +18,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the workspace. Returns are the ids a taf
-keeps; they come from Clay's API reference, since the catalog lists none.
+A tool marked read fetches from the workspace; one marked write creates,
+changes or sends. Returns are the ids a taf keeps; they come from Clay's API
+reference, since the catalog lists none.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -42,8 +43,8 @@ Never run a search or function again to find something already kept.
 Wait between reads. A finished run can hold failed items: check each
 item's status.
 
-**Start read-only.** Searching, reading tables and checking the balance
-change nothing. Offer `CLAY_RUN_ROUTINE` only when the owner asked for
+**Start with reads.** Searching, reading tables and checking the balance
+are reads. Offer `CLAY_RUN_ROUTINE` only when the owner asked for
 enrichment, name the function and how many items it will run on, and check
 the balance with `CLAY_GET_CREDIT_BALANCE` first.
 

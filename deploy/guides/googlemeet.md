@@ -57,7 +57,7 @@ names who gets the summary, and the Card says so.
   personal account, a meeting has a list of who joined, and nothing more
   to read.
 - **The list shows only meetings the owner organised.** A meeting they only
-  joined can be read only by its record id.
+  joined can be read by its record id alone.
 - **Records are kept 30 days** by Google; recordings stay in Drive.
 
 ## When it fails

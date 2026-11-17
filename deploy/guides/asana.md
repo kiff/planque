@@ -21,8 +21,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Asana. Returns are what a taf keeps to use
-next time; the catalog's `returns` gives their exact paths.
+A tool marked read fetches from Asana; one marked write creates, changes or
+sends. Returns are what a taf keeps to use next time; the catalog's
+`returns` gives their exact paths.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -46,7 +47,7 @@ id of every task the taf creates. Next run, read or update that task by its
 id. Never search by name for something the taf made: names repeat, and the
 search is slow to see new tasks.
 
-**Start read-only.** "Tell me what's due this week" is reads only. Offer
+**Start with reads.** "Tell me what's due this week" is reads only. Offer
 creating or updating tasks only when the owner asked for it.
 
 ## Don't offer

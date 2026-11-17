@@ -21,8 +21,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Bitbucket. The generated part gives no
-returns; the ids below are the ones Bitbucket's API reference shows.
+A tool marked read fetches from Bitbucket; one marked write creates, changes
+or sends. The generated part gives no returns; the ids below are the ones
+Bitbucket's API reference shows.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -45,7 +46,7 @@ returns; the ids below are the ones Bitbucket's API reference shows.
 or issue's id, to come back to the same one. Never search for something the
 taf made: use the id it kept.
 
-**Start read-only.** "Summarise open pull requests" or "tell me when a build
+**Start with reads.** "Summarise open pull requests" or "tell me when a build
 fails" needs only read tools. Comments, issues and pull requests are seen by
 the team and can notify them: offer a writing tool only when the owner asked
 for it, and show each one to the owner first.

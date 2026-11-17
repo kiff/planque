@@ -19,10 +19,11 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the drive. Returns are what a taf keeps to
-use next time. The catalog's `returns` is empty for OneDrive today; the ids
-below are those OneDrive's answers carry. A file or folder's answer holds
-its id, its name, a link that opens it in a browser, and its parent folder.
+A tool marked read fetches from the drive; one marked write creates, changes
+or sends. Returns are what a taf keeps to use next time. The catalog's
+`returns` is empty for OneDrive today; the ids below are those OneDrive's
+answers carry. A file or folder's answer holds its id, its name, a link that
+opens it in a browser, and its parent folder.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -45,7 +46,7 @@ to open the same one next time; the change-check link, so the next run asks
 only for what is new. Never search for something the taf made: use the id it
 kept.
 
-**Start read-only.** "File the receipts into a folder" is a list or search,
+**Start with reads.** "File the receipts into a folder" is a list or search,
 a download, and an upload or a move. A sharing link lets other people open
 the file, so offer it only when the owner asked for sharing, and each link
 waits for the owner's yes.
