@@ -122,7 +122,7 @@
       ],
       "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/freshdesk-key-openapi.json"
     },
-    "description_sha256": "705388ce999381a9047c97ec320cb34774e36b3f4194ce48ca94e9b8db807dd8",
+    "description_sha256": "3e49ba0b69b7cb17ee04809377b947331dac0e628ac5be6505320be2341d6eef",
     "kind": "api_key",
     "profile": {
       "catalog_entry": "freshdesk-key@1",
@@ -366,7 +366,7 @@
       ],
       "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/intercom-key-openapi.json"
     },
-    "description_sha256": "243c7a2ddbedad7c20709d15d3224fbabc8583eca0485b2941701f4f1c3cbbae",
+    "description_sha256": "86dfa04cec4fb8e17eac928ef3318102de4f2f199c99f1ba38adb4e1f056ca7f",
     "kind": "api_key",
     "profile": {
       "catalog_entry": "intercom-key@1",
@@ -448,6 +448,27 @@
         "tool": "replyConversation",
         "name": "intercom_reply",
         "title": "Reply to a conversation",
+        "fixed_arguments": {
+          "message_type": "comment",
+          "type": "admin"
+        },
+        "arguments": {
+          "admin_id": {
+            "path": "admin_id",
+            "type": "string",
+            "required": true
+          },
+          "body": {
+            "path": "body",
+            "type": "string",
+            "required": true
+          },
+          "conversation_id": {
+            "path": "conversation_id",
+            "type": "string",
+            "required": true
+          }
+        },
         "resource_argument": "conversation_id"
       },
       {

@@ -64,6 +64,9 @@ type Op struct {
 	// Fixed pins an argument (a dotted path) to a value, for a write that
 	// can be made final by it ("status": "draft").
 	Fixed map[string]json.RawMessage `json:"fixed,omitempty"`
+	// Require names arguments the call must give, for a pinned tool whose
+	// description doesn't mark them required.
+	Require []string `json:"require,omitempty"`
 }
 
 var urlRaw = "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/"
@@ -196,6 +199,14 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 				po["kind"] = "read"
 			} else {
 				required := requiredArgs(o)
+				// A write that can copy an outside address (a Cc, a Bcc, a list of
+				// recipients) does more than its title tells the owner: the plan
+				// pins that argument, or the description drops it.
+				for _, path := range addressProps(o.InputSchema) {
+					if _, pinned := p.Fixed[path]; !pinned {
+						return nil, "", fmt.Errorf("%s takes %q, an address list: pin it in the plan's fixed, or take it out of the description", p.Operation, path)
+					}
+				}
 				if p.Resource == "" {
 					p.Resource = firstPathParam(o)
 				}
@@ -206,7 +217,13 @@ func Generate(plan Plan, raw []byte) (map[string]any, string, error) {
 					return nil, "", fmt.Errorf("%s: a write on %q needs a noun for it", p.Operation, p.Resource)
 				}
 				if len(p.Fixed) > 0 {
-					t.Fixed = p.Fixed
+					// A tool with values pinned is narrowed: its arguments are listed here,
+					// what is pinned left out, and a call can't send anything else.
+					args, err := narrowedArguments(o, p.Fixed, p.Require)
+					if err != nil {
+						return nil, "", fmt.Errorf("%s: %w", p.Operation, err)
+					}
+					t.Fixed, t.Arguments = p.Fixed, args
 				}
 				po["kind"] = "write"
 				effect := cmp.Or(p.Effect, "writes")
@@ -347,4 +364,86 @@ func withoutExamples(raw []byte) ([]byte, error) {
 		return v
 	}
 	return json.Marshal(strip(doc, false))
+}
+
+// addressName is a property that names who else a message goes to.
+var addressName = regexp.MustCompile(`(?i)^(cc|bcc|to|recipients?)$|^(cc|bcc|to)[_-]|[_-](cc|bcc|recipients?)$|^(cc|bcc)[_-]?(emails?|addresses)$`)
+
+// addressProps are the dotted paths, in a tool's input schema, of properties
+// that name addresses a message is copied to.
+func addressProps(schema json.RawMessage) []string {
+	var doc any
+	if json.Unmarshal(schema, &doc) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(v any, path string)
+	walk = func(v any, path string) {
+		switch x := v.(type) {
+		case map[string]any:
+			if props, ok := x["properties"].(map[string]any); ok {
+				for name, c := range props {
+					p := name
+					if path != "" {
+						p = path + "." + name
+					}
+					if addressName.MatchString(name) {
+						out = append(out, p)
+					}
+					walk(c, p)
+				}
+			}
+			for _, k := range []string{"items", "oneOf", "anyOf", "allOf"} {
+				if c, ok := x[k]; ok {
+					walk(c, path)
+				}
+			}
+		case []any:
+			for _, c := range x {
+				walk(c, path)
+			}
+		}
+	}
+	walk(doc, "")
+	slices.Sort(out)
+	return out
+}
+
+// narrowedArguments are the arguments of a tool with values pinned: each
+// property of the operation's input but those pinned, a plain scalar.
+func narrowedArguments(o openapi.Operation, fixed map[string]json.RawMessage, require []string) (map[string]planque.Argument, error) {
+	var schema struct {
+		Properties map[string]struct {
+			Type any `json:"type"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(o.InputSchema, &schema); err != nil {
+		return nil, err
+	}
+	args := map[string]planque.Argument{}
+	for name, prop := range schema.Properties {
+		if _, pinned := fixed[name]; pinned {
+			continue
+		}
+		typ, _ := prop.Type.(string)
+		if !slices.Contains([]string{"string", "integer", "number", "boolean"}, typ) {
+			return nil, fmt.Errorf("argument %q is a %v: a tool with pinned values takes plain arguments only, so take it out of the description", name, prop.Type)
+		}
+		args[name] = planque.Argument{Path: name, Type: typ, Required: slices.Contains(schema.Required, name) || slices.Contains(require, name)}
+	}
+	for _, name := range require {
+		if _, ok := args[name]; !ok {
+			return nil, fmt.Errorf("%q is required but isn't an argument of the tool", name)
+		}
+	}
+	for name := range fixed {
+		if strings.Contains(name, ".") {
+			continue
+		}
+		if _, ok := schema.Properties[name]; !ok {
+			return nil, fmt.Errorf("%q is pinned but isn't an argument of the operation", name)
+		}
+	}
+	return args, nil
 }
