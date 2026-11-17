@@ -14,9 +14,11 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
@@ -191,11 +193,166 @@ func (s *Server) readAPI(ctx context.Context, tenant, grant string, a apiAsk, to
 		// A refusal of the tools goes as an error, so it's answered with its code.
 		return nil, nil, "", r
 	}
+	if r := markTextFields(snap, tools); r != nil {
+		return nil, nil, "", r
+	}
 	if err := s.saveSnapshot(ctx, tenant, grant, snap); err != nil {
 		return nil, nil, "", err
 	}
 	return &APIRequest{URL: a.URL, Digest: snap.Digest, Base: strings.TrimRight(a.Base, "/"), Auth: a.Auth,
 		Operations: slices.Clone(a.Operations)}, snap, "", nil
+}
+
+// markTextFields sets each tool's TextFields from its operation in snap, as
+// planque reads the schema (textFields): none on a read (GET or HEAD, by the
+// method, never a vendor's flag), and whatever the asking agent sent is
+// replaced, never kept. Run once apiToolsCheck passed; a write planque can't
+// read is refused (refTextUnclear), never let through as having no text.
+func markTextFields(snap *openapi.Snapshot, tools []ToolRequest) *toolRefusal {
+	for i := range tools {
+		tools[i].TextFields = nil
+		j := slices.IndexFunc(snap.Operations, func(o openapi.Operation) bool { return o.Name == tools[i].Tool })
+		if j < 0 || snap.Operations[j].ReadOnly {
+			continue
+		}
+		fields, ok := textFields(snap.Operations[j].InputSchema)
+		if !ok {
+			return &toolRefusal{Code: refTextUnclear, Tool: refTool(tools[i]), Field: "tool", Want: "an operation whose message field planque can tell",
+				Msg: tools[i].Tool + " reaches someone, but planque can't tell which of its fields carries the message, so the AI disclosure couldn't be put on it; leave it out, or use an operation that names its message (body, text, message)"}
+		}
+		tools[i].TextFields = fields
+	}
+	return nil
+}
+
+// textWords are the words of an argument's name that say it carries words a
+// person reads: where KIFF's disclosure line goes. A name is split into its
+// words (camelCase, "_" and "-"), so htmlBody, body_html and internal_note
+// count. "value" counts only under a text-named parent (content[].value).
+var textWords = map[string]bool{"subject": true, "body": true, "message": true, "comment": true, "note": true, "notes": true,
+	"text": true, "content": true, "html": true, "reply": true, "description": true, "title": true, "summary": true,
+	"caption": true, "commentary": true, "markdown": true, "plain": true}
+
+// recipientWords say an operation reaches someone: with one of them and no
+// text-named argument, its free strings are what it says (textFields).
+var recipientWords = map[string]bool{"to": true, "cc": true, "bcc": true, "recipient": true, "recipients": true,
+	"email": true, "phone": true, "channel": true, "thread": true, "conversation": true}
+
+// idWords make a string an identifier or a code, never words a person reads.
+var idWords = map[string]bool{"id": true, "ids": true, "key": true, "slug": true, "sku": true, "code": true,
+	"currency": true, "locale": true, "timezone": true}
+
+// nameWords splits an argument's name into its lower-case words.
+func nameWords(name string) []string {
+	var out []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			out = append(out, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	rs := []rune(name)
+	for i, r := range rs {
+		switch {
+		case r == '_' || r == '-' || r == ' ' || r == '.':
+			flush()
+		case i > 0 && unicode.IsUpper(r) && (unicode.IsLower(rs[i-1]) || i+1 < len(rs) && unicode.IsLower(rs[i+1])):
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return out
+}
+
+func anyWord(name string, set map[string]bool) bool {
+	return slices.ContainsFunc(nameWords(name), func(w string) bool { return set[w] })
+}
+
+// textFields are the dotted paths of schema's free-text arguments, sorted:
+// a string (or a list of strings) with no enum and no format, whose name has
+// a word of textWords, at the top level or inside an object or a list of
+// objects (its path with "[]"), three levels deep at most. An operation with
+// a recipient (recipientWords) and no such argument counts its free strings
+// (no enum, no format, no id- or recipient-shaped name) as what it says: the longest
+// maxLength first, at most disclose's 4; more than that, it can't be told,
+// and ok is false. Unreadable JSON is no text.
+func textFields(schema json.RawMessage) (fields []string, ok bool) {
+	type node struct {
+		Type       json.RawMessage  `json:"type"`
+		Enum       []any            `json:"enum"`
+		Format     string           `json:"format"`
+		MaxLength  *int             `json:"maxLength"`
+		Properties map[string]*node `json:"properties"`
+		Items      *node            `json:"items"`
+	}
+	is := func(n *node, want string) bool {
+		var one string
+		if json.Unmarshal(n.Type, &one) == nil {
+			return one == want
+		}
+		var many []string
+		return json.Unmarshal(n.Type, &many) == nil && slices.Contains(many, want)
+	}
+	free := func(n *node) bool { return is(n, "string") && len(n.Enum) == 0 && n.Format == "" }
+	var root node
+	if json.Unmarshal(schema, &root) != nil {
+		return nil, true
+	}
+	type str struct {
+		path string
+		max  int
+	}
+	var texts []string
+	var strs []str
+	reaches := false
+	var walk func(n *node, prefix string, depth int, textParent bool)
+	walk = func(n *node, prefix string, depth int, textParent bool) {
+		for name, p := range n.Properties {
+			if p == nil {
+				continue
+			}
+			text := anyWord(name, textWords) || textParent && slices.Contains(nameWords(name), "value")
+			reaches = reaches || anyWord(name, recipientWords)
+			switch {
+			case len(p.Properties) > 0:
+				if depth < 3 {
+					walk(p, prefix+name+".", depth+1, text)
+				}
+			case p.Items != nil && len(p.Items.Properties) > 0:
+				if depth < 3 {
+					walk(p.Items, prefix+name+"[].", depth+1, text)
+				}
+			case p.Items != nil && free(p.Items) && text:
+				texts = append(texts, prefix+name+"[]")
+			case free(p) && text:
+				texts = append(texts, prefix+name)
+			case free(p) && !anyWord(name, idWords) && !anyWord(name, recipientWords):
+				m := math.MaxInt
+				if p.MaxLength != nil {
+					m = *p.MaxLength
+				}
+				strs = append(strs, str{prefix + name, m})
+			}
+		}
+	}
+	walk(&root, "", 1, false)
+	if len(texts) > 0 || !reaches {
+		slices.Sort(texts)
+		return texts, true
+	}
+	if len(strs) > 4 {
+		return nil, false
+	}
+	slices.SortFunc(strs, func(a, b str) int { return cmp.Or(cmp.Compare(b.max, a.max), cmp.Compare(a.path, b.path)) })
+	for _, x := range strs {
+		texts = append(texts, x.path)
+	}
+	slices.Sort(texts)
+	return texts, true
 }
 
 // apiToolsCheck says why tools can't be asked for from snap, nil when they can.

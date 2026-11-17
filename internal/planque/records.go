@@ -61,6 +61,15 @@ type ToolRequest struct {
 	// it (kiff/tafs#167).
 	ResourceArg  string `json:"resource_argument,omitempty"`
 	ResourcePath string `json:"resource_path,omitempty"`
+	// TextFields are an API-key write's arguments that carry words a person
+	// reads (a subject, a body, a message), by their dotted path: planque's
+	// own reading of the operation's schema (textFields), set as the request
+	// is checked, never the asking agent's or the vendor's words. A read's is
+	// none, a read being planque's own by the method (ReadOnly), never a
+	// vendor's flag. tafs cloud
+	// counts such a write as reaching people outside unless it's disclosed
+	// (kiff/tafs gap 14): a write with none can't carry a message.
+	TextFields []string `json:"text_fields,omitempty"`
 	// UnitLookup is the read of this grant that says which currency a call
 	// is in, so KIFF counts only calls in the Card's.
 	UnitLookup *kiff.UnitLookup `json:"unit_lookup,omitempty"`

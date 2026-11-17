@@ -65,6 +65,7 @@ const (
 	refPinUnknown       = "pin_unknown"       // a pin isn't one of the operation's arguments; field = the pin
 	refArgumentUnknown  = "argument_unknown"  // an argument's path isn't one of the operation's arguments
 	refRequiredArgument = "required_argument" // a narrowed tool leaves out an argument the operation requires
+	refTextUnclear      = "text_unclear"      // a write that reaches someone, with no text-named argument and more free strings than disclose takes; tool = it
 
 	// notServed: a managed app's tool planque never serves (connector.NeverServed)
 	refToolNotServed = "tool_not_served" // tool = its slug; field = "tools" (a catalog request) or "tool" (setting tools); a broad write narrowed to an operation in describer.Never: tool = its name, field = the operation's argument
