@@ -1442,6 +1442,12 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a connector connection requires an owner-approved profile")
 		return
 	}
+	if c := g.Request.Connector; c != nil {
+		if err := connectorProfileVendor(req.Profile, c.Title); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if req.Profile, err = deriveProfileFields(req.Profile, all, reviewed); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

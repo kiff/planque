@@ -53,6 +53,23 @@ func profileFields(raw json.RawMessage, tools []ToolRequest) (json.RawMessage, e
 	return deriveProfileFields(raw, tools, false)
 }
 
+// connectorProfileVendor holds a managed connection's profile to its own app:
+// KIFF's words say the vendor the profile gives, so another app's name there
+// would make the approval name the wrong app.
+func connectorProfileVendor(raw json.RawMessage, app string) error {
+	if len(raw) == 0 || strings.TrimSpace(app) == "" {
+		return nil
+	}
+	p, err := profile.Parse(raw)
+	if err != nil {
+		return nil // deriveProfileFields refuses it with its own words
+	}
+	if !strings.EqualFold(strings.TrimSpace(p.Vendor), strings.TrimSpace(app)) {
+		return fmt.Errorf("this connection is %s: its profile names %q as the vendor", app, p.Vendor)
+	}
+	return nil
+}
+
 func deriveProfileFields(raw json.RawMessage, tools []ToolRequest, reviewed bool) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil

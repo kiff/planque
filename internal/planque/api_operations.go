@@ -20,6 +20,9 @@ import (
 // apiReadsADay is the most API descriptions an account reads a day.
 const apiReadsADay = 100
 
+// CodeAPIReadsCapped is the code on the 429 past the day's reads.
+const CodeAPIReadsCapped = "api_reads_capped"
+
 var errAPIReads = errors.New("the account's API description reads for the day are used")
 
 // countAPIRead takes one of the day's description reads for the account, or
@@ -94,7 +97,8 @@ func (s *Server) apiOperations(w http.ResponseWriter, r *http.Request) {
 	// Each read fetches a description of up to 16 MB: counted per account a day, once the ask is one.
 	if err := s.countAPIRead(r.Context(), tenant); err != nil {
 		if errors.Is(err, errAPIReads) {
-			writeErr(w, http.StatusTooManyRequests, "This account has read "+strconv.Itoa(apiReadsADay)+" API descriptions today. Try again tomorrow.")
+			// The code is what a caller acts on (a test suite stops at once instead of retrying); the words stay for people.
+			s.fail(w, r, apiCoded{apiError{http.StatusTooManyRequests, "This account has read " + strconv.Itoa(apiReadsADay) + " API descriptions today. Try again tomorrow."}, CodeAPIReadsCapped, ""})
 			return
 		}
 		s.fail(w, r, err)

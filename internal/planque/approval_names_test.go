@@ -121,3 +121,26 @@ func TestManagedActionsAreNamedInWords(t *testing.T) {
 		t.Errorf("Details show the agent id: %s", s)
 	}
 }
+
+// A managed connection's profile names its own app as the vendor: KIFF's words
+// say the vendor the profile gives, so another app's name there would make the
+// approval name the wrong app.
+func TestAManagedProfileNamesTheConnectionsOwnApp(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	id := listConnector(t, e, f)
+	path := "/v1/accounts/" + tenant + "/grants/" + id
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("tool catalog: %d %v", st, catalog)
+	}
+	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	for _, vendor := range []string{"Moneybird", "Gmail", ""} {
+		p := profile.Profile{V: profile.Version, Vendor: vendor, Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
+			Operations: []profile.Operation{{Tool: "reply_ticket", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
+				Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
+		st, out := e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Reply ticket", Name: "reply_ticket"}}, "profile": p}, nil, "k_setup")
+		if st != 400 {
+			t.Errorf("a %q profile on the Support desk connection: %d %v", vendor, st, out)
+		}
+	}
+}
