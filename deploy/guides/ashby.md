@@ -20,8 +20,8 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Ashby. Returns are what a taf keeps to use
-next time.
+A tool marked read fetches from Ashby; one marked write creates, changes or
+sends. Returns are what a taf keeps to use next time.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -45,7 +45,7 @@ the same person next time; job and stage ids, which every move needs.
 Before adding a candidate, search by email first, so the same person isn't
 added twice.
 
-**Start read-only.** "Summarise new applicants each morning" is the read
+**Start with reads.** "Summarise new applicants each morning" is the read
 tools alone. A note is the lightest write. Offer a stage move only when the
 owner asked for it, and say each move waits for their yes: moving a
 candidate is what a candidate and the hiring team see.
@@ -84,7 +84,7 @@ part below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Refused (403), missing endpoint permission | The key's module for this step is off, or read only | "Ashby is only partly connected: this step needs access your key doesn't give. Ask your Ashby admin to allow it on the key, or do without this step." |
+| Refused (403), missing endpoint permission | The key's module for this step is off, or allows reading but not this write | "Ashby is only partly connected: this step needs access your key doesn't give. Ask your Ashby admin to allow it on the key, or do without this step." |
 | Refused (403), key not accepted | No key was sent, or the key is wrong or switched off | "Ashby needs a new key from your admin. Nothing was changed." |
 | Answer unsuccessful: application or candidate not found | It was removed, or it belongs to a confidential job the key can't see | "The taf can't see that candidate. It may be deleted, or on a confidential job. Your admin can allow confidential jobs on the key." |
 | Answer unsuccessful, with a message | A field is wrong, such as a stage from another job's plan | "Ashby didn't accept this change. The taf will stop and show you what it tried." |

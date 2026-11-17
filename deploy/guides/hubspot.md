@@ -19,9 +19,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the account. The catalog's `returns` gives
-exact paths where it has them; where it has none yet, the answer still
-carries the record's id, which is what a taf keeps.
+A tool marked read fetches from the account; one marked write creates,
+changes or sends. The catalog's `returns` gives exact paths where it has
+them; where it has none yet, the answer still carries the record's id, which
+is what a taf keeps.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,7 +50,7 @@ keep them: a deal's stage is set by id, not by its name.
 contact's unique key, so search by email first and update the contact found.
 Notes and tasks need a time (when they happened, or when they're due).
 
-**Start read-only.** "Tell me which deals went quiet" is search and read
+**Start with reads.** "Tell me which deals went quiet" is search and read
 tools only. Offer a write only for what the owner asked to change.
 
 ## Don't offer

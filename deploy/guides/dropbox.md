@@ -13,13 +13,14 @@ Failure table checked against planque's answers on 2026-11-16.
   known sign-in, puts the ones its access doesn't cover under `unusable`,
   with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
-  If it doesn't (writing files after a read-only sign-in, say), Dropbox asks
+  If it doesn't (writing files after a sign-in made for reading, say), Dropbox asks
   the owner again.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the Dropbox. Returns are named from
-Dropbox's API reference, since the catalog gives none for this app.
+A tool marked read fetches from the Dropbox; one marked write creates,
+changes or sends. Returns are named from Dropbox's API reference, since the
+catalog gives none for this app.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -39,14 +40,14 @@ Dropbox's API reference, since the catalog gives none for this app.
 | `DROPBOX_CREATE_FILE_REQUEST` | Opens a page where others can upload into a folder | write, outside | the request's id and url |
 
 **What to keep:** a file's id and its rev,
-to update that same version later; a list's cursor, to read only what
+to update that same version later; a list's cursor, to read just what
 changed next time. Never search for what the taf made: use the id it kept.
 
 **Uploads don't overwrite by default.** Keep the default "add" mode, or
 update a given rev; use overwrite only when the owner asked to replace a
 file. A name clash then saves a renamed copy or is refused, never lost.
 
-**Start read-only:** list, search and read. Offer uploads when the job
+**Start with reads:** list, search and read. Offer uploads when the job
 saves something, and a shared link or file request only when the owner
 asked to share; each link is shown to the owner first.
 

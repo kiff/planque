@@ -58,12 +58,12 @@ calendar's own; never assume the server's.
 
 ## Access and plans
 
-- **What Google's page asks for follows the taf's tools,** each at the
-  narrowest access it runs on (Google's words, roughly, in quotes):
-  - **reading events and free time:** read-only access to events or
-    calendars ("view events on all your calendars");
-  - **creating or changing events:** access to events ("view and edit events
-    on all your calendars");
+- **What Google's page asks for:** the narrowest access the managed sign-in
+  offers for the taf's tools (Google's words, roughly, in quotes). It offers
+  no Calendar access narrower than events, so:
+  - **reading events and free time, creating or changing events:** access to
+    events ("view and edit events on all your calendars"), even for a job
+    that writes nothing;
   - **managing calendars themselves** (creating, clearing, deleting or
     sharing a calendar, its access list): full calendar access, which also
     lets it share and delete calendars. Offer these only when the job needs
@@ -93,7 +93,7 @@ below.
 
 | What the taf gets | Why | Tell the owner |
 |---|---|---|
-| Refused for missing access (403) | The sign-in gave read-only or free-time access, and the tool writes | "Google Calendar is only partly connected: adding events needs access you didn't give. Sign in again and allow it, or I'll only read." |
+| Refused for missing access (403) | The sign-in (an older one) gave viewing or free-time access, and the tool writes | "Google Calendar is only partly connected: adding events needs access you didn't give. Sign in again and allow it, or I'll only read." |
 | Refused, rate or invitation limit (403 or 429) | Too many calls, or too many invitations sent | "Google asked us to slow down. The rest goes in a few minutes." |
 | Refused (404), event not found, or (410) "deleted" | Someone deleted it | "That event isn't on the calendar any more. Nothing was changed." |
 | Refused (409), conflict | An event with the same id exists | Use a new event; don't tell the owner unless it fails again. |

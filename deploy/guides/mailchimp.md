@@ -20,9 +20,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the account. Mailchimp's catalog entries
-give no `returns` paths today; the returns below are what Mailchimp's API
-reference shows in each answer.
+A tool marked read fetches from the account; one marked write creates,
+changes or sends. Mailchimp's catalog entries give no `returns` paths today;
+the returns below are what Mailchimp's API reference shows in each answer.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

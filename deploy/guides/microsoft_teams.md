@@ -20,8 +20,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Teams. The catalog's entries give no
-`returns` paths today; the ids below are the ones Teams' answers carry.
+A tool marked read fetches from Teams; one marked write creates, changes or
+sends. The catalog's entries give no `returns` paths today; the ids below
+are the ones Teams' answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -44,7 +45,7 @@ in the same conversation. A message id is unique only inside its channel or
 chat, so keep it with the channel or chat it belongs to. Never search for
 something the taf posted: use the id it kept.
 
-**Start read-only.** "Sum up this week's channel threads" needs only read
+**Start with reads.** "Sum up this week's channel threads" needs only read
 tools. Every post shows under the owner's name to colleagues, so offer a
 posting tool only when the owner asked, and each post waits for their yes.
 A note to self is the gentlest way to report.

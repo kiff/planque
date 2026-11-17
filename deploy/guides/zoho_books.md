@@ -22,8 +22,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the books. The catalog's `returns` gives
-no paths for Zoho Books today; the ids below are those Zoho's answers carry.
+A tool marked read fetches from the books; one marked write creates, changes
+or sends. The catalog's `returns` gives no paths for Zoho Books today; the
+ids below are those Zoho's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

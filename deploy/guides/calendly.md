@@ -20,9 +20,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Calendly. Calendly's catalog entries give
-no `returns` paths today; the ids below are those Calendly's answers carry
-(each is a link to the object, ending in its id).
+A tool marked read fetches from Calendly; one marked write creates, changes
+or sends. Calendly's catalog entries give no `returns` paths today; the ids
+below are those Calendly's answers carry (each is a link to the object,
+ending in its id).
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -44,7 +45,7 @@ organization's); each event's link, to read or cancel that same meeting
 later; an invitee's reschedule url, to send to a guest who wants another
 time. Never look a meeting up by its name: use the link the taf kept.
 
-**Start read-only.** "Tell me tomorrow's meetings and who's coming" needs
+**Start with reads.** "Tell me tomorrow's meetings and who's coming" needs
 only the read tools. Booking or cancelling for a guest reaches someone
 outside, so offer those only when the owner asked for them, and each one
 waits for the owner's yes.

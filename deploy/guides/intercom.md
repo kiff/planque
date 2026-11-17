@@ -20,10 +20,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Intercom. The catalog gives no `returns`
-paths for Intercom today; the ids below are those Intercom's reference pages
-show in the answer, and "not documented" means the pages read didn't show
-the answer's fields.
+A tool marked read fetches from Intercom; one marked write creates, changes
+or sends. The catalog gives no `returns` paths for Intercom today; the ids
+below are those Intercom's reference pages show in the answer, and "not
+documented" means the pages read didn't show the answer's fields.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,7 +49,7 @@ the same one later; a ticket's `id`, not its `ticket_id`: Intercom says the
 second is the number shown in its inbox and isn't for the API. Never search
 for something the taf made: use the id it kept.
 
-**Start read-only.** "Tell me which conversations are waiting and draft
+**Start with reads.** "Tell me which conversations are waiting and draft
 answers for me" needs only the read tools. A reply reaches the customer, so
 offer replying or closing with a message only when the owner asked for it,
 and each reply waits for the owner's yes.

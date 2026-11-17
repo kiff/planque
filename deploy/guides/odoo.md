@@ -25,8 +25,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Odoo. The catalog gives no `returns` paths
-for Odoo today; the cells below are what Odoo's documentation shows.
+A tool marked read fetches from Odoo; one marked write creates, changes or
+sends. The catalog gives no `returns` paths for Odoo today; the cells below
+are what Odoo's documentation shows.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -51,7 +52,7 @@ name to change it: use the id the taf kept.
 and checks back for the result. Odoo reads one document per send, as PDF,
 PNG or JPG.
 
-**Start read-only.** "Read this week's vendor invoices and list what's due"
+**Start with reads.** "Read this week's vendor invoices and list what's due"
 needs the parse and result tools for invoices only. Changing records is
 offered only when the owner asked, and each change is shown first and
 waits for their yes.

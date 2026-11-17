@@ -19,8 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the mailbox. Returns are what a taf keeps
-to use next time; the catalog's `returns` gives their exact paths.
+A tool marked read fetches from the mailbox; one marked write creates,
+changes or sends. Returns are what a taf keeps to use next time; the
+catalog's `returns` gives their exact paths.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -42,7 +43,7 @@ to use next time; the catalog's `returns` gives their exact paths.
 message's thread id, to reply in the right conversation. Never search for
 something the taf made: use the id it kept.
 
-**Start read-only.** "Draft, and let me check before anything is sent" is a
+**Start with reads.** "Draft, and let me check before anything is sent" is a
 read tool plus `GMAIL_CREATE_EMAIL_DRAFT`. Offer a sending tool only when
 the owner asked for sending, and say every send waits for their yes. The
 taf's tools and its Card are what keep a job to reading: the sign-in itself
@@ -60,15 +61,15 @@ can do more (below).
 
 - **Through the managed sign-in, Google's page asks for full mail access**
   ("read, compose, send and permanently delete"), whatever the taf's tools:
-  that sign-in offers no narrower Gmail access, not read-only, compose or
-  modify. A read-only job's sign-in can, as a sign-in, also send and delete.
+  that sign-in offers no narrower Gmail access. A job that sends nothing
+  still has a sign-in that can send and delete.
   - The approval says so: "Gmail will ask for more access than this taf
     uses". Coach says it plainly before connecting, and never "only what this
     taf needs".
   - What the taf may do is still only its tools and its Card. A taf with no
     sending tool can't send, whatever the sign-in allows.
-  - Read-only Gmail needs a sign-in whose own access includes it, which the
-    managed one doesn't. Until then, don't promise it.
+  - Never describe the connection or its sign-in as limited to reading:
+    the managed one can't be.
 - **Never contacts, birthday, addresses or phone numbers:** a Gmail job asks
   for none of them.
 - The tools are named in the connect: a connect that names none asks for the

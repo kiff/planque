@@ -72,8 +72,9 @@ Everything each app's guide says not to offer, and in particular:
 ## Access and plans
 
 - **What Google's page asks for follows the taf's tools,** each at the
-  narrowest access its app's guide describes (read-only for reads, then edit,
-  then full), across all the apps the tools touch. The apps with no reviewed
+  narrowest access the managed sign-in offers, as its app's guide describes,
+  across all the apps the tools touch. That is often wider than the job: the
+  Card limits the taf, not the sign-in. The apps with no reviewed
   order (Tasks, Meet, Photos and the others) ask for what the connection
   service recommends.
 - **The limits are each app's own,** per user: Gmail's sending caps, Drive's

@@ -19,9 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing. Returns are named from Dynamics 365's API
-reference, since the catalog gives none for this app. Every record id is
-a long unique id (a GUID).
+A tool marked read fetches; one marked write creates, changes or sends.
+Returns are named from Dynamics 365's API reference, since the catalog gives
+none for this app. Every record id is a long unique id (a GUID).
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,7 +49,7 @@ kept.
 skip-style paging isn't supported, so the `skip` input of the leads list
 doesn't page. Filter and order by a unique field instead.
 
-**Start read-only:** query and get tools. Offer creating leads, contacts, tasks and notes when the
+**Start with reads:** query and get tools. Offer creating leads, contacts, tasks and notes when the
 job adds records, and updates only when the owner names what may change.
 Each update is shown to the owner first.
 

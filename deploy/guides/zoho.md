@@ -52,8 +52,8 @@ custom fields change. Read the module's fields once and keep them.
 - **Calls are counted in credits over a rolling 24 hours,** usually one a
   call: 5,000 on the free edition, and from 50,000 plus an amount per user
   licence on paid editions, up to each edition's cap. A trial counts like
-  its paid edition. A job reading every record daily should read only
-  changes.
+  its paid edition. A job reading every record daily should read just
+  the changes.
 - **Rate:** Zoho also limits calls at once. Lists answer up to 200 records a
   page, a search at most 2,000 in all, and one create takes up to 100
   records.

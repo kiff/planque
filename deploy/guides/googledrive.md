@@ -15,15 +15,19 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Two kinds of access
 
-What Google's page asks for follows the taf's tools, each at the narrowest
-access it runs on (Google's words, roughly, in quotes):
+What Google's page asks for is the narrowest access the managed sign-in
+offers for the taf's tools (Google's words, roughly, in quotes). It offers no
+Drive access between files-the-taf-made and full, so:
 
-- **Reads** (search, list, download, export): **read-only Drive**, "see and
-  download all your Drive files".
-- **Writes** (upload, create, move, share, delete): **full Drive**, "see,
-  edit, create and delete all your Drive files". Access to only the files the
-  taf made is narrower, but planque doesn't ask for it: a tool that lists it
-  may still need more, and the taf then fails on the owner's own files.
+- **Reads and writes** (search, list, download, export, upload, create, move,
+  share, delete): **full Drive**, "see, edit, create and delete all your
+  Drive files", even for a job that writes nothing. Access to only the files
+  the taf made is narrower, but planque doesn't ask for it: a tool that lists
+  it may still need more, and the taf then fails on the owner's own files.
+- **The Card limits the taf, not the sign-in.** planque's grant says when the
+  sign-in is wider than the job (`usual_access`, and its `scopes`). Tell the
+  owner what Google's page will ask for, and never describe the connection or
+  its sign-in as limited to reading.
 - The tools are named in the connect: a connect that names none asks for the
   app's widest access, so the taf's planned tools are always named when it
   connects.

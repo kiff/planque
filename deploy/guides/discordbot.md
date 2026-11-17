@@ -29,8 +29,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the server. The catalog gives no returns
-for this app; the ids below are the ones Discord's reference documents.
+A tool marked read fetches from the server; one marked write creates,
+changes or sends. The catalog gives no returns for this app; the ids below
+are the ones Discord's reference documents.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,7 +50,7 @@ for this app; the ids below are the ones Discord's reference documents.
 of each message the bot posted, to edit it or reply in a thread later. Look
 a channel up by id, never by name each run.
 
-**Start read-only.** "Summarise the channel and show me" is reads only.
+**Start with reads.** "Summarise the channel and show me" is reads only.
 Offer posting only when the owner asked for it, and say each post waits
 for their yes: the whole channel sees it.
 

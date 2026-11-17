@@ -19,8 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the books. The catalog gives no `returns`
-paths for Lexoffice today; the ids below are those the app's answers carry.
+A tool marked read fetches from the books; one marked write creates, changes
+or sends. The catalog gives no `returns` paths for Lexoffice today; the ids
+below are those the app's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

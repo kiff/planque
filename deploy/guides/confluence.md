@@ -19,8 +19,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing on the site. Returns are the ids a taf keeps;
-they come from Confluence's API reference, since the catalog lists none.
+A tool marked read fetches from the site; one marked write creates, changes
+or sends. Returns are the ids a taf keeps; they come from Confluence's API
+reference, since the catalog lists none.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -44,7 +45,7 @@ the id it kept.
 job asks, send the full body back, and set the version to the one read plus
 one. A page others edit is shown to the owner before it is changed.
 
-**Start read-only.** "Summarise our team's pages" needs only reads. A new
+**Start with reads.** "Summarise our team's pages" needs only reads. A new
 page is published as soon as it's made, so the taf shows the owner its text
 first.
 

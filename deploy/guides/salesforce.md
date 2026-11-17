@@ -23,9 +23,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in Salesforce. The catalog gives no `returns`
-paths for Salesforce today; the cells below are what Salesforce's REST
-reference shows for reading, finding, adding and changing records.
+A tool marked read fetches from Salesforce; one marked write creates,
+changes or sends. The catalog gives no `returns` paths for Salesforce today;
+the cells below are what Salesforce's REST reference shows for reading,
+finding, adding and changing records.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -50,7 +51,7 @@ the id the taf kept.
 **Search first.** Before adding a contact or a lead, search by email. Add
 one only when nothing matches, so no one is entered twice.
 
-**Start read-only.** "Tell me which open deals close this month" needs only
+**Start with reads.** "Tell me which open deals close this month" needs only
 the read tools. Tasks, call logs and notes are small writes. Changing a
 deal's stage or amount changes the team's forecast, so offer it only when
 asked, and each change waits for the owner's yes.

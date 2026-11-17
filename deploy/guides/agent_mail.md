@@ -18,8 +18,8 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the inbox. Returns are what a taf keeps to
-use next time.
+A tool marked read fetches from the inbox; one marked write creates, changes
+or sends. Returns are what a taf keeps to use next time.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

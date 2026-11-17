@@ -21,8 +21,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing. The catalog's `returns` gives no paths for
-Zoho Invoice today; the ids below are those Zoho's answers carry.
+A tool marked read fetches; one marked write creates, changes or sends. The
+catalog's `returns` gives no paths for Zoho Invoice today; the ids below are
+those Zoho's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -49,7 +50,7 @@ taf kept its id.
 **Money and outside steps wait for the owner.** Creating an invoice or
 recording a payment changes the books, and emailing an invoice or quote
 reaches the customer. Offer those only when the owner asked for them, and
-each one waits for their yes. A good first job is read-only: "which
+each one waits for their yes. A good first job reads and writes nothing: "which
 invoices are overdue, and by how much".
 
 **Reminders:** this tool set sends payment reminders only in bulk

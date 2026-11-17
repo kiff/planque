@@ -17,9 +17,10 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the books. The catalog gives no `returns`
-paths for QuickBooks today, and QuickBooks' answer reference couldn't be
-read for this guide, so the ids each answer carries are not checked here.
+A tool marked read fetches from the books; one marked write creates, changes
+or sends. The catalog gives no `returns` paths for QuickBooks today, and
+QuickBooks' answer reference couldn't be read for this guide, so the ids
+each answer carries are not checked here.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

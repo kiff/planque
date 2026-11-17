@@ -18,11 +18,12 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing on Reddit. The catalog's `returns` is empty
-for Reddit today. Reddit names every post and comment by a "fullname": a
-type prefix (`t3_` for a post, `t1_` for a comment) and an id. Editing,
-deleting and replying all take that fullname. Lists come a page at a time,
-at most 100 items, with a marker for the next page.
+A tool marked read fetches from Reddit; one marked write creates, changes or
+sends. The catalog's `returns` is empty for Reddit today. Reddit names every
+post and comment by a "fullname": a type prefix (`t3_` for a post, `t1_` for
+a comment) and an id. Editing, deleting and replying all take that fullname.
+Lists come a page at a time, at most 100 items, with a marker for the next
+page.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|

@@ -20,8 +20,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing on any board. Returns are what a taf keeps to
-use next time; the catalog's `returns` gives exact paths where it has them.
+A tool marked read fetches from any board; one marked write creates, changes
+or sends. Returns are what a taf keeps to use next time; the catalog's
+`returns` gives exact paths where it has them.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -45,7 +46,7 @@ so it never searches for them again; each card's id once it adds one, to
 update, move or comment on that same card later. Never search by title for
 a card the taf made: use the id it kept.
 
-**Start read-only.** "Tell me what's overdue on the board" needs only read
+**Start with reads.** "Tell me what's overdue on the board" needs only read
 tools. Offer adding, moving or commenting only when the owner asked for it,
 and name the board and columns the taf may touch.
 

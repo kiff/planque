@@ -22,9 +22,9 @@ Sign-in checked against planque's integrations record on 2026-11-16.
 
 ## Tools a job usually needs
 
-Read means it changes nothing in the store. The catalog's `returns` lists
-no paths for these tools yet; the ids below are what Shopify's answers
-carry.
+A tool marked read fetches from the store; one marked write creates, changes
+or sends. The catalog's `returns` lists no paths for these tools yet; the
+ids below are what Shopify's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
