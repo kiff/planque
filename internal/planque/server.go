@@ -453,7 +453,7 @@ func (s *Server) verifySignedAs(r *http.Request, kind, tenant, capability string
 				slog.String("kind", kind), slog.String("key", v.Key), slog.String("window", sg.Window))
 			return Approval{}, err
 		}
-		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint, a.Key = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID, v.Key
+		a.DeviceID, a.Subject, a.DeviceName, a.Fingerprint, a.Key, a.Platform = v.DeviceID, v.Subject, strings.TrimSpace(v.Name), v.DeviceID, v.Key, v.Platform
 		if v.Key == kiff.KeyDevice && window != "" {
 			a.Window = window
 		}
@@ -734,6 +734,38 @@ func (s *Server) page(w http.ResponseWriter, lang string, status int, title, msg
 	w.WriteHeader(status)
 	_ = pageTmpl.Execute(w, map[string]string{"Lang": lang, "Title": title, "Message": msg})
 }
+
+// returnToApp hands a finished sign-in's return link u, which carries its
+// one-use code, to the owner's app. A phone's or tablet's approval (a) gets a
+// redirect, which its browser session (ASWebAuthenticationSession, Custom
+// Tabs) catches. Any other device's, or one whose platform isn't known, gets
+// a page with an Open tafs link: a computer's browser opens an app's link
+// only on the person's click, never on a redirect with no click behind it
+// (17 Nov, Windows: Chrome dropped it). Either way the link is in this one
+// answer only (planque keeps the code's hash), never cached and never sent
+// onward, and it's useless without the approving device's signed confirm.
+func (s *Server) returnToApp(w http.ResponseWriter, r *http.Request, lang string, l words.Lines, a *Approval, app string, u *url.URL) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if a != nil && phonePlatforms[a.Platform] {
+		http.Redirect(w, r, u.String(), http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.WriteHeader(http.StatusOK)
+	// u is planque's own PLANQUE_APP_RETURN with the code added, never a
+	// caller's: its scheme (tafs:) is let through as is.
+	_ = openTmpl.Execute(w, map[string]any{"Lang": lang, "Title": l.SignedIn, "Message": l.SignedInOpen(app),
+		"Open": l.OpenTafs, "Link": template.URL(u.String())})
+}
+
+var openTmpl = template.Must(template.New("o").Parse(`<!doctype html><html lang="{{.Lang}}"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · planque</title>
+<style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;color:#1d1d1f}
+a{display:inline-block;margin-top:8px;padding:12px 22px;border-radius:10px;background:#1d1d1f;color:#fff;text-decoration:none;font-weight:600}
+@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{background:#eee;color:#111}}</style>
+<h1>{{.Title}}</h1><p>{{.Message}}</p><p><a href="{{.Link}}">{{.Open}}</a></p>`))
 
 var pageTmpl = template.Must(template.New("p").Parse(`<!doctype html><html lang="{{.Lang}}"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · planque</title>

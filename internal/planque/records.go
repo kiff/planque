@@ -189,6 +189,11 @@ type Approval struct {
 	// made in, so an audit tells a tap from a fingerprint.
 	Key    string `json:"key,omitempty"`
 	Window string `json:"window,omitempty"`
+	// Platform is the approving device's, as KIFF names it ("ios",
+	// "android", "windows"…): a phone's or tablet's sign-in returns to its
+	// app by a redirect, which its browser session catches; any other's by
+	// an Open tafs link the person clicks (returnToApp). Empty before.
+	Platform string `json:"platform,omitempty"`
 	// Lang and Text are the words the owner signed with digest_v 2, and
 	// their language: the receipt of what they read. Empty for a digest
 	// that covers the request alone.

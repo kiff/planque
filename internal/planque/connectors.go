@@ -825,9 +825,7 @@ func (s *Server) connectorCallback(w http.ResponseWriter, r *http.Request) {
 		s.failPage(w, r, g, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	s.returnToApp(w, r, lang, l, g.Approval, vendorName(g), u)
 }
 
 func (s *Server) connectorTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.Server, error) {

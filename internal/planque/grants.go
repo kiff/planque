@@ -2089,9 +2089,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	rq.Set("grant", g.ID)
 	rq.Set("confirm", code)
 	u.RawQuery = rq.Encode()
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	s.returnToApp(w, r, lang, l, g.Approval, vendorName(g), u)
 }
 
 // confirm is the approving phone finishing a sign-in: it signs the code
@@ -2249,9 +2247,7 @@ func (s *Server) renewed(w http.ResponseWriter, r *http.Request, g *Grant, tok o
 	q.Set("grant", g.ID)
 	q.Set("confirm", code)
 	u.RawQuery = q.Encode()
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	s.returnToApp(w, r, lang, l, &g.Renewal.Approval, vendorName(g), u)
 }
 
 // otherAccount names a new sign-in that isn't in g's account, for its event:
