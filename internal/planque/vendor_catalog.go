@@ -173,6 +173,9 @@ type catalogEntryView struct {
 	Title  string `json:"title"`
 	Icon   string `json:"icon,omitempty"`
 	How    string `json:"how"`
+	// Managed: the vendor has an active managed mark and every endpoint the
+	// entry has is on the mark's hosts.
+	Managed bool `json:"managed,omitempty"`
 	// Account: the entry is at an account's address, as this template; the
 	// grant asks for the owner's account. Regions: the entry is at one of
 	// these, the grant asks which.
@@ -206,6 +209,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: e.Title, Icon: e.Icon, How: reviewedHow(e), State: "available"}
+		v.Managed = s.entryManaged(e)
 		if e.API != nil {
 			if accountTemplate(e.API.Base) {
 				v.Account = e.API.Base

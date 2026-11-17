@@ -70,7 +70,9 @@ type Server struct {
 	// CatalogOperators may draft, review, publish and retire the catalog
 	// kept as data (catalog_store.go), by their credential and device.
 	CatalogOperators map[string]CatalogOperator
-	catalogCache     catalogCache
+	// markCache is the managed marks as this instance last read them.
+	markCache    markCache
+	catalogCache catalogCache
 	// described keeps each pinned description's parse (describeEntry), so a
 	// read of a revision never downloads and parses it twice.
 	described describedCache
@@ -179,6 +181,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
 	// The catalog kept as data, for its operators (catalog_store.go).
+	mux.HandleFunc("GET /v1/marks", s.listMarks)
+	mux.HandleFunc("POST /v1/marks/managed", s.setManagedMark)
+	mux.HandleFunc("POST /v1/marks/managed/{vendor}/withdraw", s.withdrawManagedMark)
 	mux.HandleFunc("GET /v1/catalog-entries", s.listCatalogEntries)
 	mux.HandleFunc("POST /v1/catalog-entries", s.draftCatalogEntry)
 	mux.HandleFunc("GET /v1/catalog-entries/{id}", s.getCatalogEntry)

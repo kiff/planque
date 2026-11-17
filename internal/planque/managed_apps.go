@@ -87,11 +87,19 @@ func mustDecodeNames(raw []byte, file string, fold func(string) string) map[stri
 // ("googlesheets" to "Google Sheets"); an app whose slug isn't its name
 // folded is refused until the two are made to match, never let through.
 func (s *Server) managedAllowed(tenant, toolkit string) bool {
+	if s.ManagedTestTenants[tenant] {
+		return true
+	}
+	// A mark, set by an operator's device, decides first: marked on, or marked
+	// off (withdrawn), whatever the seed says. A vendor with no mark follows the seed.
+	if on, marked := s.managedByMark(toolkit); marked {
+		return on
+	}
 	apps := s.ManagedApps
 	if apps == nil {
 		apps = ManagedApps
 	}
-	return s.ManagedTestTenants[tenant] || apps[provedKey(toolkit)]
+	return apps[provedKey(toolkit)]
 }
 
 // errNotDisclosed is what a person reads when a managed connection to an
