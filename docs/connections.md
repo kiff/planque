@@ -653,6 +653,41 @@ Both catalog endpoints require a bearer KIFF key for the account:
   request creates no sign-in link and grants no tools. The existing signed
   approval or key flow, including KIFF's profile and words digests, follows.
 
+### Managed marks
+
+Whether a vendor's apps may be connected through the connection platform is a
+**managed mark**, kept in planque's table beside the catalog, never inside an
+entry (a published entry can't change; a mark must be able to). A mark names
+the vendor, the exact hosts its apps may use (a host, or `*.domain` for a
+vendor that serves one per customer, as `vendorHosts` in the review checks
+writes them) and the date of the published subprocessors-list update it
+follows.
+
+- **Only an enrolled operator's device sets one.** `POST /v1/marks/managed
+  {name, hosts, follows, operator, nonce, signed_at, signature}`: the device
+  signs the SHA-256 of `{name, hosts (sorted), follows}` with the catalog's
+  signing message (`mark-managed`), planque computes it from what was sent, the
+  signature holds for five minutes and counts once. No credential, session or
+  generator can set a mark, and a row written into the table any other way, or
+  changed after it was signed, isn't read as one.
+- **The gate.** A managed connection needs the vendor's mark, or a test tenant,
+  or, for a vendor with no mark at all, a place on `managed_apps.json` (the
+  seed, now empty). A **withdrawn** mark wins over the seed.
+- **The catalog read** says `managed: true` for an entry only when its vendor
+  has an active mark and **every endpoint the entry has** (its API addresses,
+  each region, an account template read on the vendor's own domain, or its app's
+  endpoints) is on the mark's hosts. An entry that calls itself by a managed
+  vendor's name but points elsewhere, or that adds a host the mark doesn't list,
+  is not managed until the owner signs the mark again with that host.
+- **Withdrawing** (`POST /v1/marks/managed/{vendor}/withdraw`, signed over the
+  mark's digest as it is, `unmark-managed`) stops new managed connections within
+  seconds (an instance keeps what it read for five). It revokes nothing: a
+  connection already made stays, and what happens to it is the owner's decision.
+- **History.** Every change is kept as one more line (`LOG#`), in order, with
+  who signed it and when, and is only ever added to. `GET /v1/marks` lists the
+  current marks, with no signature or nonce in it.
+- A generator never sets a mark, and a regenerated entry never inherits one.
+
 ### The catalog kept as data
 
 The reviewed catalog is also kept in planque's table, so an entry is added
