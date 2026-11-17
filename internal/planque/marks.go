@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -49,6 +50,66 @@ const (
 
 // markHost is one exact host, or "*." and a domain of two labels or more.
 var markHost = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$`)
+
+// public_suffixes.json lists the domains under which anyone, not one vendor,
+// can have a name. "registry" are suffixes of two labels (co.uk, com.au): a
+// vendor's own domain is one label under them (vendor.co.uk), so only the suffix
+// itself is refused. "hosting" is shared hosting (github.io, herokuapp.com,
+// amazonaws.com): every name under it belongs to someone else, so the domain and
+// anything beneath it (s3.amazonaws.com) are refused. A mark may not take
+// subdomains of either ("*.github.io" would let any user of the platform answer
+// for the vendor). The list is short on purpose: the owner's device also shows
+// the hosts it signs, and a vendor's own per-customer domain (zendesk.com,
+// myshopify.com) is not on it. A suffix is added here, in a PR that names it.
+//
+//go:embed public_suffixes.json
+var publicSuffixesJSON []byte
+
+var publicSuffixes = mustDecodeSuffixes(publicSuffixesJSON)
+
+type suffixList struct {
+	Registry []string `json:"registry"`
+	Hosting  []string `json:"hosting"`
+}
+
+func mustDecodeSuffixes(raw []byte) (out struct{ registry, hosting map[string]bool }) {
+	var l suffixList
+	if err := json.Unmarshal(raw, &l); err != nil {
+		panic("public_suffixes.json: " + err.Error())
+	}
+	var err error
+	if out.registry, err = DecodeNames(suffixJSON(l.Registry), strings.ToLower); err != nil {
+		panic("public_suffixes.json registry: " + err.Error())
+	}
+	if out.hosting, err = DecodeNames(suffixJSON(l.Hosting), strings.ToLower); err != nil {
+		panic("public_suffixes.json hosting: " + err.Error())
+	}
+	return out
+}
+
+func suffixJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// isPublicSuffix reports whether a wildcard on domain would take names anyone
+// can have: domain is a registry suffix, or is a shared-hosting suffix or
+// anything under one.
+func isPublicSuffix(domain string) bool {
+	domain = strings.ToLower(domain)
+	if publicSuffixes.registry[domain] || publicSuffixes.hosting[domain] {
+		return true
+	}
+	for h := range publicSuffixes.hosting {
+		if strings.HasSuffix(domain, "."+h) {
+			return true
+		}
+	}
+	return false
+}
 
 // markFollows is the date of the published list's update a mark follows.
 var markFollows = regexp.MustCompile(`^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$`)
@@ -311,6 +372,10 @@ func (s *Server) setManagedMark(w http.ResponseWriter, r *http.Request) {
 	for i, h := range in.Hosts {
 		if h != strings.ToLower(h) || !markHost.MatchString(h) || slices.Contains(in.Hosts[:i], h) {
 			writeErr(w, http.StatusBadRequest, "each host is distinct, lowercase, exact (a host, or *.domain of two labels or more)")
+			return
+		}
+		if domain, wild := strings.CutPrefix(h, "*."); wild && isPublicSuffix(domain) {
+			writeErr(w, http.StatusBadRequest, h+" would take every name under "+domain+", which anyone can have: name the vendor's own hosts, or its own domain")
 			return
 		}
 	}

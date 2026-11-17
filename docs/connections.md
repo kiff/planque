@@ -670,6 +670,15 @@ follows.
   signature holds for five minutes and counts once. No credential, session or
   generator can set a mark, and a row written into the table any other way, or
   changed after it was signed, isn't read as one.
+- **No wildcard on a domain anyone can have a name under.** A mark may take
+  `*.domain` only for a vendor's own per-customer domain (`*.zendesk.com`, or
+  `*.acme.co.uk`, a vendor's own domain under a registry suffix), never for a
+  registry suffix of two labels (`*.co.uk`) or for shared hosting
+  (`*.github.io`, `*.herokuapp.com`) **or anything beneath it**
+  (`*.s3.amazonaws.com`, `*.acme.github.io`): that would let any user of the
+  platform answer for the vendor. `public_suffixes.json` lists them in two
+  parts, `registry` and `hosting`, kept short on purpose (the owner's device
+  shows the hosts it signs, too); a suffix is added there in a PR that names it.
 - **The gate.** A managed connection needs the vendor's mark, or a test tenant,
   or, for a vendor with no mark at all, a place on `managed_apps.json` (the
   seed, now empty). A **withdrawn** mark wins over the seed.
