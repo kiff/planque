@@ -11,7 +11,7 @@ import (
 )
 
 // testdata/coach-wording.json is a copy of kiff/tafs's
-// contracts/coach-wording.json (at e70cbb5): the words Coach must never use
+// contracts/coach-wording.json (at 3a50e11): the words Coach must never use
 // about a connection, a sign-in or a step, which kiff/agents' show tool
 // refuses on a card and the Eval's gate fails. Coach reads these guides and
 // copies their words (Eval 43975057022, 17 Nov: "I'm connecting Google
