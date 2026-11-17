@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The negatives for the connect batch's key places (qa-kiff): an extra fixed header never stands for a credential,
+// The negatives for the connect batch's key places: an extra fixed header never stands for a credential,
 // the request's own headers or a method; a Basic username or password never breaks the header it goes in.
 func TestAFixedHeaderIsNeverACredentialTheRequestsOwnOrAMethod(t *testing.T) {
 	key := Auth{In: "header", Name: "X-API-Key"}

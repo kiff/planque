@@ -11,7 +11,7 @@ import (
 	"github.com/kiff/planque/internal/openapi"
 )
 
-// The negatives for the connect batch at the client (qa-kiff): whatever reached it, a fixed header never replaces
+// The negatives for the connect batch at the client: whatever reached it, a fixed header never replaces
 // the key's Authorization or the Host, and never carries the key itself; a Basic key's failed call never says it.
 func TestAFixedHeaderNeverReplacesTheKeyOrCarriesIt(t *testing.T) {
 	var got http.Header

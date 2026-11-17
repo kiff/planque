@@ -403,7 +403,7 @@ func TestAnAccountsAddressStaysOnTheVendorsServer(t *testing.T) {
 }
 
 // An account server whose host is all variables would take any domain: no
-// base is ever on it (qa-kiff on planque#160).
+// base is ever on it (planque#160).
 func TestAHostOfVariablesTakesNoBase(t *testing.T) {
 	for _, a := range []string{"https://{domain}.{tld}/api", "https://{host}/api", "https://{sub}.{domain}.com/api", "https://acme.{domain}/api"} {
 		for _, base := range []string{"https://evil.example/api", "https://acme.evil.com/api", "https://acme.evil/api"} {

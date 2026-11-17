@@ -144,7 +144,7 @@ func TestABigAPIIsDescribedByWords(t *testing.T) {
 	}
 }
 
-// Many summaries stuffed with the job's words never crowd out the operation its name says (qa-kiff on planque#164).
+// Many summaries stuffed with the job's words never crowd out the operation its name says (planque#164).
 func TestStuffedSummariesNeverCrowdOutTheOperationAJobNames(t *testing.T) {
 	e := newEnv(t)
 	v := newRESTVendor(t)

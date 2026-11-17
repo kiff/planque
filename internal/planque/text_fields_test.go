@@ -73,7 +73,7 @@ func TestTextFieldsReadOnlyTheSchema(t *testing.T) {
 		  "html": {"type": "string", "format": "date"}, "reply": {"type": "string", "enum": ["x"]}}}`: {"Message"},
 		// Three levels at most.
 		`{"properties": {"a": {"properties": {"b": {"properties": {"text": {"type": "string"}, "c": {"properties": {"body": {"type": "string"}}}}}}}}}`: {"a.b.text"},
-		// qa-kiff on #267: a body in parts, a list of strings, and a value only under a text-named parent.
+		// On #267: a body in parts, a list of strings, and a value only under a text-named parent.
 		`{"properties": {"content": {"type": "array", "items": {"type": "object", "properties": {"type": {"type": "string"}, "value": {"type": "string"}}}},
 		  "meta": {"properties": {"value": {"type": "string"}}}}}`: {"content[].value"},
 		`{"properties": {"notes": {"type": "array", "items": {"type": "string"}}}}`: {"notes[]"},

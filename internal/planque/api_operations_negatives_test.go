@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The negatives for reading an API's operations before any grant (qa-kiff): it keeps nothing but the day's count,
+// The negatives for reading an API's operations before any grant: it keeps nothing but the day's count,
 // only this account's key reads it and counts against it, what it leaves out can never be asked for, its names
 // are the ones a request takes, and the words it answers with are one line each.
 

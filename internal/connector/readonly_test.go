@@ -37,7 +37,7 @@ func TestAToolThatCanChangeThingsIsNeverReadOnly(t *testing.T) {
 		{"a name that runs what it's given", "GRAPHQL_EXECUTE", "Reads data.", `{"type":"object","properties":{}}`},
 		{"a raw request", "vendor_api", "Sends a raw HTTP request to the vendor's API.", `{"type":"object","properties":{}}`},
 		{"a schema that can't be read", "list_orders", "Lists orders.", `{"properties":`},
-		// kiff-admin's probes on the first version (kiff/planque#118 review).
+		// Probes on the first version (kiff/planque#118 review).
 		{"RAW in the name", "X_RAW", "Reads.", `{}`},
 		{"RAW and a query in the name", "SHOPIFY_RAW_QUERY", "Reads.", `{}`},
 		{"CUSTOM in the name", "NOTION_CUSTOM_ACTION", "Reads.", `{}`},

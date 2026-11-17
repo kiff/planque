@@ -36,7 +36,7 @@ func connect(t *testing.T, proxy, hostport string) string {
 // A listed name that resolves to a private address is never fetched: the
 // proxy resolves it itself, refuses it, and nothing connects. Neither is
 // an address written out, a name off the sites, a port other than 443, or
-// a plain-http request. (agentgabo's ask on kiff/planque#88 for step 2.)
+// a plain-http request. (ask on kiff/planque#88 for step 2.)
 func TestProxyNeverReachesAPrivateAddressWhateverTheName(t *testing.T) {
 	var touched atomic.Int32
 	trap, err := net.Listen("tcp", "127.0.0.1:0")
