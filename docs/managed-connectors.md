@@ -68,6 +68,29 @@ no connector-secret permission or runtime setting.
 
 ## Connect an app
 
+### Only the apps the subprocessors page names
+
+The connection platform is a processor of the people who connect through it,
+and KIFF's subprocessors page says which apps it is used for. planque keeps a
+copy of that list, `internal/planque/managed_apps.json`: a JSON array of the
+apps by the names people know them by (`["Google Sheets"]`). A request for a
+managed connection (`POST …/catalog/connector:<provider>:<app>/grants`) to
+an app not on it is refused with `403` and "This app can't be connected
+through tafs yet.", before anything reaches the platform: no app read, no
+set-up, no reuse of a held sign-in. The app's slug is matched to a name by
+its folded form (lower case, no spaces, dots, dashes or underscores:
+`googlesheets` is "Google Sheets"); an app whose slug isn't its name folded
+stays refused. An empty list, as today, refuses every managed connection.
+
+An app is added to the published list first, then to this copy, in a pull
+request of its own; the two are kept equal. Connections made before stay as
+they are: their calls and a new sign-in on them go on.
+
+The accounts KIFF tests with (Evals, phone proofs) are listed by tenant id in
+`internal/planque/managed_test_tenants.json` and may connect any app, to try
+one before it's published. That file widens only this check, and each change
+to either file is reviewed for security (`.github/CODEOWNERS`).
+
 The account-authenticated catalog endpoints include upstream discovery:
 
 1. `GET /v1/accounts/{tenant}/catalog?provider=composio&q=...` returns

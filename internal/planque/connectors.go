@@ -407,6 +407,12 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		writeErr(w, http.StatusNotFound, "no such catalog provider")
 		return
 	}
+	// Only an app the subprocessors page names (managed_apps.go): checked
+	// before anything, a held sign-in's reuse included, reaches the platform.
+	if !s.managedAllowed(tenant, toolkit) {
+		writeErr(w, http.StatusForbidden, errNotDisclosed)
+		return
+	}
 	body, err := readBody(r)
 	if err != nil {
 		s.fail(w, r, err)

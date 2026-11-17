@@ -91,7 +91,10 @@ func (e *env) server() *Server {
 	return &Server{BaseURL: e.url, AppReturn: e.app.URL + "/signed-in", KV: e.kv, Sealer: &seal.Local{Key: key},
 		KIFF:    &kiff.Client{API: e.kiff.Issuer, Gateway: e.kiff.Issuer},
 		Permits: &permit.Verifier{Issuer: e.kiff.Issuer, Keys: &permit.JWKS{URL: e.kiff.Issuer + "/.well-known/kiff-permit-keys.json"}},
-		OAuth:   &oauth.Client{AllowHTTP: true}, MCP: &mcp.Client{}, REST: &rest.Client{AllowHTTP: true}}
+		OAuth:   &oauth.Client{AllowHTTP: true}, MCP: &mcp.Client{}, REST: &rest.Client{AllowHTTP: true},
+		// The tests' account tries any app, as KIFF's test accounts do; the
+		// gate itself is tested in managed_apps_test.go.
+		ManagedTestTenants: map[string]bool{tenant: true}}
 }
 
 // do sends a request; phone signs it when not nil, key is a KIFF bearer.
