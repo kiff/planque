@@ -607,6 +607,36 @@ as a grant request), and `description_sha256`: the SHA-256 of the reviewed
 OpenAPI source bytes. A changed source is refused before a grant is created.
 The full snapshot is still frozen and signed with the grant.
 
+A key entry's address is one of three things:
+
+- **Fixed:** `"base": "https://api.example.com/v1"`.
+- **An account's address:** `"base": "https://{account}.example.com/api/v2"`,
+  for a vendor that gives each customer a subdomain. The template is `https://`,
+  then `{account}` once and alone as the host's first label, then the vendor's
+  own domain written out (two labels or more), then an optional path. No
+  other variable, no port, no user info; `{domain}.{tld}` and a variable after
+  the domain are refused when the entry is loaded.
+- **A closed list of regions:** `"bases": ["https://api.example.com",
+  "https://api.eu.example.com"]` with no `base`, two to eight fixed addresses,
+  each on the pinned path the profile reviewed.
+
+A grant request for such an entry names the address it wants: `account` (the
+owner's own name at the vendor, `"acme"` for `acme.example.com`) or `base` (one
+of the regions, exactly as listed). Taken exactly as given and lowercased, an
+account is one label of letters, digits and dashes, 63 characters at most, the
+rule planque applies to an account's address on any key grant: no dot, `@`,
+colon, slash, space or non-ASCII character. `acme.evil.com`,
+`acme.zendesk.com.evil.com`, `acme@evil`, `acme:444`, an empty or 64-character
+label and an IDN look-alike are refused with a 400. The catalog read lists the
+template as `account` and the list as `regions`, so the asking agent knows
+which to give.
+
+The address is fixed in the grant: the signed request holds the one address it
+was approved with (`api.base`), the approval shows its host ("acme.example.com"),
+and no tool has an argument that can change it. Changing it is a new
+connection. An ad-hoc grant's `api.base` is still one address; a template or a
+list there is refused.
+
 Both catalog endpoints require a bearer KIFF key for the account:
 
 - `GET /v1/accounts/{tenant}/catalog?q=...` searches vendor names and titles,

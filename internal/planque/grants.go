@@ -225,6 +225,12 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			// SetupReads, optional, for an entry connected first: the
 			// vendor's read-only tools Setup reads, approved with the sign-in.
 			SetupReads []string `json:"setup_reads"`
+			// Account is the owner's own name at the vendor, for an entry at
+			// an account's address ("acme" for acme.example.com); Base is
+			// the region, for an entry with a list of them. Fixed in the
+			// grant, shown on the approval, never a tool's argument.
+			Account string `json:"account"`
+			Base    string `json:"base"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
@@ -236,8 +242,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			s.fail(w, r, err)
 			return
 		}
+		api, why := resolveEntryAPI(entry.API, ask.Account, ask.Base)
+		if why != "" {
+			writeErr(w, http.StatusBadRequest, why)
+			return
+		}
 		req.Agent, req.AgentName, req.Server, req.Application = ask.Agent, ask.AgentName, entry.Server, entry.Application
-		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, entry.API, &tools, prof
+		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, api, &tools, prof
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
