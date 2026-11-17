@@ -63,7 +63,7 @@ var openLink = regexp.MustCompile(`<a href="([^"]+)">`)
 // platform KIFF didn't name, by a page with an Open tafs link, since a
 // desktop browser drops a redirect to an app with no click behind it. Both
 // are never cached nor sent onward, and the link works only once: a second
-// visit shows no link (kiff/kiff-cloud#1677, 17 Nov).
+// visit shows no link (17 Nov: Windows' Chrome dropped the redirect).
 func TestASignInReturnsToTheAppTheWayItsDeviceCanTakeIt(t *testing.T) {
 	for _, tc := range []struct {
 		platform string
