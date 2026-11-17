@@ -70,8 +70,8 @@ jobs:
           set -euo pipefail
           mkdir -p out
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags=-s -o out/bootstrap ./cmd/planque
-          cp deploy/server-apps.json deploy/catalog.json out/
-          (cd out && zip -q function.zip bootstrap server-apps.json catalog.json)
+          cp deploy/server-apps.json deploy/catalog.json deploy/apps.json out/
+          (cd out && zip -q function.zip bootstrap server-apps.json catalog.json apps.json)
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           # The account id stays out of this public repository.
