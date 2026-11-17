@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 )
 
 // The connection platform's sign-ins (the managed connections) reach a
@@ -20,29 +21,35 @@ import (
 //go:embed managed_apps.json
 var managedAppsJSON []byte
 
-// managed_test_tenants.json lists the accounts KIFF tests with (Evals, phone
-// proofs) by tenant id: they may make a managed connection to any app, for
-// trying one before it's published. It widens only this gate.
-//
-//go:embed managed_test_tenants.json
-var managedTestTenantsJSON []byte
-
-// ManagedApps is managed_apps.json by folded name (provedKey), and
-// ManagedTestTenants managed_test_tenants.json. A file that doesn't read
-// stops the build's tests, never a request.
-var (
-	ManagedApps        = mustDecodeNames(managedAppsJSON, "managed_apps.json", provedKey)
-	ManagedTestTenants = mustDecodeNames(managedTestTenantsJSON, "managed_test_tenants.json", tenantKey)
-)
+// ManagedApps is managed_apps.json by folded name (provedKey). A file that
+// doesn't read stops the build's tests, never a request.
+var ManagedApps = mustDecodeNames(managedAppsJSON, "managed_apps.json", provedKey)
 
 var tenantName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
-// tenantKey is a tenant id as it is, or "" (not a name) when it isn't one.
-func tenantKey(id string) string {
-	if !tenantName.MatchString(id) {
-		return ""
+// ManagedTestTenantsFrom reads tenants:<id>[,<id>] (PLANQUE_MANAGED_TEST_TENANTS,
+// set at deploy and never kept in this repository): the accounts KIFF tests
+// with (Evals, phone proofs), which may make a managed connection to any app
+// to try one before it's published. It widens only this gate. Anything else,
+// or an id that isn't one, is an error: the setting is refused, never half read.
+func ManagedTestTenantsFrom(v string) (map[string]bool, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return map[string]bool{}, nil
 	}
-	return id
+	list, ok := strings.CutPrefix(v, "tenants:")
+	if !ok {
+		return nil, fmt.Errorf("must be tenants:<id>[,<id>]")
+	}
+	out := map[string]bool{}
+	for _, t := range strings.Split(list, ",") {
+		t = strings.TrimSpace(t)
+		if !tenantName.MatchString(t) {
+			return nil, fmt.Errorf("%q isn't a tenant id", t)
+		}
+		out[t] = true
+	}
+	return out, nil
 }
 
 // DecodeNames reads a JSON array of distinct, non-empty names, keyed by
@@ -80,14 +87,11 @@ func mustDecodeNames(raw []byte, file string, fold func(string) string) map[stri
 // ("googlesheets" to "Google Sheets"); an app whose slug isn't its name
 // folded is refused until the two are made to match, never let through.
 func (s *Server) managedAllowed(tenant, toolkit string) bool {
-	apps, tenants := s.ManagedApps, s.ManagedTestTenants
+	apps := s.ManagedApps
 	if apps == nil {
 		apps = ManagedApps
 	}
-	if tenants == nil {
-		tenants = ManagedTestTenants
-	}
-	return tenants[tenant] || apps[provedKey(toolkit)]
+	return s.ManagedTestTenants[tenant] || apps[provedKey(toolkit)]
 }
 
 // errNotDisclosed is what a person reads when a managed connection to an

@@ -27,6 +27,9 @@
 //	PLANQUE_APP_SECRET_PREFIX optional: an app's secret is the one named
 //	                   this prefix plus its id (planque/apps/), unless
 //	                   PLANQUE_APP_SECRETS names its own
+//	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
+//	                   accounts that may make a managed connection to any app;
+//	                   set at deploy, never kept in the repository
 //	PLANQUE_SIGNIN_READER_SHA256 optional: the hex SHA-256 of the one key that
 //	                   reads an app's managed sign-in state; unset, no one can
 //	PLANQUE_DESCRIBER_SERVERS optional JSON map of HTTPS servers, besides
@@ -242,12 +245,17 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		}
 		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
 	}
+	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
+	if err != nil {
+		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
+	}
 	return &planque.Server{
-		DigestV2:      os.Getenv("PLANQUE_DIGEST") == "v2",
-		Browser:       browserWorker,
-		DoorSink:      doorSink,
-		EventSink:     eventSink,
-		KIFFEventSink: kiffEventSink,
+		ManagedTestTenants: testTenants,
+		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
+		Browser:            browserWorker,
+		DoorSink:           doorSink,
+		EventSink:          eventSink,
+		KIFFEventSink:      kiffEventSink,
 		// The reviewed Stripe refunds profile, off unless turned on.
 		StripeRefunds:        os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
 		StripeRefundsTenants: refundTenants(os.Getenv("PLANQUE_STRIPE_REFUNDS")),

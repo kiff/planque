@@ -200,7 +200,9 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
   else
     # The browser worker's address and key are set by
     # deploy/browserworker/aws.sh and kept here as they are; so is which
-    # accounts are offered Stripe refunds (PLANQUE_STRIPE_REFUNDS), the
+    # accounts are offered Stripe refunds (PLANQUE_STRIPE_REFUNDS), which
+    # test accounts may make a managed connection to any app
+    # (PLANQUE_MANAGED_TEST_TENANTS, from the deployer, never this repo), the
     # catalog's operators, unless PLANQUE_CATALOG_OPERATORS is given, and
     # the servers that get Stripe's describing read with their sign-in
     # besides Stripe's own (PLANQUE_DESCRIBER_SERVERS): live planque sets
@@ -214,10 +216,10 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
-for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS"):
+for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS"):
     if now.get(k) and not v.get(k): v[k]=now[k]
 for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]

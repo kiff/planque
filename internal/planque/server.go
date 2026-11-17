@@ -100,9 +100,10 @@ type Server struct {
 	// StripeRefundsTenants offers it to these accounts only, the others as
 	// if it were off: how an installation tries it on one account.
 	StripeRefundsTenants map[string]bool
-	// ManagedApps and ManagedTestTenants replace the embedded lists of
-	// managed_apps.go when set (tests): the apps a managed connection may be
-	// made to, by folded name, and the accounts that may make one to any.
+	// ManagedApps replaces managed_apps.json when set (tests): the apps a
+	// managed connection may be made to, by folded name. ManagedTestTenants
+	// are the accounts that may make one to any app
+	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps            map[string]bool
 	ManagedTestTenants     map[string]bool
 	Applications           map[string]appconfig.Application

@@ -623,6 +623,11 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 		if g.Connected != nil {
 			err = s.addTools(r.Context(), g, "", sr.approval)
 		} else {
+			// A new connection: only to an app the published list names now.
+			if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
+				writeErr(w, http.StatusForbidden, errNotDisclosed)
+				return
+			}
 			a := sr.approval
 			g.Approval = &a
 			g.event(s.now(), "tools approved "+a.Who())
@@ -638,6 +643,10 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	// A sign-in under way that never came back to the app: the approving
 	// device asks again, and planque asks the provider (kiff/planque#87).
 	if g.Connector != nil && !g.SignedIn && (g.Status == StatusApproved || g.Status == StatusSignedIn) {
+		if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
+			writeErr(w, http.StatusForbidden, errNotDisclosed)
+			return
+		}
 		s.resumeConnectorSignIn(w, r, sr, g, p)
 		return
 	}
@@ -662,6 +671,12 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	// Never swap accounts underneath an already approved profile.
 	if g.Connector != nil {
 		writeErr(w, http.StatusConflict, "this connection already has a sign-in; finish it or disconnect and request a new grant")
+		return
+	}
+	// A grant asked before the app left the published list (or before the
+	// list) starts no sign-in at the platform now.
+	if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
+		writeErr(w, http.StatusForbidden, errNotDisclosed)
 		return
 	}
 	s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in approved "+sr.approval.Who())

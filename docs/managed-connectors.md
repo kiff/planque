@@ -77,19 +77,23 @@ apps by the names people know them by (`["Google Sheets"]`). A request for a
 managed connection (`POST …/catalog/connector:<provider>:<app>/grants`) to
 an app not on it is refused with `403` and "This app can't be connected
 through tafs yet.", before anything reaches the platform: no app read, no
-set-up, no reuse of a held sign-in. The app's slug is matched to a name by
+set-up, no reuse of a held sign-in (from the catalog or `POST …/grants` with
+`reuse`). Approving a grant asked before is checked the same way, so a grant
+that waited while its app left the list starts no sign-in. The app's slug is matched to a name by
 its folded form (lower case, no spaces, dots, dashes or underscores:
 `googlesheets` is "Google Sheets"); an app whose slug isn't its name folded
 stays refused. An empty list, as today, refuses every managed connection.
 
 An app is added to the published list first, then to this copy, in a pull
 request of its own; the two are kept equal. Connections made before stay as
-they are: their calls and a new sign-in on them go on.
+they are: their calls, tools added to them and a new sign-in on them go on.
 
-The accounts KIFF tests with (Evals, phone proofs) are listed by tenant id in
-`internal/planque/managed_test_tenants.json` and may connect any app, to try
-one before it's published. That file widens only this check, and each change
-to either file is reviewed for security (`.github/CODEOWNERS`).
+The accounts KIFF tests with (Evals, phone proofs) may connect any app, to try
+one before it's published: `PLANQUE_MANAGED_TEST_TENANTS=tenants:<id>[,<id>]`,
+set at deploy from the deployer's environment and never kept in this
+repository. It widens only this check; a value that isn't that form stops
+planque from starting. The list's changes are reviewed for security
+(`.github/CODEOWNERS`).
 
 The account-authenticated catalog endpoints include upstream discovery:
 

@@ -24,6 +24,11 @@ func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // gated is the connector fixture with the gate's lists set as asked (no
 // test tenants unless given), and a count of what reaches the platform.
 func gated(t *testing.T, apps, tenants []string) (*env, *countingTransport) {
+	e, _, c := gatedFixture(t, apps, tenants)
+	return e, c
+}
+
+func gatedFixture(t *testing.T, apps, tenants []string) (*env, *connectorFixture, *countingTransport) {
 	t.Helper()
 	e, f := newConnectorFixture(t)
 	c := &countingTransport{next: f}
@@ -35,7 +40,7 @@ func gated(t *testing.T, apps, tenants []string) (*env, *countingTransport) {
 	for _, id := range tenants {
 		e.s.ManagedTestTenants[id] = true
 	}
-	return e, c
+	return e, f, c
 }
 
 func askManaged(e *env) (int, map[string]any) {
@@ -91,22 +96,62 @@ func TestATestTenantTriesAnyAppAndOnlyItself(t *testing.T) {
 	}
 }
 
-// The shipped lists read, with no empty or repeated names.
+// A held sign-in reused through POST /grants (reuse) is checked as the
+// catalog's reuse is: an app no longer allowed gets no new connection.
+func TestAReuseThroughGrantsIsGated(t *testing.T) {
+	e, f, c := gatedFixture(t, nil, []string{tenant})
+	g := connectConnector(t, e, f)
+	e.s.ManagedTestTenants = map[string]bool{}
+	before := c.n.Load()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"reuse": g.ID, "agent": "agt_other", "tools": []any{}}, nil, "k_setup")
+	if st != http.StatusForbidden || out["error"] != errNotDisclosed {
+		t.Fatalf("a reuse through grants: %d %v", st, out)
+	}
+	if n := c.n.Load() - before; n != 0 {
+		t.Fatalf("%d requests reached the platform", n)
+	}
+}
+
+// A grant asked while its app was allowed, approved after the list no longer
+// names it, starts no sign-in at the platform.
+func TestApprovingAGrantAskedBeforeIsGated(t *testing.T) {
+	e, c := gated(t, nil, []string{tenant})
+	v := requestConnector(t, e)
+	e.s.ManagedTestTenants = map[string]bool{}
+	before := c.n.Load()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+v["id"].(string)+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+	if st != http.StatusForbidden || out["error"] != errNotDisclosed {
+		t.Fatalf("an approval after the app left the list: %d %v", st, out)
+	}
+	if n := c.n.Load() - before; n != 0 {
+		t.Fatalf("%d requests reached the platform", n)
+	}
+}
+
+// The test accounts come from the deploy's setting, in one form only.
+func TestTestTenantsAreReadFromTheSetting(t *testing.T) {
+	got, err := ManagedTestTenantsFrom(" tenants:tnt_a, tnt_b ")
+	if err != nil || len(got) != 2 || !got["tnt_a"] || !got["tnt_b"] {
+		t.Fatalf("tenants: %v %v", got, err)
+	}
+	if got, err := ManagedTestTenantsFrom(""); err != nil || len(got) != 0 {
+		t.Fatalf("unset: %v %v", got, err)
+	}
+	for _, bad := range []string{"tnt_a", "tenants:", "tenants:tnt a", "tenants:tnt_a,,tnt_b", "tenants:../x", "all"} {
+		if _, err := ManagedTestTenantsFrom(bad); err == nil {
+			t.Errorf("%q read as test tenants", bad)
+		}
+	}
+}
+
+// The shipped list reads, with no empty or repeated names.
 func TestTheShippedListsRead(t *testing.T) {
 	if _, err := DecodeNames(managedAppsJSON, provedKey); err != nil {
 		t.Fatal("managed_apps.json:", err)
 	}
-	if _, err := DecodeNames(managedTestTenantsJSON, tenantKey); err != nil {
-		t.Fatal("managed_test_tenants.json:", err)
-	}
 	for _, bad := range []string{`{}`, `null`, `[""]`, `["Gmail","gmail"]`, `["Google Sheets","GoogleSheets"]`, `[] []`} {
 		if _, err := DecodeNames([]byte(bad), provedKey); err == nil {
 			t.Errorf("%s read as a list", bad)
-		}
-	}
-	for _, bad := range []string{`["tnt 1"]`, `["../x"]`} {
-		if _, err := DecodeNames([]byte(bad), tenantKey); err == nil {
-			t.Errorf("%s read as tenants", bad)
 		}
 	}
 }

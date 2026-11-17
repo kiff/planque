@@ -9,7 +9,6 @@
 /internal/appconfig/ @gabosarmiento @agentgabo @kiff-qa
 /internal/appcredentials/ @gabosarmiento @agentgabo @kiff-qa
 
-# The apps a managed connection may be made to, and the test accounts that
-# may make one to any: each change widens what reaches a processor.
+# The apps a managed connection may be made to: each change widens what
+# reaches a processor.
 /internal/planque/managed_apps.json @gabosarmiento @agentgabo @kiff-qa
-/internal/planque/managed_test_tenants.json @gabosarmiento @agentgabo @kiff-qa
