@@ -1250,7 +1250,13 @@ func statusWords(g *Grant) string { return statusIn(english, g) }
 // statusIn is statusWords in w's language.
 func statusIn(w words.Approval, g *Grant) string {
 	if g.Paused != nil && g.Status != StatusDisconnected && g.Status != StatusFailed {
-		return fmt.Sprintf(w.PausedF, g.Paused.Why)
+		// The person reads a line from the pause's kind, in their language: never
+		// its Why, which is English and names the tool.
+		why := w.PausedChanged
+		if g.Paused.Kind == pauseGone {
+			why = w.PausedGone
+		}
+		return fmt.Sprintf(w.PausedF, why)
 	}
 	switch g.Status {
 	case StatusConnected:

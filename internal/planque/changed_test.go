@@ -142,7 +142,7 @@ func TestAnUnreadableListDoesntPause(t *testing.T) {
 func TestAPauseStaysOnItsGrant(t *testing.T) {
 	e := newEnv(t)
 	g := e.connect()
-	if code, why := e.s.pauseGrant(context.Background(), g, "create_refund", "a test pause"); code != CodeOperationChanged || why == "" {
+	if code, why := e.s.pauseGrant(context.Background(), g, "create_refund", pauseChanged, "a test pause"); code != CodeOperationChanged || why == "" {
 		t.Fatalf("pause: %q %q", code, why)
 	}
 	other := *g
