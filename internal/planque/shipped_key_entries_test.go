@@ -25,7 +25,7 @@ func TestEveryShippedKeyEntryPinsItsDescriptionAndHoldsItsWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestNoShippedWriteCopiesAnAddressAndNoEntryClaimsProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestTheReplyAndNoteWritesDoWhatTheirTitlesSay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestThePipedriveNoteWriteTakesItsWordsAndItsLeadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestAZendeskGrantKeepsTheOwnersLoginAsItsUsername(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

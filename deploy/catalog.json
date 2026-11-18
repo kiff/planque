@@ -345,54 +345,6 @@
     ],
     "vendor": "GitHub"
   },
-  "googlesheets@1": {
-    "application": "googlesheets",
-    "profile": {
-      "catalog_entry": "googlesheets@1",
-      "operations": [
-        {
-          "kind": "read",
-          "title": "Read a range of cells",
-          "tool": "google_sheets_read_range"
-        },
-        {
-          "effect": "writes",
-          "kind": "write",
-          "required_arguments": [
-            "range",
-            "spreadsheetId",
-            "values"
-          ],
-          "shape": "single",
-          "title": "Add a row to a sheet",
-          "tool": "google_sheets_add_row"
-        }
-      ],
-      "pin": {
-        "kind": "none"
-      },
-      "source": "catalog",
-      "test_proven": false,
-      "transport": "rest",
-      "v": "kiff.profile.v1",
-      "vendor": "Google Sheets"
-    },
-    "title": "Google Sheets: read a range, add a row",
-    "tools": [
-      {
-        "tool": "sheets_get_values",
-        "name": "google_sheets_read_range",
-        "title": "Read a range of cells",
-        "read_only": true
-      },
-      {
-        "tool": "sheets_append_values",
-        "name": "google_sheets_add_row",
-        "title": "Add a row to a sheet"
-      }
-    ],
-    "vendor": "Google Sheets"
-  },
   "intercom-key@1": {
     "api": {
       "auth": {

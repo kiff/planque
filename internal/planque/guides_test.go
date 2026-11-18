@@ -50,7 +50,7 @@ func TestAReviewedEntryGetsItsGeneratedGuide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(raw, shippedApps(t))
+	entries, err := DecodeCatalog(raw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

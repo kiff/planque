@@ -83,7 +83,7 @@ func TestTheShippedProofsLandOnlyWhereTheyWereRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shipped, err := DecodeCatalog(conf, shippedApps(t))
+	shipped, err := DecodeCatalog(conf, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
