@@ -769,22 +769,36 @@ func TestARefusalKeepsWhoRefusedAndWhy(t *testing.T) {
 	}
 }
 
-// A provider that no longer has the connected account (404) ends the sign-in: ErrAccount, so planque asks for the
-// sign-in again, as for an expired one. Any other failure of the read stays the call's own error, never ErrAccount.
+// A provider that says it no longer has the connected account ends the sign-in: ErrAccount, so planque asks for the
+// sign-in again, as for an expired one. A 404 that doesn't say so (a moved route, an edge's page, nothing) and any
+// other failure stay the call's own error, never ErrAccount: they end no one's sign-in.
 func TestAnAccountTheProviderNoLongerHasEndsItsSignIn(t *testing.T) {
-	for status, account := range map[int]bool{404: true, 500: false, 401: false} {
-		c := testClient(func(r *http.Request) (*http.Response, error) {
+	for _, c := range []struct {
+		status  int
+		body    string
+		account bool
+	}{
+		{404, `{"error":{"message":"Connected account not found","slug":"ConnectedAccount_NotFound","status":404}}`, true},
+		{404, `{"error":{"message":"No connected_account with id account_one was found"}}`, false},
+		{404, `{"message":"ConnectedAccountNotFound: account_one"}`, true},
+		{404, `{"message":"Not Found"}`, false},
+		{404, `<html><body>404 Not Found</body></html>`, false},
+		{404, ``, false},
+		{500, `{"error":{"message":"Connected account not found"}}`, false},
+		{401, `{"error":{"message":"Invalid API key"}}`, false},
+	} {
+		cl := testClient(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Path != "/api/v3.1/connected_accounts/account_one" {
 				t.Fatalf("unexpected path %s", r.URL.Path)
 			}
-			return response(status, `{"error":{"message":"Connected account not found"}}`), nil
+			return response(c.status, c.body), nil
 		})
-		_, err := c.Account(context.Background(), "account_one")
-		if got := errors.Is(err, connector.ErrAccount); got != account || err == nil {
-			t.Fatalf("%d: ErrAccount %v, want %v (%v)", status, got, account, err)
+		_, err := cl.Account(context.Background(), "account_one")
+		if got := errors.Is(err, connector.ErrAccount); got != c.account || err == nil {
+			t.Fatalf("%d %s: ErrAccount %v, want %v (%v)", c.status, c.body, got, c.account, err)
 		}
-		if _, err := c.Execute(context.Background(), connector.Identity{User: "owner_one", Toolkit: "desk"}, "account_one", approvedTool(t), json.RawMessage(`{"ticket":"t","text":"x"}`), nil); errors.Is(err, connector.ErrAccount) != account {
-			t.Fatalf("%d: Execute's ErrAccount %v, want %v", status, errors.Is(err, connector.ErrAccount), account)
+		if _, err := cl.Execute(context.Background(), connector.Identity{User: "owner_one", Toolkit: "desk"}, "account_one", approvedTool(t), json.RawMessage(`{"ticket":"t","text":"x"}`), nil); errors.Is(err, connector.ErrAccount) != c.account {
+			t.Fatalf("%d %s: Execute's ErrAccount %v, want %v", c.status, c.body, errors.Is(err, connector.ErrAccount), c.account)
 		}
 	}
 }
