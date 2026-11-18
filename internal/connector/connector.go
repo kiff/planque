@@ -188,6 +188,9 @@ func (t Tool) Validate() error {
 	if strings.HasPrefix(strings.ToUpper(t.Slug), "COMPOSIO_") || strings.EqualFold(t.Toolkit, "composio") || NeverServed(t.Toolkit, t.Slug) {
 		return ErrDefinition
 	}
+	if _, held := Held(t); held {
+		return ErrDefinition
+	}
 	var schema struct {
 		Type       string                     `json:"type"`
 		Properties map[string]json.RawMessage `json:"properties"`

@@ -621,6 +621,10 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 			return
 		}
 		if g.Connected != nil {
+			if s.managedClosed(g) {
+				writeErr(w, http.StatusForbidden, errAppClosed)
+				return
+			}
 			err = s.addTools(r.Context(), g, "", sr.approval)
 		} else {
 			// A new connection: only to an app the published list names now.
@@ -1030,6 +1034,10 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	p, err := s.provider(g)
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
 		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
+	}
+	// The app was taken off the published list: a connection made while it was on is closed.
+	if s.managedClosed(g) {
+		return OpNotSent, refusal(CodeConnectionDown, errAppClosed)
 	}
 	// Approved before planque stopped serving it: never sent, whatever the grant holds.
 	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {

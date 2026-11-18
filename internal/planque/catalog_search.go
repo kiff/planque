@@ -21,6 +21,35 @@ type foundTool struct {
 	ReadOnly    bool   `json:"read_only"`
 }
 
+// What one search answers at most, whatever the provider and the reviewed
+// entries return: the answer goes into Coach's prompt, and it must stay the
+// same size when the catalog goes from 14 apps to hundreds. A word that
+// names many apps gets its first tools of each, the rest said as "more"; a
+// longer search narrows with apps.
+const (
+	maxFoundTools       = 60
+	maxFoundPerApp      = 10
+	maxFoundDescription = 240
+)
+
+// capFound is tools cut to the bounds above, in order, and how many it left
+// out. A description is cut at a word's end, on a letter boundary.
+func capFound(tools []foundTool) ([]foundTool, int) {
+	kept := make([]foundTool, 0, min(len(tools), maxFoundTools))
+	perApp := map[string]int{}
+	for _, t := range tools {
+		if len(kept) == maxFoundTools || perApp[t.Entry] == maxFoundPerApp {
+			continue
+		}
+		perApp[t.Entry]++
+		if r := []rune(t.Description); len(r) > maxFoundDescription {
+			t.Description = strings.TrimSpace(string(r[:maxFoundDescription])) + "…"
+		}
+		kept = append(kept, t)
+	}
+	return kept, len(tools) - len(kept)
+}
+
 // appState is a catalog entry's state for an app as the provider lists it:
 // what the owner can do with it before any grant exists.
 func appState(app connector.App) string {
@@ -83,7 +112,8 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		}
 		// The reviewed entries found are said, with the provider's part missing.
 		if tools = append(tools, byTool...); len(tools) > 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "partial": true})
+			tools, more := capFound(tools)
+			writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "partial": true, "more": more})
 			return
 		}
 		writeErr(w, http.StatusServiceUnavailable, "the connection catalog is unavailable")
@@ -101,7 +131,8 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 	}
 	// A reviewed entry found by a tool's words alone comes after the provider's apps.
 	tools = append(tools, byTool...)
-	writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "next_cursor": found.Next, "skipped": found.Skipped})
+	tools, more := capFound(tools)
+	writeJSON(w, http.StatusOK, map[string]any{"tools": tools, "provider": providerID, "next_cursor": found.Next, "skipped": found.Skipped, "more": more})
 }
 
 // reviewedTools is each tool of the reviewed entries a word of q names:
