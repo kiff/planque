@@ -847,6 +847,18 @@ func (c *Client) Authorize(ctx context.Context, id connector.Identity, alias, ca
 	return connector.Authorization{Session: s.ID, Account: link.Account, URL: link.URL}, nil
 }
 
+// accountNotFound: the provider's answer names a connected account and says it isn't found, as its own words for
+// that account; a route's or an edge's "Not Found" names none.
+func accountNotFound(err error) bool {
+	var call *connector.CallError
+	if !errors.As(err, &call) {
+		return false
+	}
+	m := strings.ToLower(call.Message)
+	named := strings.Contains(m, "connected account") || strings.Contains(m, "connected_account") || strings.Contains(m, "connectedaccount")
+	return named && (strings.Contains(m, "not found") || strings.Contains(m, "notfound") || strings.Contains(m, "not_found"))
+}
+
 func (c *Client) Account(ctx context.Context, id string) (connector.Account, error) {
 	if !identifier.MatchString(id) || id == "instant_account" {
 		return connector.Account{}, connector.ErrAccount
@@ -865,7 +877,14 @@ func (c *Client) Account(ctx context.Context, id string) (connector.Account, err
 			Val map[string]json.RawMessage `json:"val"`
 		} `json:"state"`
 	}
-	if _, err := c.request(ctx, "GET", "/connected_accounts/"+id, nil, nil, &a); err != nil {
+	if status, err := c.request(ctx, "GET", "/connected_accounts/"+id, nil, nil, &a); err != nil {
+		// The provider says it no longer has the account (deleted on its side, or expired there): its sign-in can't
+		// be used again, so it's ErrAccount, and every connection on it asks to sign in again, never "unavailable"
+		// until its taf's schedule gives up (an Outlook taf's checks, 17 Nov). Only when its answer says so: a 404
+		// from a moved route or an edge ("Not Found", a page, nothing) ends no one's sign-in.
+		if status == http.StatusNotFound && accountNotFound(err) {
+			return connector.Account{}, connector.ErrAccount
+		}
 		return connector.Account{}, err
 	}
 	if a.ID != id || !identifier.MatchString(a.User) || !identifier.MatchString(a.Toolkit.Slug) {
