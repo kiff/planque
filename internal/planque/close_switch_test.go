@@ -63,3 +63,24 @@ func TestAnAppTakenOffTheListClosesItsConnections(t *testing.T) {
 		t.Fatalf("a call with the app listed: %s (executions %d, was %d)", got, f.executions, before)
 	}
 }
+
+// An account moved to an app's own client keeps the managed connection it made
+// before: the per-account choice is about what's offered next, so a call on the
+// earlier connection goes through while a new managed request is refused.
+func TestAnOwnClientSwitchDoesNotCloseAnEarlierManagedConnection(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	ctx := context.Background()
+	e.s.ManagedApps, e.s.ManagedTestTenants = map[string]bool{"deskdemo": true}, map[string]bool{}
+	e.s.CatalogEntries = map[string]CatalogEntry{"desk@1": {Application: "desk_demo", Vendor: "Support desk", Title: "Support desk"}}
+	e.s.OwnClientTenants = map[string]bool{tenant: true}
+	if e.s.managedAllowed(tenant, "desk_demo") {
+		t.Fatal("a new managed connection is still offered")
+	}
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"operation_own"}`)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "operation_own", Args: args})
+	before := f.executions
+	if got := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit)); strings.Contains(got, "connection is closed") || f.executions != before+1 {
+		t.Fatalf("a call on the earlier managed connection: %s (executions %d, was %d)", got, f.executions, before)
+	}
+}

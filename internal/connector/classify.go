@@ -27,10 +27,11 @@ const (
 var HoldClasses = true
 
 var (
-	deleteWords   = words("delete deletes remove removes destroy erase purge trash empty clear wipe drop revoke unlink terminate truncate")
-	shareWords    = words("share unshare permission permissions invite invites acl collaborator collaborators publish unpublish public ownership owner role roles access member members")
+	deleteWords   = words("delete deletes remove removes destroy erase purge trash empty clear wipe drop revoke unlink terminate truncate suspend ban kick block")
+	shareWords    = words("share sharing unshare permission permissions invite invites acl collaborator collaborators publish unpublish public ownership owner role roles access member members visibility grant grants")
 	sendManyWords = words("campaign campaigns broadcast bulk mass newsletter blast audience audiences mailing everyone announce subscribers")
-	moneyWords    = words("pay payment payments refund refunds transfer transfers payout payouts charge charges withdraw disburse paid void writeoff")
+	moneyWords    = words("pay payment payments refund refunds transfer transfers payout payouts charge charges withdraw disburse paid void writeoff capture credit debit deposit purchase buy checkout")
+	moneyVerbs    = words("pay refund transfer charge withdraw disburse void capture debit deposit purchase buy checkout")
 	readVerbs     = words("get list fetch search find read query retrieve check count describe lookup show view download export")
 	writeVerbs    = words("create add update edit set append insert comment assign move copy rename reply post upload import duplicate label tag attach mark complete close reopen start stop pin unpin like follow save submit send draft log record schedule reschedule restore archive unarchive resolve batch upsert format sort resize mutate replace write put patch modify change enable disable activate deactivate merge split convert apply run execute trigger subscribe unsubscribe snooze approve reject accept decline")
 )
@@ -57,15 +58,17 @@ func Classify(t Tool) Class {
 		}
 		return false
 	}
-	// A read by its verb and by the provider's mark may carry any noun: listing
-	// permissions or a trash folder changes nothing.
-	if t.ReadOnly && len(tokens) > 0 && readVerbs[tokens[0]] {
+	// A read by its verb and by the provider's mark may carry a noun: listing
+	// permissions, a trash folder or payments changes nothing. It may not carry
+	// a second, dangerous verb: the mark never lowers a name that also deletes
+	// or moves money (GET_AND_DELETE_FILES), whatever the provider says.
+	if t.ReadOnly && len(tokens) > 0 && readVerbs[tokens[0]] && !has(deleteWords) && !has(moneyVerbs) {
 		return ClassRead
 	}
 	switch {
 	case has(moneyWords):
 		return ClassMoney
-	case has(sendManyWords):
+	case has(sendManyWords), has(map[string]bool{"batch": true}) && has(map[string]bool{"send": true}):
 		return ClassSendMany
 	case has(deleteWords):
 		return ClassDelete

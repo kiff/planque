@@ -38,6 +38,22 @@ func TestAToolsClassIsReadFromItsName(t *testing.T) {
 		{"x", "X_FROBNICATE_THING", false, ClassUnplaced},
 		{"x", "X_FROBNICATE_THING", true, ClassRead}, // an unknown verb the provider marks as a read
 		{"x", "X_DELETED_ITEMS_REPORT", true, ClassRead},
+		// The provider's mark never lowers a name that also deletes or moves money.
+		{"x", "X_GET_AND_DELETE_FILES", true, ClassDelete},
+		{"x", "X_EXPORT_AND_PURGE", true, ClassDelete},
+		{"x", "X_GET_AND_REFUND", true, ClassMoney},
+		{"x", "X_LIST_PAYMENTS", true, ClassRead}, // a noun alone is still a read
+		// Sharing by other words.
+		{"x", "X_UPDATE_SHARING_SETTINGS", false, ClassShare},
+		{"x", "X_SET_VISIBILITY", false, ClassShare},
+		{"x", "X_GRANT_ACCESS_LEVEL", false, ClassShare},
+		// A send in a batch is a send to many; more money words; people shut out.
+		{"gmail", "GMAIL_BATCH_SEND", false, ClassSendMany},
+		{"bexio", "BEXIO_CREATE_CREDIT_NOTE", false, ClassMoney},
+		{"shop", "SHOP_CREATE_CHECKOUT_SESSION", false, ClassMoney},
+		{"x", "X_CAPTURE_PAYMENT", false, ClassMoney},
+		{"x", "X_SUSPEND_USER", false, ClassDelete},
+		{"x", "X_BAN_USER", false, ClassDelete},
 	} {
 		if got := Classify(tool(c.toolkit, c.slug, c.readOnly)); got != c.want {
 			t.Errorf("%s (read-only %v): %s, want %s", c.slug, c.readOnly, got, c.want)

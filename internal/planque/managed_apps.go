@@ -87,9 +87,13 @@ func mustDecodeNames(raw []byte, file string, fold func(string) string) map[stri
 // ("googlesheets" to "Google Sheets"); an app whose slug isn't its name
 // folded is refused until the two are made to match, never let through.
 func (s *Server) managedAllowed(tenant, toolkit string) bool {
-	if s.ownClientFor(tenant, toolkit) {
-		return false
-	}
+	return !s.ownClientFor(tenant, toolkit) && s.managedListed(tenant, toolkit)
+}
+
+// managedListed: toolkit is on the published list (or marked on), or tenant is
+// one of the test accounts that may try any app: the list alone, without the
+// per-account choice of an app's own client (ownClientFor).
+func (s *Server) managedListed(tenant, toolkit string) bool {
 	if s.ManagedTestTenants[tenant] {
 		return true
 	}
@@ -128,11 +132,13 @@ func (s *Server) ownClientFor(tenant, toolkit string) bool {
 
 // managedClosed says g is a managed connection to an app that isn't on the
 // list now (nor one of the test accounts' to try): the app was taken off it.
+// An account moved to an app's own client (ownClientFor) keeps what it made
+// through the managed one: that choice is about what's offered next.
 // A grant made while it was on is closed with it: its calls, the tools added
 // to it and a sign-in resumed on it are refused, so taking an app off the list
 // stops what was made, not only what is asked next.
 func (s *Server) managedClosed(g *Grant) bool {
-	return g.Request.Connector != nil && !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit)
+	return g.Request.Connector != nil && !s.managedListed(g.Tenant, g.Request.Connector.Toolkit)
 }
 
 // errAppClosed is what a person reads when an app was taken off the list and
