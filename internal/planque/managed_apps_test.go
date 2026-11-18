@@ -155,3 +155,22 @@ func TestTheShippedListsRead(t *testing.T) {
 		}
 	}
 }
+
+// The shipped list is the three Google apps the subprocessors page names
+// ("Used only for: Gmail, Google Calendar, Google Sheets"), nothing more: an
+// app that isn't on that page can't be connected through the platform.
+func TestTheShippedListNamesTheGoogleAppsAndNothingElse(t *testing.T) {
+	if len(ManagedApps) != 3 {
+		t.Fatalf("the shipped list has %d apps: %v", len(ManagedApps), ManagedApps)
+	}
+	for _, name := range []string{"Gmail", "Google Calendar", "Google Sheets", "google sheets"} {
+		if !ManagedApps[provedKey(name)] {
+			t.Errorf("%s isn't on the shipped list", name)
+		}
+	}
+	for _, name := range []string{"Moneybird", "Pipedrive", "Stripe", "Google Drive"} {
+		if ManagedApps[provedKey(name)] {
+			t.Errorf("%s is on the shipped list", name)
+		}
+	}
+}
