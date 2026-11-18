@@ -63,6 +63,9 @@ func (g *Grant) deadline() time.Time {
 			return asked.Add(pendingTTL)
 		}
 	}
+	if g.waitsForSignIn() {
+		return g.Approval.ApprovedAt.Add(pendingTTL)
+	}
 	return time.Time{}
 }
 
@@ -77,6 +80,15 @@ const pendingTTL = 7 * 24 * time.Hour
 // have their own day, holdTTL).
 func (g *Grant) waitsForApproval() bool {
 	return g.Status == StatusPending && !g.SignedIn && g.Connected == nil
+}
+
+// waitsForSignIn says g was approved by the owner's phone and nobody signed
+// in to it: a vendor's sign-in not done, or a key not given. A connector's
+// grant has its own deadline (HeldUntil). Before, such a grant had none, and
+// stayed approved for ever, its sign-in link ready to be walked a month on.
+func (g *Grant) waitsForSignIn() bool {
+	return g.Status == StatusApproved && g.Request.Connector == nil && !g.SignedIn && g.Connected == nil &&
+		g.Approval != nil && !g.Approval.ApprovedAt.IsZero()
 }
 
 // renewing says g is connected with a new sign-in under way (Renewal).
