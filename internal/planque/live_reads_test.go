@@ -13,6 +13,12 @@ import (
 type countingKV struct {
 	store.KV
 	read int
+	puts int
+}
+
+func (c *countingKV) Put(ctx context.Context, it store.Item, cond store.Cond) error {
+	c.puts++
+	return c.KV.Put(ctx, it, cond)
 }
 
 func (c *countingKV) Query(ctx context.Context, pk, prefix string) ([]store.Item, error) {
@@ -79,6 +85,10 @@ func TestTheCatalogAndAHeldSignInReadOnlyLiveGrants(t *testing.T) {
 			}
 		}
 		finishedGrants(t, s, finished)
+		// Steady state: the account's older grants are indexed once, then read.
+		if err := s.ensureLive(t.Context(), tenant); err != nil {
+			t.Fatal(err)
+		}
 		kv.read = 0
 		st, err := s.entryStates(t.Context(), tenant)
 		if err != nil {
@@ -150,5 +160,96 @@ func TestAGrantMovingToFinishedOrBackIsReadAtOnce(t *testing.T) {
 	move(StatusFailed)
 	if st, h := state(); st != "" || h != nil {
 		t.Fatalf("failed must leave both at once: %q %v", st, h)
+	}
+}
+
+// The two real paths in: Reconnect (needs_reconnect back to connected) is read
+// as connected at once, and a pending re-approval that ends leaves the catalog
+// at once.
+func TestReconnectAndAnEndedReapprovalAreReadAtOnce(t *testing.T) {
+	s := &Server{KV: &store.Memory{}}
+	g := &Grant{ID: "grt_1", Tenant: tenant, Status: StatusNeedsReconnect, SignedIn: true,
+		Request: Request{CatalogEntry: "typeform-key@1", Tenant: tenant}}
+	stateOf := func(entry string) string {
+		st, err := s.entryStates(t.Context(), tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st[entry].State
+	}
+	save := func() {
+		if err := s.saveGrant(t.Context(), g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save()
+	if got := stateOf("typeform-key@1"); got != "needs_reconnect" {
+		t.Fatalf("needs_reconnect: %q", got)
+	}
+	g.Status = StatusConnected
+	save()
+	if got := stateOf("typeform-key@1"); got != "connected" {
+		t.Fatalf("Reconnect must read connected at once: %q", got)
+	}
+	r := &Grant{ID: "grt_2", Tenant: tenant, Status: StatusPending, SignedIn: true,
+		Connected: []ToolRequest{{Tool: "t", Name: "t"}}, Request: Request{CatalogEntry: "third-key@1", Tenant: tenant}}
+	if err := s.saveGrant(t.Context(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf("third-key@1"); got != "connected" {
+		t.Fatalf("a re-approval reads connected: %q", got)
+	}
+	r.Status = StatusDisconnected
+	if err := s.saveGrant(t.Context(), r); err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf("third-key@1"); got != "" {
+		t.Fatalf("an ended re-approval must leave the catalog at once: %q", got)
+	}
+}
+
+// A grant written the old way (no live row, straight to the table) is found
+// once the account is indexed; a second pass writes nothing; a finished grant
+// gets no live row; and a row a newer save wrote is never overwritten.
+func TestGrantsMadeBeforeLiveRowsAreIndexedOnce(t *testing.T) {
+	kv := &countingKV{KV: &store.Memory{}}
+	s := &Server{KV: kv}
+	old := func(id, status, entry string) *Grant {
+		g := &Grant{ID: id, Tenant: tenant, Status: status, SignedIn: true, Request: Request{CatalogEntry: entry, Tenant: tenant}}
+		if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skGrant(id), Ver: 1}, g, store.Cond{NotExists: true}); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	old("grt_old_live", StatusConnected, "gmail-key@1")
+	old("grt_old_done", StatusDisconnected, "typeform-key@1")
+	old("grt_old_failed", StatusFailed, "third-key@1")
+	newer := old("grt_newer", StatusConnected, "fourth-key@1")
+	// A save in between wrote a newer live row, with the grant ended since.
+	newer.Status = StatusNeedsReconnect
+	if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skLive(newer.ID), Ver: 2}, newer, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := s.entryStates(t.Context(), tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st["gmail-key@1"].State != "connected" || st["fourth-key@1"].State != "needs_reconnect" || len(st) != 2 {
+		t.Fatalf("after the backfill: %+v", st)
+	}
+	live, err := kv.KV.Query(t.Context(), tenantPK(tenant), "LIVE#")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 2 {
+		t.Fatalf("live rows: %d, want 2 (a finished grant gets none)", len(live))
+	}
+	before := kv.puts
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	if kv.puts != before {
+		t.Fatalf("a second pass wrote %d items", kv.puts-before)
 	}
 }

@@ -487,6 +487,19 @@ func tenantPK(t string) string { return "TENANT#" + t }
 const skEnrolment = "ENROLMENT"
 
 func skGrant(id string) string { return "GRANT#" + id }
+
+// skLive is a live grant's second row, a copy of its record kept for the
+// reads that only want live ones (the catalog, a held sign-in): a read of
+// the account's grants costs every grant it has ever held, finished ones
+// included, and an account that connects and disconnects a lot holds
+// hundreds (the Eval's held 960). skLiveIndexed marks an account whose
+// live rows are all written.
+func skLive(id string) string { return "LIVE#" + id }
+
+const skLiveIndexed = "LIVEIDX"
+
+// live says the grant still counts: every status but the finished ones.
+func (g *Grant) live() bool    { return g.Status != StatusDisconnected && g.Status != StatusFailed }
 func skToken(id string) string { return "TOKEN#" + id }
 
 // skRenewal holds the token of a connected grant's new sign-in until it's
@@ -562,6 +575,9 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 		return err
 	}
 	g.ver++
+	if err := s.keepLive(ctx, g); err != nil {
+		return err
+	}
 	now := g.deadline()
 	if was := g.dueAt; !was.IsZero() && (now.IsZero() || dueSK(was, g.Tenant, g.ID) != dueSK(now, g.Tenant, g.ID)) {
 		_, _, _ = s.KV.Delete(ctx, pkDue, dueSK(was, g.Tenant, g.ID))
@@ -572,4 +588,52 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 
 func (g *Grant) event(now time.Time, what string) {
 	g.Events = append(g.Events, Event{At: now.UTC(), What: what})
+}
+
+// keepLive writes g's live row when it counts and deletes it when it's
+// finished: the one place a grant is written (saveGrant) keeps the two in step.
+func (s *Server) keepLive(ctx context.Context, g *Grant) error {
+	if !g.live() {
+		_, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skLive(g.ID))
+		return err
+	}
+	return putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skLive(g.ID), Ver: g.ver}, g, store.Cond{})
+}
+
+// ensureLive writes the live rows of an account's grants made before they
+// existed, once: a row already there is never overwritten (a save in between
+// wrote a newer one), a finished grant gets none, and a second call finds the
+// account marked and writes nothing.
+func (s *Server) ensureLive(ctx context.Context, tenant string) error {
+	if _, ok, err := s.KV.Get(ctx, tenantPK(tenant), skLiveIndexed); err != nil || ok {
+		return err
+	}
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || !g.live() || g.ID == "" || skGrant(g.ID) != it.SK {
+			continue
+		}
+		row := store.Item{PK: it.PK, SK: skLive(g.ID), Doc: it.Doc, Ver: it.Ver}
+		if err := s.KV.Put(ctx, row, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
+			return err
+		}
+	}
+	err = s.KV.Put(ctx, store.Item{PK: tenantPK(tenant), SK: skLiveIndexed, Doc: []byte("{}"), Ver: 1}, store.Cond{NotExists: true})
+	if err != nil && !errors.Is(err, store.ErrCondition) {
+		return err
+	}
+	return nil
+}
+
+// liveGrants are the account's grants that still count, as their records:
+// it reads only those, after the account's older grants are indexed.
+func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, error) {
+	if err := s.ensureLive(ctx, tenant); err != nil {
+		return nil, err
+	}
+	return s.KV.Query(ctx, tenantPK(tenant), "LIVE#")
 }

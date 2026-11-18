@@ -1255,7 +1255,7 @@ func connectorTextSaid(w words.Approval, q Request, reusedSaid bool) string {
 // narrowed one isn't reused, since what the taf needs isn't known. Its
 // scopes granted, when known, must let each tool asked run.
 func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string) (*Grant, error) {
-	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
