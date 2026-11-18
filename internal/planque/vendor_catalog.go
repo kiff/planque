@@ -41,6 +41,9 @@ type CatalogEntry struct {
 
 var catalogID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}@[1-9][0-9]{0,8}$`)
 
+// maxCatalogEntries is how many apps one catalog read lists.
+const maxCatalogEntries = 300
+
 // DecodeCatalog validates the entire configuration before serving it. No
 // client request can install a catalog entry or replace its profile.
 func DecodeCatalog(raw []byte, apps map[string]appconfig.Application) (map[string]CatalogEntry, error) {
@@ -303,6 +306,15 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 			entries = append(entries, v)
 		}
 	}
+	// At most maxCatalogEntries, the ones the account has a connection to
+	// first so none of its own drops out, then the rest in the provider's
+	// order; "more" says how many were left out (a search finds the others).
+	more := 0
+	if len(entries) > maxCatalogEntries {
+		sort.SliceStable(entries, func(i, j int) bool { return (entries[i].State != "available") && (entries[j].State == "available") })
+		more = len(entries) - maxCatalogEntries
+		entries = entries[:maxCatalogEntries]
+	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
 	proved := s.provedMap(r.Context())
 	for i := range entries {
@@ -310,7 +322,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	// Every proof, by app: an app proved by key with no key entry (Stripe's,
 	// Shippo's) is proved on by_key, the way it was run, and on no entry.
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "proved": proved, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "by_key": true, "proved": proved, "provider": providerID, "next_cursor": next, "skipped": skipped, "partial": partial, "more": more})
 }
 
 // entryStates is each catalog entry the tenant has a connection to, with its
