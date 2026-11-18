@@ -249,7 +249,15 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
 	}
+	// KIFF's proof monitor, when set, is the only source of proved marks. Half
+	// a setting is a mistake, never a silent fall back to the shipped file.
+	proofURL, proofToken := os.Getenv("PLANQUE_PROOF_STATE_URL"), os.Getenv("PLANQUE_PROOF_STATE_TOKEN")
+	proofState := planque.NewProofState(proofURL, proofToken)
+	if (strings.TrimSpace(proofURL) != "" || strings.TrimSpace(proofToken) != "") && proofState == nil {
+		return nil, errors.New("PLANQUE_PROOF_STATE_URL and PLANQUE_PROOF_STATE_TOKEN must name KIFF's proof state (https) and its read-only token")
+	}
 	return &planque.Server{
+		ProofState:         proofState,
 		ManagedTestTenants: testTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		Browser:            browserWorker,

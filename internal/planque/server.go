@@ -82,6 +82,9 @@ type Server struct {
 	// Proved is which apps connect today (proved.go); nil is the reviewed
 	// proved.json shipped in the binary.
 	Proved map[string]Proof
+	// ProofState, when set, makes KIFF's proof monitor the only source of
+	// proved marks (proof_state.go); nil keeps Proved.
+	ProofState *ProofState
 	// DescriberServers are the servers, besides Stripe's own, whose first
 	// request gets these describing tools as setup reads with its sign-in
 	// (PLANQUE_DESCRIBER_SERVERS): the Eval's vendor, on a host we run.

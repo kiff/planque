@@ -132,12 +132,9 @@ type publicProof struct {
 // {at, how, link}}}, by folded name, the same map the catalog's top level
 // carries. kiff.dev's apps list reads it, so the site and tafs cloud's gallery
 // read one source. It holds nothing but proved.json, which is public already.
-func (s *Server) servePublicProofs(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) servePublicProofs(w http.ResponseWriter, r *http.Request) {
 	// The catalog's own source (vendor_catalog.go), so the two never disagree.
-	proved := s.Proved
-	if proved == nil {
-		proved = Proved
-	}
+	proved := s.provedMap(r.Context())
 	out := make(map[string]publicProof, len(proved))
 	for name, p := range proved {
 		out[name] = publicProof{At: p.At, How: p.How, Link: p.Link}
