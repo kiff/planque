@@ -795,6 +795,78 @@
     ],
     "vendor": "Pipedrive"
   },
+  "pipedrive-leads-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "x-api-token"
+      },
+      "base": "https://api.pipedrive.com/v1",
+      "operations": [
+        "getLeads",
+        "getLead",
+        "addNote"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/pipedrive-leads-key-openapi.json"
+    },
+    "description_sha256": "44f6efb3ee9cedbc215b0bab48601338ab21e537f620bf71fbafd5674aa6ed6a",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "pipedrive-leads-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the leads",
+          "tool": "pipedrive_list_leads"
+        },
+        {
+          "kind": "read",
+          "title": "Read one lead",
+          "tool": "pipedrive_read_lead"
+        },
+        {
+          "effect": "writes",
+          "kind": "write",
+          "required_arguments": [
+            "content",
+            "lead_id"
+          ],
+          "shape": "single",
+          "title": "Add a note to a lead",
+          "tool": "pipedrive_add_note"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Pipedrive"
+    },
+    "title": "Pipedrive: read leads, add a note to a lead",
+    "tools": [
+      {
+        "tool": "getLeads",
+        "name": "pipedrive_list_leads",
+        "title": "List the leads",
+        "read_only": true
+      },
+      {
+        "tool": "getLead",
+        "name": "pipedrive_read_lead",
+        "title": "Read one lead",
+        "read_only": true
+      },
+      {
+        "tool": "addNote",
+        "name": "pipedrive_add_note",
+        "title": "Add a note to a lead"
+      }
+    ],
+    "vendor": "Pipedrive"
+  },
   "qonto-key@1": {
     "vendor": "Qonto",
     "title": "Qonto invoicing, read only",
