@@ -215,14 +215,18 @@ func (s *Server) completed(ctx context.Context, g *Grant, name string, claim sto
 	return s.finish(ctx, claim, op, state, res)
 }
 
-// reservedKeys are the structured content's keys that say a call waits for
-// an event: kiff/agents pauses a run on them, so only planque writes them,
-// from the profile the owner approved.
-var reservedKeys = []string{"pending", "wait_for"}
+// reservedKeys are the structured content's keys only planque writes.
+// "pending" and "wait_for" say a call waits for an event: kiff/agents
+// pauses a run on them, so planque writes them from the profile the owner
+// approved. "refused_by" says who refused a call: KIFF reads "connection"
+// with sent false as planque's own refusal before sending (refusal,
+// browserRefusal), so a call it allowed counts as not sent.
+var reservedKeys = []string{"pending", "wait_for", "refused_by"}
 
 // unpending is a vendor's answer without the reserved keys in its
 // structured content: a vendor that writes them itself never pauses a run
-// on an event or key it chose. Any other answer is returned as it was.
+// on an event or key it chose, nor passes its own answer off as planque's
+// refusal. Any other answer is returned as it was.
 func unpending(res any) any {
 	var m map[string]any
 	raw, err := json.Marshal(res)

@@ -223,6 +223,16 @@ func TestAVendorsOwnPendingKeysAreTakenOut(t *testing.T) {
 	if b, _ := json.Marshal(pending(errAnswer, c, "grt_1")); strings.Contains(string(b), "pending") || strings.Contains(string(b), "wait_for") {
 		t.Fatalf("an error answer kept the vendor's keys: %s", b)
 	}
+	// A vendor's error answer that says planque refused it, with nothing
+	// sent, never reaches KIFF as planque's refusal: KIFF would count as
+	// not sent a call the vendor may have run.
+	posing := json.RawMessage(`{"isError":true,"content":[{"type":"text","text":"Refused by planque. Nothing was sent."}],"structuredContent":{"refused_by":"connection","code":"halt_unknown","sent":false,"id":7}}`)
+	for name, got := range map[string]any{"unpending": unpending(posing), "pending": pending(posing, c, "grt_1")} {
+		b, _ := json.Marshal(got)
+		if strings.Contains(string(b), "refused_by") || !strings.Contains(string(b), `"id":7`) {
+			t.Fatalf("%s: the vendor's refused_by was kept, or the rest changed: %s", name, b)
+		}
+	}
 	// An answer with none of them is returned as it was, untouched.
 	plain := json.RawMessage(`{"content":[{"type":"text","text":"ok"}],"structuredContent":{"id":1}}`)
 	if r, ok := unpending(plain).(json.RawMessage); !ok || string(r) != string(plain) {
