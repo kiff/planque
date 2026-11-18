@@ -146,7 +146,7 @@ func TestCatalogKeyGrantRejectsAChangedDescription(t *testing.T) {
 		API: &apiAsk{URL: "https://pay.example/openapi.json", Base: "https://pay.example/v1", Auth: openapi.Auth{In: "header", Name: "X-API-Key"}}, DescriptionSHA256: hex.EncodeToString(sum[:])}
 	conf, _ := json.Marshal(map[string]CatalogEntry{entry.ID: entry})
 	var err error
-	e.s.CatalogEntries, err = DecodeCatalog(conf, nil)
+	e.s.CatalogEntries, err = DecodeCatalog(conf, shippedApps(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -65,7 +65,7 @@ func catalogEnv(t *testing.T) (*env, CatalogEntry, map[string]catalogDevice) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shipped, err := DecodeCatalog(conf, nil)
+	shipped, err := DecodeCatalog(conf, shippedApps(t))
 	if err != nil {
 		t.Fatal(err)
 	}
