@@ -42,7 +42,7 @@ func TestAGrantThatEndsIsLoggedWithWhoEndedIt(t *testing.T) {
 	if st, _ := e.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+id, nil, e.phone, ""); st != 200 {
 		t.Fatalf("disconnect: %d", st)
 	}
-	if m := ended(id); m["from"] != StatusApproved || m["to"] != StatusDisconnected || !strings.Contains(m["by"].(string), "owner's signed disconnect") || m["agent"] != "agt_taf" {
+	if m := ended(id); m["from"] != StatusApproved || m["to"] != StatusDisconnected || m["by"] != "the owner's signed disconnect" || m["agent"] != "agt_taf" {
 		t.Errorf("the disconnect line: %v", m)
 	}
 

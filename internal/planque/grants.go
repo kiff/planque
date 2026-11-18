@@ -569,13 +569,15 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)), slog.Bool("reuse_refused", refusedReuse != ""))
-	s.supersedePending(r.Context(), g)
 	if refused := s.declare(r.Context(), g); refused != "" {
 		// What the key would meet after the owner gave it: said now, before any approval.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"grant": g.ID,
 			"error": "planque can't ask for this: " + refused + ". Nothing was asked of the owner and nothing is left in KIFF: change the tool and ask again"})
 		return
 	}
+	// Only once the new request stands: one KIFF turned down must not take the
+	// owner's earlier one with it.
+	s.supersedePending(r.Context(), g)
 	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
@@ -3066,7 +3068,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		s.fail(w, r, err)
 		return
 	}
-	s.logEnded(r.Context(), g, from, "the owner's signed disconnect ("+sr.approval.Who()+")")
+	s.logEnded(r.Context(), g, from, "the owner's signed disconnect")
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
