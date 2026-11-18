@@ -109,8 +109,11 @@ type Server struct {
 	// managed connection may be made to, by folded name. ManagedTestTenants
 	// are the accounts that may make one to any app
 	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
-	ManagedApps            map[string]bool
-	ManagedTestTenants     map[string]bool
+	ManagedApps        map[string]bool
+	ManagedTestTenants map[string]bool
+	// OwnClientTenants are the accounts shown an app's own entry instead of
+	// the managed connector's toolkit (PLANQUE_OWN_CLIENT_TENANTS, ownClientFor).
+	OwnClientTenants       map[string]bool
 	Applications           map[string]appconfig.Application
 	ApplicationCredentials appcredentials.Reader
 	Logger                 *slog.Logger

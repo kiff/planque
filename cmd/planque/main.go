@@ -30,6 +30,9 @@
 //	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
 //	                   accounts that may make a managed connection to any app;
 //	                   set at deploy, never kept in the repository
+//	PLANQUE_OWN_CLIENT_TENANTS optional tenants:<id>[,<id>]: accounts shown an
+//	                   app's own entry instead of the managed connector's
+//	                   toolkit for it; set at deploy, never kept in the repository
 //	PLANQUE_SIGNIN_READER_SHA256 optional: the hex SHA-256 of the one key that
 //	                   reads an app's managed sign-in state; unset, no one can
 //	PLANQUE_DESCRIBER_SERVERS optional JSON map of HTTPS servers, besides
@@ -249,6 +252,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
 	}
+	ownTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_OWN_CLIENT_TENANTS"))
+	if err != nil {
+		return nil, errors.New("PLANQUE_OWN_CLIENT_TENANTS " + err.Error())
+	}
 	// KIFF's proof monitor, when set, is the only source of proved marks. Half
 	// a setting is a mistake, never a silent fall back to the shipped file.
 	proofURL, proofToken := os.Getenv("PLANQUE_PROOF_STATE_URL"), os.Getenv("PLANQUE_PROOF_STATE_TOKEN")
@@ -259,6 +266,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	return &planque.Server{
 		ProofState:         proofState,
 		ManagedTestTenants: testTenants,
+		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		Browser:            browserWorker,
 		DoorSink:           doorSink,

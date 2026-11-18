@@ -87,6 +87,9 @@ func mustDecodeNames(raw []byte, file string, fold func(string) string) map[stri
 // ("googlesheets" to "Google Sheets"); an app whose slug isn't its name
 // folded is refused until the two are made to match, never let through.
 func (s *Server) managedAllowed(tenant, toolkit string) bool {
+	if s.ownClientFor(tenant, toolkit) {
+		return false
+	}
 	if s.ManagedTestTenants[tenant] {
 		return true
 	}
@@ -100,6 +103,27 @@ func (s *Server) managedAllowed(tenant, toolkit string) bool {
 		apps = ManagedApps
 	}
 	return apps[provedKey(toolkit)]
+}
+
+// ownClientFor: tenant is one of PLANQUE_OWN_CLIENT_TENANTS (the same
+// tenants:<id>[,<id>] form as the test accounts, set at deploy and never kept
+// in this repository) and a reviewed entry reaches toolkit through an app's
+// own client, so the managed connector's toolkit isn't offered to it: the
+// account is shown, and can connect, only the entry that records tafs's own
+// client (the way directEntryFor does for Stripe and Qonto, for every
+// account). It decides before the test accounts' widening. Connections made
+// before keep working: only a new managed connection, and the listings, ask.
+func (s *Server) ownClientFor(tenant, toolkit string) bool {
+	if !s.OwnClientTenants[tenant] {
+		return false
+	}
+	key := provedKey(toolkit)
+	for _, e := range newestRevisions(s.catalogEntries()) {
+		if e.Application != "" && provedKey(e.Application) == key {
+			return true
+		}
+	}
+	return false
 }
 
 // errNotDisclosed is what a person reads when a managed connection to an
