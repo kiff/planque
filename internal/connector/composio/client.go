@@ -865,7 +865,13 @@ func (c *Client) Account(ctx context.Context, id string) (connector.Account, err
 			Val map[string]json.RawMessage `json:"val"`
 		} `json:"state"`
 	}
-	if _, err := c.request(ctx, "GET", "/connected_accounts/"+id, nil, nil, &a); err != nil {
+	if status, err := c.request(ctx, "GET", "/connected_accounts/"+id, nil, nil, &a); err != nil {
+		// The provider no longer has the account (deleted on its side, or expired there): its sign-in can't be used
+		// again, so it's ErrAccount, and every connection on it asks to sign in again, never "unavailable" until
+		// its taf's schedule gives up (kiff/tafs: an Outlook taf's checks, 17 Nov).
+		if status == http.StatusNotFound {
+			return connector.Account{}, connector.ErrAccount
+		}
 		return connector.Account{}, err
 	}
 	if a.ID != id || !identifier.MatchString(a.User) || !identifier.MatchString(a.Toolkit.Slug) {

@@ -768,3 +768,23 @@ func TestARefusalKeepsWhoRefusedAndWhy(t *testing.T) {
 		t.Fatalf("no confirmed result: %+v", got)
 	}
 }
+
+// A provider that no longer has the connected account (404) ends the sign-in: ErrAccount, so planque asks for the
+// sign-in again, as for an expired one. Any other failure of the read stays the call's own error, never ErrAccount.
+func TestAnAccountTheProviderNoLongerHasEndsItsSignIn(t *testing.T) {
+	for status, account := range map[int]bool{404: true, 500: false, 401: false} {
+		c := testClient(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/api/v3.1/connected_accounts/account_one" {
+				t.Fatalf("unexpected path %s", r.URL.Path)
+			}
+			return response(status, `{"error":{"message":"Connected account not found"}}`), nil
+		})
+		_, err := c.Account(context.Background(), "account_one")
+		if got := errors.Is(err, connector.ErrAccount); got != account || err == nil {
+			t.Fatalf("%d: ErrAccount %v, want %v (%v)", status, got, account, err)
+		}
+		if _, err := c.Execute(context.Background(), connector.Identity{User: "owner_one", Toolkit: "desk"}, "account_one", approvedTool(t), json.RawMessage(`{"ticket":"t","text":"x"}`), nil); errors.Is(err, connector.ErrAccount) != account {
+			t.Fatalf("%d: Execute's ErrAccount %v, want %v", status, errors.Is(err, connector.ErrAccount), account)
+		}
+	}
+}
