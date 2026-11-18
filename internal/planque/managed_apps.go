@@ -126,6 +126,19 @@ func (s *Server) ownClientFor(tenant, toolkit string) bool {
 	return false
 }
 
+// managedClosed says g is a managed connection to an app that isn't on the
+// list now (nor one of the test accounts' to try): the app was taken off it.
+// A grant made while it was on is closed with it: its calls, the tools added
+// to it and a sign-in resumed on it are refused, so taking an app off the list
+// stops what was made, not only what is asked next.
+func (s *Server) managedClosed(g *Grant) bool {
+	return g.Request.Connector != nil && !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit)
+}
+
+// errAppClosed is what a person reads when an app was taken off the list and
+// their connection to it is closed.
+const errAppClosed = "This app isn't offered through tafs any more, so this connection is closed. Nothing was sent."
+
 // errNotDisclosed is what a person reads when a managed connection to an
 // app isn't offered yet.
 const errNotDisclosed = "This app can't be connected through tafs yet."
