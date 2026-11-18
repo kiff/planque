@@ -93,7 +93,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		app, ok := found.Apps[t.Toolkit]
 		// The managed connector's Stripe and Qonto aren't offered: each is
 		// planque's direct entry.
-		if !ok || directEntryFor(t.Toolkit) != "" {
+		if !ok || directEntryFor(t.Toolkit) != "" || s.ownClientFor(tenant, t.Toolkit) {
 			continue
 		}
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),

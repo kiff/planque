@@ -288,7 +288,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 			// a direct entry above, Stripe's the one with test mode, Qonto's
 			// the one with reviewed scopes. A connection made to one before
 			// stays listed, so it can be disconnected.
-			if _, made := states[id]; directEntryFor(app.Slug) != "" && !made {
+			if _, made := states[id]; (directEntryFor(app.Slug) != "" || s.ownClientFor(tenant, app.Slug)) && !made {
 				continue
 			}
 			v := catalogEntryView{Entry: id, Vendor: app.Slug, Title: label(app.Name), Icon: app.Icon, How: "oauth", State: "available"}

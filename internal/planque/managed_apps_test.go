@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -172,5 +173,62 @@ func TestTheShippedListNamesTheGoogleAppsAndNothingElse(t *testing.T) {
 		if ManagedApps[provedKey(name)] {
 			t.Errorf("%s is on the shipped list", name)
 		}
+	}
+}
+
+// An account named in PLANQUE_OWN_CLIENT_TENANTS isn't offered the managed
+// connector's toolkit for an app that has an entry through tafs's own client:
+// not in the catalog, not in the tool search, and a managed request for it is
+// refused before the platform. Every other account, and every other app,
+// keeps the managed route; and it decides ahead of the test accounts.
+func TestAnOwnClientAccountIsNotOfferedTheManagedToolkit(t *testing.T) {
+	e, c := gated(t, []string{"desk_demo", "own_demo"}, []string{tenant})
+	e.s.CatalogEntries = map[string]CatalogEntry{"desk@1": {Application: "desk_demo", Vendor: "Support desk", Title: "Support desk",
+		Tools: []ToolRequest{{Tool: "desk_read", Name: "desk_read", Title: "Read a desk", ReadOnly: true}}}}
+	offered := func() (catalog, search []string) {
+		_, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio", nil, nil, "k_setup")
+		for _, it := range out["entries"].([]any) {
+			catalog = append(catalog, it.(map[string]any)["entry"].(string))
+		}
+		_, out = e.do("GET", "/v1/accounts/"+tenant+"/catalog/tools?provider=composio&q=desk", nil, nil, "k_setup")
+		for _, it := range out["tools"].([]any) {
+			search = append(search, it.(map[string]any)["entry"].(string))
+		}
+		return
+	}
+	has := func(list []string, id string) bool { return slices.Contains(list, id) }
+	managed := "connector:composio:desk_demo"
+
+	// Not listed: the managed toolkit is offered, and connects.
+	catalog, search := offered()
+	if !has(catalog, managed) || !has(search, managed) {
+		t.Fatalf("an ordinary account lost the managed toolkit: %v %v", catalog, search)
+	}
+	if st, out := askManaged(e); st != 201 {
+		t.Fatalf("an ordinary account's managed request: %d %v", st, out)
+	}
+
+	e.s.OwnClientTenants = map[string]bool{tenant: true}
+	catalog, search = offered()
+	if has(catalog, managed) || has(search, managed) {
+		t.Errorf("the managed toolkit is still offered: %v %v", catalog, search)
+	}
+	if !has(catalog, "connector:composio:calendar_demo") {
+		t.Errorf("an app with no own entry lost its managed toolkit: %v", catalog)
+	}
+	if !has(catalog, "desk@1") || !has(search, "desk@1") {
+		t.Errorf("the own entry isn't offered: %v %v", catalog, search)
+	}
+	before := c.n.Load()
+	if st, out := askManaged(e); st != http.StatusForbidden || out["error"] != errNotDisclosed {
+		t.Errorf("a managed request for the app: %d %v", st, out)
+	}
+	if n := c.n.Load() - before; n != 0 {
+		t.Errorf("%d requests reached the platform", n)
+	}
+
+	// Another account is untouched.
+	if !e.s.managedAllowed("other-tenant", "desk_demo") || e.s.ownClientFor("other-tenant", "desk_demo") {
+		t.Error("an account that isn't listed was changed")
 	}
 }
