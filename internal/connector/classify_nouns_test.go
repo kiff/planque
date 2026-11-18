@@ -41,6 +41,7 @@ func TestANounInAReadsNameDoesNotHoldIt(t *testing.T) {
 		// The verbs stay held in verb position.
 		{"x", "X_GET_AND_REFUND", true, ClassMoney},
 		{"x", "X_FETCH_THEN_DELETE", true, ClassDelete},
+		{"x", "X_EXPORT_THEN_PURGE", true, ClassDelete},
 		{"x", "X_LIST_OR_REMOVE_ITEMS", true, ClassDelete},
 		{"x", "X_EXPORT_AND_PURGE", true, ClassDelete},
 		{"x", "X_GET_FILES_AND_WIPE", true, ClassDelete},
