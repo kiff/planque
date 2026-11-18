@@ -34,6 +34,7 @@ var vendorHosts = map[string][]string{
 	"Intercom":       {"api.intercom.io", "api.eu.intercom.io", "api.au.intercom.io"}, // its three regions
 	"Typeform":       {"api.typeform.com", "api.eu.typeform.com", "api.typeform.eu"},  // US, EU data centre, EU domain
 	"Freshdesk":      {"*.freshdesk.com"},                                             // one subdomain per customer
+	"Zendesk":        {"*.zendesk.com"},                                               // one subdomain per customer
 	"Shippo":         {"api.goshippo.com"},
 	"Pipedrive":      {"api.pipedrive.com"},
 	"Moneybird":      {"moneybird.com"},

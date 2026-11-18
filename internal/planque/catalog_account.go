@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -16,6 +17,26 @@ import (
 
 // accountVar is the one variable an account template has.
 const accountVar = "{account}"
+
+// loginVar is the one variable a Basic username can have: the owner's own
+// login (an email) at the vendor, as Zendesk's "{login}/token" or Gorgias's
+// "{login}". The key stays the password; the login is no secret, and the
+// approval shows the username it was approved with.
+const loginVar = "{login}"
+
+// loginTemplate reports whether an entry's Basic username names the login.
+func loginTemplate(auth openapi.Auth) bool {
+	return auth.In == "basic" && strings.Contains(auth.User, loginVar)
+}
+
+// loginUserValid reports whether a catalog entry's Basic username is one of
+// the two forms the catalog takes: the login alone, or the login and "/token".
+func loginUserValid(user string) bool { return user == loginVar || user == loginVar+"/token" }
+
+// loginAddress is an email as one line of letters, digits and the few marks an
+// address has: no space, colon, slash, quote or bracket, so it fills a Basic
+// username as given and never ends it early.
+var loginAddress = regexp.MustCompile(`^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})+$`)
 
 // accountTemplate reports whether base names the account variable.
 func accountTemplate(base string) bool { return strings.Contains(base, "{") }
@@ -39,12 +60,12 @@ func templateValid(base string) bool {
 // entry's own, its address made one. account fills a template; base picks one
 // of a list of regions. Anything else the ask names is refused, and why is
 // the refusal in words ("" when it is fine).
-func resolveEntryAPI(a *apiAsk, account, base string) (*apiAsk, string) {
+func resolveEntryAPI(a *apiAsk, account, base, login string) (*apiAsk, string) {
 	// Taken exactly as given: a stray space or newline is refused, never quietly trimmed.
 	account = strings.ToLower(account)
 	if a == nil {
-		if account != "" || base != "" {
-			return nil, "this entry takes no account or region"
+		if account != "" || base != "" || login != "" {
+			return nil, "this entry takes no account, region or login"
 		}
 		return nil, ""
 	}
@@ -81,6 +102,17 @@ func resolveEntryAPI(a *apiAsk, account, base string) (*apiAsk, string) {
 		if account != "" || base != "" {
 			return nil, "this entry is at one fixed address: it takes no account or region"
 		}
+	}
+	if loginTemplate(out.Auth) {
+		if login == "" {
+			return nil, "login is required: the owner's own login at the vendor, an email address"
+		}
+		if len(login) > 254 || !loginAddress.MatchString(login) {
+			return nil, "login is one email address of letters, digits and . _ % + - : no space, colon, slash or other character"
+		}
+		out.Auth.User = strings.Replace(out.Auth.User, loginVar, login, 1)
+	} else if login != "" {
+		return nil, "this entry takes no login: its key is the whole credential"
 	}
 	return &out, ""
 }
