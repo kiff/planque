@@ -317,7 +317,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 // state (connected, or needs_reconnect) and the grant that says so: the
 // catalog and the tool search mark an app the same way.
 func (s *Server) entryStates(ctx context.Context, tenant string) (map[string]catalogEntryView, error) {
-	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
