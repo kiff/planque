@@ -61,6 +61,7 @@ const (
 	CodeSignedOut         = "signed_out"             // the vendor ended the sign-in; the owner signs in again
 	CodeOperationChanged  = "operation_changed"      // a tool the owner approved changed at the vendor; the grant is paused
 	CodeConnectionDown    = "connection_unavailable" // the approved managed connection or its account couldn't be used
+	CodeAppClosed         = "app_closed"             // the app was taken off the published list, so its earlier connections are closed
 	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
 	CodeWaitsForApproval  = "waits_for_approval"     // an addition's tool, declared, and the owner hasn't approved it yet
 	CodeToolNotServed     = "tool_not_served"        // a managed app's tool planque never serves (connector.NeverServed), or a broad write's operation (describer.Never)

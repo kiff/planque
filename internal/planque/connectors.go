@@ -1037,7 +1037,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	}
 	// The app was taken off the published list: a connection made while it was on is closed.
 	if s.managedClosed(g) {
-		return OpNotSent, refusal(CodeConnectionDown, errAppClosed)
+		return OpNotSent, refusal(CodeAppClosed, errAppClosed)
 	}
 	// Approved before planque stopped serving it: never sent, whatever the grant holds.
 	if connector.NeverServed(t.Connector.Toolkit, t.Connector.Slug) {
