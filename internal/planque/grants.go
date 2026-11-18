@@ -575,6 +575,9 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			"error": "planque can't ask for this: " + refused + ". Nothing was asked of the owner and nothing is left in KIFF: change the tool and ask again"})
 		return
 	}
+	// Only once the new request stands: one KIFF turned down must not take the
+	// owner's earlier one with it.
+	s.supersedePending(r.Context(), g)
 	if fromCatalog {
 		writeJSON(w, http.StatusCreated, map[string]any{"grant": s.view(r, g), "needs_key": g.Request.Kind == KindAPIKey})
 	} else {
@@ -1674,12 +1677,14 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		}
 		was := *g
 		g.HeldUntil = time.Time{}
+		from := g.Status
 		g.Status, g.Reason = StatusFailed, "nobody signed in within 7 days of the owner's approval"
 		g.event(s.now(), "failed: "+g.Reason)
 		if err := s.saveGrant(ctx, g); err != nil {
 			*g = was
 			return false, err
 		}
+		s.logEnded(ctx, g, from, "planque's sweep")
 		s.log().InfoContext(ctx, "approved grant never signed in", slog.String("grant", g.ID))
 		return true, nil
 	case g.waitsForApproval() && s.overdue(g):
@@ -1691,12 +1696,14 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		}
 		was := *g
 		g.HeldUntil = time.Time{}
+		from := g.Status
 		g.Status, g.Reason = StatusFailed, "not approved in time: nobody signed the request within 7 days"
 		g.event(s.now(), "failed: "+g.Reason)
 		if err := s.saveGrant(ctx, g); err != nil {
 			*g = was
 			return false, err
 		}
+		s.logEnded(ctx, g, from, "planque's sweep")
 		s.log().InfoContext(ctx, "request not approved in time", slog.String("grant", g.ID))
 		return true, nil
 	default:
@@ -1714,12 +1721,14 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	}
 	was := *g
 	g.HeldUntil, g.ConfirmHash, g.ConfirmBy = time.Time{}, "", time.Time{}
+	from := g.Status
 	g.Status, g.Reason = StatusFailed, reason
 	g.event(s.now(), "failed: "+reason)
 	if err := s.saveGrant(ctx, g); err != nil {
 		*g = was
 		return false, err
 	}
+	s.logEnded(ctx, g, from, "planque's sweep")
 	s.log().InfoContext(ctx, "expired sign-in revoked", slog.String("grant", g.ID), slog.String("reason", reason))
 	return true, nil
 }
@@ -2785,6 +2794,7 @@ func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g.HeldUntil = time.Time{}
+		from := g.Status
 		g.Status, g.Reason = StatusFailed, "declined: the owner didn't give the key"
 		g.event(s.now(), "failed: "+g.Reason+"; its declared tools left KIFF")
 		if err := s.saveGrant(r.Context(), g); err != nil {
@@ -2792,6 +2802,7 @@ func (s *Server) withdrawTools(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		s.logEnded(r.Context(), g, from, "the owner, who declined it")
 	default:
 		writeErr(w, http.StatusConflict, "no tools wait for the owner's approval on this grant; it's "+g.Status)
 		return
@@ -2991,11 +3002,13 @@ func (s *Server) undo(ctx context.Context, g *Grant, registered []string, reason
 }
 
 func (s *Server) failGrant(ctx context.Context, g *Grant, reason string) error {
+	from := g.Status
 	g.Status, g.Reason = StatusFailed, reason
 	g.event(s.now(), "failed: "+reason)
 	if err := s.saveGrant(ctx, g); err != nil {
 		return err
 	}
+	s.logEnded(ctx, g, from, "planque, on a failed connect")
 	return errors.New(reason)
 }
 
@@ -3026,6 +3039,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		}
 	}
 	problems = append(problems, s.revoke(r.Context(), g)...)
+	from := g.Status
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	g.Pending, g.PendingTransport = nil, ""
 	what := "disconnected " + sr.approval.Who() + ": token deleted"
@@ -3054,6 +3068,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		s.fail(w, r, err)
 		return
 	}
+	s.logEnded(r.Context(), g, from, "the owner's signed disconnect")
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 

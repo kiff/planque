@@ -99,6 +99,10 @@ func TestCatalogGrantUsesReviewedOperationsAndAccountState(t *testing.T) {
 	if next.Request.Tools[0].Name == g.Request.Tools[0].Name || pp.Operations[0].Tool != next.Request.Tools[0].Name || string(e.s.CatalogEntries[entry.ID].Profile) != string(entry.Profile) {
 		t.Fatal("entry or profile names were mutated")
 	}
+	// The second request ended the first (same agent, same app, still waiting): read it again.
+	if g, err = e.s.loadGrant(context.Background(), tenant, g.ID); err != nil || g.Status != StatusDisconnected {
+		t.Fatalf("the earlier request: %v %v", g, err)
+	}
 	// Account state cannot be supplied by another account's grant, even if
 	// both accounts have the same public catalog entry installed.
 	g.Status = StatusConnected
