@@ -1,7 +1,9 @@
 package planque
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -27,6 +29,8 @@ func TestANewRequestEndsTheSameAgentsEarlierPendingOne(t *testing.T) {
 		}
 	}
 	e.s.ApplicationCredentials = credentials
+	var logs bytes.Buffer
+	e.s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	raw, err := os.ReadFile("../../deploy/catalog.json")
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +62,9 @@ func TestANewRequestEndsTheSameAgentsEarlierPendingOne(t *testing.T) {
 
 	if g := load(first); g.Status != StatusDisconnected || g.Reason != "" || !strings.Contains(g.Events[len(g.Events)-1].What, "replaced by a newer request") || !strings.Contains(g.Events[len(g.Events)-1].What, second) {
 		t.Errorf("the earlier request: %s %q %v", g.Status, g.Reason, g.Events)
+	}
+	if !strings.Contains(logs.String(), `"msg":"grant ended"`) || !strings.Contains(logs.String(), `"from":"pending"`) || !strings.Contains(logs.String(), `"by":"a newer request, `+second+`"`) {
+		t.Errorf("the replacement isn't logged:\n%s", logs.String())
 	}
 	if g := load(other); g.Status != StatusPending {
 		t.Errorf("another agent's request ended: %s", g.Status)

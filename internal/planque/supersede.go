@@ -38,12 +38,20 @@ func (s *Server) supersedePending(ctx context.Context, g *Grant) {
 			continue
 		}
 		old.HeldUntil = time.Time{}
+		from := old.Status
 		old.Status, old.Reason = StatusDisconnected, ""
 		old.event(s.now(), "replaced by a newer request for the same app from the same agent: "+g.ID)
 		if err := s.saveGrant(ctx, &old); err != nil {
 			s.log().WarnContext(ctx, "an earlier request wasn't ended", slog.String("grant", old.ID), slog.String("err", err.Error()))
 			continue
 		}
-		s.log().InfoContext(ctx, "earlier request replaced", slog.String("grant", old.ID), slog.String("by", g.ID))
+		s.logEnded(ctx, &old, from, "a newer request, "+g.ID)
 	}
+}
+
+// logEnded says a grant ended: which, from which status to which, and who or
+// what ended it, so a row that went from waiting to gone can be explained.
+func (s *Server) logEnded(ctx context.Context, g *Grant, from, by string) {
+	s.log().InfoContext(ctx, "grant ended", slog.String("grant", g.ID), slog.String("from", from), slog.String("to", g.Status),
+		slog.String("by", by), slog.String("agent", g.Request.Agent), slog.String("entry", g.Request.CatalogEntry))
 }

@@ -227,6 +227,8 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 		if err := s.saveGrant(ctx, g); err != nil {
 			s.log().WarnContext(ctx, "agent end: a grant wasn't saved", slog.String("grant", g.ID), slog.String("err", err.Error()))
 			unfinished = append(unfinished, g.ID)
+		} else {
+			s.logEnded(ctx, g, was, "the taf's end, by "+me.Subject)
 		}
 	}
 	s.log().InfoContext(ctx, "agent ended", slog.String("tenant", tenant), slog.String("agent", agent),
