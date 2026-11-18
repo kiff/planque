@@ -120,3 +120,9 @@ func (s *Server) eraseGrant(ctx context.Context, g *Grant, key string, keyErr er
 	}
 	return append(problems, s.revoke(ctx, g)...)
 }
+
+// eraseFinished deletes the account's finished grants and their operation
+// records, and nothing else (not implemented yet).
+func (s *Server) eraseFinished(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	writeErr(w, http.StatusNotImplemented, "not implemented")
+}
