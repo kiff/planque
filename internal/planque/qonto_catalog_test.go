@@ -20,7 +20,7 @@ func TestShippedQontoCatalogIsReadOnlyAndPinsItsDescription(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, nil)
+	entries, err := DecodeCatalog(conf, shippedApps(t))
 	if err != nil {
 		t.Fatal(err)
 	}

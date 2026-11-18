@@ -275,8 +275,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	// A value the vendor doesn't list ("new" for open, pending or solved)
 	// would get an empty answer, not an error: refused here, with the values
-	// it takes, so the agent asks again in the same run.
-	if tool.narrowed() {
+	// it takes, so the agent asks again in the same run. A registered app's
+	// operation lists its values for every call, narrowed or not: a taf that
+	// sets a mode the app doesn't list (a spreadsheet's USER_ENTERED, which
+	// runs a formula it was handed) is refused, whatever its tool pins.
+	if tool.narrowed() || g.Request.Application != nil {
 		if err := outsideEnum(tool.InputSchema, args); err != nil {
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+err.Error()+". Nothing was sent.", true))
 		}
