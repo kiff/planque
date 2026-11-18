@@ -179,3 +179,52 @@ func TestAVendorThatDoesntConfirmRevokingIsAskedAgain(t *testing.T) {
 		t.Fatal("the entry outlived its work")
 	}
 }
+
+// A grant the owner's phone approved but nobody signed in to has a deadline
+// like a request nobody signed: pendingTTL after its approval. Before, it had
+// none, so a month-old approved grant could still be resumed and its sign-in
+// link walked. Past the deadline the sweep ends it, its record kept, and a
+// grant signed in in time is left alone.
+func TestAnApprovedGrantNobodySignedInToEnds(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	g, err := e.s.loadGrant(t.Context(), tenant, id)
+	if err != nil || g.Status != StatusApproved {
+		t.Fatalf("the grant: %v %v", g, err)
+	}
+	if d := g.deadline(); d.IsZero() || !d.Equal(g.Approval.ApprovedAt.Add(pendingTTL)) {
+		t.Fatalf("deadline %v, want the approval plus pendingTTL (%v)", d, g.Approval.ApprovedAt.Add(pendingTTL))
+	}
+	e.at(pendingTTL - time.Hour)
+	if n, err := e.s.Sweep(t.Context()); err != nil || n != 0 {
+		t.Fatalf("a sweep before the deadline ended %d: %v", n, err)
+	}
+	e.at(pendingTTL + time.Hour)
+	if n, err := e.s.Sweep(t.Context()); err != nil || n != 1 {
+		t.Fatalf("a sweep after the deadline ended %d: %v", n, err)
+	}
+	if g, _ = e.s.loadGrant(t.Context(), tenant, id); g.Status != StatusFailed || !strings.Contains(g.Reason, "signed in") {
+		t.Fatalf("the grant: %s %q", g.Status, g.Reason)
+	}
+}
+
+// A grant signed in and connected in time is never ended by that deadline.
+func TestAConnectedGrantHasNoSignInDeadline(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	if d := g.deadline(); !d.IsZero() {
+		t.Fatalf("a connected grant has a deadline: %v", d)
+	}
+	e.at(pendingTTL + 24*time.Hour)
+	if n, err := e.s.Sweep(t.Context()); err != nil || n != 0 {
+		t.Fatalf("sweep: %d %v", n, err)
+	}
+	if g, _ = e.s.loadGrant(t.Context(), tenant, g.ID); g.Status != StatusConnected {
+		t.Fatalf("the grant: %s", g.Status)
+	}
+}

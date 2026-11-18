@@ -1650,6 +1650,23 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		return false, nil
 	case g.Status == StatusSignedIn && s.now().After(g.ConfirmBy):
 		reason = "the sign-in was not confirmed in time; its token was revoked"
+	case g.waitsForSignIn() && s.overdue(g):
+		// Approved and never signed in within pendingTTL: it holds no sign-in
+		// or key to revoke, so it only ends, its record kept, and tools
+		// declared for it leave KIFF first.
+		if err := s.undeclare(ctx, g); err != nil {
+			return false, err
+		}
+		was := *g
+		g.HeldUntil = time.Time{}
+		g.Status, g.Reason = StatusFailed, "nobody signed in within 7 days of the owner's approval"
+		g.event(s.now(), "failed: "+g.Reason)
+		if err := s.saveGrant(ctx, g); err != nil {
+			*g = was
+			return false, err
+		}
+		s.log().InfoContext(ctx, "approved grant never signed in", slog.String("grant", g.ID))
+		return true, nil
 	case g.waitsForApproval() && s.overdue(g):
 		// Nobody signed it within pendingTTL: it holds no sign-in or key to
 		// revoke, so it only ends, its record kept, and tools declared for
