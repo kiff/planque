@@ -27,13 +27,17 @@ const (
 var HoldClasses = true
 
 var (
-	deleteWords   = words("delete deletes remove removes destroy erase purge trash empty clear wipe drop revoke unlink terminate truncate suspend ban kick block")
+	deleteWords   = words("delete deletes remove removes destroy erase purge trash empty clear wipe drop revoke unlink terminate truncate suspend ban kick")
 	shareWords    = words("share sharing unshare permission permissions invite invites acl collaborator collaborators publish unpublish public ownership owner role roles access member members visibility grant grants")
 	sendManyWords = words("campaign campaigns broadcast bulk mass newsletter blast audience audiences mailing everyone announce subscribers")
 	moneyWords    = words("pay payment payments refund refunds transfer transfers payout payouts charge charges withdraw disburse paid void writeoff capture credit debit deposit purchase buy checkout")
 	moneyVerbs    = words("pay refund transfer charge withdraw disburse void capture debit deposit purchase buy checkout")
-	readVerbs     = words("get list fetch search find read query retrieve check count describe lookup show view download export")
-	writeVerbs    = words("create add update edit set append insert comment assign move copy rename reply post upload import duplicate label tag attach mark complete close reopen start stop pin unpin like follow save submit send draft log record schedule reschedule restore archive unarchive resolve batch upsert format sort resize mutate replace write put patch modify change enable disable activate deactivate merge split convert apply run execute trigger subscribe unsubscribe snooze approve reject accept decline")
+	// dangerVerbs are words that are only ever verbs. Beside a read verb they
+	// can only mean the tool also does that (GET_AND_DELETE, EXPORT_AND_PURGE);
+	// refund, charge, purchase or checkout are mostly nouns there (LIST_CHARGE_REFUNDS).
+	dangerVerbs = words("delete remove destroy erase purge wipe truncate pay withdraw disburse ban kick suspend")
+	readVerbs   = words("get list fetch search find read query retrieve check count describe lookup show view download export")
+	writeVerbs  = words("create add update edit set append insert comment assign move copy rename reply post upload import duplicate label tag attach mark complete close reopen start stop pin unpin like follow save submit send draft log record schedule reschedule restore archive unarchive resolve batch upsert format sort resize mutate replace write put patch modify change enable disable activate deactivate merge split convert apply run execute trigger subscribe unsubscribe snooze approve reject accept decline")
 )
 
 func words(s string) map[string]bool {
@@ -59,11 +63,18 @@ func Classify(t Tool) Class {
 		return false
 	}
 	// A read by its verb and by the provider's mark may carry a noun: listing
-	// permissions, a trash folder or payments changes nothing. It may not carry
-	// a second, dangerous verb: the mark never lowers a name that also deletes
-	// or moves money (GET_AND_DELETE_FILES), whatever the provider says.
-	if t.ReadOnly && len(tokens) > 0 && readVerbs[tokens[0]] && !has(deleteWords) && !has(moneyVerbs) {
+	// permissions, a trash, payments, refunds or a block changes nothing. It may
+	// not carry a second, dangerous verb: the mark never lowers a name that
+	// also deletes or moves money (GET_AND_DELETE_FILES, GET_AND_REFUND), whatever
+	// the provider says. A second verb is one that follows "and"/"or"/"then", or
+	// an unambiguous verb that ends the name.
+	if t.ReadOnly && len(tokens) > 0 && readVerbs[tokens[0]] && !alsoActs(tokens) {
 		return ClassRead
+	}
+	// "block" shuts someone out only as the verb that starts the name
+	// (BLOCK_USER); inside a name it's mostly the noun (UPDATE_BLOCK).
+	if len(tokens) > 0 && tokens[0] == "block" {
+		return ClassDelete
 	}
 	switch {
 	case has(moneyWords):
@@ -94,4 +105,19 @@ func Held(t Tool) (Class, bool) {
 		return c, true
 	}
 	return "", false
+}
+
+// alsoActs is whether a name that starts with a read verb goes on to delete or
+// move money: a delete or money word after "and", "or" or "then", or a word that
+// is only ever a verb at the end of the name.
+func alsoActs(tokens []string) bool {
+	for i := 1; i < len(tokens); i++ {
+		switch tokens[i-1] {
+		case "and", "or", "then":
+			if deleteWords[tokens[i]] || moneyVerbs[tokens[i]] {
+				return true
+			}
+		}
+	}
+	return len(tokens) > 1 && dangerVerbs[tokens[len(tokens)-1]]
 }

@@ -37,3 +37,17 @@ func TestTheCatalogCapKeepsTheAccountsOwnConnections(t *testing.T) {
 		t.Errorf("a short list was cut: %d %d", len(few), none)
 	}
 }
+
+// Exactly the cap is no cut; one more is cut by one.
+func TestTheCatalogCapCutsOnlyPastTheLimit(t *testing.T) {
+	for n, wantMore := range map[int]int{maxCatalogEntries: 0, maxCatalogEntries + 1: 1} {
+		var entries []catalogEntryView
+		for i := 0; i < n; i++ {
+			entries = append(entries, catalogEntryView{Entry: fmt.Sprintf("connector:composio:app%03d", i), State: "available"})
+		}
+		kept, more := capCatalog(entries)
+		if len(kept) != maxCatalogEntries || more != wantMore {
+			t.Errorf("%d entries: %d kept, %d more, want %d kept, %d more", n, len(kept), more, maxCatalogEntries, wantMore)
+		}
+	}
+}
