@@ -150,12 +150,20 @@ func (s *Server) eraseFinished(w http.ResponseWriter, r *http.Request, sr signed
 		if json.Unmarshal(it.Doc, &g) != nil || g.ID == "" || skGrant(g.ID) != it.SK || g.live() {
 			continue
 		}
-		if ok, err := s.holdsNothing(ctx, &g); err != nil {
+		if ok, err := s.holdsNothing(ctx, sr.tenant, &g); err != nil {
 			s.fail(w, r, err)
 			return
 		} else if !ok {
 			skipped++
 			continue
+		}
+		// A browser grant's screenshots are kept outside the table: they go
+		// first, and the grant is skipped if they can't be dropped.
+		if g.Request.Kind == KindBrowser && s.Evidence != nil {
+			if err := s.Evidence.Drop(ctx, sr.tenant, g.ID); err != nil {
+				skipped++
+				continue
+			}
 		}
 		drop = append(drop, g)
 	}
@@ -224,14 +232,23 @@ func (s *Server) eraseFinished(w http.ResponseWriter, r *http.Request, sr signed
 		"grants_before": len(items), "grants_after": len(items) - len(drop)})
 }
 
-// holdsNothing says a finished grant has no token or renewal row left and no
+// holdsNothing says a finished grant of the signed account has no token,
+// renewal, browser session, held browser sign-in or checkout row left, and no
 // provider access that isn't confirmed disabled: only then may its record go.
-func (s *Server) holdsNothing(ctx context.Context, g *Grant) (bool, error) {
-	for _, sk := range []string{skToken(g.ID), skRenewal(g.ID)} {
-		_, ok, err := s.KV.Get(ctx, tenantPK(g.Tenant), sk)
+// A record that names another account, or none, is never the signed one's to
+// delete: it's skipped, whatever its rows say.
+func (s *Server) holdsNothing(ctx context.Context, tenant string, g *Grant) (bool, error) {
+	if g.Tenant != tenant {
+		return false, nil
+	}
+	for _, sk := range []string{skToken(g.ID), skRenewal(g.ID), skBrowserState(g.ID), skBrowserSignIn(g.ID)} {
+		_, ok, err := s.KV.Get(ctx, tenantPK(tenant), sk)
 		if err != nil || ok {
 			return false, err
 		}
+	}
+	if rows, err := s.KV.Query(ctx, tenantPK(tenant), "CHECKOUT#"+g.ID+"#"); err != nil || len(rows) > 0 {
+		return false, err
 	}
 	if g.Connector != nil && g.Connector.Account != "" && (g.Connector.Revocation == nil || !g.Connector.Revocation.Disabled) {
 		return false, nil

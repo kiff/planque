@@ -190,3 +190,92 @@ func TestDeletingFinishedGrantsStopsAtTheCapAndSaysMore(t *testing.T) {
 		}
 	}
 }
+
+// An evidence store for the test: what it was asked to drop, and an error to
+// answer with.
+type dropEvidence struct {
+	dropped []string
+	err     error
+}
+
+func (d *dropEvidence) Put(context.Context, string, string, string, []byte) (string, error) {
+	return "", nil
+}
+func (d *dropEvidence) Drop(_ context.Context, tenant, grant string) error {
+	d.dropped = append(d.dropped, tenant+"/"+grant)
+	return d.err
+}
+
+// A finished browser grant keeps rows a token check never reads: its sealed
+// session, its held sign-in, its checkouts, its screenshots. One that still
+// has any of them is skipped, its screenshots are dropped before its record
+// goes, and a record that names no account (or another) is never deleted from
+// the signed one.
+func TestDeletingFinishedBrowserGrantsLeavesNoOrphanedState(t *testing.T) {
+	e := newEnv(t)
+	e.connect()
+	ctx := context.Background()
+	acct := "/v1/accounts/" + tenant + "/finished-grants"
+	ev := &dropEvidence{}
+	e.s.Evidence = ev
+	browser := func(id string) *Grant {
+		g := &Grant{ID: id, Tenant: tenant, Status: StatusDisconnected, SignedIn: true,
+			Request: Request{Tenant: tenant, CatalogEntry: "gmail-key@1", Kind: KindBrowser}}
+		if err := e.s.saveGrant(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	row := func(sk string) {
+		if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: sk, Ver: 1}, map[string]string{"sealed": "x"}, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	browser("grt_b_clean")
+	browser("grt_b_state")
+	row(skBrowserState("grt_b_state"))
+	browser("grt_b_signin")
+	row(skBrowserSignIn("grt_b_signin"))
+	browser("grt_b_checkout")
+	row(skCheckout("grt_b_checkout", "https://shop.example/pay"))
+	// Records whose tenant field is empty: one with a token row in this
+	// account, one with nothing else. Neither is the signed account's to delete.
+	for _, id := range []string{"grt_nameless", "grt_nameless_token"} {
+		nameless := &Grant{ID: id, Tenant: tenant, Status: StatusFailed, Request: Request{Tenant: tenant, CatalogEntry: "gmail-key@1"}}
+		if err := e.s.saveGrant(ctx, nameless); err != nil {
+			t.Fatal(err)
+		}
+		nameless.Tenant = ""
+		if err := putDoc(ctx, e.kv, store.Item{PK: tenantPK(tenant), SK: skGrant(id), Ver: 9}, nameless, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row(skToken("grt_nameless_token"))
+
+	st, out := e.do("DELETE", acct, nil, e.phone, "")
+	if st != 200 || out["grants"] != float64(1) || out["skipped"] != float64(5) {
+		t.Fatalf("delete: %d %v", st, out)
+	}
+	has := func(id string) bool {
+		_, ok, _ := e.kv.Get(ctx, tenantPK(tenant), skGrant(id))
+		return ok
+	}
+	if has("grt_b_clean") {
+		t.Error("a browser grant with nothing left was kept")
+	}
+	for _, id := range []string{"grt_b_state", "grt_b_signin", "grt_b_checkout", "grt_nameless", "grt_nameless_token"} {
+		if !has(id) {
+			t.Errorf("%s was deleted while something of it remains", id)
+		}
+	}
+	if len(ev.dropped) != 1 || ev.dropped[0] != tenant+"/grt_b_clean" {
+		t.Errorf("screenshots dropped for %v, want only the grant deleted", ev.dropped)
+	}
+
+	// Screenshots that can't be dropped keep the grant.
+	browser("grt_b_stuck")
+	ev.err = context.DeadlineExceeded
+	if st, out := e.do("DELETE", acct+"?again=1", nil, e.phone, ""); st != 200 || out["grants"] != float64(0) || !has("grt_b_stuck") {
+		t.Fatalf("a grant whose screenshots stay was deleted: %d %v", st, out)
+	}
+}
