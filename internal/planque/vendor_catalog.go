@@ -298,10 +298,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Entry < entries[j].Entry })
-	proved := s.Proved
-	if proved == nil {
-		proved = Proved
-	}
+	proved := s.provedMap(r.Context())
 	for i := range entries {
 		entries[i].Proved = proofOf(proved, entries[i].Entry, entries[i].How)
 	}
