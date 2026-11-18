@@ -569,6 +569,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		return
 	}
 	s.log().InfoContext(r.Context(), "grant requested", slog.String("grant", id), slog.String("server", hostOf(server)), slog.Bool("reuse_refused", refusedReuse != ""))
+	s.supersedePending(r.Context(), g)
 	if refused := s.declare(r.Context(), g); refused != "" {
 		// What the key would meet after the owner gave it: said now, before any approval.
 		writeJSON(w, http.StatusBadRequest, map[string]string{"grant": g.ID,
