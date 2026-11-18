@@ -272,6 +272,21 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			req.SetupReads = reads
 		}
 	}
+	if req.SetupReads != nil && fromCatalog && entry != nil && len(entry.Tools) > 0 && req.Tools != nil {
+		// An entry that lists its tools (an app's own client, a key's API)
+		// has them at once, so there's no first request to connect first:
+		// the names pick which of its read-only tools the asking agent reads
+		// itself once the owner approved them, the same marks a request with
+		// its tools makes with setup_reads on a tool. Refused before, with
+		// words that told the agent to do exactly this, so a normal first
+		// request showed the person "1 failed".
+		marked, msg := markEntrySetupReads(*req.Tools, req.SetupReads)
+		if msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
+		req.Tools, req.SetupReads = &marked, nil
+	}
 	if req.SetupReads != nil {
 		// Only a first request that connects first (tools: []), to a server
 		// whose tools come from its own list once signed in: a catalog entry
@@ -3460,4 +3475,30 @@ func mayAct(me kiff.Me, g *Grant) bool {
 		return false
 	}
 	return me.AgentID == g.Request.Agent || slices.Contains(me.Roles, "setup_reader")
+}
+
+// markEntrySetupReads is tools with SetupReads set on each of the entry's
+// read-only tools the names pick, by the vendor's tool name or its own, and
+// "" for the message when it can't: a name that isn't one of the tools asked
+// for, or one that isn't a read, says which and what the reads are. The
+// entry's own tools aren't changed: a copy is marked.
+func markEntrySetupReads(tools []ToolRequest, names []string) ([]ToolRequest, string) {
+	if msg := setupReadNames(names); msg != "" {
+		return nil, msg
+	}
+	out := slices.Clone(tools)
+	var reads []string
+	for _, t := range out {
+		if t.ReadOnly {
+			reads = append(reads, t.Tool)
+		}
+	}
+	for _, n := range names {
+		i := slices.IndexFunc(out, func(t ToolRequest) bool { return t.Tool == n || t.Name == n })
+		if i < 0 || !out[i].ReadOnly {
+			return nil, "setup_reads names this entry's read-only tools: " + n + " isn't one; its reads are " + strings.Join(reads, ", ")
+		}
+		out[i].SetupReads = true
+	}
+	return out, ""
 }
