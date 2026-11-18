@@ -267,3 +267,41 @@ func TestALookAlikeTemplateOrRegionIsNotOnTheVendorsHosts(t *testing.T) {
 		}
 	}
 }
+
+// Pipedrive's leads entry: the leads are read, and the one write is a note on a
+// lead, with its words and that lead and nothing else, so it can't attach the
+// note to a deal, a person or a company, or add any other field.
+func TestThePipedriveNoteWriteTakesItsWordsAndItsLeadOnly(t *testing.T) {
+	conf, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := DecodeCatalog(conf, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := entries["pipedrive-leads-key@1"]
+	if !ok {
+		t.Fatal("no pipedrive-leads-key@1 entry")
+	}
+	var write ToolRequest
+	for _, tool := range entry.Tools {
+		if tool.Name == "pipedrive_add_note" {
+			write = tool
+		}
+		if tool.ReadOnly != (tool.Name == "pipedrive_list_leads" || tool.Name == "pipedrive_read_lead") {
+			t.Errorf("%s: read_only=%v", tool.Name, tool.ReadOnly)
+		}
+	}
+	if write.Name == "" {
+		t.Fatal("no pipedrive_add_note")
+	}
+	for name := range toolArguments(t, entry, write) {
+		if name != "content" && name != "lead_id" {
+			t.Errorf("pipedrive_add_note takes %q: only its words and its lead", name)
+		}
+	}
+	if len(toolArguments(t, entry, write)) != 2 {
+		t.Errorf("pipedrive_add_note must take exactly content and lead_id: %v", toolArguments(t, entry, write))
+	}
+}
