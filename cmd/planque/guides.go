@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kiff/planque/internal/appconfig"
 	"github.com/kiff/planque/internal/awsapi"
 	"github.com/kiff/planque/internal/connector/composio"
 	"github.com/kiff/planque/internal/egress"
@@ -35,7 +34,6 @@ func guides(args []string) error {
 	fs := flag.NewFlagSet("guides", flag.ContinueOnError)
 	out := fs.String("out", "deploy/guides", "where the guides go")
 	catalog := fs.String("catalog", "deploy/catalog.json", "the reviewed catalog entries")
-	appsFile := fs.String("apps", "deploy/apps.json", "the registered apps the entries may name")
 	size := fs.Int("batch", 10, "apps per batch")
 	date := fs.String("date", time.Now().UTC().Format(time.DateOnly), "the Checked date")
 	if err := fs.Parse(args); err != nil {
@@ -61,13 +59,7 @@ func guides(args []string) error {
 		if err != nil {
 			return err
 		}
-		registered := map[string]appconfig.Application{}
-		if ab, err := os.ReadFile(*appsFile); err == nil {
-			if registered, err = appconfig.Decode(ab); err != nil {
-				return err
-			}
-		}
-		entries, err := planque.DecodeCatalog(raw, registered)
+		entries, err := planque.DecodeCatalog(raw, nil)
 		if err != nil {
 			return err
 		}

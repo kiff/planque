@@ -28,7 +28,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 	e := newInProcessEnv(t)
 	e.enrol()
-	if e.s.CatalogEntries, err = DecodeCatalog(conf, shippedApps(t)); err != nil {
+	if e.s.CatalogEntries, err = DecodeCatalog(conf, nil); err != nil {
 		t.Fatal(err)
 	}
 	// This is about Qonto's entries: another vendor's tools that share a word
