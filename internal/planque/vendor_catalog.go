@@ -424,3 +424,40 @@ func reviewedHow(e CatalogEntry) string {
 	}
 	return "oauth"
 }
+
+// LeaveOutUnregistered is the catalog as the server starts with it: raw
+// without each entry that names an application (application) this server
+// hasn't registered, and the ids it left out, in order. A server without its
+// apps file (or without one app) then starts with the other entries, and the
+// entry appears once its app does, where DecodeCatalog alone refuses the whole
+// catalog and the server doesn't start. An entry that names no application, or
+// one that is registered, is kept as it was; a catalog that doesn't read at
+// all is left for DecodeCatalog to refuse.
+func LeaveOutUnregistered(raw []byte, apps map[string]appconfig.Application) ([]byte, []string) {
+	var entries map[string]json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil || entries == nil {
+		return raw, nil
+	}
+	var left []string
+	for id, entry := range entries {
+		var named struct {
+			Application string `json:"application"`
+		}
+		if json.Unmarshal(entry, &named) != nil || named.Application == "" {
+			continue
+		}
+		if _, ok := apps[named.Application]; !ok {
+			delete(entries, id)
+			left = append(left, id)
+		}
+	}
+	if len(left) == 0 {
+		return raw, nil
+	}
+	slices.Sort(left)
+	kept, err := json.Marshal(entries)
+	if err != nil {
+		return raw, nil
+	}
+	return kept, left
+}

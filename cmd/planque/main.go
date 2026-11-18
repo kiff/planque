@@ -147,6 +147,13 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		if err != nil {
 			return nil, errors.New("the vendor catalog could not be read")
 		}
+		// An entry whose app this server doesn't have is left out and said,
+		// never a reason not to start: a missing apps file costs those
+		// entries, not the service.
+		raw, left := planque.LeaveOutUnregistered(raw, applications)
+		for _, id := range left {
+			log.Printf("vendor catalog %s: left out, its application isn't registered here", id)
+		}
 		catalog, err = planque.DecodeCatalog(raw, applications)
 		if err != nil {
 			return nil, err
