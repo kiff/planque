@@ -19,10 +19,14 @@ import (
 const (
 	proofStateTTL     = 60 * time.Second // KIFF caches the same for as long
 	proofStateFailTTL = 15 * time.Second // a failure is not asked again at once
-	proofStateTimeout = 2 * time.Second
-	proofStateWidth   = 8  // asks in flight at once
-	proofStateMost    = 64 // entries asked for in one read
-	proofStateBody    = 4 << 10
+	proofStateTimeout = 2 * time.Second  // one ask
+	proofStateWhole   = time.Second      // all of a read's asks together: KIFF slow never slows the catalog
+	proofStateWidth   = 8                // asks in flight at once
+	// Entries asked for in one read, in alphabetical order. Past it the later
+	// ones are never asked and show no proof: that fails closed, and is the
+	// limit to raise when the catalog grows past it.
+	proofStateMost = 64
+	proofStateBody = 4 << 10
 )
 
 // ProofState reads KIFF's state for one catalog entry revision
@@ -110,6 +114,8 @@ func (p *ProofState) Greens(ctx context.Context, entries []string) map[string]pr
 			ask = append(ask, e)
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, proofStateWhole)
+	defer cancel()
 	if len(ask) > proofStateMost {
 		ask = ask[:proofStateMost]
 	}

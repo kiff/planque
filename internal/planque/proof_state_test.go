@@ -25,6 +25,12 @@ func kiffState(t *testing.T, answers map[string]string, calls *atomic.Int32) *ht
 			http.Error(w, "boom", http.StatusInternalServerError)
 		case "wrong-entry":
 			_ = json.NewEncoder(w).Encode(map[string]string{"entry": "other@1", "state": "green", "since": "2026-11-17T10:00:00Z"})
+		case "slow":
+			select {
+			case <-time.After(3 * time.Second):
+			case <-r.Context().Done():
+			}
+			http.Error(w, "late", http.StatusGatewayTimeout)
 		case "garbage":
 			_, _ = w.Write([]byte("<html>"))
 		default:
@@ -137,5 +143,47 @@ func TestTheStateTokenIsNotSentOnARedirect(t *testing.T) {
 	defer srv.Close()
 	if g := NewProofState(srv.URL, "state-token").Greens(t.Context(), []string{"zendesk-key@1"}); len(g) != 0 || elsewhere.Load() != 0 {
 		t.Fatalf("%+v, %d calls elsewhere", g, elsewhere.Load())
+	}
+}
+
+// A slow KIFF never slows the catalog: one deadline for the whole read, no
+// proof for what didn't answer, and no new asks inside the failure wait.
+func TestASlowKIFFIsWaitedOnOnceForTheWholeRead(t *testing.T) {
+	var calls atomic.Int32
+	answers := map[string]string{}
+	entries := map[string]CatalogEntry{}
+	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"} {
+		answers[n+"-key@1"] = "slow"
+		entries[n+"-key@1"] = CatalogEntry{Vendor: strings.ToUpper(n), Kind: KindAPIKey}
+	}
+	srv := kiffState(t, answers, &calls)
+	defer srv.Close()
+	s := &Server{CatalogEntries: entries, ProofState: NewProofState(srv.URL, "state-token")}
+	start := time.Now()
+	if got := s.provedMap(t.Context()); len(got) != 0 {
+		t.Fatalf("proofs from a KIFF that never answered: %+v", got)
+	}
+	if took := time.Since(start); took > 1500*time.Millisecond {
+		t.Fatalf("the read took %s", took)
+	}
+	asked := calls.Load()
+	s.provedMap(t.Context())
+	if calls.Load() != asked {
+		t.Fatalf("%d new asks inside the failure wait", calls.Load()-asked)
+	}
+}
+
+// expired is a state KIFF now answers: it proves nothing, by name.
+func TestAnExpiredEntryProvesNothing(t *testing.T) {
+	var calls atomic.Int32
+	srv := kiffState(t, map[string]string{"zendesk-key@1": "expired", "qonto-key@1": "green"}, &calls)
+	defer srv.Close()
+	s := &Server{CatalogEntries: map[string]CatalogEntry{
+		"zendesk-key@1": {Vendor: "Zendesk", Kind: KindAPIKey},
+		"qonto-key@1":   {Vendor: "Qonto", Kind: KindAPIKey},
+	}, ProofState: NewProofState(srv.URL, "state-token")}
+	got := s.provedMap(t.Context())
+	if _, ok := got["zendesk"]; ok || len(got) != 1 || got["qonto"].How != "key" {
+		t.Fatalf("%+v", got)
 	}
 }
