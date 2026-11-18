@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -225,10 +226,13 @@ func TestGrantsMadeBeforeLiveRowsAreIndexedOnce(t *testing.T) {
 	old("grt_old_done", StatusDisconnected, "typeform-key@1")
 	old("grt_old_failed", StatusFailed, "third-key@1")
 	newer := old("grt_newer", StatusConnected, "fourth-key@1")
-	// A save in between wrote a newer live row, with the grant ended since.
+	// A save in between wrote the grant's newer state and its live row (the
+	// grant first, as saveGrant does), before the backfill reached it.
 	newer.Status = StatusNeedsReconnect
-	if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skLive(newer.ID), Ver: 2}, newer, store.Cond{}); err != nil {
-		t.Fatal(err)
+	for _, sk := range []string{skGrant(newer.ID), skLive(newer.ID)} {
+		if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: sk, Ver: 2}, newer, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	st, err := s.entryStates(t.Context(), tenant)
@@ -251,5 +255,87 @@ func TestGrantsMadeBeforeLiveRowsAreIndexedOnce(t *testing.T) {
 	}
 	if kv.puts != before {
 		t.Fatalf("a second pass wrote %d items", kv.puts-before)
+	}
+}
+
+// A live row can outlive its grant: a refresh saved after a revoke, a write
+// that failed halfway, the backfill racing a save. Each leaves a live row that
+// says connected while the grant itself is finished, gone, or newer. None may
+// read as held or as connected, and the stale row is gone or mended after.
+func TestAStaleLiveRowIsNeverRead(t *testing.T) {
+	kv := &countingKV{KV: &store.Memory{}}
+	s := &Server{KV: kv}
+	grant := func(id, status string) *Grant {
+		return &Grant{ID: id, Tenant: tenant, Status: status, SignedIn: true,
+			Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+				Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+			Connector: &ConnectorState{Account: "acct_1"}}
+	}
+	liveRow := func(g *Grant, ver int64) {
+		if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skLive(g.ID), Ver: ver}, g, store.Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rowKept := func(id string) bool {
+		_, ok, err := kv.Get(t.Context(), tenantPK(tenant), skLive(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	reads := func() (string, *Grant) {
+		st, err := s.entryStates(t.Context(), tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st["gmail-key@1"].State, h
+	}
+
+	// 1. The grant was disconnected, and a stale connected copy came back.
+	g := grant("grt_revoked", StatusConnected)
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	g.Status = StatusDisconnected
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	stale := grant("grt_revoked", StatusConnected)
+	liveRow(stale, 1)
+	if st, h := reads(); st != "" || h != nil {
+		t.Fatalf("a revoked grant's stale row was read: %q %v", st, h)
+	}
+	if rowKept("grt_revoked") {
+		t.Fatal("the stale row was left")
+	}
+
+	// 2. The grant's own record is gone.
+	liveRow(grant("grt_gone", StatusConnected), 3)
+	if st, h := reads(); st != "" || h != nil {
+		t.Fatalf("a row with no grant was read: %q %v", st, h)
+	}
+	if rowKept("grt_gone") {
+		t.Fatal("the orphan row was left")
+	}
+
+	// 3. The row is older than a grant that still counts: it reads as the
+	// grant says, and the row is mended.
+	cur := grant("grt_cur", StatusConnected)
+	if err := s.saveGrant(t.Context(), cur); err != nil {
+		t.Fatal(err)
+	}
+	old := grant("grt_cur", StatusNeedsReconnect)
+	liveRow(old, 0)
+	if st, h := reads(); st != "connected" || h == nil || h.ID != "grt_cur" {
+		t.Fatalf("an older row must read as its grant: %q %v", st, h)
+	}
+	row, _, _ := kv.Get(t.Context(), tenantPK(tenant), skLive("grt_cur"))
+	var mended Grant
+	if err := json.Unmarshal(row.Doc, &mended); err != nil || mended.Status != StatusConnected {
+		t.Fatalf("the row wasn't mended: %v %q", err, mended.Status)
 	}
 }

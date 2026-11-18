@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kiff/planque/internal/connector"
@@ -629,11 +630,44 @@ func (s *Server) ensureLive(ctx context.Context, tenant string) error {
 	return nil
 }
 
-// liveGrants are the account's grants that still count, as their records:
-// it reads only those, after the account's older grants are indexed.
+// liveGrants are the account's grants that still count, as their records: it
+// reads only the live rows, after the account's older grants are indexed, and
+// confirms each against the grant's own record. A live row can outlive its
+// grant (a refresh saved after a revoke, a write that failed halfway, the
+// backfill racing a save), and a disconnected grant must never read as held:
+// a row whose grant is gone is deleted, one whose version disagrees is
+// rewritten from the grant if it still counts and deleted if not. The live
+// set is small, so this is a handful of reads, flat as finished grants grow.
 func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, error) {
 	if err := s.ensureLive(ctx, tenant); err != nil {
 		return nil, err
 	}
-	return s.KV.Query(ctx, tenantPK(tenant), "LIVE#")
+	rows, err := s.KV.Query(ctx, tenantPK(tenant), "LIVE#")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.Item, 0, len(rows))
+	for _, row := range rows {
+		id := strings.TrimPrefix(row.SK, "LIVE#")
+		it, ok, err := s.KV.Get(ctx, tenantPK(tenant), skGrant(id))
+		if err != nil {
+			return nil, err
+		}
+		var g Grant
+		switch {
+		case !ok || json.Unmarshal(it.Doc, &g) != nil || !g.live():
+			_, _, err = s.KV.Delete(ctx, row.PK, row.SK)
+		case it.Ver != row.Ver:
+			heal := store.Item{PK: row.PK, SK: row.SK, Doc: it.Doc, Ver: it.Ver}
+			if err = s.KV.Put(ctx, heal, store.Cond{}); err == nil {
+				out = append(out, heal)
+			}
+		default:
+			out = append(out, row)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
