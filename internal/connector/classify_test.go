@@ -79,7 +79,7 @@ func TestOnlyHeldClassesAreHeld(t *testing.T) {
 	old := HoldClasses
 	defer func() { HoldClasses = old }()
 	HoldClasses = true
-	for slug, held := range map[string]bool{"N_DELETE_X": true, "N_SHARE_X": true, "N_SEND_CAMPAIGN": true, "N_REFUND_X": true, "N_FROBNICATE_X": true, "N_CREATE_X": false, "N_LIST_X": false} {
+	for slug, held := range map[string]bool{"N_DELETE_X": true, "N_SHARE_X": true, "N_SEND_CAMPAIGN": true, "N_REFUND_X": true, "N_ARCHIVE_ALL_X": true, "N_FROBNICATE_X": true, "N_CREATE_X": false, "N_LIST_X": false} {
 		_, got := Held(tool("n", slug, slug == "N_LIST_X"))
 		if got != held {
 			t.Errorf("%s held %v, want %v", slug, got, held)
