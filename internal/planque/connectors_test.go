@@ -38,6 +38,11 @@ type connectorFixture struct {
 	user, callback, accountStatus string
 	// accountDown makes the provider fail to answer a connected account's read (503).
 	accountDown bool
+	// accountGone makes the provider answer a connected account's read with its own 404 (the account was deleted there);
+	// accountDelay holds that read until its request is cancelled; accountReads counts the reads.
+	accountGone  bool
+	accountDelay time.Duration
+	accountReads int
 	// accountName, when set, is the vendor account's name the provider shows (else "Demo Shop").
 	accountName string
 	// noName: the provider shows no name for the vendor account.
@@ -92,6 +97,19 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v3.1")
 	body := `{}`
+	if r.Method == "GET" && strings.HasPrefix(path, "/connected_accounts/account_demo") {
+		f.accountReads++
+		if f.accountDelay > 0 {
+			select {
+			case <-time.After(f.accountDelay):
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
+		}
+		if f.accountGone {
+			return profileResponse(http.StatusNotFound, `{"error":{"message":"Connected account not found","slug":"ConnectedAccount_NotFound","status":404}}`), nil
+		}
+	}
 	switch {
 	case path == "/toolkits":
 		if r.URL.Query().Get("cursor") == "next" {

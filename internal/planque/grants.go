@@ -3365,6 +3365,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 // account ends (its vendor tokens are gone at disconnect), and
 // ?include=disconnected lists it too, as the export does.
 func (s *Server) listGrants(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	s.lookUpAccounts(r.Context(), sr.tenant)
 	gs, err := s.grants(r, sr.tenant)
 	if err != nil {
 		s.fail(w, r, err)
