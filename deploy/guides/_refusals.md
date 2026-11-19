@@ -41,6 +41,7 @@ owner. That's an approval to ask for, not a failure.
 | `waits_for_key` | The tool needs a key the owner hasn't given yet | "This step needs your {app} key first." |
 | `operation_changed` | {app} changed a tool since the owner approved it, so the connection is paused | "{app} changed how this step works since you approved it, so it's paused. Please look at it again and approve it." |
 | `connection_unavailable` | The connection, or its {app} account, can't be used now | "I couldn't use your {app} connection just now. Nothing was done. The taf will try again later; if it keeps failing, connect {app} again." |
+| `app_closed` | The app was taken off the list tafs offers, so connections made before are closed | "{app} isn't offered through tafs any more, so this connection is closed. Nothing was sent." |
 | `tool_not_served` | planque never runs this tool: it moves money, or closes a bill for good | Don't offer it. If a job needs it, the owner does it in {app}. |
 | `halted`, `halted_before` | The owner halted this taf, or the whole account | "Your taf is halted, so nothing was sent to {app}." |
 | `halt_unknown`, `record_unavailable`, `permit_expired`, `definition_unread` | A check before sending couldn't finish | Try once more. Then: "That step didn't go through, and nothing was sent. The taf will try again later." |

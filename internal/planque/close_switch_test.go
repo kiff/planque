@@ -31,7 +31,7 @@ func TestAnAppTakenOffTheListClosesItsConnections(t *testing.T) {
 
 	closeIt()
 	before := f.executions
-	if got := call("operation_closed"); !strings.Contains(got, "connection is closed") || f.executions != before {
+	if got := call("operation_closed"); !strings.Contains(got, "connection is closed") || !strings.Contains(got, `"code":"`+CodeAppClosed+`"`) || !strings.Contains(got, `"sent":false`) || f.executions != before {
 		t.Fatalf("a call on a closed app's connection: %s (executions %d, was %d)", got, f.executions, before)
 	}
 
