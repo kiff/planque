@@ -1049,7 +1049,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		// the grant is paused until the owner approves it again
 		// (kiff/planque#71). A definition that couldn't be read or checked
 		// (ErrDefinition alone) pauses nothing: it's "Not sent" below.
-		_, why := s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Name+" since you approved it")
+		_, why := s.pauseGrant(ctx, g, t.Name, pauseChanged, vendorName(g)+" changed "+t.Name+" since you approved it")
 		return OpNotSent, refusal(CodeOperationChanged, "Not sent: "+why+".")
 	}
 	if errors.Is(err, connector.ErrAccount) {

@@ -82,6 +82,8 @@ type Approval struct {
 
 	// How a connection stands.
 	PausedF          string // why
+	PausedChanged    string // a tool the person approved changed at the app since (the why of PausedF)
+	PausedGone       string // a tool the person approved is no longer offered by the app (the why of PausedF)
 	Connected        string
 	NewToolsWaiting  string
 	ToolsWaiting     string
