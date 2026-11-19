@@ -292,7 +292,7 @@ Money goes only through `browse_pay`. Its profile reads the amount with
 holds the call for the owner. A checkout in another currency, or a page
 that isn't a checkout, gives no total, so KIFF reads none. With the permit,
 planque opens the checkout again and reads it again: it sends nothing when
-no total was read in the last 20 minutes (`total_unread`), when the lines,
+no total was read in the last 15 minutes (`total_unread`), when the lines,
 total or currency changed (`checkout_changed`), when the page is in
 another currency (`currency_other`), or when `ref` isn't the control whose
 words place the order (`ref_unknown`). Then it marks the checkout and

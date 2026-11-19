@@ -588,6 +588,40 @@ func TestAnUnknownMarkLastsADayNotTwentyMinutes(t *testing.T) {
 	}
 }
 
+// A read checkout counts for a pay for 15 minutes: at 14:59 it pays, at 15:01 it is refused (no total was read), so a
+// checkout is never payable after the 15-minute approval it was read for has lapsed. KIFF's hold lapses at 15 too.
+// Category: money
+// Attack: a pay on a checkout read 16 to 20 minutes ago, after the owner's approval has lapsed
+// Refused: total_unread at 15:01, nothing sent; at 14:59 the same pay goes through once
+func TestACheckoutReadCountsForFifteenMinutes(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		after  time.Duration
+		orders int
+		code   string
+	}{{"14:59", 14*time.Minute + 59*time.Second, 1, ""}, {"15:01", 15*time.Minute + time.Second, 0, browser.CodeTotalUnread}} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newBrowserEnv(t)
+			g := e.connect()
+			// Planque's clock stands still on a whole second, so the table's expiry is exactly 15:00; only the table's
+			// clock moves on, and a permit is signed in real time.
+			base := time.Unix(time.Now().Unix(), 0)
+			e.s.Now = func() time.Time { return base }
+			e.kv.Now = func() time.Time { return base }
+			if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+				t.Fatalf("read: %v", sc)
+			}
+			e.kv.Now = func() time.Time { return base.Add(c.after) }
+			args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: "op_" + c.name})
+			permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: "op_" + c.name, Args: args, IssuedAt: base})
+			out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
+			if code(sc) != c.code || len(e.b.Orders) != c.orders {
+				t.Fatalf("a pay %s after the read: %s (orders %v)", c.name, out, e.b.Orders)
+			}
+		})
+	}
+}
+
 // 6. The sign-in a site keeps is sealed between calls and goes with the
 // grant: the next session starts with it; disconnecting deletes it, the
 // screenshots, and the tools in KIFF.
