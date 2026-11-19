@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/fakes"
@@ -421,6 +422,169 @@ func TestBrowserPaysOnceWhatWasRead(t *testing.T) {
 	}
 	if refs := e.ev.Refs(tenant, g.ID); len(refs) != 1 {
 		t.Errorf("the pay's screenshot: %v", refs)
+	}
+}
+
+// A pay click that ended unknown (the order was placed, the answer lost) marks its checkout: any later pay on the
+// same lines, total and currency is refused, whatever operation asks, and a new read doesn't clear it. A different
+// cart is a new checkout. Once per operation was the only guard before: a new operation re-read the page and
+// clicked again within 20 minutes.
+// Category: money
+// Attack: an agent's retry under a new operation after a click with a lost answer places a second order
+// Refused: the second pay sends nothing (outcome_unknown), the same checkout read again gets no total, one order exists
+func TestAnUnknownPayBlocksTheSameCheckoutUnderAnyOperation(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+		t.Fatalf("read: %v", sc)
+	}
+	var last map[string]any
+	pay := func(op string) string {
+		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
+		last = sc
+		return out
+	}
+	e.b.LoseAnswer = true
+	first := pay("op_lost")
+	if !strings.Contains(first, "isn't known") || len(e.b.Orders) != 1 {
+		t.Fatalf("the click with a lost answer: %s (orders %v)", first, e.b.Orders)
+	}
+	e.b.LoseAnswer = false
+	clicks := e.b.Sent()
+	// A new operation on the same checkout sends nothing, however it asks.
+	second := pay("op_retry")
+	if code(last) != browser.CodeOutcomeUnknown || !strings.Contains(second, "without a known outcome") || len(e.b.Orders) != 1 || e.b.Sent() != clicks {
+		t.Fatalf("a new operation: %s (orders %v, steps %d→%d)", second, e.b.Orders, clicks, e.b.Sent())
+	}
+	// Reading it again doesn't make it payable: no total, and the pay is still refused.
+	if out, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != nil || !strings.Contains(out, "without a known outcome") {
+		t.Fatalf("a read of the same checkout: %s", out)
+	}
+	if third := pay("op_third"); code(last) != browser.CodeOutcomeUnknown || len(e.b.Orders) != 1 {
+		t.Fatalf("after a read: %s (orders %v)", third, e.b.Orders)
+	}
+	// A different cart (another total) is a new checkout: read, then paid once.
+	e.b.Total = "9.00"
+	if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "9.00" {
+		t.Fatalf("a different cart's read: %v", sc)
+	}
+	if out := pay("op_other_cart"); strings.Contains(out, "Refused") || len(e.b.Orders) != 2 {
+		t.Fatalf("a different cart: %s (orders %v)", out, e.b.Orders)
+	}
+}
+
+// The mark is written before the click, not after its error: a pay at the same moment, and a click that never
+// returns (the process dies), both find the checkout marked and send nothing.
+// Category: money
+// Attack: two pays on one checkout at once, or a pay whose process died mid-click and an agent's retry, place two orders
+// Refused: exactly one click; the other pay is outcome_unknown with nothing sent
+func TestThePayIsMarkedBeforeItsClick(t *testing.T) {
+	read := func(e *browserEnv, g *Grant) {
+		t.Helper()
+		if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+			t.Fatalf("read: %v", sc)
+		}
+	}
+	pay := func(e *browserEnv, g *Grant, op string) (string, map[string]any) {
+		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		return textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
+	}
+	t.Run("two pays at once", func(t *testing.T) {
+		e := newBrowserEnv(t)
+		g := e.connect()
+		read(e, g)
+		var other string
+		var otherSC map[string]any
+		e.b.BeforeClick = func() {
+			e.b.BeforeClick = nil
+			// The first pay is at its click; a second operation pays the same checkout now.
+			other, otherSC = pay(e, g, "op_second")
+		}
+		first, _ := pay(e, g, "op_first")
+		if strings.Contains(first, "Refused") || len(e.b.Orders) != 1 {
+			t.Fatalf("the first pay: %s (orders %v)", first, e.b.Orders)
+		}
+		if code(otherSC) != browser.CodeOutcomeUnknown || !strings.Contains(other, "Nothing was sent") {
+			t.Fatalf("the second pay: %s", other)
+		}
+	})
+	t.Run("the process dies mid-click", func(t *testing.T) {
+		e := newBrowserEnv(t)
+		g := e.connect()
+		read(e, g)
+		e.b.BeforeClick = func() { e.b.BeforeClick = nil; panic("the process died") }
+		func() {
+			defer func() { _ = recover() }()
+			pay(e, g, "op_died")
+		}()
+		if len(e.b.Orders) != 0 {
+			t.Fatalf("the fake placed an order: %v", e.b.Orders)
+		}
+		// The agent's retry, a new operation, finds the checkout marked.
+		if out, sc := pay(e, g, "op_retry"); code(sc) != browser.CodeOutcomeUnknown || len(e.b.Orders) != 0 {
+			t.Fatalf("the retry after a death: %s (orders %v)", out, e.b.Orders)
+		}
+	})
+}
+
+// Two pays that both read the checkout's record before either marked it: only the first arms it. The second's write
+// is conditional on the version it read, so it loses and clicks nothing (the table decides, not the order of reads).
+func TestOnlyOnePayArmsACheckoutItBothRead(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+		t.Fatalf("read: %v", sc)
+	}
+	var rec checkoutRecord
+	it, err := getDoc(context.Background(), e.kv, tenantPK(tenant), skCheckout(g.ID, fakes.ShopCheckout), &rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both pays hold the same record at the same version.
+	if _, ok := e.s.armPay(context.Background(), g, fakes.ShopCheckout, rec, it.Ver); !ok {
+		t.Fatal("the first pay couldn't arm the checkout")
+	}
+	refusal, ok := e.s.armPay(context.Background(), g, fakes.ShopCheckout, rec, it.Ver)
+	if ok {
+		t.Fatal("the second pay armed a checkout the first already armed")
+	}
+	if _, sc := textOf(refusal); code(sc) != browser.CodeOutcomeUnknown {
+		t.Fatalf("the second pay's refusal: %v", refusal)
+	}
+}
+
+// The mark lasts unknownKept, not checkoutKept: 21 minutes and 23 hours after the unknown click the same checkout
+// is still refused; past 24 hours the record is gone, so a pay is refused for its own reason (no total was read).
+func TestAnUnknownMarkLastsADayNotTwentyMinutes(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+		t.Fatalf("read: %v", sc)
+	}
+	var last map[string]any
+	pay := func(op string, after time.Duration) string {
+		// Only the table's clock moves: the mark's lifetime is the table's TTL, and a permit is signed in real time.
+		e.kv.Now = func() time.Time { return time.Now().Add(after) }
+		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
+		last = sc
+		return out
+	}
+	e.b.LoseAnswer = true
+	pay("op_lost", 0)
+	e.b.LoseAnswer = false
+	if out := pay("op_21m", 21*time.Minute); code(last) != browser.CodeOutcomeUnknown || len(e.b.Orders) != 1 {
+		t.Fatalf("21 minutes after: %s (orders %v)", out, e.b.Orders)
+	}
+	if out := pay("op_23h", 23*time.Hour); code(last) != browser.CodeOutcomeUnknown || len(e.b.Orders) != 1 {
+		t.Fatalf("23 hours after: %s (orders %v)", out, e.b.Orders)
+	}
+	if out := pay("op_25h", 25*time.Hour); code(last) != browser.CodeTotalUnread || len(e.b.Orders) != 1 {
+		t.Fatalf("25 hours after, with no read: %s (orders %v)", out, e.b.Orders)
 	}
 }
 

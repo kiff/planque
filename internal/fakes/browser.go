@@ -31,6 +31,12 @@ type Browser struct {
 	Steps []BrowserStep
 	// Orders are the orders placed: one per click on "Place order".
 	Orders []string
+	// BeforeClick, when set, runs as a click on "Place order" starts, before the order is placed and outside the
+	// fake's lock: a test runs another call there (a second pay at the same moment), or panics (the process dies).
+	BeforeClick func()
+	// LoseAnswer: a click on "Place order" places the order and then fails, as a
+	// lost answer does: the order exists and the caller can't know it.
+	LoseAnswer bool
 	// States are the storage states sessions were started with.
 	States [][]byte
 	// Inputs are the owner's acts in the live view, in order.
@@ -190,6 +196,9 @@ func (s *browserSession) Open(_ context.Context, u string) (browser.Page, error)
 }
 
 func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page, error) {
+	if h := s.b.BeforeClick; h != nil && s.page.URL == ShopCheckout && step.Ref() == "place" {
+		h()
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if s.closed || !s.opened {
@@ -223,6 +232,9 @@ func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page,
 		next = ShopCart
 	case ShopCheckout + "#place", ShopCheckoutFR + "#cmd", ShopCheckoutFR + "#icon", ShopCheckoutFR + "#zb", ShopItemDE + "#kaufen", OtherSite + "#place":
 		s.b.Orders = append(s.b.Orders, "1001")
+		if s.b.LoseAnswer {
+			return browser.Page{}, errors.New("the connection to the page was lost")
+		}
 		next = ShopDone
 	case ShopItemDE + "#merken":
 		next = ShopItemDE

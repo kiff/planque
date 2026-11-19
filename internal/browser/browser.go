@@ -239,6 +239,7 @@ const (
 	CodeRefUnknown      = "ref_unknown"         // the step names no field or control on the page
 	CodeTotalUnread     = "total_unread"        // no total and currency read on the checkout
 	CodeCheckoutChanged = "checkout_changed"    // the checkout isn't what was read before
+	CodeOutcomeUnknown  = "outcome_unknown"     // an earlier pay on this checkout ended without a known outcome
 	CodeCurrencyOther   = "currency_other"      // the checkout isn't in the connection's currency
 	CodeBrowserDown     = "browser_unavailable" // the worker couldn't run the browser
 )

@@ -295,8 +295,13 @@ planque opens the checkout again and reads it again: it sends nothing when
 no total was read in the last 20 minutes (`total_unread`), when the lines,
 total or currency changed (`checkout_changed`), when the page is in
 another currency (`currency_other`), or when `ref` isn't the control whose
-words place the order (`ref_unknown`). Then it clicks it once; a replay
-answers as the first call did. Each write keeps the page before and after
+words place the order (`ref_unknown`). Then it marks the checkout and
+clicks once; a replay answers as the first call did. The mark is written
+before the click, as a conditional write, and a success removes it: a click
+whose outcome is not known (it errors, or never returns) leaves it for 24
+hours, so a pay on the same lines, total and currency, from any operation or
+at the same moment, is refused (`outcome_unknown`) and a new read of it gives
+no total; a different cart is a new checkout. Each write keeps the page before and after
 (its text) with the operation's record, and a screenshot after in the
 evidence store when one is configured; both go with the grant.
 

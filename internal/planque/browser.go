@@ -71,6 +71,13 @@ const (
 // hold waits for the owner, and a held ask lapses in 20 minutes.
 const checkoutKept = 20 * time.Minute
 
+// unknownKept is how long a checkout whose pay click ended unknown stays
+// marked: the same checkout (same lines, total and currency) is refused a
+// second pay for that long, whatever operation asks, because the first may
+// have placed the order. It lapses only with time until reconciliation
+// (KIFF's "Did this happen?") can clear it.
+const unknownKept = 24 * time.Hour
+
 var currencyCode = regexp.MustCompile(`^[A-Z]{3}$`)
 
 // The browser's tools, fixed: name, what the owner reads, what the agent
@@ -376,6 +383,9 @@ type checkoutRecord struct {
 	Site     string           `json:"site"`
 	Checkout browser.Checkout `json:"checkout"`
 	ReadAt   time.Time        `json:"read_at"`
+	// UnknownAt is when a pay click on this checkout ended unknown: the
+	// order may have been placed, so this checkout is never paid again.
+	UnknownAt time.Time `json:"unknown_at,omitzero"`
 }
 
 // browserRefusal is a browser call refused: who refused it, its code, and
@@ -443,12 +453,13 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 		// Before the browser opens: the checkout must have been read, so
 		// the total KIFF counted is the one the page showed then.
 		var rec checkoutRecord
-		if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skCheckout(g.ID, a.URL), &rec); errors.Is(err, errNotFound) {
+		it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skCheckout(g.ID, a.URL), &rec)
+		if errors.Is(err, errNotFound) {
 			return OpNotSent, browserRefusal(browser.CodeTotalUnread, "no total was read on this checkout: read it with "+checkoutName(g)+" first", false)
 		} else if err != nil {
 			return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read the checkout's record", false)
 		}
-		return s.browsePay(ctx, g, p, a, rec)
+		return s.browsePay(ctx, g, p, a, rec, it.Ver)
 	}
 	if s.Browser == nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "no browser worker is configured", false)
@@ -527,12 +538,39 @@ func (s *Server) browseCheckout(ctx context.Context, g *Grant, u, site string, p
 		return OpDone, browserAnswer(map[string]any{"site": site, "url": page.URL, "lines": co.Lines, "currency": co.Currency,
 			"why": "the checkout is in " + co.Currency + "; this connection pays in " + currency + " only, so no total is given"})
 	}
+	// A checkout whose pay ended unknown stays marked when it is read again: a new read of the same lines, total
+	// and currency never makes it payable (a different cart is a new checkout, and replaces it).
+	var held checkoutRecord
+	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skCheckout(g.ID, u), &held); err == nil && !held.UnknownAt.IsZero() && co.Same(held.Checkout) {
+		return OpDone, browserAnswer(map[string]any{"site": site, "url": page.URL, "lines": co.Lines, "currency": co.Currency,
+			"why": "an earlier pay on this checkout ended without a known outcome, so it is not given a total again: check the account before a new call"})
+	}
 	rec := checkoutRecord{Site: site, Checkout: *co, ReadAt: s.now().UTC()}
 	it := store.Item{PK: tenantPK(g.Tenant), SK: skCheckout(g.ID, u), Ver: 1, TTL: s.now().Add(checkoutKept).Unix()}
 	if err := putDoc(ctx, s.KV, it, rec, store.Cond{}); err != nil {
 		return OpDone, browserRefusal(CodeRecordUnavailable, "the checkout was read but couldn't be kept for a pay", true)
 	}
 	return OpDone, browserAnswer(map[string]any{"site": site, "url": page.URL, "lines": co.Lines, "total": co.Total, "currency": co.Currency})
+}
+
+// armPay marks the checkout unknown for unknownKept, as a conditional write on
+// the version the pay read, right before its click. A success deletes the
+// record; a click that errors, or never returns, leaves it marked, so a later
+// pay on the same checkout (browsePay) is refused, and a new read doesn't
+// clear it (browseCheckout). A lost condition means another pay armed it
+// first: this one clicks nothing. A record that can't be written fails closed.
+func (s *Server) armPay(ctx context.Context, g *Grant, u string, rec checkoutRecord, ver int64) (any, bool) {
+	rec.UnknownAt = s.now().UTC()
+	it := store.Item{PK: tenantPK(g.Tenant), SK: skCheckout(g.ID, u), Ver: ver + 1, TTL: s.now().Add(unknownKept).Unix()}
+	switch err := putDoc(ctx, s.KV, it, rec, store.Cond{Ver: &ver}); {
+	case err == nil:
+		return nil, true
+	case errors.Is(err, store.ErrCondition):
+		return browserRefusal(browser.CodeOutcomeUnknown, "another pay on this checkout is under way or ended without a known outcome, so it is not placed again: check the account for the order before a new call", false), false
+	default:
+		s.log().WarnContext(ctx, "the pay's checkout wasn't armed", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return browserRefusal(CodeRecordUnavailable, "planque could not mark the checkout before paying", false), false
+	}
 }
 
 // evidence is what a write kept of the page before and after, and the
@@ -618,7 +656,7 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 // browsePay completes a checkout once, with KIFF's permit for it: the
 // checkout is opened again and read again, and nothing is clicked unless
 // it shows what was read before, in the grant's currency.
-func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a browserArgs, rec checkoutRecord) (string, any) {
+func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a browserArgs, rec checkoutRecord, ver int64) (string, any) {
 	if s.Browser == nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "no browser worker is configured", false)
 	}
@@ -656,6 +694,10 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return OpNotSent, browserRefusal(browser.CodeCheckoutChanged, fmt.Sprintf("the checkout isn't what was read and approved (%s %s for %d lines; now %s %s for %d lines): read it again",
 			rec.Checkout.Total, rec.Checkout.Currency, len(rec.Checkout.Lines), co.Total, co.Currency, len(co.Lines)), false)
 	}
+	// A pay on this checkout ended unknown: the order may exist, so it is not placed again, by any operation.
+	if !rec.UnknownAt.IsZero() {
+		return OpNotSent, browserRefusal(browser.CodeOutcomeUnknown, "an earlier pay on this checkout ended without a known outcome, so it is not placed again: check the account for the order before a new call", false)
+	}
 	i := slices.IndexFunc(page.Controls, func(c browser.Control) bool { return c.Ref == a.Ref })
 	if i < 0 {
 		return OpNotSent, browserRefusal(browser.CodeRefUnknown, "the checkout has no control "+a.Ref, false)
@@ -665,6 +707,12 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	// choice) is nobody's on a checkout.
 	if c := page.Controls[i]; !browser.Pays(c) {
 		return OpNotSent, browserRefusal(browser.CodeRefUnknown, "control "+a.Ref+" ("+c.Label+") doesn't say it places the order; name the one that does", false)
+	}
+	// Armed before the click, never after its error: from here the checkout is marked unknown, so a click that never
+	// returns (the process dies, the worker is lost) or a second pay at the same moment finds it marked, and sends
+	// nothing. A conditional write on the record's version: the pay that loses it clicks nothing.
+	if refusal, ok := s.armPay(ctx, g, a.URL, rec, ver); !ok {
+		return OpNotSent, refusal
 	}
 	after, err := sess.Do(ctx, browser.Step{Click: a.Ref})
 	if err != nil {
