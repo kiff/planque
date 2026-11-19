@@ -99,6 +99,11 @@ func TestCustomBesideWhatARunsStillMayChange(t *testing.T) {
 		{"X_RUN_CUSTOM_QUERY", "Runs a query."},
 		{"X_CUSTOM_GRAPH_QL", "Runs GraphQL."},
 		{"X_EXECUTE_CUSTOM_FIELD", "Reads a field."},
+		// The reversed order: what the tool runs, then custom.
+		{"X_API_CUSTOM", "Calls the API."},
+		{"X_RUN_QUERY_CUSTOM", "Runs a query."},
+		{"X_GRAPHQL_CUSTOM", "Runs GraphQL."},
+		{"X_HTTP_CUSTOM", "Sends HTTP."},
 		{"X_LIST_THINGS", "Runs an arbitrary request against the API."},
 		{"X_LIST_THINGS", "Executes a custom document."},
 		// Plurals of what the description says it runs.
