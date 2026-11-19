@@ -75,9 +75,35 @@ func TestAnOrdinaryReadStaysARead(t *testing.T) {
 		{"GORGIAS_LIST_TICKETS", "Lists tickets in Gorgias with various filtering options.", `{"type":"object","properties":{"order_by":{"type":"string"}}}`},
 		{"stripe_api_read", "Read data from any Stripe API GET operation.", `{"type":"object","properties":{"operation":{"type":"string"}}}`},
 		{"list_charges", "Lists charges.", ``},
+		// A vendor's custom fields, types, roles and emoji are things it stores:
+		// listing them is a read (19 Nov, the wave 1a apps' getters).
+		{"ASANA_GET_CUSTOM_FIELD", "Returns the complete record for a single custom field.", `{"type":"object","properties":{"custom_field_gid":{"type":"string"}}}`},
+		{"ASANA_GET_CUSTOM_TYPES", "Returns a list of custom types in a workspace.", `{"type":"object","properties":{"workspace":{"type":"string"}}}`},
+		{"JIRA_LIST_CUSTOM_FIELD_CONTEXTS", "Returns a paginated list of contexts for a custom field.", `{"type":"object","properties":{"fieldId":{"type":"string"}}}`},
+		{"TRELLO_GET_MEMBER_CUSTOM_EMOJI", "Gets a member's custom emoji.", `{"type":"object","properties":{"id":{"type":"string"}}}`},
+		// "arbitrary requested fields" is a search that returns ids, not a request to run.
+		{"JIRA_SEARCH_FOR_ISSUES_USING_JQL_GET", "Searches for issues using JQL and returns issue ids, rather than arbitrary requested fields.", `{"type":"object","properties":{"jql":{"type":"string","description":"A JQL search."}}}`},
 	} {
 		if MayChange(c.name, c.desc, json.RawMessage(c.schema)) {
 			t.Errorf("%s: not a read", c.name)
+		}
+	}
+}
+
+// "custom" still holds a tool back where it names what the tool runs, and an
+// arbitrary request in the description still does.
+func TestCustomBesideWhatARunsStillMayChange(t *testing.T) {
+	for _, c := range []struct{ name, desc string }{
+		{"ASANA_CUSTOM_REQUEST", "Sends a request."},
+		{"X_CUSTOM_API_CALL", "Calls the API."},
+		{"X_RUN_CUSTOM_QUERY", "Runs a query."},
+		{"X_CUSTOM_GRAPH_QL", "Runs GraphQL."},
+		{"X_EXECUTE_CUSTOM_FIELD", "Reads a field."},
+		{"X_LIST_THINGS", "Runs an arbitrary request against the API."},
+		{"X_LIST_THINGS", "Executes a custom document."},
+	} {
+		if !MayChange(c.name, c.desc, nil) {
+			t.Errorf("%s (%s): read as a read", c.name, c.desc)
 		}
 	}
 }

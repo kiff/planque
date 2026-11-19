@@ -20,11 +20,19 @@ import (
 // GraphQL document (GRAPH_QL, GQL), a command, anything raw or custom. When
 // unsure, it's a write: a vendor's "custom properties" or "raw content"
 // reads come out writes too, which only costs Setup a read it can't make.
-var mayChangeName = regexp.MustCompile(`(?i)(^|[_\-.])(graph_?ql|gql|execute|proxy|raw|custom|api_call|http_request)([_\-.]|$)`)
+var mayChangeName = regexp.MustCompile(`(?i)(^|[_\-.])(graph_?ql|gql|execute|proxy|raw|api_call|http_request)([_\-.]|$)`)
+
+// mayChangeCustomName is "custom" in a tool name only where it sits beside a
+// word that says what the tool runs: a custom request, query, call, code,
+// script, action, mutation, document, GraphQL or API. A vendor's "custom
+// fields", "custom types", "custom roles" or "custom emoji" are things it
+// stores, and a read-only tool that lists them is a read (19 Nov: 31 getters
+// on the wave 1a apps were held for the bare word).
+var mayChangeCustomName = regexp.MustCompile(`(?i)(^|[_\-.])custom[_\-.](request|query|call|code|script|sql|action|command|mutation|document|graph_?ql|gql|api|http|endpoint)([_\-.]|$)|(^|[_\-.])(request|query|call|code|script|sql|action|command|mutation|document|graph_?ql|gql|api|http|endpoint)[_\-.]custom([_\-.]|$)`)
 
 // mayChangeWords is a description that says the tool can change things, or
 // runs any request or document it's given.
-var mayChangeWords = regexp.MustCompile(`(?i)including mutations|may perform mutations|performs? mutations|(executes?|runs?) (a |any )?(custom|raw|arbitrary) |arbitrary (request|query|call|endpoint|operation)|any (rest |http |api )?(endpoint|request|call)\b|custom (graphql|request|document|api call)|raw (http |api )?request`)
+var mayChangeWords = regexp.MustCompile(`(?i)including mutations|may perform mutations|performs? mutations|(executes?|runs?) (a |any )?(custom|raw|arbitrary) |arbitrary (request|query|call|endpoint|operation)\b|any (rest |http |api )?(endpoint|request|call)\b|custom (graphql|request|document|api call)|raw (http |api )?request`)
 
 // mayChangeArgs are arguments that may take a free-form document, program,
 // body or raw request: whatever is in them is what the vendor runs. When
@@ -46,13 +54,13 @@ var graphQLWords = regexp.MustCompile(`(?i)graphql|mutation`)
 
 // MayChange reports whether anything about a tool says it can change things,
 // whatever the vendor's read-only mark: its name (GRAPH_QL, EXECUTE, RAW,
-// CUSTOM), its description ("including mutations", any request), or
+// CUSTOM_REQUEST), its description ("including mutations", any request), or
 // its arguments, nested ones included: a free-form document, program, body
 // or raw request, a method beside a url, path or endpoint, a query that
 // takes GraphQL or doesn't say what it takes, or one given by reference. A search's query ("from:ana
 // is:unread") is a read's argument, and stays one.
 func MayChange(name, description string, inputSchema json.RawMessage) bool {
-	if mayChangeName.MatchString(name) || mayChangeWords.MatchString(description) {
+	if mayChangeName.MatchString(name) || mayChangeCustomName.MatchString(name) || mayChangeWords.MatchString(description) {
 		return true
 	}
 	if len(inputSchema) == 0 {
