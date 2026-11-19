@@ -101,6 +101,11 @@ func TestCustomBesideWhatARunsStillMayChange(t *testing.T) {
 		{"X_EXECUTE_CUSTOM_FIELD", "Reads a field."},
 		{"X_LIST_THINGS", "Runs an arbitrary request against the API."},
 		{"X_LIST_THINGS", "Executes a custom document."},
+		// Plurals of what the description says it runs.
+		{"X_LIST_THINGS", "Sends arbitrary requests to the API."},
+		{"X_LIST_THINGS", "Makes arbitrary calls."},
+		{"X_LIST_THINGS", "Performs arbitrary operations on any record."},
+		{"X_LIST_THINGS", "Runs arbitrary queries."},
 	} {
 		if !MayChange(c.name, c.desc, nil) {
 			t.Errorf("%s (%s): read as a read", c.name, c.desc)

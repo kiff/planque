@@ -32,7 +32,7 @@ var mayChangeCustomName = regexp.MustCompile(`(?i)(^|[_\-.])custom[_\-.](request
 
 // mayChangeWords is a description that says the tool can change things, or
 // runs any request or document it's given.
-var mayChangeWords = regexp.MustCompile(`(?i)including mutations|may perform mutations|performs? mutations|(executes?|runs?) (a |any )?(custom|raw|arbitrary) |arbitrary (request|query|call|endpoint|operation)\b|any (rest |http |api )?(endpoint|request|call)\b|custom (graphql|request|document|api call)|raw (http |api )?request`)
+var mayChangeWords = regexp.MustCompile(`(?i)including mutations|may perform mutations|performs? mutations|(executes?|runs?) (a |any )?(custom|raw|arbitrary) |arbitrary (requests?|quer(y|ies)|calls?|endpoints?|operations?)\b|any (rest |http |api )?(endpoint|request|call)\b|custom (graphql|request|document|api call)|raw (http |api )?request`)
 
 // mayChangeArgs are arguments that may take a free-form document, program,
 // body or raw request: whatever is in them is what the vendor runs. When
