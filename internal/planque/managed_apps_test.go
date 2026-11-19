@@ -157,19 +157,22 @@ func TestTheShippedListsRead(t *testing.T) {
 	}
 }
 
-// The shipped list is the three Google apps the subprocessors page names
-// ("Used only for: Gmail, Google Calendar, Google Sheets"), nothing more: an
-// app that isn't on that page can't be connected through the platform.
-func TestTheShippedListNamesTheGoogleAppsAndNothingElse(t *testing.T) {
-	if len(ManagedApps) != 3 {
-		t.Fatalf("the shipped list has %d apps: %v", len(ManagedApps), ManagedApps)
+// The shipped list is the apps the subprocessors page names: the three Google
+// apps and, from wave 1a, the fifteen others it lists by the names planque's
+// catalog gives them. An app that isn't on that page can't be connected
+// through the platform, and the two lists are kept equal.
+func TestTheShippedListNamesTheAppsThePageNamesAndNothingElse(t *testing.T) {
+	names := []string{"Gmail", "Google Calendar", "Google Sheets",
+		"Airtable", "Asana", "Cal", "Calendly", "ClickUp", "Confluence", "Dropbox", "Excel", "Jira", "Linear", "Monday", "Notion", "OneDrive", "Trello", "Wrike"}
+	if len(ManagedApps) != len(names) {
+		t.Fatalf("the shipped list has %d apps, the page names %d: %v", len(ManagedApps), len(names), ManagedApps)
 	}
-	for _, name := range []string{"Gmail", "Google Calendar", "Google Sheets", "google sheets"} {
+	for _, name := range append(names, "google sheets", "onedrive", "clickup") {
 		if !ManagedApps[provedKey(name)] {
 			t.Errorf("%s isn't on the shipped list", name)
 		}
 	}
-	for _, name := range []string{"Moneybird", "Pipedrive", "Stripe", "Google Drive"} {
+	for _, name := range []string{"Moneybird", "Pipedrive", "Stripe", "Google Drive", "Slack", "Shopify"} {
 		if ManagedApps[provedKey(name)] {
 			t.Errorf("%s is on the shipped list", name)
 		}
