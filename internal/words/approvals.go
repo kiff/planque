@@ -72,6 +72,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Each message is sent only with KIFF's permit for that exact call. You can disconnect at any time, which deletes the webhook and the token.",
 
 		PausedF:          "Paused · %s · connect again to approve it",
+		PausedChanged:    "an app tool changed since you approved it",
+		PausedGone:       "an app tool you approved is no longer offered",
 		Connected:        "Connected",
 		NewToolsWaiting:  "Connected · new tools waiting for your approval",
 		ToolsWaiting:     "Signed in · tools waiting for your approval",
@@ -153,6 +155,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Jede Nachricht wird nur mit KIFFs Freigabe für genau diesen Aufruf gesendet. Du kannst jederzeit trennen, wodurch der Webhook und das Token gelöscht werden.",
 
 		PausedF:          "Pausiert · %s · verbinde erneut, um es zu genehmigen",
+		PausedChanged:    "ein App-Tool hat sich geändert, seit du es genehmigt hast",
+		PausedGone:       "ein App-Tool, das du genehmigt hast, wird nicht mehr angeboten",
 		Connected:        "Verbunden",
 		NewToolsWaiting:  "Verbunden · neue Tools warten auf deine Genehmigung",
 		ToolsWaiting:     "Angemeldet · Tools warten auf deine Genehmigung",
@@ -234,6 +238,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Chaque message n'est envoyé qu'avec l'autorisation de KIFF pour cet appel précis. Vous pouvez déconnecter à tout moment, ce qui supprime le webhook et le jeton.",
 
 		PausedF:          "En pause · %s · connectez à nouveau pour l'approuver",
+		PausedChanged:    "un outil de l'app a changé depuis que vous l'avez approuvé",
+		PausedGone:       "un outil de l'app que vous avez approuvé n'est plus proposé",
 		Connected:        "Connecté",
 		NewToolsWaiting:  "Connecté · de nouveaux outils attendent votre approbation",
 		ToolsWaiting:     "Connexion faite · des outils attendent votre approbation",
@@ -315,6 +321,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Cada mensaje se envía solo con el permiso de KIFF para esa llamada exacta. Puedes desconectar en cualquier momento, lo que borra el webhook y el token.",
 
 		PausedF:          "En pausa · %s · vuelve a conectar para aprobarlo",
+		PausedChanged:    "una herramienta de la app cambió desde que la aprobaste",
+		PausedGone:       "una herramienta de la app que aprobaste ya no se ofrece",
 		Connected:        "Conectado",
 		NewToolsWaiting:  "Conectado · nuevas herramientas esperan tu aprobación",
 		ToolsWaiting:     "Sesión iniciada · herramientas esperan tu aprobación",
@@ -396,6 +404,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Ogni messaggio è inviato solo con il permesso di KIFF per quella chiamata esatta. Puoi scollegarlo in qualsiasi momento, il che elimina il webhook e il token.",
 
 		PausedF:          "In pausa · %s · collega di nuovo per approvarlo",
+		PausedChanged:    "uno strumento dell'app è cambiato da quando l'hai approvato",
+		PausedGone:       "uno strumento dell'app che hai approvato non è più offerto",
 		Connected:        "Collegato",
 		NewToolsWaiting:  "Collegato · nuovi strumenti aspettano la tua approvazione",
 		ToolsWaiting:     "Accesso effettuato · gli strumenti aspettano la tua approvazione",
@@ -477,6 +487,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Cada mensagem só é enviada com a autorização da KIFF para essa chamada exata. Pode desligar a qualquer momento, o que apaga o webhook e o token.",
 
 		PausedF:          "Em pausa · %s · ligue novamente para aprovar",
+		PausedChanged:    "uma ferramenta da app mudou desde que a aprovou",
+		PausedGone:       "uma ferramenta da app que aprovou já não é oferecida",
 		Connected:        "Ligado",
 		NewToolsWaiting:  "Ligado · novas ferramentas aguardam a sua aprovação",
 		ToolsWaiting:     "Sessão iniciada · ferramentas aguardam a sua aprovação",
@@ -558,6 +570,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Elk bericht wordt alleen verzonden met de toestemming van KIFF voor precies die aanroep. Je kunt op elk moment ontkoppelen, waarmee de webhook en het token worden verwijderd.",
 
 		PausedF:          "Gepauzeerd · %s · koppel opnieuw om het goed te keuren",
+		PausedChanged:    "een tool van de app is gewijzigd sinds je die goedkeurde",
+		PausedGone:       "een tool van de app die je goedkeurde wordt niet meer aangeboden",
 		Connected:        "Gekoppeld",
 		NewToolsWaiting:  "Gekoppeld · nieuwe tools wachten op je goedkeuring",
 		ToolsWaiting:     "Ingelogd · tools wachten op je goedkeuring",
@@ -639,6 +653,8 @@ var approvals = map[string]Approval{
 		TelegramTail:      " Każda wiadomość jest wysyłana tylko ze zgodą KIFF na dokładnie to wywołanie. Możesz rozłączyć w każdej chwili, co usuwa webhook i token.",
 
 		PausedF:          "Wstrzymane · %s · połącz ponownie, aby zatwierdzić",
+		PausedChanged:    "narzędzie aplikacji zmieniło się od Twojego zatwierdzenia",
+		PausedGone:       "zatwierdzone przez Ciebie narzędzie aplikacji nie jest już oferowane",
 		Connected:        "Połączono",
 		NewToolsWaiting:  "Połączono · nowe narzędzia czekają na Twoje zatwierdzenie",
 		ToolsWaiting:     "Zalogowano · narzędzia czekają na Twoje zatwierdzenie",

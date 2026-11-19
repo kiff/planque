@@ -317,12 +317,18 @@ func (c *Client) do(ctx context.Context, method, u, key string, in, out any) (in
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 300 {
 		var e struct {
-			Error string `json:"error"`
+			Error  string `json:"error"`
+			Reason string `json:"reason"`
 		}
 		_ = json.Unmarshal(b, &e)
 		msg := strings.TrimSpace(e.Error)
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
+		}
+		// A refusal says why in a short code (approval_refused: profile_not_approved);
+		// without it the log can't tell an expired approval from a changed profile.
+		if why := strings.TrimSpace(e.Reason); why != "" && len(why) <= 64 && !strings.ContainsAny(why, " \n\t") {
+			msg += " (" + why + ")"
 		}
 		return resp.StatusCode, &Answered{Status: resp.StatusCode, Msg: msg}
 	}

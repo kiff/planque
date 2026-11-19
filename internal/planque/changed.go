@@ -25,7 +25,15 @@ type Pause struct {
 	Tool string    `json:"tool"`
 	At   time.Time `json:"at"`
 	Why  string    `json:"why"`
+	// Kind is why in a code, which the person's words are built from: Why is
+	// English for the log and for Coach, and names the tool.
+	Kind string `json:"kind,omitempty"`
 }
+
+const (
+	pauseChanged = "changed" // the vendor changed an approved tool's definition
+	pauseGone    = "gone"    // the vendor no longer lists an approved tool
+)
 
 // pausedRefusal refuses a call on a paused grant; "" when it isn't paused.
 func pausedRefusal(g *Grant) (code, why string) {
@@ -82,17 +90,17 @@ func (s *Server) checkDefinitions(ctx context.Context, g *Grant) (code, why stri
 	for i, t := range g.Tools {
 		schema, ok := current[t.Tool]
 		if !ok {
-			return s.pauseGrant(ctx, g, t.Name, vendorName(g)+" no longer lists "+t.Tool)
+			return s.pauseGrant(ctx, g, t.Name, pauseGone, vendorName(g)+" no longer lists "+t.Tool)
 		}
 		sum := vendorSchemaSHA256(schema)
 		switch {
 		case sum == "":
 			// A schema that isn't JSON: changed from what was approved, which was.
-			return s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Tool+" since you approved it")
+			return s.pauseGrant(ctx, g, t.Name, pauseChanged, vendorName(g)+" changed "+t.Tool+" since you approved it")
 		case t.VendorSchemaSHA256 == "":
 			g.Tools[i].VendorSchemaSHA256 = sum
 		case t.VendorSchemaSHA256 != sum:
-			return s.pauseGrant(ctx, g, t.Name, vendorName(g)+" changed "+t.Tool+" since you approved it")
+			return s.pauseGrant(ctx, g, t.Name, pauseChanged, vendorName(g)+" changed "+t.Tool+" since you approved it")
 		}
 	}
 	g.DefinitionsReadAt = now
@@ -140,7 +148,7 @@ func (s *Server) keepDefinitionsAfter(ctx context.Context, mine *Grant, now time
 				return pausedRefusal(mine)
 			}
 			s.log().ErrorContext(ctx, "definitions differ between two reads at once", slog.String("grant", mine.ID), slog.String("tool", t.Tool))
-			return s.pauseGrant(ctx, mine, t.Name, vendorName(mine)+" changed "+t.Tool+" since you approved it")
+			return s.pauseGrant(ctx, mine, t.Name, pauseChanged, vendorName(mine)+" changed "+t.Tool+" since you approved it")
 		}
 	}
 	if stored.Paused != nil {
@@ -161,9 +169,9 @@ func (s *Server) keepDefinitionsAfter(ctx context.Context, mine *Grant, now time
 
 // pauseGrant pauses g for tool, says why on the grant and in the log, and
 // refuses the call that noticed it.
-func (s *Server) pauseGrant(ctx context.Context, g *Grant, tool, why string) (code, reason string) {
+func (s *Server) pauseGrant(ctx context.Context, g *Grant, tool, kind, why string) (code, reason string) {
 	now := s.now()
-	g.Paused = &Pause{Tool: tool, At: now.UTC(), Why: why}
+	g.Paused = &Pause{Tool: tool, At: now.UTC(), Why: why, Kind: kind}
 	g.event(now, "paused: "+why+"; nothing is sent until the owner connects again and approves its current definition")
 	if err := s.saveGrant(ctx, g); err != nil {
 		s.log().ErrorContext(ctx, "pause not kept", slog.String("grant", g.ID), slog.String("err", err.Error()))

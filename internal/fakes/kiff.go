@@ -61,6 +61,10 @@ type KIFF struct {
 	// RefuseConnect: tool name → the words KIFF refuses its connection with
 	// (a 400), for a refusal planque's own checks don't foresee.
 	RefuseConnect map[string]string
+	// RefuseConnectAfter, when above 0, makes KIFF refuse (a 400) every connect
+	// once it holds that many connections: a refusal for a request whose tool
+	// names aren't known beforehand.
+	RefuseConnectAfter int
 	// ConnectDown makes KIFF answer each connect 503, as KIFF in trouble.
 	ConnectDown bool
 
@@ -385,6 +389,9 @@ func (k *KIFF) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	k.mu.Lock()
 	refused, isRefused := k.RefuseConnect[c.Name]
+	if k.RefuseConnectAfter > 0 && len(k.conns) >= k.RefuseConnectAfter {
+		refused, isRefused = "KIFF refused it for the test", true
+	}
 	down := k.ConnectDown
 	k.mu.Unlock()
 	if down {
