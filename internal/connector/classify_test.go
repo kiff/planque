@@ -54,6 +54,18 @@ func TestAToolsClassIsReadFromItsName(t *testing.T) {
 		{"x", "X_CAPTURE_PAYMENT", false, ClassMoney},
 		{"x", "X_SUSPEND_USER", false, ClassDelete},
 		{"x", "X_BAN_USER", false, ClassDelete},
+		// A shared link is a share (the live catalog, 19 Nov); reading one stays a read.
+		{"dropbox", "DROPBOX_CREATE_SHARED_LINK", false, ClassShare},
+		{"dropbox", "DROPBOX_MODIFY_SHARED_LINK_SETTINGS", false, ClassShare},
+		{"dropbox", "DROPBOX_LIST_SHARED_LINKS", true, ClassRead},
+		{"dropbox", "DROPBOX_GET_SHARED_LINK_METADATA", true, ClassRead},
+		// A write over every item at once is bulk; one item, or a read of all, isn't.
+		{"trello", "TRELLO_ARCHIVE_ALL_LIST_CARDS", false, ClassBulk},
+		{"trello", "TRELLO_MOVE_ALL_LIST_CARDS", false, ClassBulk},
+		{"trello", "TRELLO_MARK_ALL_NOTIFICATIONS_READ", false, ClassBulk},
+		{"linear", "LINEAR_ARCHIVE_ISSUE", false, ClassWrite},
+		{"jira", "JIRA_GET_ALL_GROUPS", true, ClassRead},
+		{"cal", "CAL_FETCH_ALL_BOOKINGS", true, ClassRead},
 	} {
 		if got := Classify(tool(c.toolkit, c.slug, c.readOnly)); got != c.want {
 			t.Errorf("%s (read-only %v): %s, want %s", c.slug, c.readOnly, got, c.want)

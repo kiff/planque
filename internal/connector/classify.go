@@ -19,6 +19,7 @@ const (
 	ClassShare    Class = "share"    // shares, publishes, changes who has access: held
 	ClassSendMany Class = "sendmany" // a campaign, a broadcast, a bulk send: held
 	ClassMoney    Class = "money"    // pays, refunds, transfers, charges: held
+	ClassBulk     Class = "bulk"     // changes every item at once (archive all, move all): held
 	ClassUnplaced Class = "unplaced" // a write planque can't read the verb of: held
 )
 
@@ -28,7 +29,7 @@ var HoldClasses = true
 
 var (
 	deleteWords   = words("delete deletes remove removes destroy erase purge trash empty clear wipe drop revoke unlink terminate truncate suspend ban kick")
-	shareWords    = words("share sharing unshare permission permissions invite invites acl collaborator collaborators publish unpublish public ownership owner role roles access member members visibility grant grants")
+	shareWords    = words("share shared sharing unshare permission permissions invite invites acl collaborator collaborators publish unpublish public ownership owner role roles access member members visibility grant grants")
 	sendManyWords = words("campaign campaigns broadcast bulk mass newsletter blast audience audiences mailing everyone announce subscribers")
 	moneyWords    = words("pay payment payments refund refunds transfer transfers payout payouts charge charges withdraw disburse paid void writeoff capture credit debit deposit purchase buy checkout")
 	moneyVerbs    = words("pay refund transfer charge withdraw disburse void capture debit deposit purchase buy checkout")
@@ -86,6 +87,11 @@ func Classify(t Tool) Class {
 	case has(shareWords):
 		return ClassShare
 	}
+	// A write over every item at once (TRELLO_ARCHIVE_ALL_LIST_CARDS) is one
+	// call that changes many things: held, whatever its verb.
+	if !t.ReadOnly && has(map[string]bool{"all": true}) {
+		return ClassBulk
+	}
 	if t.ReadOnly {
 		return ClassRead
 	}
@@ -101,7 +107,7 @@ func Held(t Tool) (Class, bool) {
 		return "", false
 	}
 	switch c := Classify(t); c {
-	case ClassDelete, ClassShare, ClassSendMany, ClassMoney, ClassUnplaced:
+	case ClassDelete, ClassShare, ClassSendMany, ClassMoney, ClassBulk, ClassUnplaced:
 		return c, true
 	}
 	return "", false
