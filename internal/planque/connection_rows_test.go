@@ -197,15 +197,25 @@ func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
 	}
 }
 
-// A signed-out managed connection whose account's name was never kept
-// can't sign in again on itself (no new sign-in could be shown to be the
-// same account), so only Remove access is offered.
-func TestASignedOutConnectionWithNoAccountNameOffersOnlyRemove(t *testing.T) {
+// A signed-out managed connection whose account's name was never kept can't
+// sign in again on that account (no new sign-in could be shown to be the
+// same), so Connect apps offers Sign in again as a fresh sign-in: the row
+// says so (reconnect: fresh), and the apps make the call it names. Without
+// the action, a connection whose taf is gone from the owner's list has no
+// door at all.
+func TestASignedOutConnectionWithNoAccountNameOffersAFreshSignIn(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	f.noName = true
 	g := connectConnector(t, e, f)
 	signOut401(t, e, f, g)
-	if got := actionIDs(listRow(t, e, g.ID, "")); len(got) != 1 || got[0] != ActionRemove {
+	row := listRow(t, e, g.ID, "")
+	if got := actionIDs(row); len(got) != 2 || got[0] != ActionSignInAgain || got[1] != ActionRemove {
 		t.Fatalf("actions: %v", got)
+	}
+	if a := action(row, ActionSignInAgain); a["how"] != "approve" {
+		t.Fatalf("sign in again: %v", a)
+	}
+	if row["reconnect"] != "fresh" {
+		t.Fatalf("a connection with no name kept reads reconnect %v", row["reconnect"])
 	}
 }

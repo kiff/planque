@@ -215,17 +215,19 @@ func healthOf(g *Grant, rc rowContext) connectionHealth {
 }
 
 // signInAgainHow is how a signed-out g signs in again on itself, or "" when
-// it can't: a managed app only when its account's name was kept (a new
-// sign-in is confirmed only on the same account), a key connection with its
-// key, a vendor's own sign-in with a new one; never one that uses another
-// connection's sign-in, which is signed in again there.
+// it can't: a managed app with its account's name kept (a new sign-in is
+// confirmed only on the same account) or with none kept, which signs in
+// fresh (freshOnly: the call the apps make is the one the grant's own
+// `reconnect` names), a key connection with its key, a vendor's own sign-in
+// with a new one; never one that uses another connection's sign-in, which is
+// signed in again there.
 func signInAgainHow(g *Grant) string {
 	if g.Status != StatusNeedsReconnect {
 		return ""
 	}
 	switch {
 	case g.Request.Connector != nil:
-		if g.Connector != nil && g.Connector.AccountName != "" {
+		if g.Connector != nil && (g.Connector.AccountName != "" || freshOnly(g)) {
 			return "approve"
 		}
 		return ""
