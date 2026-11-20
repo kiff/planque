@@ -68,8 +68,9 @@ const (
 )
 
 // checkoutKept is how long a read checkout counts for a browse_pay: KIFF's
-// hold waits for the owner, and a held ask lapses in 20 minutes.
-const checkoutKept = 20 * time.Minute
+// hold waits for the owner, and a held ask lapses in 15 minutes (the same
+// length as the purchase case's approved, unused permission).
+const checkoutKept = 15 * time.Minute
 
 // unknownKept is how long a checkout whose pay click ended unknown stays
 // marked: the same checkout (same lines, total and currency) is refused a
