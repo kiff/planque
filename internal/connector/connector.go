@@ -163,7 +163,8 @@ var version = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 // run: t lists the scopes any one of which lets it run, as the vendor's API
 // does for each method, and a scope covers its read-only form (Google's
 // ".readonly", Shopify's "read_" for the same name after "write_": Shopify
-// reports only the write scope it implies a read for). Unknown
+// reports only the write scope it implies a read for, and Pipedrive's
+// ":read" for the same name before ":full"). Unknown
 // either way (no scopes granted known, none listed for t), or the two
 // written in different forms (a URL against a short name), is covered:
 // the vendor then decides at the call, as before.
@@ -178,6 +179,9 @@ func (t Tool) Covered(granted []string) bool {
 		if name, ok := strings.CutPrefix(need, "read_"); ok && writeImpliesRead[strings.ToLower(t.Toolkit)] && slices.Contains(granted, "write_"+name) {
 			return true
 		}
+		if name, ok := strings.CutSuffix(need, ":read"); ok && fullImpliesRead[strings.ToLower(t.Toolkit)] && slices.Contains(granted, name+":full") {
+			return true
+		}
 	}
 	return false
 }
@@ -187,6 +191,15 @@ func (t Tool) Covered(granted []string) bool {
 // read_orders). A vendor is added here once its own docs say so, never by
 // guess: elsewhere a write scope grants no read.
 var writeImpliesRead = map[string]bool{"shopify": true}
+
+// fullImpliesRead lists the toolkits whose vendor names a scope "<name>:read"
+// for what a tool needs and "<name>:full" for a sign-in that may also change
+// it, a full scope including the read (Pipedrive's "deals:full" lets
+// "deals:read" tools run). The provider lists a tool like "get all deals" with
+// "deals:read" alone, so without this a full sign-in left it out as "only
+// partly signed in". A vendor is added here once its own docs say so, never by
+// guess: elsewhere a full scope covers no read it isn't listed for.
+var fullImpliesRead = map[string]bool{"pipedrive": true}
 
 // urlForm says a scope is written as a URL (https://…/auth/drive) rather
 // than a short name (drive.readonly).
