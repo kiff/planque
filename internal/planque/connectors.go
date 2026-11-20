@@ -74,6 +74,11 @@ type ConnectorState struct {
 	// Granted are the scopes the vendor granted the sign-in, as the
 	// provider last reported them; empty when it doesn't.
 	Granted []string `json:"granted,omitempty"`
+	// ScopesRefused: the vendor refused a call on this sign-in for too little
+	// access ("insufficient authentication scopes"), so what Granted and the
+	// asked scopes say is not believed: the sign-in is never reused for a
+	// tool that writes, and its scopes are unknown.
+	ScopesRefused bool `json:"scopes_refused,omitempty"`
 	// Mode is the vendor account's mode, "live" or "test", as the objects
 	// permitted calls returned said it (their "livemode"), and when: live
 	// wins, so once any live object is seen it stays live. Empty is
@@ -374,6 +379,9 @@ func (s *Server) checkConnector(ctx context.Context, g *Grant) error {
 // when the provider reports them, else those a narrowed sign-in asked for;
 // nil when neither is known (the app's usual access).
 func grantedScopes(g *Grant) []string {
+	if g.Connector != nil && g.Connector.ScopesRefused {
+		return nil
+	}
 	if g.Connector != nil && len(g.Connector.Granted) > 0 {
 		return g.Connector.Granted
 	}
@@ -1077,6 +1085,11 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 		s.signInRefused(ctx, g, vendorName(g)+" no longer accepts this sign-in")
 		return OpDone, toolResult(signInExpiredWords(vendorName(g)), true)
 	}
+	if result.Refused && result.Status == http.StatusForbidden && insufficientScopes(result.Reason) {
+		// The vendor refused for too little access on a sign-in planque believed covered the tool: its scopes are
+		// unknown from now on, on every connection of that account, and it's never reused for a tool that writes.
+		s.scopesRefused(ctx, g)
+	}
 	if result.Unknown {
 		return OpUnknown, toolResult("The connector did not return a confirmed result"+providerSaid(result)+". This operation will not be sent again.", true)
 	}
@@ -1284,9 +1297,16 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 				continue
 			}
 		}
+		// A sign-in whose scopes aren't known to be what the vendor granted (the
+		// app's usual access, the provider reporting its auth config's scopes
+		// rather than the vendor's grant, or a call the vendor refused for too
+		// little access) isn't trusted for a tool that writes: a new sign-in is
+		// asked for up front, never "no second sign-in" and then a refusal
+		// (20 Nov, Google Calendar: a read sign-in reused to create an event).
+		untrusted := c.UsualAccess || g.Connector.ScopesRefused
 		// What the vendor granted, when known, must let each tool asked run:
 		// a sign-in granted less isn't reused for a tool it can't serve.
-		if len(g.Connector.Granted) > 0 && len(asked) > 0 {
+		if len(asked) > 0 && (untrusted || len(g.Connector.Granted) > 0) {
 			if definitions == nil {
 				if definitions, err = s.toolDefinitions(ctx, providerID, toolkit, asked); err != nil {
 					return nil, err
@@ -1294,7 +1314,10 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 			}
 			if slices.ContainsFunc(asked, func(slug string) bool {
 				d, ok := definitions[slug]
-				return !ok || !d.Covered(g.Connector.Granted)
+				if !ok || untrusted && !d.ReadOnly {
+					return true
+				}
+				return len(g.Connector.Granted) > 0 && !g.Connector.ScopesRefused && !d.Covered(g.Connector.Granted)
 			}) {
 				continue
 			}
@@ -1332,6 +1355,44 @@ func (s *Server) toolDefinitions(ctx context.Context, providerID, toolkit string
 		cursor = page.Next
 	}
 	return out, nil
+}
+
+// insufficientScopes says a vendor's reason for a 403 is "too little access":
+// Google's "Request had insufficient authentication scopes", or its reason
+// code insufficientPermissions.
+func insufficientScopes(reason string) bool {
+	r := strings.ToLower(reason)
+	return strings.Contains(r, "insufficient") && (strings.Contains(r, "scope") || strings.Contains(r, "permission"))
+}
+
+// scopesRefused marks every connected grant on g's provider account (on g's
+// account) ScopesRefused. Best effort, as signInRefused: a grant that can't be
+// saved stays as it was, and the next refused call marks it again.
+func (s *Server) scopesRefused(ctx context.Context, g *Grant) {
+	if g.Connector == nil || g.Connector.Account == "" {
+		return
+	}
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	if err != nil {
+		s.log().WarnContext(ctx, "scopes refused: the account's connections couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return
+	}
+	for _, it := range items {
+		var seen Grant
+		if json.Unmarshal(it.Doc, &seen) != nil || seen.Connector == nil || seen.Connector.Account != g.Connector.Account || seen.Connector.ScopesRefused {
+			continue
+		}
+		// Loaded afresh, with the version it's saved against.
+		other, err := s.loadGrant(ctx, g.Tenant, seen.ID)
+		if err == nil && other.Connector != nil {
+			other.Connector.ScopesRefused = true
+			err = s.saveGrant(ctx, other)
+		}
+		if err != nil && !errors.Is(err, store.ErrCondition) {
+			s.log().WarnContext(ctx, "scopes refused: a connection wasn't marked", slog.String("grant", seen.ID), slog.String("err", err.Error()))
+		}
+	}
+	g.Connector.ScopesRefused = true
 }
 
 // signInRefused marks every connected grant on g's managed sign-in (the same

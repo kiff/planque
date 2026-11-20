@@ -114,8 +114,10 @@ func TestAHeldSignInGrantedLessIsntReusedForMore(t *testing.T) {
 	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusPending || v["signed_in"] == true {
 		t.Fatalf("a search on a Sheets-only sign-in: %d %v", st, out)
 	}
+	// The held sign-in is the app's usual access, not trusted for a tool that writes (a reply), whatever it
+	// was reported to hold; a read the scopes cover is still reused.
 	st, out = e.do("POST", entry, map[string]any{"agent": "agt_reply", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
-	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusListed || v["signed_in"] != true {
-		t.Fatalf("a reply the sign-in covers: %d %v", st, out)
+	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusPending || v["signed_in"] == true {
+		t.Fatalf("a reply on a usual-access sign-in: %d %v", st, out)
 	}
 }

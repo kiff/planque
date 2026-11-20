@@ -620,6 +620,19 @@ var breadth = []string{
 	"https://www.googleapis.com/auth/drive",
 }
 
+// beyond maps a scope a write's list names for a resource its write scope
+// can't reach to the scope that reaches both. The provider's Calendar create
+// lists the calendar's own scopes beside the events' because it reads the
+// calendar first: pinned to calendar.events alone, every create got Google's
+// 403 "insufficient authentication scopes" (20 Nov). The managed sign-in
+// offers no narrower scope that covers both, so such a write takes calendar.
+// A read-only scope a write lists stays ignored (a draft lists gmail.readonly
+// and runs on gmail.compose): only the resources named here widen it.
+var beyond = map[string]string{
+	"https://www.googleapis.com/auth/calendar.calendars":          "https://www.googleapis.com/auth/calendar",
+	"https://www.googleapis.com/auth/calendar.calendars.readonly": "https://www.googleapis.com/auth/calendar",
+}
+
 // narrowest is the scopes tools need, each tool's narrowest one by breadth
 // among those it accepts in the ceiling: a read (the provider's tag, or the
 // app's reviewed guide's "read") takes a read-only scope when it accepts one; a write never does, whatever its list says (the provider
@@ -649,10 +662,20 @@ func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceilin
 		// it when the provider doesn't (14 Nov: two Gmail reads untagged, so
 		// full mail): unknown is still a write.
 		read := t.ReadOnly || slices.ContainsFunc(reviewed, func(r string) bool { return strings.EqualFold(r, slug) })
+		// A write that also lists a resource its write scope can't reach reads
+		// that resource too, so it needs the scope that reaches both (beyond).
+		floor := -1
+		if !read {
+			for _, s := range t.Scopes {
+				if whole, ok := beyond[s]; ok && slices.Contains(t.Scopes, whole) {
+					floor = max(floor, slices.Index(breadth, whole))
+				}
+			}
+		}
 		// pick is its narrowest in the ceiling; best, its narrowest at all.
 		pick, best := "", ""
-		for _, s := range breadth {
-			if !slices.Contains(t.Scopes, s) || !read && strings.HasSuffix(s, ".readonly") {
+		for n, s := range breadth {
+			if !slices.Contains(t.Scopes, s) || !read && strings.HasSuffix(s, ".readonly") || n < floor {
 				continue
 			}
 			if best == "" {
