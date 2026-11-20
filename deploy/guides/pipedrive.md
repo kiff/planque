@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Pipedrive tool
 definitions as planque reads them, and Pipedrive's API documentation (rate
 limits, status codes, sign-in, and its published API description).
 Failure table checked against planque's answers on 2026-11-16.
+Search and listing checked on a run through the owner's phone, 2026-11-20.
 
 ## How it connects
 
@@ -15,6 +16,9 @@ Failure table checked against planque's answers on 2026-11-16.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
 - **A sign-in unused for 60 days ends.** Then the owner signs in again.
+- **Pipedrive's access screen asks for broad access to deals**, even for a taf
+  that only looks at them; the sign-in can't be narrowed. The taf's Card sets
+  what the taf may do. Say so before the owner taps Allow.
 
 ## Tools a job usually needs
 
@@ -42,6 +46,11 @@ below are those Pipedrive's documented answers carry.
 **What to keep:** each person's, deal's and lead's id, to update that same
 record next time; the signed-in user's id, to list only their own deals.
 Never look a record up again by name: use the id the taf kept.
+
+**Search needs a word; "the latest" needs the list.** A search needs two
+characters or more (Pipedrive refuses one) and finds only a word in a deal's
+title, person or organization. Its answer has no dates. For "the latest
+deals" use `PIPEDRIVE_GET_ALL_DEALS`: newest first, with the date added.
 
 **Search first.** Before adding a person, search by their email. Add them
 only when nothing matches, so no one is entered twice. A search needs at
