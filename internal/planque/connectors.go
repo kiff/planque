@@ -1466,7 +1466,8 @@ func (s *Server) freshConnector(r *http.Request, g *Grant) ([]string, error) {
 	}
 	onOld := func(o *Grant) bool {
 		return o.ID != g.ID && o.Status == StatusNeedsReconnect && !o.Reconnect && o.Request.Connector != nil && o.Connector != nil &&
-			o.Connector.Account == from && o.Connector.AccountName == "" && o.Request.Connector.Provider == g.Request.Connector.Provider
+			o.Connector.Account == from && o.Connector.AccountName == "" && o.Request.Connector.Provider == g.Request.Connector.Provider &&
+			o.Request.Connector.Toolkit == g.Request.Connector.Toolkit
 	}
 	for _, it := range items {
 		var seen Grant

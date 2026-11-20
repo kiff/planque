@@ -67,6 +67,13 @@ func TestAFreshSignInBringsBackEveryConnectionOnTheOldAccount(t *testing.T) {
 	if err := e.s.saveGrant(ctx, other); err != nil {
 		t.Fatal(err)
 	}
+	// A signed-out connection on the same account of another toolkit is left
+	// alone too: only the same app comes back with the sign-in.
+	otherApp := siblingOf(t, e, first, "grt_otherapp", "Another app's taf")
+	otherApp.Request.Connector.Toolkit = "another_toolkit"
+	if err := e.s.saveGrant(ctx, otherApp); err != nil {
+		t.Fatal(err)
+	}
 	signOut401(t, e, f, first)
 	// The other account's connection is signed out too, by its own account.
 	other, _ = e.s.loadGrant(ctx, tenant, other.ID)
@@ -116,6 +123,9 @@ func TestAFreshSignInBringsBackEveryConnectionOnTheOldAccount(t *testing.T) {
 	}
 	if c, ok := e.kiff.Connection(tenant, "reply_ticket"); !ok || c.Credential != declared.Credential {
 		t.Fatal("its registration in KIFF changed: the taf's Card would no longer cover it")
+	}
+	if o, _ := e.s.loadGrant(ctx, tenant, otherApp.ID); o.Status != StatusNeedsReconnect || o.Connector.Account != first.Connector.Account {
+		t.Fatalf("a connection of another toolkit moved: %s, %q", o.Status, o.Connector.Account)
 	}
 	if o, _ := e.s.loadGrant(ctx, tenant, other.ID); o.Status != StatusNeedsReconnect || o.Connector.Account != "another_account" {
 		t.Fatalf("a connection on another account moved: %s, %q", o.Status, o.Connector.Account)
