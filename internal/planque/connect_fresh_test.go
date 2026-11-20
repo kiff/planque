@@ -55,6 +55,7 @@ func idsOf(v any) []string {
 func TestAFreshSignInBringsBackEveryConnectionOnTheOldAccount(t *testing.T) {
 	e, f := newConnectorFixture(t)
 	ctx := context.Background()
+	e.tafName = "Refund requests"
 	f.distinct, f.noName = true, true
 	first := connectConnector(t, e, f)
 	if first.Connector.AccountName != "" {
@@ -116,6 +117,14 @@ func TestAFreshSignInBringsBackEveryConnectionOnTheOldAccount(t *testing.T) {
 			t.Fatalf("%s after the fresh sign-in: %s, account %q (was %q), bound %q, tools %d, name %q", id, g.Status, g.Connector.Account, first.Connector.Account, g.Request.Connector.Account, len(g.Tools), g.Connector.AccountName)
 		}
 	}
+	// The owner can see where the tafs went: each re-pointed connection reads
+	// the new account's name, and the taf that uses it.
+	for id, taf := range map[string]string{first.ID: "Refund requests", second.ID: "Win-back offers"} {
+		_, v := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+		if v["account_name"] != "Demo Shop" || !slices.Contains(idsOf(v["used_by"]), taf) {
+			t.Fatalf("%s after the fresh sign-in reads account_name %v, used_by %v", id, v["account_name"], v["used_by"])
+		}
+	}
 	a, _ := e.s.loadGrant(ctx, tenant, first.ID)
 	b, _ := e.s.loadGrant(ctx, tenant, second.ID)
 	if a.Connector.Account != b.Connector.Account {
@@ -175,5 +184,96 @@ func TestAConnectionWithItsAccountsNameIsNeverSignedInFresh(t *testing.T) {
 	c := connectConnector(t, e2, f2)
 	if _, view := e2.do("GET", "/v1/accounts/"+tenant+"/grants/"+c.ID, nil, nil, "k_setup"); view["reconnect"] != nil {
 		t.Fatalf("a connected connection reads reconnect %v", view["reconnect"])
+	}
+}
+
+// Only the siblings that can come back do: signed out, on the old account, with
+// no name kept, of the same app, and with no sign-in of their own under way.
+// Each of these four stays as it was, and the one that fits moves.
+// Category: authority
+// Attack: a fresh sign-in that reaches a connection with its account known, one with its own sign-in under way, one connected, or one of another app
+// Refused: each stays as it was; only the signed-out unnamed sibling of the same app comes back
+func TestAFreshSignInLeavesEverySiblingThatCantComeBack(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	f.distinct, f.noName = true, true
+	first := connectConnector(t, e, f)
+	fits := siblingOf(t, e, first, "grt_fits", "Win-back offers")
+	named := siblingOf(t, e, first, "grt_named", "Named sibling")
+	underway := siblingOf(t, e, first, "grt_underway", "Sibling signing in")
+	connected := siblingOf(t, e, first, "grt_connected", "Connected sibling")
+	otherProvider := siblingOf(t, e, first, "grt_otherprov", "Another provider")
+	signOut401(t, e, f, first)
+	change := func(id string, edit func(g *Grant)) {
+		g, err := e.s.loadGrant(ctx, tenant, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit(g)
+		if err := e.s.saveGrant(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	change(named.ID, func(g *Grant) { g.Connector.AccountName = "Named Co" })
+	change(underway.ID, func(g *Grant) { g.Reconnect = true })
+	change(connected.ID, func(g *Grant) { g.Status = StatusConnected })
+	change(otherProvider.ID, func(g *Grant) { g.Request.Connector.Provider = "another_provider" })
+	g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+	path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+	f.noName = false
+	if st, out := connectFresh(t, e, f, g); st != 200 {
+		t.Fatalf("connect fresh: %d %v", st, out)
+	}
+	code := e.signIn(f.callback + "&status=ACTIVE")
+	st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	if got := idsOf(out["grants"]); !slices.Equal(got, []string{first.ID, fits.ID}) {
+		t.Fatalf("the connections brought back: %v", got)
+	}
+	for _, c := range []struct {
+		id   string
+		want string
+	}{{named.ID, StatusNeedsReconnect}, {underway.ID, StatusNeedsReconnect}, {connected.ID, StatusConnected}, {otherProvider.ID, StatusNeedsReconnect}} {
+		o, _ := e.s.loadGrant(ctx, tenant, c.id)
+		if o.Status != c.want || o.Connector.Account != first.Connector.Account || o.Request.Connector.Account != first.Request.Connector.Account {
+			t.Fatalf("%s moved: %s (want %s), account %q (was %q)", c.id, o.Status, c.want, o.Connector.Account, first.Connector.Account)
+		}
+	}
+	if o, _ := e.s.loadGrant(ctx, tenant, underway.ID); !o.Reconnect {
+		t.Fatal("a sibling's own sign-in under way was ended")
+	}
+}
+
+// A fresh sign-in that is never confirmed ends with the connection signed out
+// and no memory of the old account: a later sign-in on it is held to an account
+// like any other, never skipping the comparison.
+// Category: authority
+// Attack: a stale fresh marker left on a connection after its fresh sign-in expired, so a later sign-in skips the account comparison
+// Refused: the expired sign-in clears the marker, and the connection reads signed out
+func TestAnExpiredFreshSignInLeavesNoFreshMarker(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	f.distinct, f.noName = true, true
+	first := connectConnector(t, e, f)
+	signOut401(t, e, f, first)
+	g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+	f.noName = false
+	if st, out := connectFresh(t, e, f, g); st != 200 {
+		t.Fatalf("connect fresh: %d %v", st, out)
+	}
+	e.signIn(f.callback + "&status=ACTIVE") // the sign-in comes back, and is never confirmed
+	g, _ = e.s.loadGrant(ctx, tenant, first.ID)
+	if g.Status != StatusSignedIn || g.FreshFrom == "" {
+		t.Fatalf("before expiry: %s, fresh from %q", g.Status, g.FreshFrom)
+	}
+	e.at(time.Hour)
+	if _, err := e.s.expire(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, first.ID)
+	if g.Status != StatusNeedsReconnect || g.Reconnect || g.FreshFrom != "" {
+		t.Fatalf("after expiry: %s, reconnect %v, fresh from %q", g.Status, g.Reconnect, g.FreshFrom)
 	}
 }
