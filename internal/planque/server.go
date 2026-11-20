@@ -217,6 +217,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/read", s.setupRead)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/approve", s.signed(s.approve))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/key", s.signed(s.giveKey))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/connect-fresh", s.signed(s.connectFresh))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/confirm", s.signed(s.confirm))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signedSafe(s.disconnect))
 	// The live sign-in view of a browser grant (kiff/planque#86, step 4).

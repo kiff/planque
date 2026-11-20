@@ -341,6 +341,12 @@ type Grant struct {
 	// signed out. Confirmed, it is connected again with the same tools, in
 	// KIFF as they were; until then its calls are refused, saying why.
 	Reconnect bool `json:"reconnect,omitempty"`
+	// FreshFrom: the new sign-in under way (Reconnect) was approved with
+	// connect-fresh, so it isn't compared with the old account, which it
+	// names: the provider's id of the account the signed-out connections
+	// shared. Confirmed, the new sign-in connects this grant and every other
+	// signed-out one on that old account.
+	FreshFrom string `json:"fresh_from,omitempty"`
 	// ReconnectName is the vendor account a managed app's signed-out
 	// connection was on, as the provider named it: its new sign-in reconnects
 	// the same grant only on that same account.

@@ -1173,7 +1173,15 @@ type grantView struct {
 	// UsedBy, Health and Actions are the connection as the owner's list
 	// shows it (connection_rows.go): the tafs that use it by their names,
 	// its health in plain words, and only the actions that can work for it.
-	UsedBy  []string           `json:"used_by"`
+	UsedBy []string `json:"used_by"`
+	// Reconnect, on a signed-out managed connection: "fresh" when signing in
+	// again can't work, because no name was kept for its account to hold the
+	// new sign-in to (connect-fresh instead of approve), else "same". Empty
+	// for any other grant; a reader without it takes "same".
+	Reconnect string `json:"reconnect,omitempty"`
+	// Grants, in a fresh sign-in's confirm: the connections it connected
+	// again, this one first.
+	Grants  []string           `json:"grants,omitempty"`
 	Health  *connectionHealth  `json:"health,omitempty"`
 	Actions []connectionAction `json:"actions"`
 }
@@ -1243,7 +1251,19 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		}
 	}
 	s.fillRow(r, g, &v, time.Time{}, false)
+	if g.Status == StatusNeedsReconnect && g.Request.Connector != nil {
+		v.Reconnect = "same"
+		if freshOnly(g) {
+			v.Reconnect = "fresh"
+		}
+	}
 	return v
+}
+
+// freshOnly: g is a signed-out managed connection that can't sign in again,
+// because no name was kept for its account to hold a new sign-in to.
+func freshOnly(g *Grant) bool {
+	return g.Status == StatusNeedsReconnect && g.Request.Connector != nil && g.Connector != nil && g.Connector.Account != "" && g.Connector.AccountName == ""
 }
 
 // statusWords is a grant's status as the owner reads it, one line for any
@@ -1665,7 +1685,7 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		}
 		was := *g
 		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
-		g.Status, g.Reconnect = StatusNeedsReconnect, false
+		g.Status, g.Reconnect, g.FreshFrom = StatusNeedsReconnect, false, ""
 		g.event(s.now(), "the new sign-in was not confirmed in time; still waiting for the owner to sign in again")
 		if err := s.saveGrant(ctx, g); err != nil {
 			*g = was
@@ -1791,6 +1811,17 @@ func (s *Server) revokeNow(ctx context.Context, g *Grant) error {
 // whose body names the grant's digest. Only then does planque register
 // itself at the vendor and hand back the vendor's own sign-in link.
 func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	s.approveGrant(w, r, sr, false)
+}
+
+// connectFresh is approve for a signed-out managed connection whose account
+// can't be compared (no name was kept): a new sign-in that isn't held to the
+// old account, which the signed-out connections on that account share.
+func (s *Server) connectFresh(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	s.approveGrant(w, r, sr, true)
+}
+
+func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedRequest, fresh bool) {
 	var req struct {
 		Digest  string          `json:"digest"`
 		Profile *ProfileDigests `json:"kiff_profile,omitempty"`
@@ -1858,6 +1889,10 @@ func (s *Server) approve(w http.ResponseWriter, r *http.Request, sr signedReques
 		return
 	}
 
+	if fresh {
+		s.connectFreshConnector(w, r, sr, g)
+		return
+	}
 	if g.Request.Connector != nil {
 		s.approveConnector(w, r, sr, g)
 		return
@@ -2126,7 +2161,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 					_ = s.revokeToken(r.Context(), g, t.tok, t.hint)
 				}
 			}
-			g.Status, g.Reconnect = StatusNeedsReconnect, false
+			g.Status, g.Reconnect, g.FreshFrom = StatusNeedsReconnect, false, ""
 			g.event(s.now(), otherAccount(g, tok)+" was refused; still waiting for the owner to sign in again")
 			_ = s.saveGrant(r.Context(), g)
 			s.page(w, lang, http.StatusConflict, l.NotConnected, otherAccountPage(l, g, tok)+" "+l.SignInTafAccount)
@@ -2217,6 +2252,19 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		if g.Reconnect && g.FreshFrom != "" {
+			// A fresh sign-in: not held to the old account, which the
+			// signed-out connections on it share, so they come back with this one.
+			ids, err := s.freshConnector(r, g)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			v := s.view(r, g)
+			v.Grants = ids
+			writeJSON(w, http.StatusOK, v)
+			return
+		}
 		if g.Reconnect {
 			// Signed in again: the same grant, connected with what it had.
 			if err := s.reconnectConnector(r, g); err != nil {
