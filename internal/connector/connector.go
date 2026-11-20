@@ -175,12 +175,18 @@ func (t Tool) Covered(granted []string) bool {
 		if slices.Contains(granted, need) || strings.HasSuffix(need, ".readonly") && slices.Contains(granted, strings.TrimSuffix(need, ".readonly")) {
 			return true
 		}
-		if name, ok := strings.CutPrefix(need, "read_"); ok && slices.Contains(granted, "write_"+name) {
+		if name, ok := strings.CutPrefix(need, "read_"); ok && writeImpliesRead[strings.ToLower(t.Toolkit)] && slices.Contains(granted, "write_"+name) {
 			return true
 		}
 	}
 	return false
 }
+
+// writeImpliesRead lists the toolkits whose vendor reports only the write
+// scope when it grants the read one too (Shopify's write_orders covers
+// read_orders). A vendor is added here once its own docs say so, never by
+// guess: elsewhere a write scope grants no read.
+var writeImpliesRead = map[string]bool{"shopify": true}
 
 // urlForm says a scope is written as a URL (https://…/auth/drive) rather
 // than a short name (drive.readonly).
