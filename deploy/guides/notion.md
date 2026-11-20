@@ -4,6 +4,7 @@ Checked: 2026-11-14 · Sources: the connection service's Notion tool
 definitions as planque reads them (56 tools), and Notion's API reference
 (request limits, status codes, authorization).
 Failure table checked against planque's answers on 2026-11-16.
+Sign-in steps checked on a run through the owner's phone, 2026-11-20.
 
 ## How it connects
 
@@ -17,12 +18,20 @@ Failure table checked against planque's answers on 2026-11-16.
   new sign-in.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
+- **Notion's sign-in can't be narrowed.** Its page asks for broad access; the
+  taf's Card sets what the taf may do. Say so before the owner taps Allow.
+- **The whole sign-in has 15 minutes:** choose the account, let Notion set up
+  a workspace if there is none (free plan, no invitations, no setup session,
+  no trial), pick pages. Two runs failed on the deadline. Tell the owner the
+  clock first.
+- **Check the workspace.** Notion's page names it; the connection doesn't
+  show the account. If it isn't the one meant, the owner backs out: nothing
+  is granted.
 
 ## Tools a job usually needs
 
 A tool marked read fetches from the workspace; one marked write creates,
-changes or sends. Notion's catalog entries give no `returns` paths today;
-the ids below are those Notion's answers carry.
+changes or sends. The ids below are those Notion's answers carry.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
@@ -44,9 +53,8 @@ same one later; a database's id and its property ids, so filters and new
 rows use the right columns. Never search by title for something the taf
 made: titles change and repeat. Use the id it kept.
 
-**Start with reads.** "Summarise what changed in this database" needs only
-the read tools. For writes, prefer adding a row or a comment over editing
-what a person wrote.
+**Start with reads.** For writes, prefer adding a row or a comment over
+editing what a person wrote.
 
 ## Don't offer
 
@@ -54,35 +62,29 @@ what a person wrote.
   and `NOTION_UPDATE_ROW_DATABASE` or `NOTION_UPDATE_PAGE` with their delete
   or archive option): they take content away from the team.
 - Rewriting what people wrote (`NOTION_UPDATE_PAGE_MARKDOWN`,
-  `NOTION_UPDATE_BLOCK`), except on pages the taf made.
-- Many rows at once (`NOTION_UPSERT_ROW_DATABASE`), and new databases or
-  copies (`NOTION_CREATE_DATABASE`, `NOTION_DUPLICATE_PAGE`).
+  `NOTION_UPDATE_BLOCK`) except on pages the taf made; many rows at once
+  (`NOTION_UPSERT_ROW_DATABASE`); new databases or copies.
 - Changing a database's columns or views (`NOTION_UPDATE_SCHEMA_DATABASE`,
   `NOTION_CREATE_VIEW`, `NOTION_UPDATE_VIEW`, `NOTION_DELETE_VIEW`): it
   changes the table for everyone who uses it.
-- Moving pages (`NOTION_MOVE_PAGE`) and listing the workspace's members
-  (`NOTION_LIST_USERS`), unless the job is about exactly that.
-- The tools that turn a sentence into a row (`NOTION_INSERT_ROW_FROM_NL`):
-  the taf can't show the owner exactly what will be written before it is.
+- Moving pages, listing the workspace's members, and the tool that turns a
+  sentence into a row (`NOTION_INSERT_ROW_FROM_NL`): the owner can't see what
+  will be written first.
 
 ## Access and plans
 
+- **A tool the sign-in doesn't cover** comes under `unusable`: offer the tools
+  that work; a new sign-in won't add them.
 - **What the taf sees is what the owner shared** at sign-in, not the whole
   workspace. A job that needs a new page or database needs it shared first.
-- **The sign-in's abilities** (read content, insert, update, comment) are
-  set by Notion's connection. A tool outside them comes under `unusable`.
-- **Rate:** Notion gives each connection a budget per minute, set by the
-  workspace's plan: 180 calls a minute on most plans, 600 on its Business
-  and Enterprise plans. It also limits the whole workspace across all its
-  connections, scaled to the plan. Querying a
-  database has its own limit of about three a second. A job that reads
-  hundreds of rows a run should page and pause.
-- **Size per request:** at most 100 blocks in one append, about 1,000
-  elements and 500 KB in all, and 2,000 characters in one piece of text.
-  Long content goes in several calls.
-- **Block cap:** on a Free workspace with more than one member, some
-  connections can add at most 1,000 blocks in its lifetime. Deleting doesn't
-  give any back; only upgrading lifts it. Reads and edits still work.
+- **Rate:** 180 calls a minute per connection on most plans, 600 on Business
+  and Enterprise, and a workspace-wide limit too. Querying a database is
+  about three a second: a job that reads hundreds of rows should page and
+  pause.
+- **Size per request:** at most 100 blocks in one append and 2,000
+  characters in one piece of text. Long content goes in several calls.
+- **Block cap:** on a Free workspace with several members, some connections
+  can add at most 1,000 blocks in total; only upgrading lifts it.
 
 ## When it fails
 
