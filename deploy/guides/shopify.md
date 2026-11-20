@@ -43,7 +43,7 @@ or sends. The ids below are what Shopify's answers carry.
 
 **What the sign-in asks for:** every scope the managed sign-in offers (34).
 The Card decides what a taf may do: offer the tools the job needs, and
-writes only when the owner asked.
+write tools when the owner asks for them.
 
 **What to keep:** the order and customer ids the taf worked on, and each
 draft order and refund id it creates. Never search for something the taf
@@ -79,12 +79,12 @@ owner the amount. A refund moves real money: it waits for their yes.
 - **Orders and customers' names, emails and addresses** are protected data.
   A public app needs Shopify's approval on a live store. The owner's own app
   on a development store needs no review, but its "protected customer data"
-  form (reasons, and nine data-protection answers) must be saved **and
-  released as a new app version** ("Publier"). Saved alone it stays a draft:
-  orders are refused while draft orders work. Guide the owner through each
-  tap, naming the screen; don't do it for them.
-- **Shopify reports the write access when it grants write:** a job that reads
-  orders is covered by an app allowed to write them.
+  form (reasons and data-protection answers) must be saved **and
+  released as a new app version** (the "Release" button; "Publier" in French). Saved alone it stays a draft:
+  orders are refused while draft orders work. Guide the owner tap by tap;
+  don't do it for them.
+- **Shopify reports write access when it grants write:** it covers reading
+  orders too.
 - **Rate:** about 2 calls a second, bursts up to 40; ten times that on
   Shopify Plus. Over it, Shopify says how long to wait.
 - **Paging:** lists come a page at a time; 250 items at most in one input.
@@ -101,7 +101,7 @@ refusals, and an expired sign-in, are in the part below.
 | Refused for missing access (403) | The sign-in didn't give this tool's access | "Shopify is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | A result missing older orders | No "all orders" access, so only the last 60 days are visible | "Shopify only showed the last 60 days of orders. To look further back, sign in again and allow access to all orders." |
 | Refused (429), too many calls | Over the store's call rate | "Shopify asked us to slow down. The taf will try again in a moment." |
-| Refused (402), payment required | The store is frozen for an unpaid Shopify bill | "Your Shopify store is paused until its bill is paid. Nothing was changed." |
+| Refused (402), payment required | The store is frozen for an unpaid Shopify bill: every call fails; not a sign-in problem | "Your Shopify store is paused until its bill is paid. Nothing was changed." |
 | Refused as invalid (422) | A required field is missing, or the action doesn't fit the order | "Shopify didn't accept that change to the order. The taf has stopped and will show you what it tried." |
 | Refused (404), not found | The order, customer or product was deleted | "That isn't in your store any more. The taf will skip it." |
 | Shopify's sign-in has expired (401) | The app was removed from the store, or access expired | "Shopify needs you to connect the store again. Nothing was changed." |

@@ -73,6 +73,8 @@ editing what a person wrote.
 
 ## Access and plans
 
+- **A tool the sign-in doesn't cover** comes under `unusable`: offer the tools
+  that work; a new sign-in won't add them.
 - **What the taf sees is what the owner shared** at sign-in, not the whole
   workspace. A job that needs a new page or database needs it shared first.
 - **Rate:** 180 calls a minute per connection on most plans, 600 on Business

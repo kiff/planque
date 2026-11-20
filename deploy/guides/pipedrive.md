@@ -17,7 +17,7 @@ Search and listing checked on a run through the owner's phone, 2026-11-20.
   Ask for every tool the job needs in the first request.
 - **A sign-in unused for 60 days ends.** Then the owner signs in again.
 - **Pipedrive's access screen asks for broad access to deals**, even for a taf
-  that only looks at them; the sign-in can't be narrowed. The taf's Card sets
+  whose job is to read them; the sign-in can't be narrowed. The taf's Card sets
   what the taf may do. Say so before the owner taps Allow.
 
 ## Tools a job usually needs
