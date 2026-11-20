@@ -1402,6 +1402,101 @@ func reconnectRefusal(r *http.Request, g *Grant, why error, signedAs string) err
 	return apiCoded{errAccountUnknown, CodeAccountUnknown, fmt.Sprintf(c.OtherAccountAnyF, app, want)}
 }
 
+// connectFreshConnector starts a new sign-in for a signed-out managed
+// connection whose account can't be compared, because its name was never
+// kept: "sign in again" is refused for it before any sign-in. The new
+// sign-in isn't held to the old account, so it is offered only where no
+// comparison could have been made; a connection that has its account's name
+// signs in again on that account, never on another. Confirmed
+// (freshConnector), it connects this grant and every signed-out one on the
+// old account.
+func (s *Server) connectFreshConnector(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant) {
+	switch {
+	case g.Request.Connector == nil:
+		writeErr(w, http.StatusConflict, "only an app that signs in through a connection provider signs in fresh")
+		return
+	case g.Status != StatusNeedsReconnect || g.Connector == nil || g.Connector.Account == "":
+		writeErr(w, http.StatusConflict, "this connection is "+g.Status+": there is no signed-out sign-in to replace")
+		return
+	case !freshOnly(g):
+		writeErr(w, http.StatusConflict, "this connection's account is known: sign in again to that account, or remove access and connect the other one")
+		return
+	}
+	p, err := s.provider(g)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
+		writeErr(w, http.StatusForbidden, errNotDisclosed)
+		return
+	}
+	from := g.Connector.Account
+	g.Reconnect, g.ReconnectName, g.FreshFrom, g.Reason = true, "", from, ""
+	if !s.startConnectorSignIn(w, r, sr.approval, g, p, "a fresh sign-in was approved "+sr.approval.Who()+" to connect again") {
+		g.Reconnect, g.FreshFrom = false, ""
+	}
+}
+
+// freshConnector confirms a connect-fresh sign-in: g is connected again on
+// the new sign-in with the tools it had, in KIFF as they were, and so is
+// every other signed-out connection of the tenant that was on the same old
+// provider account, each with its own tools, registration and Card as they
+// were. It answers their ids, g's first. A connection that can't be saved
+// stays signed out, for the next fresh sign-in.
+func (s *Server) freshConnector(r *http.Request, g *Grant) ([]string, error) {
+	ctx := r.Context()
+	from := g.FreshFrom
+	g.Request.Connector.Account = g.Connector.Account
+	var err error
+	if g.Digest, err = digest(g.Request); err != nil {
+		return nil, err
+	}
+	g.Status, g.Reconnect, g.FreshFrom, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", "", time.Time{}
+	g.SignedOutAt = time.Time{}
+	g.event(s.now(), "connected again on a fresh sign-in with the same tools and Card")
+	if err := s.saveGrant(ctx, g); err != nil {
+		return nil, err
+	}
+	ids := []string{g.ID}
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	if err != nil {
+		s.log().WarnContext(ctx, "fresh sign-in: the account's other connections couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		return ids, nil
+	}
+	onOld := func(o *Grant) bool {
+		return o.ID != g.ID && o.Status == StatusNeedsReconnect && !o.Reconnect && o.Request.Connector != nil && o.Connector != nil &&
+			o.Connector.Account == from && o.Connector.AccountName == "" && o.Request.Connector.Provider == g.Request.Connector.Provider &&
+			o.Request.Connector.Toolkit == g.Request.Connector.Toolkit
+	}
+	for _, it := range items {
+		var seen Grant
+		if json.Unmarshal(it.Doc, &seen) != nil || !onOld(&seen) {
+			continue
+		}
+		// Read again, for its version: a grant someone else just changed isn't moved.
+		o, err := s.loadGrant(ctx, g.Tenant, seen.ID)
+		if err != nil || !onOld(o) {
+			continue
+		}
+		o.Connector = &ConnectorState{User: g.Connector.User, Session: g.Connector.Session, Account: g.Connector.Account, Tools: o.Connector.Tools,
+			AccountName: g.Connector.AccountName, Granted: g.Connector.Granted, Mode: g.Connector.Mode, ModeSeenAt: g.Connector.ModeSeenAt}
+		o.Request.Connector.Account = g.Connector.Account
+		if o.Digest, err = digest(o.Request); err != nil {
+			s.log().WarnContext(ctx, "fresh sign-in: a connection wasn't moved", slog.String("grant", o.ID), slog.String("err", err.Error()))
+			continue
+		}
+		o.Status, o.Reason, o.HeldUntil, o.SignedOutAt = StatusConnected, "", time.Time{}, time.Time{}
+		o.event(s.now(), "connected again on the fresh sign-in of "+g.ID+": its tools are as they were")
+		if err := s.saveGrant(ctx, o); err != nil {
+			s.log().WarnContext(ctx, "fresh sign-in: a connection wasn't moved", slog.String("grant", o.ID), slog.String("err", err.Error()))
+			continue
+		}
+		ids = append(ids, o.ID)
+	}
+	return ids, nil
+}
+
 func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 	ctx := r.Context()
 	refused := error(nil)
@@ -1426,7 +1521,7 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 				s.log().WarnContext(ctx, "reconnect refused: its sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
 			}
 		}
-		g.Status, g.Reconnect = StatusNeedsReconnect, false
+		g.Status, g.Reconnect, g.FreshFrom = StatusNeedsReconnect, false, ""
 		g.event(s.now(), "the new sign-in couldn't be shown to be on this connection's account; not reconnected")
 		if err := s.saveGrant(ctx, g); err != nil {
 			return err
