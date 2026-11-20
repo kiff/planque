@@ -58,6 +58,18 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 	if err := e.s.saveGrant(ctx, held); err != nil {
 		t.Fatal(err)
 	}
+	// Two more connections: one on the same provider account, one on another.
+	twin, other := *held, *held
+	for gid, c := range map[string]*Grant{"grt_same_account": &twin, "grt_other_account": &other} {
+		bound := *held.Connector
+		c.ID, c.Connector, c.ver = gid, &bound, 0
+	}
+	other.Connector.Account = "another_account"
+	for _, c := range []*Grant{&twin, &other} {
+		if err := e.s.saveGrant(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
 	entry := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
 	st, out := e.do("POST", entry, map[string]any{"agent": "agt_first", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
 	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusListed || v["signed_in"] != true {
@@ -73,6 +85,13 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 	after, _ := e.s.loadGrant(ctx, tenant, g.ID)
 	if !after.Connector.ScopesRefused || grantedScopes(after) != nil {
 		t.Fatalf("the account isn't marked: refused %v, scopes %v", after.Connector.ScopesRefused, grantedScopes(after))
+	}
+	// The account's other connection is marked; another account's is not.
+	for gid, want := range map[string]bool{"grt_same_account": true, "grt_other_account": false} {
+		c, err := e.s.loadGrant(ctx, tenant, gid)
+		if err != nil || c.Connector.ScopesRefused != want {
+			t.Fatalf("%s: refused %v (%v), want %v", gid, c != nil && c.Connector.ScopesRefused, err, want)
+		}
 	}
 	st, out = e.do("POST", entry, map[string]any{"agent": "agt_second", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
 	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusPending || v["signed_in"] == true {
