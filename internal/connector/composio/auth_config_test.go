@@ -409,3 +409,86 @@ func TestEachToolAsksForTheNarrowestScopeItAccepts(t *testing.T) {
 		t.Fatalf("a draft with gmail.compose in the ceiling: %+v %v, asks %v", scoped, err, asked)
 	}
 }
+
+// 20 Nov: every Calendar create got Google's 403 "insufficient authentication
+// scopes" on a sign-in pinned to calendar.events. The provider's create lists
+// the calendar's own scopes beside the events' because it reads the calendar
+// first, so a create takes calendar, the one managed scope that reaches both.
+// A quick add, which lists events' scopes only, keeps calendar.events, and a
+// read still never takes more than it needs.
+func TestACalendarWriteThatReadsTheCalendarTakesTheWholeScope(t *testing.T) {
+	const g = "https://www.googleapis.com/auth/"
+	ceiling := []string{g + "calendar", g + "calendar.events"}
+	tool := func(slug string, read bool, scopes ...string) string {
+		tags := `[]`
+		if read {
+			tags = `["readOnlyHint"]`
+		}
+		b, _ := json.Marshal(scopes)
+		return `{"slug":"` + slug + `","name":"` + slug + `","toolkit":{"slug":"googlecalendar"},"version":"20300101_00","description":"x","input_parameters":{"type":"object","properties":{}},"tags":` + tags + `,"scopes":` + string(b) + `}`
+	}
+	items := map[string]string{
+		// As the provider lists them (planque's generated guide, 13 Nov).
+		"GOOGLECALENDAR_CREATE_EVENT": tool("GOOGLECALENDAR_CREATE_EVENT", false, g+"calendar", g+"calendar.app.created", g+"calendar.events", g+"calendar.events.owned",
+			g+"calendar.calendars", g+"calendar.calendars.readonly", g+"calendar.readonly"),
+		"GOOGLECALENDAR_QUICK_ADD":   tool("GOOGLECALENDAR_QUICK_ADD", false, g+"calendar", g+"calendar.events", g+"calendar.events.owned", g+"calendar.app.created"),
+		"GOOGLECALENDAR_EVENTS_LIST": tool("GOOGLECALENDAR_EVENTS_LIST", true, g+"calendar", g+"calendar.events", g+"calendar.events.readonly", g+"calendar.readonly"),
+	}
+	var asked []string
+	made := 0
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/api/v3.1/auth_configs":
+			if r.Method == http.MethodPost {
+				made++
+				var body struct {
+					AuthConfig struct {
+						Credentials struct {
+							Scopes []string `json:"scopes"`
+						} `json:"credentials"`
+					} `json:"auth_config"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				asked = body.AuthConfig.Credentials.Scopes
+				return response(200, `{"toolkit":{"slug":"googlecalendar"},"auth_config":{"id":"ac_c`+strconv.Itoa(made)+`","auth_scheme":"OAUTH2","is_composio_managed":true}}`), nil
+			}
+			return response(200, `{"items":[{"id":"ac_usual","auth_scheme":"OAUTH2","status":"ENABLED","is_composio_managed":true,"toolkit":{"slug":"googlecalendar"}}]}`), nil
+		case "/api/v3.1/toolkits/googlecalendar":
+			b, _ := json.Marshal(ceiling)
+			return response(200, `{"slug":"googlecalendar","name":"Google Calendar","composio_managed_auth":[{"mode":"OAUTH2","scopes":{"available":`+string(b)+`}}],`+
+				`"auth_config_details":[{"mode":"OAUTH2","required_scopes":[]}]}`), nil
+		case "/api/v3.1/tools":
+			var out []string
+			for _, s := range strings.Split(r.URL.Query().Get("tool_slugs"), ",") {
+				out = append(out, items[s])
+			}
+			return response(200, `{"items":[`+strings.Join(out, ",")+`]}`), nil
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL)
+		return nil, nil
+	})
+	ctx := context.Background()
+	app, err := c.App(ctx, "googlecalendar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c2 := range []struct {
+		name  string
+		tools []string
+		want  []string
+		wide  bool
+	}{
+		{"a create, which reads the calendar first", []string{"GOOGLECALENDAR_CREATE_EVENT"}, []string{g + "calendar"}, false},
+		{"a quick add, events only", []string{"GOOGLECALENDAR_QUICK_ADD"}, []string{g + "calendar.events"}, false},
+		{"a read and a create", []string{"GOOGLECALENDAR_EVENTS_LIST", "GOOGLECALENDAR_CREATE_EVENT"}, []string{g + "calendar", g + "calendar.events"}, true},
+	} {
+		asked = nil
+		scoped, err := c.Scope(ctx, app, c2.tools, connector.Allowance{})
+		if asked == nil {
+			asked = slices.Clone(scoped.Scopes)
+		}
+		if err != nil || scoped.Wide != c2.wide || strings.Join(asked, " ") != strings.Join(c2.want, " ") {
+			t.Fatalf("%s: %+v %v, asks %v, want %v (wide %v)", c2.name, scoped, err, asked, c2.want, c2.wide)
+		}
+	}
+}
