@@ -59,10 +59,13 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Two more connections: one on the same provider account, one on another.
+	// Both are older than the connection under test, so heldSignIn (newest
+	// first) always takes that one, whatever order the store lists them in.
 	twin, other := *held, *held
 	for gid, c := range map[string]*Grant{"grt_same_account": &twin, "grt_other_account": &other} {
 		bound := *held.Connector
 		c.ID, c.Connector, c.ver = gid, &bound, 0
+		c.Request.CreatedAt = "2026-11-01T00:00:00Z"
 	}
 	other.Connector.Account = "another_account"
 	for _, c := range []*Grant{&twin, &other} {
