@@ -29,8 +29,11 @@ import (
 	"github.com/kiff/planque/internal/words"
 )
 
-// signInTTL is how long a sign-in link works.
-const signInTTL = 15 * time.Minute
+// signInTTL is how long a sign-in link works, from the owner's approval to the
+// code that confirms it. It was 15 minutes; a phone test on 21 Nov 2026 showed
+// choosing an account, setting up a workspace and sharing pages takes longer
+// (Notion failed on it twice). The link stays single-use.
+const signInTTL = 60 * time.Minute
 
 // holdTTL is how long planque keeps a confirmed sign-in that connects
 // nothing (connect first): the tools must be set and approved by then.
