@@ -546,10 +546,12 @@ var errSignInRefused = errors.New("planque: the vendor refused the sign-in to re
 // server refuses it. A refusal is errSignInRefused, and g is signed out as
 // any refused refresh signs it out. A vendor that can't be reached isn't a
 // refusal: reuse goes on, as it did. Only an OAuth sign-in to an MCP server
-// is read; a key or a managed app's sign-in is checked where it's used.
-func (s *Server) signInWorks(ctx context.Context, g *Grant) error {
+// is read; a key or a managed app's sign-in is checked where it's used. It
+// returns the tools that read listed (none when it read none), so the
+// request's tools are checked against them with no second read.
+func (s *Server) signInWorks(ctx context.Context, g *Grant) ([]mcpTool, error) {
 	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindAPIKey || g.Request.Kind == KindBrowser {
-		return nil
+		return nil, nil
 	}
 	refused := func(err error) error {
 		var so signedOutError
@@ -560,18 +562,22 @@ func (s *Server) signInWorks(ctx context.Context, g *Grant) error {
 	}
 	access, ver, err := s.accessToken(ctx, g, 0)
 	if err != nil {
-		return refused(err)
+		return nil, refused(err)
 	}
 	for attempt := 0; ; attempt++ {
-		_, _, err = s.MCP.ListTools(ctx, g.Request.Server, access)
+		var listed []mcpTool
+		listed, _, err = s.MCP.ListTools(ctx, g.Request.Server, access)
 		if !errors.Is(err, mcp.ErrUnauthorized) {
-			return nil
+			if err != nil {
+				return nil, nil
+			}
+			return listed, nil
 		}
 		if attempt > 0 {
-			return errSignInRefused
+			return nil, errSignInRefused
 		}
 		if access, ver, err = s.accessToken(ctx, g, ver); err != nil {
-			return refused(err)
+			return nil, refused(err)
 		}
 	}
 }

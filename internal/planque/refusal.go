@@ -67,6 +67,9 @@ const (
 	refRequiredArgument = "required_argument" // a narrowed tool leaves out an argument the operation requires
 	refTextUnclear      = "text_unclear"      // a write that reaches someone, with no text-named argument and more free strings than disclose takes; tool = it
 
+	// serverToolsCheck: the tools against a reused MCP server's list now
+	refNotListed = "not_listed" // the server lists no tool by the tool's name; want = the names it lists
+
 	// notServed: a managed app's tool planque never serves (connector.NeverServed)
 	refToolNotServed = "tool_not_served" // tool = its slug; field = "tools" (a catalog request) or "tool" (setting tools); a broad write narrowed to an operation in describer.Never: tool = its name, field = the operation's argument
 )
