@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -22,11 +23,16 @@ var whoAmI = map[string]struct {
 }{
 	"linkedin":       {[]string{"LINKEDIN_GET_MY_INFO", "LINKEDIN_WHO_AM_I"}, []string{"email", "name", "localizedFirstName localizedLastName", "given_name family_name"}},
 	"googledrive":    {[]string{"GOOGLEDRIVE_GET_ABOUT"}, []string{"emailAddress", "displayName"}},
-	"googlecalendar": {[]string{"GOOGLECALENDAR_GET_CURRENT_USER"}, []string{"email", "emailAddress", "id"}},
+	"googlecalendar": {[]string{"GOOGLECALENDAR_GET_CURRENT_USER"}, []string{"email", "emailAddress"}},
 	"outlook":        {[]string{"OUTLOOK_GET_PROFILE"}, []string{"mail", "userPrincipalName", "displayName"}},
 	"github":         {[]string{"GITHUB_GET_THE_AUTHENTICATED_USER"}, []string{"login"}},
 	"typeform":       {[]string{"TYPEFORM_GET_ABOUT_ME"}, []string{"email", "alias"}},
 }
+
+// whoAmITimeout bounds the read: it runs inside the sign-in's confirm, on the
+// path whose bar is "connect works first time", so a slow vendor never holds
+// it. A timeout reads as any failure: the name stays empty.
+var whoAmITimeout = 4 * time.Second
 
 // maxAccountName bounds a name: one line the owner reads.
 const maxAccountName = 120
@@ -50,6 +56,8 @@ func (s *Server) nameAccount(ctx context.Context, g *Grant) {
 	skip := func(why string) {
 		s.log().InfoContext(ctx, "account not named", slog.String("toolkit", toolkit), slog.String("why", why))
 	}
+	ctx, cancel := context.WithTimeout(ctx, whoAmITimeout)
+	defer cancel()
 	p, err := s.provider(g)
 	if err != nil {
 		skip("provider")
@@ -113,16 +121,16 @@ func accountNameIn(data json.RawMessage, fields []string) string {
 func findText(v any, key string) string {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, val := range x {
-			if s, ok := val.(string); ok && strings.EqualFold(k, key) && strings.TrimSpace(s) != "" {
-				return s
-			}
-		}
 		keys := make([]string, 0, len(x))
 		for k := range x {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
+		for _, k := range keys {
+			if s, ok := x[k].(string); ok && strings.EqualFold(k, key) && strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
 		for _, k := range keys {
 			if s := findText(x[k], key); s != "" {
 				return s

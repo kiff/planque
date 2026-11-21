@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/connector"
 )
@@ -84,6 +85,8 @@ func TestTheAccountIsNamedByTheAppsOwnWhoAmI(t *testing.T) {
 			`{"data":{"email":"carolina@kiff.dev"}}`, []string{g + "calendar.events"}, nil, "", false},
 		{"Calendar, the whole scope covers it", "googlecalendar", tool("GOOGLECALENDAR_GET_CURRENT_USER", "googlecalendar", g+"calendar", g+"calendar.readonly"),
 			`{"data":{"email":"carolina@kiff.dev"}}`, []string{g + "calendar"}, nil, "carolina@kiff.dev", true},
+		{"Calendar, an opaque id is never taken for the account", "googlecalendar", tool("GOOGLECALENDAR_GET_CURRENT_USER", "googlecalendar", g+"calendar", g+"calendar.readonly"),
+			`{"data":{"id":"x9f2opaque"}}`, []string{g + "calendar"}, nil, "", true},
 		{"Outlook, User.Read", "outlook", tool("OUTLOOK_GET_PROFILE", "outlook", "User.Read", "User.ReadBasic.All"),
 			`{"data":{"mail":null,"userPrincipalName":"carolona@kiff.dev","displayName":"Carolina Arias Moreno"}}`, []string{"Mail.Read", "User.Read"}, nil, "carolona@kiff.dev", true},
 		{"Outlook, mail only doesn't cover the profile", "outlook", tool("OUTLOOK_GET_PROFILE", "outlook", "User.Read", "User.ReadBasic.All"),
@@ -178,5 +181,61 @@ func TestTheSignInIsNamedAtConfirmAndNotBefore(t *testing.T) {
 	}
 	if gr.Connector.AccountName != "carolina-test" || f.whoCalls != 1 || f.executions != 0 {
 		t.Fatalf("named %q after %d who-am-I reads and %d of the taf's calls", gr.Connector.AccountName, f.whoCalls, f.executions)
+	}
+}
+
+// A who-am-I that never answers is cut at its own short deadline and reads as
+// any failure: no name, and the sign-in's confirm is not held for it
+// (mac-local's review of the account-name change).
+func TestAWhoAmIThatNeverAnswersIsCutShort(t *testing.T) {
+	old := whoAmITimeout
+	whoAmITimeout = 50 * time.Millisecond
+	t.Cleanup(func() { whoAmITimeout = old })
+	tl := connector.Tool{Slug: "GITHUB_GET_THE_AUTHENTICATED_USER", Toolkit: "github", Version: "20300101_00", Name: "me", InputSchema: json.RawMessage(`{"type":"object"}`), ReadOnly: true, Scopes: []string{"user"}}
+	e := newInProcessEnv(t)
+	p := &slowWho{whoProvider: whoProvider{t: t, tools: map[string]connector.Tool{tl.Slug: tl}}}
+	e.s.Connectors = map[string]connector.Provider{"composio": p}
+	gr := whoGrant(e, "github", []string{"user"}, nil)
+	start := time.Now()
+	e.s.nameAccount(context.Background(), gr)
+	if gr.Connector.AccountName != "" || time.Since(start) > 2*time.Second || !p.cut {
+		t.Fatalf("named %q after %v, cut %v", gr.Connector.AccountName, time.Since(start), p.cut)
+	}
+}
+
+// slowWho answers its read only when its context ends.
+type slowWho struct {
+	whoProvider
+	cut bool
+}
+
+func (p *slowWho) Execute(ctx context.Context, _ connector.Identity, _ string, _ connector.Tool, _ json.RawMessage, _ func() bool) (connector.Result, error) {
+	<-ctx.Done()
+	p.cut = true
+	return connector.Result{}, ctx.Err()
+}
+
+// Names come from vendor answers now, so a sign-in again to the same account
+// is the same account whatever the case it comes back in.
+// Category: authority
+// Attack: a sign-in again refused for a difference of case only, so the right account is turned away (and the owner told it is another one)
+// Refused: nothing refused: it reconnects
+func TestASignInAgainToTheSameAccountInAnotherCaseReconnects(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	f.distinct = true
+	first := connectConnector(t, e, f)
+	signOut401(t, e, f, first)
+	g, _ := e.s.loadGrant(ctx, tenant, first.ID)
+	path := "/v1/accounts/" + tenant + "/grants/" + first.ID
+	e.at(time.Minute)
+	e.phone.Now = func() time.Time { return time.Now().Add(time.Minute) }
+	if st, out := e.do("POST", path+"/approve", reapprove(g), e.phone, ""); st != 200 {
+		t.Fatalf("sign in again: %d %v", st, out)
+	}
+	f.accountName = "DEMO SHOP"
+	code := e.signIn(f.callback + "&status=ACTIVE")
+	if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm the same account in another case: %d %v", st, out)
 	}
 }
