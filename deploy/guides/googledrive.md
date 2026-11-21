@@ -12,6 +12,10 @@ Failure table checked against planque's answers on 2026-11-16.
   under `unusable`, with why. Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
 - **One approval for the sign-in, one for the tools and the Card.**
+- **Which account:** Google's chooser lists every Google account signed in on
+  the phone, in Google's own order, and the connection takes the one tapped.
+  When it can (the sign-in's scopes cover Google's own "who am I" read), the
+  connection line names the account: check it is the one the job is for.
 
 ## Two kinds of access
 
@@ -44,13 +48,22 @@ access; for files the owner already has, the sign-in needs the whole Drive.
 | `GOOGLEDRIVE_FIND_FILE` | Finds files by name, type, folder or date | read | file ids |
 | `GOOGLEDRIVE_FIND_FOLDER` | Finds folders by name | read | folder ids |
 | `GOOGLEDRIVE_GET_FILE_METADATA` | Reads a file's name, type, folder, link | read | its link |
-| `GOOGLEDRIVE_DOWNLOAD_FILE` | Downloads a file's content | read | |
-| `GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE` | Exports a Google Doc, Sheet or Slides file as PDF or text | read | |
+| `GOOGLEDRIVE_DOWNLOAD_FILE` | Downloads a file's content. **For a Google Doc, Sheet or Slides file the result is a temporary storage link, not its text, and a taf has no tool to open that link** (a phone test on 21 Nov 2026) | read | |
+| `GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE` | Exports a Google Doc, Sheet or Slides file as PDF or text. Whether the text itself comes back, or a link like the download's, hasn't been checked on a phone yet | read | |
 | `GOOGLEDRIVE_CREATE_FOLDER` | Creates a folder | write | **the folder's id** |
 | `GOOGLEDRIVE_UPLOAD_FILE` | Uploads a file into a folder | write | **the file's id** |
 | `GOOGLEDRIVE_CREATE_FILE_FROM_TEXT` | Creates a file from text | write | the file's id |
 | `GOOGLEDRIVE_MOVE_FILE` | Moves a file to another folder | write | |
 | `GOOGLEDRIVE_TRASH_FILE` | Puts a file in the bin, where it stays 30 days | write | |
+
+**Reading a Google Doc's text:** Coach never tells the owner a taf will read
+a document until the tool that does it returns text in its result. For a
+Google Doc that is `GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT` in the Docs app,
+whose catalog access (`documents`) is the same access the Docs writes ask
+for, so a taf that writes a document can read it with no second sign-in.
+Don't fall back to `GOOGLEDRIVE_DOWNLOAD_FILE` for a Google Doc: it returns a
+link, and the taf then can't read the file it promised to read. If a read
+can't be done, Coach says so at the connect, before the owner approves.
 
 **What to keep:** the id of the folder the taf files into, and of each file
 it uploads. Finding "Receipts" by name every run breaks the day the owner

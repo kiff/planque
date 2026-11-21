@@ -16,6 +16,12 @@ Failure table checked against planque's answers on 2026-11-16.
   sign-in it always does (it reaches the whole mailbox, below).
 - **One approval for the sign-in, one for the tools and the Card.** Ask for
   every tool the job needs in the first request, so nothing is asked twice.
+- **Read the profile first** (`GMAIL_GET_PROFILE`). Refused with "Precondition
+  check failed": say "this Google account has no Gmail" before the Card, and
+  ask for another account. Refused for scope (403): that says nothing about
+  the mailbox; go on, and never widen the scopes just to read it.
+- **The sender is the connected account's own address,** never a display name
+  such as the taf's name.
 
 ## Tools a job usually needs
 
@@ -39,15 +45,13 @@ catalog's `returns` gives their exact paths.
 | `GMAIL_REPLY_TO_THREAD` | Sends a reply in a conversation | write, outside | the sent message id |
 | `GMAIL_SEND_EMAIL` | Sends a new email at once | write, outside | the sent message id |
 
-**What to keep:** a draft's id, to update or send that same draft later; a
+**What to keep:** a draft's id, to update or send that draft later; a
 message's thread id, to reply in the right conversation. Never search for
-something the taf made: use the id it kept.
+what the taf made: use the id it kept.
 
 **Start with reads.** "Draft, and let me check before anything is sent" is a
 read tool plus `GMAIL_CREATE_EMAIL_DRAFT`. Offer a sending tool only when
-the owner asked for sending, and say every send waits for their yes. The
-taf's tools and its Card are what keep a job to reading: the sign-in itself
-can do more (below).
+the owner asked for sending, and say every send waits for their yes.
 
 ## Don't offer
 
@@ -63,30 +67,23 @@ can do more (below).
   "read, compose, send and permanently delete", whatever the taf's tools:
   that sign-in offers no narrower Gmail access. A job that sends nothing
   still has a sign-in that can send and delete.
-  - The approval says so, from planque's grant: "Gmail will ask for more
-    access than this taf uses". Coach doesn't restate it, at any step, and
-    never says "only what this taf needs".
-  - What the taf may do is still only its tools and its Card. A taf with no
-    sending tool can't send, whatever the sign-in allows.
-  - Never describe the connection or its sign-in as limited to reading:
-    the managed one can't be.
+  - The approval says so, from planque's grant ("Gmail will ask for more
+    access than this taf uses"). Coach doesn't restate it, and never says
+    "only what this taf needs".
+  - The taf may still do only its tools and its Card allow.
+  - Never describe the sign-in as limited to reading: the managed one can't be.
 - **Never contacts, birthday, addresses or phone numbers:** a Gmail job asks
   for none of them.
-- The tools are named in the connect: a connect that names none asks for the
-  app's widest access, so the taf's planned tools are always named when it
-  connects.
+- Name the tools in the connect: one that names none asks for the app's
+  widest access.
 - **Daily sending caps are Google's:** about 500 recipients a day on a
-  personal account. A business (Workspace) account can send about 2,000
-  messages a day, to at most 10,000 recipients in all, fewer on a trial
-  account. A job that sends past its cap fails partway through.
-- **Attachments:** up to about 25 MB in a draft or reply on a personal
-  account; on a business account the admin sets the size. Larger files go
-  as a Drive link.
-- **A business account's admin** can block outside apps from Gmail. Then no
-  sign-in works until the admin allows it.
-- **Rate:** Google limits calls per user and per app, a minute at a time. A
-  job reading thousands of
-  messages a run should page and pause.
+  personal account, about 2,000 messages on a business one. A job sending
+  past its cap fails partway through.
+- **Attachments:** about 25 MB; larger files go as a Drive link.
+- **A business account's admin** can block outside apps: no sign-in works
+  until they allow it.
+- **Rate:** Google limits calls a minute. A job reading thousands of messages
+  should page and pause.
 
 ## When it fails
 
@@ -100,5 +97,6 @@ are in the part below.
 | Gmail's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
 | At sign-in: "App is blocked" | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
 | Refused (404), message or draft not found | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
-| Refused (400), `FAILED_PRECONDITION`, "Precondition check failed" | The connected Google account has no Gmail mailbox it can read: a work account with Gmail turned off, or one made without Gmail. Signing in again with the same account doesn't fix it | "The Google account connected for Gmail has no mailbox I can read. Connect Gmail again with the account whose inbox you want." |
+| Refused (400), `FAILED_PRECONDITION`, "Precondition check failed", or a send refused "Unable to resolve the sender email address" **on an account whose profile read is refused** | The Google account has no Gmail mailbox: Gmail turned off, or made without it. Signing in again with it doesn't fix it | "This Google account has no mailbox. Nothing was sent. Connect Gmail again with the account whose inbox you want." |
+| Refused (400), "Unable to resolve the sender email address" **on an account whose profile read works** | The sender was a name, not an address | Send again with the account's own address. |
 | Refused, daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |

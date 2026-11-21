@@ -86,11 +86,11 @@ the owner asked for reminders, and say each one waits for their yes.
 
 - **No paid Stripe plan is needed** for the API. Stripe charges its own fees
   on payments; a refund doesn't give its fee back.
-- **Test mode first:** every refund job starts on a test-mode sign-in, with
-  test payments, before the owner is offered live.
+- **Test mode first:** every refund job starts on a test-mode sign-in with
+  test payments. Calls are pinned to test mode; a refund counts against the
+  Card's money limit.
 - **Rate:** Stripe allows about 100 calls a second in live mode and 25 in
-  test mode. A refund job never comes near it; a job reading thousands of
-  payments should page.
+  test mode. A job reading thousands of payments should page.
 - **A refund can't be undone by a taf.** Stripe allows cancelling only a
   few kinds of refund, mostly from its own dashboard, so treat every refund
   as final.

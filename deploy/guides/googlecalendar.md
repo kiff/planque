@@ -14,6 +14,10 @@ Failure table checked against planque's answers on 2026-11-16.
   Reading free time needs less access than writing events, so ask for every
   tool the job needs in the first request.
 - **One approval for the sign-in, one for the tools and the Card.**
+- **Which account:** Google's chooser lists every Google account signed in on
+  the phone, in Google's own order, and the connection takes the one tapped.
+  When it can (the sign-in's scopes cover Google's own "who am I" read), the
+  connection line names the account: check it is the one the job is for.
 
 ## Tools a job usually needs
 
