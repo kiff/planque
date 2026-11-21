@@ -277,17 +277,6 @@ func Read(p Page) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// samePage says link stays on page: the same scheme, host and path, so only
-// its query or fragment differ, or it doesn't parse.
-func samePage(page, link string) bool {
-	a, errA := url.Parse(page)
-	b, errB := url.Parse(link)
-	if errA != nil || errB != nil {
-		return true
-	}
-	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host) && strings.TrimSuffix(a.Path, "/") == strings.TrimSuffix(b.Path, "/")
-}
-
 // Secret says the field's value is never shown and never typed by an
 // agent: a password, a card number or security code, a one-time code.
 func Secret(f Field) bool {
@@ -438,13 +427,14 @@ func Refuse(p Page, step Step) (code, why string) {
 			}
 			// A link can run the page's script instead of going anywhere
 			// (href="#" with a handler), so its words are a control's: one
-			// that says pay is refused. One that stays on the page, on a
-			// checkout or payment page, is refused like that page's controls.
+			// that says pay is refused. On a checkout or payment page no link
+			// is followed at all: neither its address nor its words can prove
+			// that following it places no order (a GET to /place-order).
 			switch {
 			case Pays(Control{Label: l.Label}):
 				return CodePaymentStep, "the link " + quote(l.Label) + " would pay or place an order; only browse_pay may, held for the owner"
-			case samePage(p.URL, l.URL) && (p.Checkout != nil || Payment(p)):
-				return CodePaymentStep, "on a checkout or payment page the taf follows no link that stays on the page (" + quote(l.Label) + "): it runs the page's script; only browse_pay may, held for the owner"
+			case p.Checkout != nil || Payment(p):
+				return CodePaymentStep, "on a checkout or payment page the taf follows no link (" + quote(l.Label) + "): it may place the order; only browse_pay may, held for the owner"
 			}
 			return "", ""
 		}
