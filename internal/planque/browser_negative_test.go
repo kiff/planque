@@ -56,7 +56,7 @@ func TestBrowserGrantsShareNoSignInAndNoCheckout(t *testing.T) {
 	if a.ID == b.ID {
 		t.Fatal("one grant for two tafs")
 	}
-	if _, sc := e.call(a, "browse_act", map[string]any{"url": fakes.ShopLogin, "steps": []map[string]any{{"fill": "user", "value": "ana@example.com"}, {"click": "signin"}}}); code(sc) != "" {
+	if _, sc := e.call(a, "browse_act", map[string]any{"url": fakes.ShopLogin, "read": e.b.ReadOf(fakes.ShopLogin), "steps": []map[string]any{{"fill": "user", "value": "ana@example.com"}, {"click": "signin"}}}); code(sc) != "" {
 		t.Fatalf("sign in on a: %v", sc)
 	}
 	if _, sc := e.call(b, named(b, "browse_open"), map[string]any{"url": fakes.ShopItem}); code(sc) != "" {

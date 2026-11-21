@@ -281,7 +281,7 @@ func TestBrowserReadsMaskSecretsAndStayOnTheSites(t *testing.T) {
 func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "steps": []map[string]any{{"fill": "qty", "value": "2"}, {"click": "add"}}})
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"fill": "qty", "value": "2"}, {"click": "add"}}})
 	if code(sc) != "" || sc["steps_run"] != float64(2) || sc["site"] != "shop.example" {
 		t.Fatalf("act: %s", out)
 	}
@@ -315,7 +315,7 @@ func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 		{"leaving the sites", fakes.Leaving, []map[string]any{{"click": "other"}}, browser.CodeSiteNotListed, 1},
 		{"a malformed step", fakes.ShopItem, []map[string]any{{"fill": "qty", "click": "add"}}, CodeBadArguments, 0},
 	} {
-		out, sc := e.call(g, "browse_act", map[string]any{"url": c.url, "steps": c.steps})
+		out, sc := e.call(g, "browse_act", map[string]any{"url": c.url, "read": e.b.ReadOf(c.url), "steps": c.steps})
 		if code(sc) != c.code || !strings.Contains(out, "Refused by planque") {
 			t.Errorf("%s: %s", c.name, out)
 		}
@@ -628,7 +628,7 @@ func TestACheckoutReadCountsForFifteenMinutes(t *testing.T) {
 func TestBrowserSignInIsSealedAndDeletedOnDisconnect(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	if _, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopLogin, "steps": []map[string]any{{"fill": "user", "value": "ana@example.com"}, {"click": "signin"}}}); code(sc) != "" {
+	if _, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopLogin, "read": e.b.ReadOf(fakes.ShopLogin), "steps": []map[string]any{{"fill": "user", "value": "ana@example.com"}, {"click": "signin"}}}); code(sc) != "" {
 		t.Fatalf("sign in: %v", sc)
 	}
 	if _, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != "" {
@@ -705,5 +705,37 @@ func TestBrowserIsOfferedOnlyWithAWorker(t *testing.T) {
 	}
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/browser/grants", map[string]any{"agent": "agt_taf"}, nil, "k_setup"); st != 503 {
 		t.Errorf("catalog ask without a worker: %d %v", st, out)
+	}
+}
+
+// A step runs only on the page the taf read: refs restart on each new
+// document, so after a navigation a ref can name an element the taf never
+// read. Here the second step names the cart's checkout link, which exists
+// only on the page the first step's click led to; before, it ran there.
+func TestBrowserActStepsRunOnlyOnThePageTheyWereReadFrom(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	before := e.b.Sent()
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"click": "add"}, {"click": "checkout"}}})
+	if code(sc) != browser.CodePageChanged || sc["steps_run"] != float64(1) || !strings.Contains(out, "step 2") {
+		t.Fatalf("a step on a page the taf didn't read: %s", out)
+	}
+	if e.b.Sent() != before+1 {
+		t.Fatalf("steps sent: %d, want 1", e.b.Sent()-before)
+	}
+	// A read of another page refuses the first step, and nothing is sent.
+	before = e.b.Sent()
+	out, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopCart), "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+	if code(sc) != browser.CodePageChanged || !strings.Contains(out, "step 1") || e.b.Sent() != before {
+		t.Fatalf("a stale read: %s (sent %d)", out, e.b.Sent()-before)
+	}
+	// browse_open gives the read browse_act names, and the page's read after.
+	_, sc = e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem})
+	if sc["read"] != e.b.ReadOf(fakes.ShopItem) {
+		t.Fatalf("browse_open's read: %v", sc["read"])
+	}
+	_, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": sc["read"], "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+	if code(sc) != "" || sc["read"] != e.b.ReadOf(fakes.ShopItem) {
+		t.Fatalf("a fill keeps the read (values aren't in it): %v", sc)
 	}
 }
