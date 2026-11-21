@@ -30,7 +30,7 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "rerun_kept", "rerun_off", "one_secret", "one_secret_kept", "one_secret_kept_events", "settings_unreadable"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "rerun_kept", "rerun_off", "one_secret", "one_secret_kept", "one_secret_kept_events", "settings_unreadable", "probe_fails", "settings_garbled"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
@@ -42,7 +42,10 @@ current_env=null
 aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
- "lambda get-function") [[ "$current_env" != null ]] && echo demo;;
+ "lambda get-function")
+  [[ -n "${probe_fails:-}" ]] && { echo "An error occurred (ThrottlingException)" >&2; return 1; }
+  [[ "$current_env" == null ]] && { echo "An error occurred (ResourceNotFoundException) when calling the GetFunction operation" >&2; return 1; }
+  echo demo;;
  "lambda get-function-configuration") [[ -z "${config_fails:-}" ]] && echo "$current_env";;
  "apigatewayv2 get-apis") echo abc123;;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
@@ -111,6 +114,11 @@ aws() {
 			case "settings_unreadable":
 				// The function is there, but its settings can't be read.
 				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio"}'` + "\nconfig_fails=1\nunset PLANQUE_COMPOSIO_SECRET\n"
+			case "probe_fails":
+				// Whether the function is there can't be told: not "missing".
+				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio"}'` + "\nprobe_fails=1\nunset PLANQUE_COMPOSIO_SECRET\n"
+			case "settings_garbled":
+				script += "current_env='not json'\nunset PLANQUE_COMPOSIO_SECRET\n"
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -128,8 +136,8 @@ aws() {
 			}
 			// Settings that can't be read stop the run before anything is
 			// written: read as none, it would drop every one.
-			if scenario == "settings_unreadable" {
-				if err == nil || strings.Contains(string(out), `"Statement"`) || !strings.Contains(string(out), "couldn't be read") {
+			if scenario == "settings_unreadable" || scenario == "probe_fails" || scenario == "settings_garbled" {
+				if err == nil || strings.Contains(string(out), `"Statement"`) || !strings.Contains(string(out), "nothing was changed") {
 					t.Fatalf("an unreadable function went on: %s", out)
 				}
 				return
