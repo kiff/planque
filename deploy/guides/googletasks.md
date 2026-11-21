@@ -12,6 +12,10 @@ Failure table checked against planque's answers on 2026-11-16.
   under `unusable`, with why. Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
 - **One approval for the sign-in, one for the tools and the Card.**
+- **Proved on a phone (21 Nov 2026):** create a list, add a task with a due
+  date, and list a list's tasks, each write after the owner's yes and done
+  once. Add to a list only once its id is kept: a task added before the list
+  exists has nowhere to go. Marking a task done and deleting were not tried.
 
 ## Tools a job usually needs
 
