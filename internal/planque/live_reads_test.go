@@ -470,3 +470,56 @@ func (r *saveBeforePut) Put(ctx context.Context, it store.Item, c store.Cond) er
 	}
 	return r.KV.Put(ctx, it, c)
 }
+
+// staleLive answers the live index from a snapshot taken earlier: what an
+// eventually consistent index can still say just after a save.
+type staleLive struct {
+	store.KV
+	snapshot []store.Item
+}
+
+func (s *staleLive) QueryLive(context.Context, string) ([]store.Item, error) { return s.snapshot, nil }
+
+func TestAHeldSignInIsCheckedOnItsOwnRecordNotTheIndex(t *testing.T) {
+	for name, change := range map[string]func(g *Grant){
+		"disconnected": func(g *Grant) { g.Status = StatusDisconnected },
+		"narrowed":     func(g *Grant) { g.Request.Connector.AskedTools = []string{"GMAIL_FETCH_EMAILS"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			kv := &store.Memory{}
+			s := &Server{KV: kv, LiveIndex: true}
+			g := &Grant{ID: "grt_live", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+				Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+					Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+				Connector: &ConnectorState{Account: "acct_1"}}
+			if err := s.saveGrant(t.Context(), g); err != nil {
+				t.Fatal(err)
+			}
+			asked := []string{"GMAIL_SEND_EMAIL"}
+			// The account is indexed, and the grant is held as it stands.
+			if h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked); err != nil || h == nil {
+				t.Fatalf("before the change: held %v, %v; want the grant", h, err)
+			}
+			snapshot, err := kv.QueryLive(t.Context(), tenant)
+			if err != nil || len(snapshot) != 1 {
+				t.Fatalf("index: %d, %v", len(snapshot), err)
+			}
+			current, err := s.loadGrant(t.Context(), tenant, g.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			change(current)
+			if err := s.saveGrant(t.Context(), current); err != nil {
+				t.Fatal(err)
+			}
+			s.KV = &staleLive{KV: kv, snapshot: snapshot}
+			h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if h != nil {
+				t.Fatalf("held %s: the index's old copy was reused", h.ID)
+			}
+		})
+	}
+}
