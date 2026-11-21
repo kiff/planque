@@ -27,7 +27,7 @@ Failure table checked against planque's answers on 2026-11-16.
 | Delete a post | Removes one of the person's posts | write | nothing |
 | Get company info | Reads a company page's public details | read | the page's id |
 
-**Which account signed in:** the connection doesn't show it. "Get my info" returns the person's name and headline, so a job that needs to be sure of the account reads it first and shows it to the owner.
+**Which account signed in:** the connection line shows the person's name or email once the sign-in is confirmed, from LinkedIn's own "get my info" read, when the sign-in's scopes cover it; if the line is empty, "Get my info" returns the person's name and headline, so a job that needs to be sure of the account reads it first and shows it to the owner.
 
 **What to keep:** the person's id from "Get my info", needed as the author of
 every post; each post's id, to read or delete it later.

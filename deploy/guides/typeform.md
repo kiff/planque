@@ -32,7 +32,7 @@ response twice.
 
 **Creating a form works on the free plan,** and a form a taf makes is public by its link. A create past the Card's daily limit is refused as "not sent", and Coach then offers the owner a card to raise the limit: the taf never asks for more itself.
 
-**Which account signed in:** the connection doesn't show it, and Google's chooser lists the owner's other accounts. A job that must be sure lists the forms first and shows them to the owner.
+**Which account signed in:** the connection line shows the account's email or alias when the sign-in's scopes cover Typeform's own "about me" read (`accounts:read`); with no name there, Google's chooser lists the owner's other accounts, so a job that must be sure lists the forms first and shows them to the owner.
 
 **Answers are matched by question ref, not by wording.** Read the form once,
 keep each question's ref, and look answers up by it: an owner who rewords a
