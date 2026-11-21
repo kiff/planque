@@ -26,6 +26,10 @@ func TestAToolIsCoveredByAnyOneOfItsScopes(t *testing.T) {
 		"a read scope isn't its full (pipedrive)":   {Tool{Toolkit: "pipedrive", Scopes: []string{"deals:full"}}, []string{"base", "deals:read"}, false},
 		"another name's full (pipedrive)":           {Tool{Toolkit: "pipedrive", Scopes: []string{"deals:read"}}, []string{"base", "persons:full"}, false},
 		"another vendor's full isn't a read":        {Tool{Toolkit: "intercom", Scopes: []string{"deals:read"}}, []string{"base", "deals:full"}, false},
+		"default is full access (calendly)":         {Tool{Toolkit: "Calendly", Scopes: []string{"scheduled_events:read"}}, []string{"default"}, true},
+		"default covers its writes (calendly)":      {Tool{Toolkit: "calendly", Scopes: []string{"scheduled_events:write"}}, []string{"default"}, true},
+		"a scoped calendly sign-in stays scoped":    {Tool{Toolkit: "calendly", Scopes: []string{"scheduled_events:read"}}, []string{"availability:read"}, false},
+		"another vendor's default isn't full":       {Tool{Toolkit: "intercom", Scopes: []string{"scheduled_events:read"}}, []string{"default"}, false},
 	} {
 		if got := c.tool.Covered(c.granted); got != c.want {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
