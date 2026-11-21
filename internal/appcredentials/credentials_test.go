@@ -130,3 +130,41 @@ func TestCredentialsNeverPrintTheirSecret(t *testing.T) {
 		}
 	}
 }
+
+type appBundle map[string]string
+
+func (a appBundle) App(_ context.Context, id string) ([]byte, bool) {
+	v, ok := a[id]
+	return []byte(v), ok
+}
+
+type nextReader struct{ calls []string }
+
+func (n *nextReader) Read(_ context.Context, id string) (Credentials, error) {
+	n.calls = append(n.calls, id)
+	return Credentials{ClientID: "own-" + id}, nil
+}
+
+// An app's credentials come from the one secret when it holds them, else
+// from the reader before; a bad id reaches neither, and credentials in the
+// bundle that don't decode are refused, not taken from elsewhere.
+func TestBundledReadsTheOneSecretFirst(t *testing.T) {
+	ctx := context.Background()
+	next := &nextReader{}
+	b := &Bundled{Bundle: appBundle{"googlesheets": `{"client_id":"c","client_secret":"s"}`, "broken": `{"client_id":""}`}, Next: next}
+	if c, err := b.Read(ctx, "googlesheets"); err != nil || c.ClientID != "c" || c.Secret != "s" {
+		t.Fatalf("from the bundle: %v %v", c, err)
+	}
+	if c, err := b.Read(ctx, "slack"); err != nil || c.ClientID != "own-slack" {
+		t.Fatalf("from its own: %v %v", c, err)
+	}
+	if _, err := b.Read(ctx, "broken"); err == nil {
+		t.Fatal("broken credentials in the bundle were accepted")
+	}
+	if _, err := b.Read(ctx, "../x"); err == nil {
+		t.Fatal("a bad id was read")
+	}
+	if len(next.calls) != 1 || next.calls[0] != "slack" {
+		t.Fatalf("reached the next reader: %v", next.calls)
+	}
+}

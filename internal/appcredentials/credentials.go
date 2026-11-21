@@ -162,3 +162,33 @@ func decode(raw []byte) (Credentials, error) {
 	}
 	return Credentials{ClientID: wire.ClientID, Secret: wire.Secret}, nil
 }
+
+// AppBundle is where Bundled finds an application's credentials, still
+// encoded (secretstore.Bundle's "apps").
+type AppBundle interface {
+	App(ctx context.Context, id string) ([]byte, bool)
+}
+
+// Bundled reads an application's credentials from planque's one secret,
+// else from Next (its own secret, or the sealed store), so moving them into
+// the one secret never takes an application's credentials away.
+type Bundled struct {
+	Bundle AppBundle
+	Next   Reader
+}
+
+func (b *Bundled) Read(ctx context.Context, id string) (Credentials, error) {
+	if !appID.MatchString(id) {
+		return Credentials{}, ErrUnavailable
+	}
+	if b.Bundle != nil {
+		if raw, ok := b.Bundle.App(ctx, id); ok {
+			defer clear(raw)
+			return decode(raw)
+		}
+	}
+	if b.Next == nil {
+		return Credentials{}, ErrUnavailable
+	}
+	return b.Next.Read(ctx, id)
+}

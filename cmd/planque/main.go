@@ -46,6 +46,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -185,6 +186,18 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	// planque's one secret (PLANQUE_SECRET): the values below, read from it
+	// first, each from its own secret while it lacks it or can't be read.
+	secretsAPI := &awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}
+	bundle := secretstore.NewBundle(secretsAPI, strings.TrimSpace(os.Getenv("PLANQUE_SECRET")))
+	// own reads one value from its own secret's field, as before; none when
+	// it isn't named.
+	own := func(reference, field string) func(context.Context) (string, error) {
+		if reference == "" {
+			return nil
+		}
+		return secretstore.Reader(secretsAPI, reference, field)
+	}
 	var applicationCredentials appcredentials.Reader = &appcredentials.Sealed{KV: kv, Sealer: sealer}
 	raw, prefix := os.Getenv("PLANQUE_APP_SECRETS"), os.Getenv("PLANQUE_APP_SECRET_PREFIX")
 	if raw != "" || prefix != "" {
@@ -195,8 +208,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		if prefix != "" && !appSecretPrefix.MatchString(prefix) {
 			return nil, errors.New("PLANQUE_APP_SECRET_PREFIX must be a secret-name path ending in /")
 		}
-		applicationCredentials = &appcredentials.SecretsManager{References: references, Prefix: prefix, API: &awsapi.Client{
-			Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+		applicationCredentials = &appcredentials.SecretsManager{References: references, Prefix: prefix, API: secretsAPI}
+	}
+	if bundle != nil {
+		applicationCredentials = &appcredentials.Bundled{Bundle: bundle, Next: applicationCredentials}
 	}
 	api := cmp.Or(os.Getenv("KIFF_API"), "https://api.kiff.dev")
 	issuer := cmp.Or(os.Getenv("KIFF_ISSUER"), api)
@@ -205,26 +220,35 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	hc := &http.Client{Timeout: 30 * time.Second}
 	vendors := egress.Client(30 * time.Second)
 	connectors := map[string]connector.Provider{}
-	if reference := strings.TrimSpace(os.Getenv("PLANQUE_COMPOSIO_SECRET")); reference != "" {
-		connectors["composio"] = &composio.Client{HTTP: vendors, Secret: composio.SecretFromStore(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, reference)}
+	// Composio is on with its own secret named, or with the one secret
+	// (whose composio_api_key it reads first).
+	if reference := strings.TrimSpace(os.Getenv("PLANQUE_COMPOSIO_SECRET")); reference != "" || bundle != nil {
+		read := bundle.Or("composio_api_key", own(reference, "api_key"))
+		connectors["composio"] = &composio.Client{HTTP: vendors, Secret: func(ctx context.Context) (string, error) {
+			v, err := read(ctx)
+			if err != nil {
+				return "", connector.ErrUnavailable
+			}
+			return v, nil
+		}}
 	}
 	var doorSink door.Sink
 	doorURL, doorSecret := strings.TrimSpace(os.Getenv("PLANQUE_DOOR_URL")), strings.TrimSpace(os.Getenv("PLANQUE_DOOR_SECRET"))
 	if doorURL != "" || doorSecret != "" {
 		u, err := url.Parse(doorURL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || doorSecret == "" {
-			return nil, errors.New("PLANQUE_DOOR_URL and PLANQUE_DOOR_SECRET must name the fixed HTTPS receiver and its secret reference")
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (doorSecret == "" && bundle == nil) {
+			return nil, errors.New("PLANQUE_DOOR_URL and PLANQUE_DOOR_SECRET (or PLANQUE_SECRET) must name the fixed HTTPS receiver and its secret")
 		}
-		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
+		reader := bundle.Or("door_secret", own(doorSecret, "secret"))
 		doorSink = &door.HTTP{URL: doorURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
 	var eventSink door.EventSink
 	if eventURL := strings.TrimSpace(os.Getenv("PLANQUE_EVENT_URL")); eventURL != "" {
 		u, err := url.Parse(eventURL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || doorSecret == "" {
-			return nil, errors.New("PLANQUE_EVENT_URL must name the fixed HTTPS receiver, and PLANQUE_DOOR_SECRET the secret it's signed with")
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (doorSecret == "" && bundle == nil) {
+			return nil, errors.New("PLANQUE_EVENT_URL must name the fixed HTTPS receiver, and PLANQUE_DOOR_SECRET (or PLANQUE_SECRET) the secret it's signed with")
 		}
-		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, doorSecret, "secret")
+		reader := bundle.Or("door_secret", own(doorSecret, "secret"))
 		eventSink = &door.HTTP{URL: eventURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
 	// The refund events a profile's case block names, for KIFF: its own
@@ -233,10 +257,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	kiffURL, kiffSecret := strings.TrimSpace(os.Getenv("PLANQUE_KIFF_EVENT_URL")), strings.TrimSpace(os.Getenv("PLANQUE_KIFF_EVENT_SECRET"))
 	if kiffURL != "" || kiffSecret != "" {
 		u, err := url.Parse(kiffURL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || kiffSecret == "" {
-			return nil, errors.New("PLANQUE_KIFF_EVENT_URL and PLANQUE_KIFF_EVENT_SECRET must name KIFF's fixed HTTPS receiver and its secret reference")
+		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (kiffSecret == "" && bundle == nil) {
+			return nil, errors.New("PLANQUE_KIFF_EVENT_URL and PLANQUE_KIFF_EVENT_SECRET (or PLANQUE_SECRET) must name KIFF's fixed HTTPS receiver and its secret")
 		}
-		reader := secretstore.Reader(&awsapi.Client{Service: "secretsmanager", Region: region, Target: "secretsmanager", JSONType: "application/x-amz-json-1.1", Creds: creds}, kiffSecret, "secret")
+		reader := bundle.Or("kiff_event_secret", own(kiffSecret, "secret"))
 		kiffEventSink = &door.HTTP{URL: kiffURL, Secret: reader, Client: egress.Client(10 * time.Second)}
 	}
 	// The browser worker (kiff/planque#86): where it listens, on a private
