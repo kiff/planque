@@ -10,8 +10,8 @@ One catalog entry, `browser`, covers both. Coach asks for the sites and the
 tools; **the owner picks the browser on the phone's approval card**. Coach
 never picks it.
 
-- **The hosted browser:** planque runs it, keeping nothing between calls. It
-  has **no sign-ins of the owner's**: it sees each site as a visitor does.
+- **The hosted browser:** planque runs it, keeping nothing between calls,
+  with **none of the owner's sign-ins**.
 - **The owner's Chrome:** the tafs extension, in a separate Chrome profile
   named "tafs", paired from the phone. It uses the sign-ins the owner made
   in that profile, never their personal mail, bank or work sessions, and
@@ -55,7 +55,7 @@ A job that needs the owner's sign-ins needs their Chrome.
 - Ask for `browse_open` and `browse_read` to read. Add `browse_act` only when
   the job fills in or submits something.
 - Add `browse_checkout` and `browse_pay` only when the owner asks the taf to
-  pay. Ask the currency (the grant pays in that one only), and say that
+  pay. Ask the currency (the only one it pays in), and say that
   **every payment waits for the owner's yes on the phone**, whatever the
   Card's budget. The yes covers the total `browse_checkout` read, for 15
   minutes.
@@ -94,7 +94,7 @@ planque's browser refusals, by the answer's `code`:
 | `currency_other` | The checkout isn't in the grant's currency; nothing was paid | "{site}'s checkout isn't in {currency}, the currency you set, so nothing was paid." |
 | `pay_not_approved` | A pay without the owner's yes | Ask for the yes on the phone; never pay another way. |
 | `outcome_unknown` | An earlier pay on this checkout has no known result | Never pay again. "I'm not sure your order on {site} went through. Please check, and tell me in the app whether it happened." |
-| `browser_unavailable` | The browser couldn't run; nothing was done | "The browser couldn't start. The taf tries again later. Nothing was done." |
+| `browser_unavailable` | The browser couldn't run; nothing was done | "The browser couldn't start. The taf tries again later." |
 | `bad_url`, `address_private` | Not an https address of a public site | Nothing: fix the address. |
 
 **Coming with the Chrome routing** (not returned yet):
