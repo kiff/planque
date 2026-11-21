@@ -30,7 +30,7 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "rerun_kept", "rerun_off", "one_secret", "one_secret_kept", "one_secret_kept_events"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "rerun_kept", "rerun_off", "one_secret", "one_secret_kept", "one_secret_kept_events", "settings_unreadable"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
@@ -42,10 +42,8 @@ current_env=null
 aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
- "lambda get-function-configuration")
-  if [[ "$*" == *Environment.Variables.PLANQUE_SECRET* ]]; then
-   python3 -c 'import json,sys; print((json.loads(sys.argv[1]) or {}).get("PLANQUE_SECRET") or "None")' "$current_env"
-  else echo "$current_env"; fi;;
+ "lambda get-function") [[ "$current_env" != null ]] && echo demo;;
+ "lambda get-function-configuration") [[ -z "${config_fails:-}" ]] && echo "$current_env";;
  "apigatewayv2 get-apis") echo abc123;;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
  "secretsmanager describe-secret")
@@ -110,6 +108,9 @@ aws() {
 					// Kept, it's the one checked: KIFF's URL needs no event secret of its own.
 					script += "export PLANQUE_KIFF_EVENT_URL=https://api.example/v1/planque/refund-events\n"
 				}
+			case "settings_unreadable":
+				// The function is there, but its settings can't be read.
+				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio"}'` + "\nconfig_fails=1\nunset PLANQUE_COMPOSIO_SECRET\n"
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -122,6 +123,14 @@ aws() {
 			if scenario == "wrong_region" {
 				if err == nil || strings.Contains(string(out), `"Statement"`) {
 					t.Fatal("an unresolved or foreign secret was allowed")
+				}
+				return
+			}
+			// Settings that can't be read stop the run before anything is
+			// written: read as none, it would drop every one.
+			if scenario == "settings_unreadable" {
+				if err == nil || strings.Contains(string(out), `"Statement"`) || !strings.Contains(string(out), "couldn't be read") {
+					t.Fatalf("an unreadable function went on: %s", out)
 				}
 				return
 			}
