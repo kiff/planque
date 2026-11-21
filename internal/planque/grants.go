@@ -1676,7 +1676,7 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		return false, nil
 	}
 	if g.abandonedDraft(s.now()) {
-		return s.endDraft(ctx, g, "no tools were asked for within a day of Setup's reads; the sign-in was revoked")
+		return s.endDraft(ctx, g, "no tools were asked for within a week of Setup's reads; the sign-in was revoked")
 	}
 	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
@@ -1774,10 +1774,10 @@ func onlySetupReads(ts []ToolRequest) bool {
 }
 
 // abandonedDraft says g is a draft that never asked for tools: connected for
-// Setup's reads alone, nothing waiting for the owner, and a day past its
-// request (holdTTL, as for tools nobody approves). Setup asks for the taf's
-// tools within minutes of the reads, so a connection with only the reads a
-// day on belongs to a taf nobody built; the sign-in it holds is revoked.
+// Setup's reads alone, nothing waiting for the owner, and a week past its
+// request (pendingTTL: an app may be connected one evening and its taf set up
+// the next). A connection with only the reads a week on belongs to a taf
+// nobody built; the sign-in it holds is revoked.
 func (g *Grant) abandonedDraft(now time.Time) bool {
 	if g.Status != StatusConnected || len(g.Pending) > 0 || len(g.Tools) == 0 {
 		return false
@@ -1786,7 +1786,7 @@ func (g *Grant) abandonedDraft(now time.Time) bool {
 		return false
 	}
 	asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt)
-	return err == nil && now.After(asked.Add(holdTTL))
+	return err == nil && now.After(asked.Add(pendingTTL))
 }
 
 // endDraft ends a draft whose tools nobody approved within their day, when

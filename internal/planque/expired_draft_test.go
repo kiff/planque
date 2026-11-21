@@ -67,10 +67,11 @@ func TestAnExpiredDraftThatOnlyHadSetupsReadsLeavesNoConnection(t *testing.T) {
 }
 
 // A draft that connected Setup's reads and never asked for tools holds a
-// sign-in nobody will approve a taf for: a day past its request the sign-in
-// is revoked, and the grant has the deadline the sweep finds it by. Before a
-// day it stays, as Setup asks for the tools within minutes of the reads.
-func TestADraftThatNeverAskedForToolsEndsAfterADay(t *testing.T) {
+// sign-in nobody will approve a taf for: a week past its request the
+// sign-in is revoked, and the grant has the deadline the sweep finds it by.
+// Before the week it stays, a day included: an app may be connected one
+// evening and its taf set up the next.
+func TestADraftThatNeverAskedForToolsEndsAfterAWeek(t *testing.T) {
 	e := newEnv(t)
 	phone := e.device("dev_phone")
 	if st, out := e.enrolAs(phone); st != 201 {
@@ -88,25 +89,30 @@ func TestADraftThatNeverAskedForToolsEndsAfterADay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the request's time: %v", err)
 	}
-	if d := g.deadline(); !d.Equal(asked.Add(holdTTL)) {
-		t.Fatalf("the draft's deadline is %v, want the request's time plus a day (%v)", d, asked.Add(holdTTL))
+	if d := g.deadline(); !d.Equal(asked.Add(pendingTTL)) {
+		t.Fatalf("the draft's deadline is %v, want the request's time plus a week (%v)", d, asked.Add(pendingTTL))
 	}
 
-	e.s.Now = func() time.Time { return asked.Add(holdTTL - time.Hour) }
+	// A day and a minute on: the next evening's taf is still welcome.
+	e.s.Now = func() time.Time { return asked.Add(holdTTL + time.Minute) }
+	if n, err := e.s.Sweep(context.Background()); err != nil || n != 0 {
+		t.Fatalf("the sweep after a day: ended %d, %v", n, err)
+	}
+	e.s.Now = func() time.Time { return asked.Add(pendingTTL - time.Hour) }
 	if st, out := e.do("GET", acct, nil, nil, "k_setup"); st != 200 || out["status"] != StatusConnected {
-		t.Fatalf("23 hours on: %d %v", st, out["status"])
+		t.Fatalf("a week less an hour on: %d %v", st, out["status"])
 	}
 	if a, _ := e.vendor.Live(); a == 0 {
-		t.Fatal("the sign-in was revoked before the day passed")
+		t.Fatal("the sign-in was revoked before the week passed")
 	}
 
-	e.s.Now = func() time.Time { return asked.Add(holdTTL + time.Minute) }
+	e.s.Now = func() time.Time { return asked.Add(pendingTTL + time.Minute) }
 	if n, err := e.s.Sweep(context.Background()); err != nil || n != 1 {
-		t.Fatalf("the sweep after a day: ended %d, %v", n, err)
+		t.Fatalf("the sweep after a week: ended %d, %v", n, err)
 	}
 	g, _ = e.s.loadGrant(context.Background(), tenant, id)
 	if g.Status != StatusFailed || !strings.Contains(g.Reason, "no tools were asked for") || len(g.Tools) != 0 || g.Transport != "" {
-		t.Fatalf("the grant after a day: %s %q tools %v", g.Status, g.Reason, g.Tools)
+		t.Fatalf("the grant after a week: %s %q tools %v", g.Status, g.Reason, g.Tools)
 	}
 	if a, _ := e.vendor.Live(); a != 0 {
 		t.Fatalf("the sign-in is still live at the vendor: %d tokens", a)

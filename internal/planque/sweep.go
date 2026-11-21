@@ -65,10 +65,10 @@ func (g *Grant) deadline() time.Time {
 		}
 	}
 	// A draft connected for Setup's reads alone, whose tools were never
-	// asked for: a day past its request it ends (abandonedDraft).
+	// asked for: a week past its request it ends (abandonedDraft).
 	if g.Status == StatusConnected && len(g.Pending) == 0 && len(g.Tools) > 0 && !slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads }) {
 		if asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
-			return asked.Add(holdTTL)
+			return asked.Add(pendingTTL)
 		}
 	}
 	if g.waitsForSignIn() {
