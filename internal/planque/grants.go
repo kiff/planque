@@ -1668,12 +1668,15 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		// Unless what it had is Setup's reads alone: the owner approved those
 		// for a draft, not a taf, so no taf is using the sign-in and it goes.
 		if onlySetupReads(g.Connected) {
-			return s.endDraft(ctx, g)
+			return s.endDraft(ctx, g, "its tools were not approved within a day; the sign-in was revoked")
 		}
 		if err := s.dropAddition(ctx, g, "the added tools were not approved within a day; what it had stays connected"); err != nil {
 			return false, err
 		}
 		return false, nil
+	}
+	if g.abandonedDraft(s.now()) {
+		return s.endDraft(ctx, g, "no tools were asked for within a day of Setup's reads; the sign-in was revoked")
 	}
 	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
@@ -1770,13 +1773,29 @@ func onlySetupReads(ts []ToolRequest) bool {
 	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t ToolRequest) bool { return !t.SetupReads })
 }
 
+// abandonedDraft says g is a draft that never asked for tools: connected for
+// Setup's reads alone, nothing waiting for the owner, and a day past its
+// request (holdTTL, as for tools nobody approves). Setup asks for the taf's
+// tools within minutes of the reads, so a connection with only the reads a
+// day on belongs to a taf nobody built; the sign-in it holds is revoked.
+func (g *Grant) abandonedDraft(now time.Time) bool {
+	if g.Status != StatusConnected || len(g.Pending) > 0 || len(g.Tools) == 0 {
+		return false
+	}
+	if slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads }) {
+		return false
+	}
+	asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt)
+	return err == nil && now.After(asked.Add(holdTTL))
+}
+
 // endDraft ends a draft whose tools nobody approved within their day, when
 // all its connection had was Setup's reads (kiff/planque#320's rule for
 // the sign-in: a sign-in another connection still uses stays, kept for the
 // sweep to revoke). The tools it declared and Setup's reads leave KIFF, the
 // sign-in is revoked, and the grant fails; an error leaves g as stored, for
 // the next sweep or read to try again.
-func (s *Server) endDraft(ctx context.Context, g *Grant) (ended bool, err error) {
+func (s *Server) endDraft(ctx context.Context, g *Grant, reason string) (ended bool, err error) {
 	was := *g
 	if err := s.undeclareAddition(ctx, g); err != nil {
 		*g = was
@@ -1798,7 +1817,6 @@ func (s *Server) endDraft(ctx context.Context, g *Grant) (ended bool, err error)
 		return false, err
 	}
 	from := g.Status
-	reason := "its tools were not approved within a day; the sign-in was revoked"
 	g.Tools, g.Connected, g.Pending, g.Transport, g.Transports, g.PendingTransport, g.Declared = nil, nil, nil, "", nil, "", false
 	g.HeldUntil = time.Time{}
 	g.Status, g.Reason = StatusFailed, reason

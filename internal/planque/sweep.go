@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,6 +62,13 @@ func (g *Grant) deadline() time.Time {
 	if g.waitsForApproval() {
 		if asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
 			return asked.Add(pendingTTL)
+		}
+	}
+	// A draft connected for Setup's reads alone, whose tools were never
+	// asked for: a day past its request it ends (abandonedDraft).
+	if g.Status == StatusConnected && len(g.Pending) == 0 && len(g.Tools) > 0 && !slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads }) {
+		if asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
+			return asked.Add(holdTTL)
 		}
 	}
 	if g.waitsForSignIn() {
