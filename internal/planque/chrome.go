@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -41,11 +43,12 @@ import (
 // chromePairingTTL is how long a pairing code works, from the phone.
 const chromePairingTTL = 10 * time.Minute
 
-// lookupAlphabet has no look-alike characters (no 0/O, 1/I/L).
-const lookupAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+// lookupAlphabet has no look-alike characters (no 0/O, 1/I/L, U/V): the
+// extension and the phones read codes in exactly these 30.
+const lookupAlphabet = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 var (
-	lookupPattern  = regexp.MustCompile(`^[2-9A-HJKMNP-Z]{4}$`)
+	lookupPattern  = regexp.MustCompile(`^[2-9A-HJKMNP-TV-Z]{4}$`)
 	manifestHashRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	chromeIDRe     = regexp.MustCompile(`^chr_[A-Za-z0-9_-]{8,40}$`)
 )
@@ -94,6 +97,9 @@ type ChromePairing struct {
 	Browser      string `json:"browser,omitempty"`
 	OS           string `json:"os,omitempty"`
 	Proof        string `json:"proof,omitempty"`
+	// Contested: a second Chrome posted on this code. The code is spent:
+	// the phone is told and opens a new one, and no Chrome collects it.
+	Contested bool `json:"contested,omitempty"`
 	// What the phone confirmed (step 3).
 	Confirmed *ChromeConfirmation `json:"confirmed,omitempty"`
 }
@@ -145,6 +151,64 @@ func (s *Server) chromeOff(w http.ResponseWriter) bool {
 	return true
 }
 
+// The extension's two routes carry no signature, so each is limited: per
+// address, so one script can't sweep the codes, and in all, so many
+// addresses can't either. A code is 4 of 30 characters (810,000) and lives
+// ten minutes.
+const (
+	chromePostsPerAddress = 10  // key posts per address in chromePostWindow
+	chromePostsInAll      = 300 // key posts across every address per minute
+	chromeReadsPerAddress = 60  // collects per address per minute
+	chromePostWindow      = 10 * time.Minute
+)
+
+// chromeCounted counts one request under name in the window it falls in,
+// and says whether it is within max. A count that can't be kept refuses.
+func (s *Server) chromeCounted(r *http.Request, name string, window time.Duration, most int) bool {
+	now := s.now().UTC()
+	start := now.Truncate(window)
+	key := store.Item{PK: "CHROMELIMIT#" + name, SK: start.Format(time.RFC3339), TTL: start.Add(2 * window).Unix()}
+	for range 5 {
+		it, ok, err := s.KV.Get(r.Context(), key.PK, key.SK)
+		if err != nil {
+			return false
+		}
+		var n struct {
+			Count int `json:"count"`
+		}
+		if ok && json.Unmarshal(it.Doc, &n) != nil {
+			n.Count = 0
+		}
+		if n.Count >= most {
+			return false
+		}
+		n.Count++
+		cond := store.Cond{NotExists: true}
+		if ok {
+			ver := it.Ver
+			cond, key.Ver = store.Cond{Ver: &ver}, it.Ver+1
+		}
+		if err := putDoc(r.Context(), s.KV, key, n, cond); err == nil {
+			return true
+		} else if !errors.Is(err, store.ErrCondition) {
+			return false
+		}
+	}
+	return false
+}
+
+// chromeAddress is the address a request came from, without its port.
+func chromeAddress(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func (s *Server) chromeTooMany(w http.ResponseWriter) {
+	writeErr(w, http.StatusTooManyRequests, "too many tries from this network: wait a few minutes, then start again on your phone")
+}
+
 // spkiP256 says key is a P-256 public key, SPKI DER in base64url, and gives
 // its SHA-256 in hex.
 func spkiP256(key string) (string, error) {
@@ -163,11 +227,25 @@ func spkiP256(key string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// newLookup draws each character evenly: a byte at or above the largest
+// multiple of 30 is drawn again, so no character is likelier than another.
 func newLookup() string {
-	b := make([]byte, 4)
-	raw := oauth.Random(16)
-	for i := range b {
-		b[i] = lookupAlphabet[int(raw[i])%len(lookupAlphabet)]
+	return lookupFrom(func() byte {
+		var b [1]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			panic(err)
+		}
+		return b[0]
+	})
+}
+
+func lookupFrom(next func() byte) string {
+	top := 256 - 256%len(lookupAlphabet)
+	b := make([]byte, 0, 4)
+	for len(b) < 4 {
+		if c := int(next()); c < top {
+			b = append(b, lookupAlphabet[c%len(lookupAlphabet)])
+		}
 	}
 	return string(b)
 }
@@ -227,6 +305,11 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 	if s.chromeOff(w) {
 		return
 	}
+	if !s.chromeCounted(r, "post#"+chromeAddress(r), chromePostWindow, chromePostsPerAddress) ||
+		!s.chromeCounted(r, "post", time.Minute, chromePostsInAll) {
+		s.chromeTooMany(w)
+		return
+	}
 	body, err := readBody(r)
 	if err != nil {
 		s.fail(w, r, err)
@@ -264,14 +347,25 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if p.Key != "" {
-		writeErr(w, http.StatusConflict, "this code was already used by a Chrome: start again on your phone")
+	// A code a Chrome already used is spent by a second post: the phone is
+	// told, and no Chrome collects it. The answer is the unknown code's,
+	// so a sweep can't tell a used code from no code.
+	if p.Key != "" || p.Contested {
+		if !p.Contested {
+			p.Contested = true
+			if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); err != nil && !errors.Is(err, store.ErrCondition) {
+				s.fail(w, r, err)
+				return
+			}
+		}
+		writeErr(w, http.StatusNotFound, "no pairing has that code, or it expired: start again on your phone")
 		return
 	}
 	p.Key, p.Version, p.ManifestHash, p.Proof = req.Key, req.Version, req.ManifestHash, req.Proof
 	p.Browser, p.OS = oneLine(req.Browser, 60), oneLine(req.OS, 60)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); errors.Is(err, store.ErrCondition) {
-		writeErr(w, http.StatusConflict, "this code was already used by a Chrome: start again on your phone")
+		// Another post won the race: this one is the second.
+		writeErr(w, http.StatusNotFound, "no pairing has that code, or it expired: start again on your phone")
 		return
 	} else if err != nil {
 		s.fail(w, r, err)
@@ -301,6 +395,9 @@ func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr si
 	}
 	if p.Confirmed != nil {
 		out["status"], out["chrome_id"] = "confirmed", p.Confirmed.ChromeID
+	}
+	if p.Contested && p.Confirmed == nil {
+		out = map[string]any{"pairing": p.ID, "expires_at": p.Expires, "status": "contested"}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -356,6 +453,10 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		writeErr(w, http.StatusConflict, "this pairing is already confirmed")
 		return
 	}
+	if p.Contested {
+		writeErr(w, http.StatusConflict, "another Chrome also used this code, so it can't be trusted: start again on your phone")
+		return
+	}
 	// The phone names the key it checked the proof against: another key
 	// posted in between is never confirmed.
 	sum, _ := spkiP256(p.Key)
@@ -385,9 +486,14 @@ func (s *Server) collectChromePairing(w http.ResponseWriter, r *http.Request) {
 	if s.chromeOff(w) {
 		return
 	}
+	if !s.chromeCounted(r, "read#"+chromeAddress(r), time.Minute, chromeReadsPerAddress) {
+		s.chromeTooMany(w)
+		return
+	}
 	p, it, err := s.loadChromeLookup(r, r.PathValue("lookup"))
-	// A pairing that isn't this key's says nothing more than an unknown one.
-	if errors.Is(err, errNotFound) || err == nil && (p.Key == "" || r.URL.Query().Get("key") != p.Key) {
+	// A pairing that isn't this key's, or that a second Chrome contested,
+	// says nothing more than an unknown one.
+	if errors.Is(err, errNotFound) || err == nil && (p.Key == "" || p.Contested || r.URL.Query().Get("key") != p.Key) {
 		writeErr(w, http.StatusNotFound, "no pairing for this Chrome")
 		return
 	} else if err != nil {

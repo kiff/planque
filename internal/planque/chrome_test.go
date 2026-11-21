@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -136,14 +138,27 @@ func TestAChromePairingRefusesWhatItCantTrust(t *testing.T) {
 	})
 	t.Run("a second Chrome", func(t *testing.T) {
 		e := chromeEnv(t)
-		_, lookup := open(t, e)
-		first, _ := p256Key(t)
+		pairing, lookup := open(t, e)
+		first, firstSum := p256Key(t)
 		second, _ := p256Key(t)
 		if st, _ := extensionPosts(e, lookup, first, releasedManifest); st != 202 {
 			t.Fatal("first")
 		}
-		if st, _ := extensionPosts(e, lookup, second, releasedManifest); st != 409 {
+		// The second post answers as an unknown code does, and spends it.
+		if st, _ := extensionPosts(e, lookup, second, releasedManifest); st != 404 {
 			t.Fatalf("a second Chrome took the code: %d", st)
+		}
+		if _, out := e.do("GET", acct+"/chromes/pairings/"+pairing, nil, e.phone, ""); out["status"] != "contested" || out["key"] != nil {
+			t.Fatalf("the phone wasn't told: %v", out)
+		}
+		if st, _ := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+first, nil, nil, ""); st != 404 {
+			t.Fatalf("the first Chrome still collects a contested code: %d", st)
+		}
+		phoneKey, _ := p256Key(t)
+		st, _ := e.do("POST", acct+"/chromes/pairings/"+pairing+"/confirm", map[string]any{"chrome_key_sha256": firstSum, "name": "Work Mac",
+			"phone_key": phoneKey, "phone_proof": b64(32), "phone_sig": b64(64)}, e.phone, "")
+		if st != 409 {
+			t.Fatalf("a contested code was confirmed: %d", st)
 		}
 	})
 	t.Run("another key confirmed", func(t *testing.T) {
@@ -189,4 +204,86 @@ func TestChromeBuildsFrom(t *testing.T) {
 	if _, err := ChromeBuildsFrom(strings.NewReader("ABC 1.0.0\n")); err == nil {
 		t.Fatal("a bad line was taken")
 	}
+}
+
+// Codes are drawn only from the 30 characters the extension and the phones
+// read, each about as often as another.
+func TestALookupIsInTheContractsAlphabet(t *testing.T) {
+	const contract = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
+	seen := map[rune]int{}
+	for range 3000 {
+		l := newLookup()
+		if !lookupPattern.MatchString(l) {
+			t.Fatalf("%q isn't a lookup", l)
+		}
+		for _, c := range l {
+			if !strings.ContainsRune(contract, c) {
+				t.Fatalf("%q has %q, which the extension can't read", l, c)
+			}
+			seen[c]++
+		}
+	}
+	if len(seen) != len(contract) {
+		t.Fatalf("drew %d of %d characters", len(seen), len(contract))
+	}
+	if lookupPattern.MatchString("UUUU") {
+		t.Fatal("the pattern takes U")
+	}
+}
+
+// A byte at or above 240 (8·30) would favour the first characters; it's
+// drawn again, never folded in.
+func TestALookupDrawsAgainOverTheLastWholeRound(t *testing.T) {
+	bytes := []byte{240, 255, 0, 29, 30, 241, 59}
+	i := 0
+	if got := lookupFrom(func() byte { i++; return bytes[i-1] }); got != "2Z2Z" {
+		t.Fatalf("%q", got)
+	}
+}
+
+// The extension's routes carry no signature, so a sweep is limited: per
+// address on posts and on collects, and across every address on posts.
+func TestTheExtensionsRoutesAreLimited(t *testing.T) {
+	t.Run("posts from one address", func(t *testing.T) {
+		e := chromeEnv(t)
+		key, _ := p256Key(t)
+		for i := range chromePostsPerAddress {
+			if st, _ := extensionPosts(e, "2222", key, releasedManifest); st != 404 {
+				t.Fatalf("post %d: %d", i, st)
+			}
+		}
+		if st, _ := extensionPosts(e, "2223", key, releasedManifest); st != 429 {
+			t.Fatalf("post over the limit: %d", st)
+		}
+	})
+	t.Run("collects from one address", func(t *testing.T) {
+		e := chromeEnv(t)
+		for i := range chromeReadsPerAddress {
+			if st, _ := e.do("GET", "/v1/extension/pairings/2222?key=x", nil, nil, ""); st != 404 {
+				t.Fatalf("collect %d: %d", i, st)
+			}
+		}
+		if st, _ := e.do("GET", "/v1/extension/pairings/2222?key=x", nil, nil, ""); st != 429 {
+			t.Fatalf("collect over the limit: %d", st)
+		}
+	})
+	t.Run("posts from many addresses", func(t *testing.T) {
+		e := chromeEnv(t)
+		h := e.s.Handler()
+		post := func(addr string) int {
+			r := httptest.NewRequest("POST", "/v1/extension/pairings/2222", strings.NewReader(`{}`))
+			r.RemoteAddr = addr
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			return w.Code
+		}
+		for i := range chromePostsInAll {
+			if st := post(fmt.Sprintf("198.51.%d.%d:443", i/250, i%250)); st == 429 {
+				t.Fatalf("post %d refused under the limit", i)
+			}
+		}
+		if st := post("203.0.113.9:443"); st != 429 {
+			t.Fatalf("post over the limit in all: %d", st)
+		}
+	})
 }
