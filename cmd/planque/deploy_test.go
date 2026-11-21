@@ -30,11 +30,11 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "one_secret", "one_secret_kept"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
-unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED
+unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED PLANQUE_SECRET
 export PLANQUE_APP_RETURN=https://app.example/confirm
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
@@ -42,7 +42,10 @@ current_env=null
 aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
- "lambda get-function-configuration") echo "$current_env";;
+ "lambda get-function-configuration")
+  if [[ "$*" == *Environment.Variables.PLANQUE_SECRET* ]]; then
+   python3 -c 'import json,sys; print((json.loads(sys.argv[1]) or {}).get("PLANQUE_SECRET") or "None")' "$current_env"
+  else echo "$current_env"; fi;;
  "apigatewayv2 get-apis") echo abc123;;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
  "secretsmanager describe-secret")
@@ -50,6 +53,7 @@ aws() {
    if [[ "$1" == --secret-id ]]; then
     if [[ "$2" == demo/doors/handoff ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu
     elif [[ "$2" == demo/kiff/events ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv
+    elif [[ "$2" == demo/planque ]]; then echo arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/planque-PlNqUe
     else echo "$connector_arn"; fi
     return
    fi
@@ -91,6 +95,11 @@ aws() {
 				if scenario == "relay_off" {
 					script += "RELAY=off\nexport PLANQUE_CHROME_RELAY=off\n"
 				}
+			case "one_secret":
+				// The one secret stands in for KIFF's event secret beside its URL.
+				script += "export PLANQUE_SECRET=demo/planque PLANQUE_KIFF_EVENT_URL=https://api.example/v1/planque/refund-events\n"
+			case "one_secret_kept":
+				script += `current_env='{"PLANQUE_SECRET":"demo/planque"}'` + "\n"
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -153,7 +162,8 @@ aws() {
 						granted++
 						if action != "secretsmanager:GetSecretValue" || (stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" &&
 							!(scenario == "handoff" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu") &&
-							!(scenario == "kiff_events" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv")) {
+							!(scenario == "kiff_events" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv") &&
+							!(strings.HasPrefix(scenario, "one_secret") && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/planque-PlNqUe")) {
 							t.Fatal("secret permission was broader than the exact configured resource")
 						}
 					}
@@ -217,8 +227,22 @@ aws() {
 				if granted != 2 || env.Variables["PLANQUE_KIFF_EVENT_URL"] != "https://api.example/v1/planque/refund-events" || env.Variables["PLANQUE_KIFF_EVENT_SECRET"] != "demo/kiff/events" {
 					t.Fatal("KIFF's event receiver or its one secret was not configured")
 				}
+			} else if scenario == "one_secret" {
+				if env.Variables["PLANQUE_KIFF_EVENT_URL"] != "https://api.example/v1/planque/refund-events" || env.Variables["PLANQUE_KIFF_EVENT_SECRET"] != "" {
+					t.Fatal("KIFF's event receiver with the one secret was not configured")
+				}
 			} else if env.Variables["PLANQUE_KIFF_EVENT_URL"] != "" || env.Variables["PLANQUE_KIFF_EVENT_SECRET"] != "" {
 				t.Fatal("KIFF's event settings appeared from nowhere")
+			}
+			// The one secret: given or kept, its exact read beside the
+			// connector's, and named in the function's settings.
+			if strings.HasPrefix(scenario, "one_secret") {
+				if granted != 2 || env.Variables["PLANQUE_SECRET"] != "demo/planque" {
+					t.Fatalf("the one secret wasn't granted or kept: %d %q", granted, env.Variables["PLANQUE_SECRET"])
+				}
+				return
+			} else if env.Variables["PLANQUE_SECRET"] != "" {
+				t.Fatal("the one secret appeared from nowhere")
 			}
 			if scenario == "kiff_events" {
 				// Checked above, with the connector's secret beside KIFF's.

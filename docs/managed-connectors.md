@@ -57,6 +57,12 @@ The reference enables the Composio provider; without it, existing direct
 MCP, registered OAuth and API-key connections continue to work independently.
 No agent request can enable a provider or supply its project key.
 
+Or put the key in planque's one secret (`PLANQUE_SECRET`, a JSON object) as
+`composio_api_key`: it's read there first, and from `PLANQUE_COMPOSIO_SECRET`
+while the one secret lacks it or can't be read. The one secret also holds
+`door_secret`, `kiff_event_secret` and `apps` (`{id: {client_id,
+client_secret}}`), each read the same way.
+
 For the AWS deployment, pass the same reference as `PLANQUE_COMPOSIO_SECRET`
 to `deploy/aws.sh up`. The script resolves the existing secret's exact ARN,
 grants the function only `secretsmanager:GetSecretValue` on that resource,
