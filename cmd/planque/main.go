@@ -248,6 +248,20 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		}
 		browserWorker = &browser.Client{URL: strings.TrimRight(workerURL, "/"), Key: workerKey, HTTP: &http.Client{Timeout: 90 * time.Second}}
 	}
+	// The tafs Chrome extension's released builds: only these pair and
+	// connect, and with none the owner's own Chrome isn't offered.
+	var chromeBuilds map[string]planque.ChromeBuild
+	if path := os.Getenv("PLANQUE_CHROME_BUILDS_FILE"); path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, errors.New("PLANQUE_CHROME_BUILDS_FILE: " + err.Error())
+		}
+		chromeBuilds, err = planque.ChromeBuildsFrom(f)
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
 	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
@@ -269,6 +283,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		Browser:            browserWorker,
+		ChromeBuilds:       chromeBuilds,
 		DoorSink:           doorSink,
 		EventSink:          eventSink,
 		KIFFEventSink:      kiffEventSink,

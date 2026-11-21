@@ -1,0 +1,6 @@
+# The tafs Chrome extension's released builds, one per line:
+#   <SHA-256 of the packed manifest.json, lower-case hex> <version>
+# Only a build listed here pairs and connects (PLANQUE_CHROME_BUILDS_FILE).
+# A line is added by the extension's release, in a planque PR with two
+# reviews; removing one stops that build at the next deploy. With no line,
+# the owner's own Chrome isn't offered.

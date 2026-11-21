@@ -62,8 +62,12 @@ type Server struct {
 	TelegramBase string
 	// Browser drives a browser grant's browser (kiff/planque#86); nil, no
 	// browser call runs. Evidence keeps its screenshots; nil, none are.
-	Browser  browser.Worker
-	Evidence browser.Evidence
+	Browser browser.Worker
+	// ChromeBuilds are the extension's released builds, by the SHA-256 of
+	// their packed manifest (deploy/chrome-builds.txt): only these pair and
+	// connect. Empty, the owner's own Chrome isn't offered.
+	ChromeBuilds map[string]ChromeBuild
+	Evidence     browser.Evidence
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
@@ -184,6 +188,15 @@ func (s *Server) Handler() http.Handler {
 	// frequent than the sweep's while it runs (sweep.go).
 	mux.HandleFunc("POST /v1/sweep/answers", s.sweepAnswersOnce)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/enrolment", s.enrol)
+	// The owner's own Chrome (chrome.go): paired by the phone, the extension's
+	// own routes unauthenticated, each step of pairing proving itself.
+	mux.HandleFunc("POST /v1/accounts/{tenant}/chromes/pairings", s.signed(s.openChromePairing))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/pairings/{pairing}", s.signedSafe(s.readChromePairing))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/chromes/pairings/{pairing}/confirm", s.signed(s.confirmChromePairing))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes", s.signedSafe(s.listChromes))
+	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
+	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", s.postChromeKey)
+	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", s.collectChromePairing)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
 	// The catalog kept as data, for its operators (catalog_store.go).

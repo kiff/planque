@@ -84,9 +84,10 @@ build() {
     cp "$ROOT/deploy/server-apps.json" "$out/server-apps.json"
     # The reviewed vendor catalog, read at start too.
     cp "$ROOT/deploy/catalog.json" "$out/catalog.json"
+    cp "$ROOT/deploy/chrome-builds.txt" "$out/chrome-builds.txt"
     # The reviewed apps planque signs in to with KIFF's own client.
     cp "$ROOT/deploy/apps.json" "$out/apps.json"
-    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json apps.json)
+    (cd "$out" && zip -q function.zip bootstrap server-apps.json catalog.json apps.json chrome-builds.txt)
   else
     (cd "$out" && zip -q function.zip bootstrap)
   fi
@@ -217,7 +218,7 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # ("v1", "false") to turn it off. cmd/planque checks every PLANQUE_
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
-    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
+    python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_CHROME_BUILDS_FILE": "/var/task/chrome-builds.txt", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
