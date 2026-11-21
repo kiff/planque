@@ -585,7 +585,7 @@ var approvals = map[string]Approval{
 		DoorEvents:       "Gekoppeld · deurgebeurtenissen aan",
 		ToolsBeingChosen: "Onvoltooid · ingelogd, nog geen tools gekozen",
 		SignedOutByF:     "Uitgelogd door %s · opnieuw inloggen",
-		SignedOut:        "Uitgelogd · log opnieuw in",
+		SignedOut:        "Uitgelogd · opnieuw inloggen",
 		ApprovedWaitF:    "Goedgekeurd · wacht op de inlog bij %s",
 		WaitingToConfirm: "Ingelogd · wacht op je bevestiging",
 		NotConnected:     "Niet gekoppeld",
