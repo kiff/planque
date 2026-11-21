@@ -43,6 +43,17 @@
 # (PLANQUE_CATALOG_FILE). Each key entry pins its description's SHA-256; the
 # descriptions it names live in deploy/specs.
 #
+# PLANQUE_CHROME_RELAY=on sets up the relay to the owner's own Chrome: an
+# asymmetric KMS key that signs each step (alias/$PLANQUE_NAME-chrome-steps,
+# ECC P-256, sign and verify only; planque's role may sign with it and read
+# its public half, nothing else), and a WebSocket API ($PLANQUE_NAME-chrome,
+# stage v1) whose $connect, $disconnect and $default routes invoke the
+# function, which may post to and drop its connections only. The function
+# gets PLANQUE_CHROME_STEP_KEY and PLANQUE_CHROME_WS_ENDPOINT, and up prints
+# the wss:// address the extension connects to. PLANQUE_CHROME_RELAY=off
+# drops both settings (the relay refuses every connect) and keeps the key and
+# the API; unset, a rerun keeps what the function has.
+#
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
 # FAKEVENDOR=1 deploys the fake vendor (an MCP server behind its own OAuth,
@@ -63,6 +74,11 @@ aws() ( command aws --region "$REGION" --output text "$@" )
 ACCOUNT=$(aws sts get-caller-identity --query Account)
 TABLE=$NAME
 ALIAS=alias/$NAME
+STEP_ALIAS=alias/$NAME-chrome-steps
+WSAPI=$NAME-chrome
+WS_STAGE=v1
+RELAY=${PLANQUE_CHROME_RELAY:-}
+[[ -z "$RELAY" || "$RELAY" == on || "$RELAY" == off ]] || { echo "PLANQUE_CHROME_RELAY is on or off" >&2; exit 2; }
 ROLE=$NAME-lambda
 FN=$NAME
 PKG=./cmd/planque
@@ -110,6 +126,13 @@ role() {
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
     # KIFF's own OAuth clients, one secret per app, under planque/apps/ alone.
     stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"arn:aws:secretsmanager:$REGION:$ACCOUNT:secret:planque/apps/*\"}"
+    # The Chrome relay: sign steps with its own key, and post to or drop the
+    # WebSocket API's connections, nothing else on either.
+    if [[ "${RELAY:-}" == on ]]; then
+      local step_key api; step_key=$(aws kms describe-key --key-id "$STEP_ALIAS" --query KeyMetadata.Arn); api=$(wsapi_id)
+      stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"$step_key\"}"
+      stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"execute-api:ManageConnections\"],\"Resource\":\"arn:aws:execute-api:$REGION:$ACCOUNT:$api/$WS_STAGE/*/@connections/*\"}"
+    fi
     # KIFF's receiver and its signing secret go together, as planque checks
     # at start: half of the pair is refused here, before anything changes.
     if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then
@@ -186,6 +209,75 @@ keypolicy() {
   aws kms put-key-policy --key-id "$id" --policy-name default --policy "$policy"
 }
 
+# stepkey makes the relay's signing key: ECC P-256, sign and verify only. An
+# asymmetric key can't rotate on its own; a new key is a new pairing of trust
+# (the extension reads planque's public half at each welcome).
+stepkey() {
+  if ! aws kms describe-key --key-id "$STEP_ALIAS" --query KeyMetadata.KeyId >/dev/null 2>&1; then
+    local id; id=$(aws kms create-key --description "planque Chrome step signing" --key-spec ECC_NIST_P256 \
+      --key-usage SIGN_VERIFY --query KeyMetadata.KeyId)
+    aws kms create-alias --alias-name "$STEP_ALIAS" --target-key-id "$id"
+  fi
+}
+
+# stepkeypolicy: as keypolicy, the account's administrators administer the
+# step key but can't sign with it; only planque's role signs and reads its
+# public half. Run after role().
+stepkeypolicy() {
+  local id role_arn
+  id=$(aws kms describe-key --key-id "$STEP_ALIAS" --query KeyMetadata.KeyId)
+  role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
+  local admin='"kms:DescribeKey","kms:GetKeyPolicy","kms:PutKeyPolicy","kms:ListKeyPolicies","kms:EnableKey","kms:DisableKey","kms:ListAliases","kms:CreateAlias","kms:UpdateAlias","kms:DeleteAlias","kms:UpdateKeyDescription","kms:ListGrants","kms:RevokeGrant","kms:RetireGrant","kms:ListResourceTags","kms:TagResource","kms:UntagResource","kms:ScheduleKeyDeletion","kms:CancelKeyDeletion"'
+  local policy="{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AdministerNeverSign\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"arn:aws:iam::$ACCOUNT:root\"},\"Action\":[$admin],\"Resource\":\"*\"},{\"Sid\":\"PlanqueSignsSteps\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"$role_arn\"},\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"*\"}]}"
+  aws kms put-key-policy --key-id "$id" --policy-name default --policy "$policy"
+}
+
+# wsapi_id is the relay's WebSocket API's id, empty when there's none.
+wsapi_id() {
+  local id; id=$(aws apigatewayv2 get-apis --query "Items[?Name=='$WSAPI'].ApiId | [0]")
+  [[ "$id" == None ]] && id=""
+  echo "$id"
+}
+
+# wsapi makes the relay's WebSocket API. Every message goes to $default: the
+# function reads the message's own type.
+wsapi() {
+  if [[ -z "$(wsapi_id)" ]]; then
+    aws apigatewayv2 create-api --name "$WSAPI" --protocol-type WEBSOCKET \
+      --route-selection-expression '$request.body.action' --query ApiId >/dev/null
+  fi
+}
+
+# wsapi_wire points the API's three routes at the function, lets the API (and
+# only it) invoke the function, and deploys stage v1. Run once the function
+# exists.
+wsapi_wire() {
+  local id fn_arn integ
+  id=$(wsapi_id)
+  fn_arn=$(aws lambda get-function --function-name "$FN" --query Configuration.FunctionArn)
+  integ=$(aws apigatewayv2 get-integrations --api-id "$id" --query 'Items[0].IntegrationId')
+  if [[ -z "$integ" || "$integ" == None ]]; then
+    integ=$(aws apigatewayv2 create-integration --api-id "$id" --integration-type AWS_PROXY --integration-method POST \
+      --integration-uri "arn:aws:apigateway:$REGION:lambda:path/2015-03-31/functions/$fn_arn/invocations" --query IntegrationId)
+  fi
+  local rk
+  for rk in '$connect' '$disconnect' '$default'; do
+    if [[ "$(aws apigatewayv2 get-routes --api-id "$id" --query "Items[?RouteKey=='$rk'].RouteId | [0]")" == None ]]; then
+      aws apigatewayv2 create-route --api-id "$id" --route-key "$rk" --target "integrations/$integ" --query RouteId >/dev/null
+    fi
+  done
+  aws lambda add-permission --function-name "$FN" --statement-id chrome-ws --action lambda:InvokeFunction \
+    --principal apigateway.amazonaws.com --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT:$id/*" >/dev/null 2>&1 || true
+  # A few Chromes per account, each a message every few seconds at most.
+  local throttle="ThrottlingBurstLimit=100,ThrottlingRateLimit=50"
+  if ! aws apigatewayv2 get-stage --api-id "$id" --stage-name "$WS_STAGE" --query StageName >/dev/null 2>&1; then
+    aws apigatewayv2 create-stage --api-id "$id" --stage-name "$WS_STAGE" --default-route-settings "$throttle" --query StageName >/dev/null
+  else
+    aws apigatewayv2 update-stage --api-id "$id" --stage-name "$WS_STAGE" --default-route-settings "$throttle" --query StageName >/dev/null
+  fi
+  aws apigatewayv2 create-deployment --api-id "$id" --stage-name "$WS_STAGE" --query DeploymentId >/dev/null
+}
+
 function_env() {
   if [[ "$FAKE" == vendor ]]; then
     # The desk's and billing's key (FAKEVENDOR_DESK_KEY) is set on the
@@ -219,11 +311,13 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_CHROME_BUILDS_FILE": "/var/task/chrome-builds.txt", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
-for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN"):
+for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
     if now.get(k) and not v.get(k): v[k]=now[k]
+if os.environ.get("PLANQUE_CHROME_RELAY") == "off":
+    v.pop("PLANQUE_CHROME_STEP_KEY", None); v.pop("PLANQUE_CHROME_WS_ENDPOINT", None)
 for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
@@ -256,10 +350,13 @@ schedule() {
 }
 
 up() {
+  if [[ -n "$FAKE" && -n "$RELAY" ]]; then echo "PLANQUE_CHROME_RELAY is for planque itself, not a fake" >&2; exit 2; fi
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
+  if [[ "$RELAY" == on ]]; then stepkey; wsapi; fi
   if [[ "$FAKE" == vendor ]]; then table; fi
   role
   if [[ -z "$FAKE" ]]; then keypolicy; fi
+  if [[ "$RELAY" == on ]]; then stepkeypolicy; fi
   local zip; zip=$(build)
   local role_arn; role_arn=$(aws iam get-role --role-name "$ROLE" --query Role.Arn)
   if aws lambda get-function --function-name "$FN" --query Configuration.FunctionName >/dev/null 2>&1; then
@@ -289,6 +386,12 @@ up() {
   fi
   local url; url=$(aws lambda get-function-url-config --function-name "$FN" --query FunctionUrl)
   url=${url%/}
+  local ws=""
+  if [[ "$RELAY" == on ]]; then
+    wsapi_wire
+    ws="$(wsapi_id).execute-api.$REGION.amazonaws.com/$WS_STAGE"
+    export PLANQUE_CHROME_STEP_KEY="$STEP_ALIAS" PLANQUE_CHROME_WS_ENDPOINT="https://$ws"
+  fi
   aws lambda update-function-configuration --function-name "$FN" --environment "$(function_env "$url")" \
     --query FunctionName >/dev/null
   aws lambda wait function-updated-v2 --function-name "$FN"
@@ -298,6 +401,7 @@ up() {
   aws logs put-retention-policy --log-group-name "/aws/lambda/$FN" --retention-in-days 30
   if [[ -z "$FAKE" ]]; then schedule; fi
   echo "$url"
+  if [[ -n "$ws" ]]; then echo "wss://$ws"; fi
 }
 
 down() {
@@ -317,6 +421,13 @@ down() {
       echo "kept table $TABLE (deletion protection is on, or it's gone already)" >&2
   fi
   if [[ -z "$FAKE" ]]; then
+    local api; api=$(wsapi_id 2>/dev/null || true)
+    if [[ -n "$api" ]]; then aws apigatewayv2 delete-api --api-id "$api"; fi
+    local step; step=$(aws kms describe-key --key-id "$STEP_ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)
+    if [[ -n "$step" ]]; then
+      aws kms delete-alias --alias-name "$STEP_ALIAS"
+      aws kms schedule-key-deletion --key-id "$step" --pending-window-in-days 7 --query KeyState >/dev/null
+    fi
     local id; id=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.KeyId 2>/dev/null || true)
     if [[ -n "$id" ]]; then
       aws kms delete-alias --alias-name "$ALIAS"

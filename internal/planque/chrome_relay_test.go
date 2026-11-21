@@ -1,0 +1,279 @@
+package planque
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"sync"
+	"testing"
+
+	"github.com/kiff/planque/internal/lambda"
+	"github.com/kiff/planque/internal/stepkey"
+	"github.com/kiff/planque/internal/store"
+)
+
+// fakePoster is API Gateway's management endpoint: what was posted to each
+// connection, and which were dropped.
+type fakePoster struct {
+	mu      sync.Mutex
+	posts   map[string][]map[string]any
+	dropped map[string]bool
+}
+
+func (f *fakePoster) Post(_ context.Context, conn string, msg []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var m map[string]any
+	_ = json.Unmarshal(msg, &m)
+	if f.posts == nil {
+		f.posts = map[string][]map[string]any{}
+	}
+	f.posts[conn] = append(f.posts[conn], m)
+	return nil
+}
+
+func (f *fakePoster) Drop(_ context.Context, conn string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dropped == nil {
+		f.dropped = map[string]bool{}
+	}
+	f.dropped[conn] = true
+	return nil
+}
+
+func (f *fakePoster) last(conn string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.posts[conn]) == 0 {
+		return nil
+	}
+	return f.posts[conn][len(f.posts[conn])-1]
+}
+
+// relayRig is a planque with the relay on and one paired Chrome, whose key
+// the test holds as the extension does.
+type relayRig struct {
+	e       *env
+	poster  *fakePoster
+	planque stepkey.Local
+	ext     stepkey.Local
+	chrome  string
+}
+
+func newRelayRig(t *testing.T) *relayRig {
+	t.Helper()
+	e := chromeEnv(t)
+	pk, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ek, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	r := &relayRig{e: e, poster: &fakePoster{}, planque: stepkey.Local{Key: pk}, ext: stepkey.Local{Key: ek}, chrome: "chr_workmac0001"}
+	e.s.ChromeSigner, e.s.ChromePoster = r.planque, r.poster
+	der, _ := x509.MarshalPKIXPublicKey(&ek.PublicKey)
+	c := Chrome{ID: r.chrome, Tenant: tenant, Name: "Work Mac", Key: base64.RawURLEncoding.EncodeToString(der)}
+	ctx := context.Background()
+	if err := putDoc(ctx, e.s.KV, store.Item{PK: tenantPK(tenant), SK: skChrome(c.ID)}, c, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := putDoc(ctx, e.s.KV, store.Item{PK: pkChromeIndex(c.ID), SK: "-"}, chromeIndex{Tenant: tenant}, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func (r *relayRig) event(route, conn string, msg any) int {
+	var body []byte
+	if msg != nil {
+		body, _ = json.Marshal(msg)
+	}
+	ev := lambda.WSEvent{Route: route, Connection: conn, Body: body}
+	if route == "$connect" {
+		ev.Query = map[string]string{"chrome": msg.(string)}
+		ev.Body = nil
+	}
+	return r.e.s.WebSocket(context.Background(), ev)
+}
+
+// hello is the extension's proof for nonceP, signed with key.
+// Each edit changes the body before it's signed.
+func (r *relayRig) hello(t *testing.T, key stepkey.Local, nonceP, manifest string, edits ...func(map[string]any)) map[string]any {
+	t.Helper()
+	body := map[string]any{"chrome_id": r.chrome, "nonce_p": nonceP, "nonce_e": "ne-123", "version": "1.0.0", "manifest_hash": manifest}
+	for _, edit := range edits {
+		edit(body)
+	}
+	sig, err := stepkey.SignBody(context.Background(), key, labelHello, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]any{"type": "hello", "sig": sig}
+	for k, v := range body {
+		m[k] = v
+	}
+	return m
+}
+
+// connect runs the whole connect: open, challenge, hello, welcome.
+func (r *relayRig) connect(t *testing.T, conn string) {
+	t.Helper()
+	if st := r.event("$connect", conn, r.chrome); st != http.StatusOK {
+		t.Fatalf("$connect: %d", st)
+	}
+	r.event("$default", conn, map[string]any{"type": "open"})
+	ch := r.poster.last(conn)
+	if ch["type"] != "challenge" || ch["nonce_p"] == "" {
+		t.Fatalf("challenge: %v", ch)
+	}
+	r.event("$default", conn, r.hello(t, r.ext, ch["nonce_p"].(string), releasedManifest))
+	w := r.poster.last(conn)
+	if w["type"] != "welcome" || !stepkey.Verify(r.planque.PublicKey(), labelWelcome, map[string]string{"chrome_id": r.chrome, "nonce_p": ch["nonce_p"].(string), "nonce_e": "ne-123"}, w["sig"].(string)) {
+		t.Fatalf("welcome: %v", w)
+	}
+}
+
+func closedWith(t *testing.T, r *relayRig, conn string, code float64) {
+	t.Helper()
+	m := r.poster.last(conn)
+	if m["type"] != "close" || m["code"] != code || !r.poster.dropped[conn] {
+		t.Fatalf("%s: want close %v, got %v (dropped %v)", conn, code, m, r.poster.dropped[conn])
+	}
+}
+
+// The extension speaks first; planque challenges, the extension proves its
+// paired key, planque proves its step key. Then steps go out signed, and
+// only results the Chrome signed are kept, the first one for a step.
+func TestTheRelayProvesBothEndsThenSendsSignedStepsAndKeepsSignedResults(t *testing.T) {
+	r := newRelayRig(t)
+	ctx := context.Background()
+	r.connect(t, "c1")
+	r.event("$default", "c1", map[string]any{"type": "ping"})
+	if r.poster.last("c1")["type"] != "pong" {
+		t.Fatalf("ping: %v", r.poster.last("c1"))
+	}
+	if err := r.e.s.sendChromeStep(ctx, tenant, chromeStep{ID: "st_1", ChromeID: r.chrome, Run: "run_1", Grant: "grt_1", Sites: []string{"shop.example"}, Op: "read", URL: "https://shop.example/"}); err != nil {
+		t.Fatal(err)
+	}
+	m := r.poster.last("c1")
+	raw, _ := json.Marshal(m["step"])
+	var step map[string]any
+	_ = json.Unmarshal(raw, &step)
+	if m["type"] != "step" || step["nonce"] == "" || !stepkey.Verify(r.planque.PublicKey(), labelStep, step, m["sig"].(string)) {
+		t.Fatalf("step: %v", m)
+	}
+	// A result signed by another key is not taken; the Chrome's is, once.
+	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	result := func(key stepkey.Local, page string) map[string]any {
+		body := map[string]any{"id": "st_1", "ok": true, "page": map[string]any{"title": page}, "error": nil}
+		sig, _ := stepkey.SignBody(ctx, key, labelResult, body)
+		return map[string]any{"type": "result", "id": "st_1", "ok": true, "page": body["page"], "error": nil, "sig": sig}
+	}
+	r.event("$default", "c1", result(stepkey.Local{Key: other}, "forged"))
+	if _, found, _ := r.e.s.chromeResult(ctx, r.chrome, "st_1"); found {
+		t.Fatal("a result not signed by the Chrome was kept")
+	}
+	r.event("$default", "c1", result(r.ext, "Shop"))
+	r.event("$default", "c1", result(r.ext, "Second"))
+	got, found, err := r.e.s.chromeResult(ctx, r.chrome, "st_1")
+	if err != nil || !found || string(got["page"]) != `{"title":"Shop"}` {
+		t.Fatalf("result: %v %v %s", found, err, got["page"])
+	}
+	// Disconnected: a step finds no Chrome.
+	r.event("$disconnect", "c1", nil)
+	if err := r.e.s.sendChromeStep(ctx, tenant, chromeStep{ID: "st_2", ChromeID: r.chrome}); err != errChromeOffline {
+		t.Fatalf("after disconnect: %v", err)
+	}
+}
+
+// Each refusal closes with its code, as a message, then drops: an unknown
+// Chrome (4401), an unreleased build (4403), a hello for another challenge
+// or by another key (4401), anything before the proofs (4401), and an
+// unpaired Chrome (4410), whether it connects after or is live at the time.
+func TestTheRelayClosesWhatItCantTrustWithItsCode(t *testing.T) {
+	t.Run("unknown Chrome", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", "chr_nobodyknows1")
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("unreleased build", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		nonce := r.poster.last("c1")["nonce_p"].(string)
+		r.event("$default", "c1", r.hello(t, r.ext, nonce, "bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11bb11"))
+		closedWith(t, r, "c1", 4403)
+	})
+	t.Run("another challenge", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		r.event("$default", "c1", r.hello(t, r.ext, "not-the-challenge", releasedManifest))
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("no nonce of its own", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		r.event("$default", "c1", r.hello(t, r.ext, r.poster.last("c1")["nonce_p"].(string), releasedManifest, func(b map[string]any) { b["nonce_e"] = "" }))
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("another Chrome's id, signed with this one's key", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		r.event("$default", "c1", r.hello(t, r.ext, r.poster.last("c1")["nonce_p"].(string), releasedManifest, func(b map[string]any) { b["chrome_id"] = "chr_someoneelse01" }))
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("another key", func(t *testing.T) {
+		r := newRelayRig(t)
+		other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		r.event("$default", "c1", r.hello(t, stepkey.Local{Key: other}, r.poster.last("c1")["nonce_p"].(string), releasedManifest))
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("a step's result before the proofs", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "result", "id": "x"})
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("unpaired, connecting after", func(t *testing.T) {
+		r := newRelayRig(t)
+		if st, _ := r.e.do("DELETE", "/v1/accounts/"+tenant+"/chromes/"+r.chrome, nil, r.e.phone, ""); st != 200 {
+			t.Fatalf("unpair: %d", st)
+		}
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		closedWith(t, r, "c1", 4410)
+	})
+	t.Run("unpaired while live", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.connect(t, "c1")
+		if st, _ := r.e.do("DELETE", "/v1/accounts/"+tenant+"/chromes/"+r.chrome, nil, r.e.phone, ""); st != 200 {
+			t.Fatalf("unpair: %d", st)
+		}
+		closedWith(t, r, "c1", 4410)
+		if err := r.e.s.sendChromeStep(context.Background(), tenant, chromeStep{ID: "st_1", ChromeID: r.chrome}); err != errChromeOffline {
+			t.Fatalf("a step after unpairing: %v", err)
+		}
+	})
+}
+
+// With no step key or no WebSocket API, or the Chrome not offered, every
+// connect is refused.
+func TestTheRelayIsOffWithoutItsKeyAndAPI(t *testing.T) {
+	r := newRelayRig(t)
+	r.e.s.ChromeSigner = nil
+	if st := r.event("$connect", "c1", r.chrome); st != http.StatusForbidden {
+		t.Fatalf("no step key: %d", st)
+	}
+	r.e.s.ChromeSigner, r.e.s.ChromeBuilds = r.planque, nil
+	if st := r.event("$connect", "c1", r.chrome); st != http.StatusForbidden {
+		t.Fatalf("not offered: %d", st)
+	}
+}

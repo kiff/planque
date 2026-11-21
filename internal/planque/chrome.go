@@ -487,10 +487,17 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		s.fail(w, r, err)
 		return
 	}
+	// The relay finds the Chrome's account from its id alone.
+	if err := putDoc(r.Context(), s.KV, store.Item{PK: pkChromeIndex(c.ID), SK: "-"}, chromeIndex{Tenant: c.Tenant}, store.Cond{NotExists: true}); err != nil {
+		_, _, _ = s.KV.Delete(r.Context(), tenantPK(c.Tenant), skChrome(c.ID))
+		s.fail(w, r, err)
+		return
+	}
 	p.Confirmed = &ChromeConfirmation{ChromeID: c.ID, Name: name, PhoneKey: req.PhoneKey, PhoneProof: req.PhoneProof, PhoneSig: req.PhoneSig}
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); err != nil {
 		// The Chrome was kept but the extension can't learn it: it goes.
 		_, _, _ = s.KV.Delete(r.Context(), tenantPK(c.Tenant), skChrome(c.ID))
+		_, _, _ = s.KV.Delete(r.Context(), pkChromeIndex(c.ID), "-")
 		s.fail(w, r, err)
 		return
 	}
@@ -576,6 +583,11 @@ func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusNotFound, "no such Chrome")
 		return
 	}
+	// A connect from it is told it was unpaired (4410) for a while, and a
+	// live connection ends now: the extension wipes itself.
+	_ = putDoc(r.Context(), s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
+		chromeIndex{Tenant: sr.tenant, Unpaired: true}, store.Cond{})
+	s.closeChrome(r.Context(), sr.tenant, id, closeUnpaired, "this Chrome was unpaired")
 	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": id, "status": "unpaired"})
 }
 

@@ -27,9 +27,19 @@ type Event struct {
 	Headers         map[string]string `json:"headers"`
 	Body            string            `json:"body"`
 	IsBase64Encoded bool              `json:"isBase64Encoded"`
-	RequestContext  struct {
+	// QueryStringParameters is a WebSocket API's $connect query.
+	QueryStringParameters map[string]string `json:"queryStringParameters"`
+	RequestContext        struct {
 		DomainName string `json:"domainName"`
-		HTTP       struct {
+		// RouteKey and ConnectionID are a WebSocket API's ($connect,
+		// $default, $disconnect): only API Gateway sets them, never a
+		// function URL request.
+		RouteKey     string `json:"routeKey"`
+		ConnectionID string `json:"connectionId"`
+		Identity     struct {
+			SourceIP string `json:"sourceIp"`
+		} `json:"identity"`
+		HTTP struct {
 			Method   string `json:"method"`
 			SourceIP string `json:"sourceIp"`
 		} `json:"http"`
@@ -93,11 +103,28 @@ func Serve(ctx context.Context, h http.Handler, e Event) (Response, error) {
 	return res, nil
 }
 
+// WSEvent is one WebSocket API event: a connection opened ($connect, with
+// its query), a message on it ($default), or it closed ($disconnect).
+type WSEvent struct {
+	Route      string
+	Connection string
+	Query      map[string]string
+	Body       []byte
+	SourceIP   string
+}
+
+// WebSocket handles a WebSocket API's events. Its answer is the status API
+// Gateway gets: a $connect answered other than 2xx is refused.
+type WebSocket interface {
+	WebSocket(ctx context.Context, ev WSEvent) int
+}
+
 // Running reports whether this process is a Lambda runtime.
 func Running() bool { return os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" }
 
-// Start serves Lambda invocations with h forever.
-func Start(h http.Handler) error {
+// Start serves Lambda invocations with h forever, and a WebSocket API's
+// events with ws (nil: none are taken).
+func Start(h http.Handler, ws WebSocket) error {
 	base := "http://" + os.Getenv("AWS_LAMBDA_RUNTIME_API") + "/2018-06-01/runtime/invocation/"
 	hc := &http.Client{} // next blocks until an invocation arrives
 	for {
@@ -113,7 +140,7 @@ func Start(h http.Handler) error {
 			return err
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.UnixMilli(deadline))
-		out, err := invoke(ctx, h, raw)
+		out, err := invoke(ctx, h, ws, raw)
 		cancel()
 		if err != nil {
 			b, _ := json.Marshal(map[string]string{"errorMessage": err.Error(), "errorType": "PlanqueError"})
@@ -124,7 +151,7 @@ func Start(h http.Handler) error {
 	}
 }
 
-func invoke(ctx context.Context, h http.Handler, raw []byte) (b []byte, err error) {
+func invoke(ctx context.Context, h http.Handler, ws WebSocket, raw []byte) (b []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -133,6 +160,21 @@ func invoke(ctx context.Context, h http.Handler, raw []byte) (b []byte, err erro
 	var e Event
 	if err := json.Unmarshal(raw, &e); err != nil {
 		return nil, err
+	}
+	if e.RequestContext.ConnectionID != "" && e.RequestContext.RouteKey != "" && e.RequestContext.HTTP.Method == "" {
+		// A WebSocket API's event never goes through the HTTP routes.
+		status := http.StatusForbidden
+		if ws != nil {
+			body := []byte(e.Body)
+			if e.IsBase64Encoded {
+				if body, err = base64.StdEncoding.DecodeString(e.Body); err != nil {
+					return nil, err
+				}
+			}
+			status = ws.WebSocket(ctx, WSEvent{Route: e.RequestContext.RouteKey, Connection: e.RequestContext.ConnectionID,
+				Query: e.QueryStringParameters, Body: body, SourceIP: e.RequestContext.Identity.SourceIP})
+		}
+		return json.Marshal(map[string]int{"statusCode": status})
 	}
 	res, err := Serve(ctx, h, e)
 	if err != nil {
