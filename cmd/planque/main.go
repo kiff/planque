@@ -75,7 +75,9 @@ import (
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
 	"github.com/kiff/planque/internal/secretstore"
+	"github.com/kiff/planque/internal/stepkey"
 	"github.com/kiff/planque/internal/store"
+	"github.com/kiff/planque/internal/wsapi"
 )
 
 // appSecretPrefix is a Secrets Manager name path: letters, digits and
@@ -95,7 +97,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if lambda.Running() {
-		log.Fatal(lambda.Start(s.Handler()))
+		log.Fatal(lambda.Start(s.Handler(), s))
 	}
 	addr := cmp.Or(os.Getenv("PLANQUE_ADDR"), ":8080")
 	logger.Info("planque listening", slog.String("addr", addr))
@@ -262,6 +264,19 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, err
 		}
 	}
+	// The relay to the owner's own Chrome: planque's step key in KMS, and the
+	// WebSocket API's management endpoint. Half a setting is a mistake.
+	var chromeSigner stepkey.Signer
+	var chromePoster wsapi.Poster
+	stepKey, wsEndpoint := strings.TrimSpace(os.Getenv("PLANQUE_CHROME_STEP_KEY")), strings.TrimSpace(os.Getenv("PLANQUE_CHROME_WS_ENDPOINT"))
+	if stepKey != "" || wsEndpoint != "" {
+		if stepKey == "" || !strings.HasPrefix(wsEndpoint, "https://") {
+			return nil, errors.New("PLANQUE_CHROME_STEP_KEY and PLANQUE_CHROME_WS_ENDPOINT must name the step key and the WebSocket API's https endpoint")
+		}
+		chromeSigner = stepkey.KMS{KeyID: stepKey, Client: &awsapi.Client{Service: "kms", Region: region,
+			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+		chromePoster = wsapi.API{Endpoint: strings.TrimRight(wsEndpoint, "/"), Region: region, Creds: creds}
+	}
 	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
@@ -284,6 +299,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		Browser:            browserWorker,
 		ChromeBuilds:       chromeBuilds,
+		ChromeSigner:       chromeSigner,
+		ChromePoster:       chromePoster,
 		DoorSink:           doorSink,
 		EventSink:          eventSink,
 		KIFFEventSink:      kiffEventSink,

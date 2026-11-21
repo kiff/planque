@@ -32,8 +32,10 @@ import (
 	"github.com/kiff/planque/internal/permit"
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
+	"github.com/kiff/planque/internal/stepkey"
 	"github.com/kiff/planque/internal/store"
 	"github.com/kiff/planque/internal/words"
+	"github.com/kiff/planque/internal/wsapi"
 )
 
 // IdempotencyArg is the argument KIFF's gateway fills with the call's
@@ -67,6 +69,11 @@ type Server struct {
 	// their packed manifest (deploy/chrome-builds.txt): only these pair and
 	// connect. Empty, the owner's own Chrome isn't offered.
 	ChromeBuilds map[string]ChromeBuild
+	// ChromeSigner signs the relay's welcome and steps with planque's step
+	// key (KMS in production), and ChromePoster reaches the extension's
+	// WebSocket connections. Without both, the relay refuses every connect.
+	ChromeSigner stepkey.Signer
+	ChromePoster wsapi.Poster
 	Evidence     browser.Evidence
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
