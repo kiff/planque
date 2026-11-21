@@ -23,6 +23,8 @@ type Connections struct {
 	Working        string // when planque didn't look up its last use
 	ExpiredOnF     string // the app, the day
 	ExpiredF       string // the app
+	SignedOutOnF   string // the app, the day: signed out, not expired
+	SignedOutF     string // the app
 	UnfinishedOnF  string // the day it was signed in
 	Unfinished     string
 	Months         [12]string
@@ -41,6 +43,7 @@ var connections = map[string]Connections{
 		StopsF: "%s will stop using %s.", NothingStops: "No taf uses it, so nothing stops.",
 		WorkingLastF: "Working · last used %s", WorkingNotYet: "Working · not used yet", Working: "Working",
 		ExpiredOnF: "%s's sign-in expired on %s", ExpiredF: "%s's sign-in has expired",
+		SignedOutOnF: "%s was signed out on %s", SignedOutF: "%s was signed out",
 		UnfinishedOnF: "Unfinished · signed in on %s, no tools chosen, no taf uses it", Unfinished: "Unfinished · no tools chosen, no taf uses it",
 		Months:    [12]string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",
@@ -53,6 +56,7 @@ var connections = map[string]Connections{
 		StopsF: "%s nutzt %s dann nicht mehr.", NothingStops: "Kein taf nutzt sie, also hört nichts auf.",
 		WorkingLastF: "Funktioniert · zuletzt genutzt %s", WorkingNotYet: "Funktioniert · noch nicht genutzt", Working: "Funktioniert",
 		ExpiredOnF: "Die Anmeldung bei %s ist am %s abgelaufen", ExpiredF: "Die Anmeldung bei %s ist abgelaufen",
+		SignedOutOnF: "%s wurde am %s abgemeldet", SignedOutF: "%s wurde abgemeldet",
 		UnfinishedOnF: "Unvollständig · angemeldet am %s, keine Tools gewählt, kein taf nutzt sie", Unfinished: "Unvollständig · keine Tools gewählt, kein taf nutzt sie",
 		Months:    [12]string{"Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."},
 		DayMonthF: "%d. %s", TimeOnlyLayout: "15:04",
@@ -65,6 +69,7 @@ var connections = map[string]Connections{
 		StopsF: "%s n'utilisera plus %s.", NothingStops: "Aucun taf ne l'utilise, donc rien ne s'arrête.",
 		WorkingLastF: "Fonctionne · dernière utilisation : %s", WorkingNotYet: "Fonctionne · pas encore utilisée", Working: "Fonctionne",
 		ExpiredOnF: "La connexion à %s a expiré le %s", ExpiredF: "La connexion à %s a expiré",
+		SignedOutOnF: "%s a été déconnecté le %s", SignedOutF: "%s a été déconnecté",
 		UnfinishedOnF: "Inachevée · connexion faite le %s, aucun outil choisi, aucun taf ne l'utilise", Unfinished: "Inachevée · aucun outil choisi, aucun taf ne l'utilise",
 		Months:    [12]string{"janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",
@@ -77,6 +82,7 @@ var connections = map[string]Connections{
 		StopsF: "%s dejará de usar %s.", NothingStops: "Ningún taf la usa, así que nada se detiene.",
 		WorkingLastF: "Funciona · último uso: %s", WorkingNotYet: "Funciona · aún sin usar", Working: "Funciona",
 		ExpiredOnF: "La sesión de %s caducó el %s", ExpiredF: "La sesión de %s ha caducado",
+		SignedOutOnF: "Se cerró la sesión de %s el %s", SignedOutF: "Se cerró la sesión de %s",
 		UnfinishedOnF: "Sin terminar · sesión iniciada el %s, sin herramientas elegidas, ningún taf la usa", Unfinished: "Sin terminar · sin herramientas elegidas, ningún taf la usa",
 		Months:    [12]string{"ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",
@@ -89,6 +95,7 @@ var connections = map[string]Connections{
 		StopsF: "%s smetterà di usare %s.", NothingStops: "Nessun taf la usa, quindi non si ferma nulla.",
 		WorkingLastF: "Funziona · ultimo uso: %s", WorkingNotYet: "Funziona · non ancora usata", Working: "Funziona",
 		ExpiredOnF: "L'accesso a %s è scaduto il %s", ExpiredF: "L'accesso a %s è scaduto",
+		SignedOutOnF: "%s è stato disconnesso il %s", SignedOutF: "%s è stato disconnesso",
 		UnfinishedOnF: "Incompleta · accesso effettuato il %s, nessuno strumento scelto, nessun taf la usa", Unfinished: "Incompleta · nessuno strumento scelto, nessun taf la usa",
 		Months:    [12]string{"gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",
@@ -101,6 +108,7 @@ var connections = map[string]Connections{
 		StopsF: "%s deixará de usar %s.", NothingStops: "Nenhum taf a usa, por isso nada para.",
 		WorkingLastF: "A funcionar · última utilização: %s", WorkingNotYet: "A funcionar · ainda não utilizada", Working: "A funcionar",
 		ExpiredOnF: "A sessão em %s expirou a %s", ExpiredF: "A sessão em %s expirou",
+		SignedOutOnF: "A sessão no %s foi terminada a %s", SignedOutF: "A sessão no %s foi terminada",
 		UnfinishedOnF: "Por concluir · sessão iniciada a %s, sem ferramentas escolhidas, nenhum taf a usa", Unfinished: "Por concluir · sem ferramentas escolhidas, nenhum taf a usa",
 		Months:    [12]string{"jan.", "fev.", "mar.", "abr.", "mai.", "jun.", "jul.", "ago.", "set.", "out.", "nov.", "dez."},
 		DayMonthF: "%d de %s", TimeOnlyLayout: "15:04",
@@ -113,6 +121,7 @@ var connections = map[string]Connections{
 		StopsF: "%s gebruikt %s dan niet meer.", NothingStops: "Geen taf gebruikt deze koppeling, dus er stopt niets.",
 		WorkingLastF: "Werkt · laatst gebruikt %s", WorkingNotYet: "Werkt · nog niet gebruikt", Working: "Werkt",
 		ExpiredOnF: "De inlog bij %s is verlopen op %s", ExpiredF: "De inlog bij %s is verlopen",
+		SignedOutOnF: "%s is op %s afgemeld", SignedOutF: "%s is afgemeld",
 		UnfinishedOnF: "Onvoltooid · ingelogd op %s, geen tools gekozen, geen taf gebruikt deze koppeling", Unfinished: "Onvoltooid · geen tools gekozen, geen taf gebruikt deze koppeling",
 		Months:    [12]string{"jan.", "feb.", "mrt.", "apr.", "mei", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec."},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",
@@ -125,6 +134,7 @@ var connections = map[string]Connections{
 		StopsF: "%s przestanie korzystać z: %s.", NothingStops: "Żaden taf go nie używa, więc nic się nie zatrzyma.",
 		WorkingLastF: "Działa · ostatnio użyte: %s", WorkingNotYet: "Działa · jeszcze nieużyte", Working: "Działa",
 		ExpiredOnF: "Logowanie w %s wygasło %s", ExpiredF: "Logowanie w %s wygasło",
+		SignedOutOnF: "Wylogowano z %s %s", SignedOutF: "Wylogowano z %s",
 		UnfinishedOnF: "Niedokończone · zalogowano %s, nie wybrano narzędzi, żaden taf go nie używa", Unfinished: "Niedokończone · nie wybrano narzędzi, żaden taf go nie używa",
 		Months:    [12]string{"sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"},
 		DayMonthF: "%d %s", TimeOnlyLayout: "15:04",

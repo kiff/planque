@@ -192,10 +192,20 @@ func healthOf(g *Grant, rc rowContext) connectionHealth {
 	case g.Paused != nil:
 		return connectionHealth{State: HealthPaused, Words: statusIn(words.Approve(rc.lang), g)}
 	case g.Status == StatusNeedsReconnect:
+		// "Expired" only for a sign-in that really ran out; a revoke, a removed
+		// shared sign-in and a cause planque doesn't know read "signed out".
+		expired := g.SignedOutCause == CauseNoRefreshToken
 		if !g.SignedOutAt.IsZero() {
-			return connectionHealth{State: HealthSignedOut, Words: fmt.Sprintf(c.ExpiredOnF, vendor, rc.day(g.SignedOutAt)), At: g.SignedOutAt}
+			on := fmt.Sprintf(c.SignedOutOnF, vendor, rc.day(g.SignedOutAt))
+			if expired {
+				on = fmt.Sprintf(c.ExpiredOnF, vendor, rc.day(g.SignedOutAt))
+			}
+			return connectionHealth{State: HealthSignedOut, Words: on, At: g.SignedOutAt}
 		}
-		return connectionHealth{State: HealthSignedOut, Words: fmt.Sprintf(c.ExpiredF, vendor)}
+		if expired {
+			return connectionHealth{State: HealthSignedOut, Words: fmt.Sprintf(c.ExpiredF, vendor)}
+		}
+		return connectionHealth{State: HealthSignedOut, Words: fmt.Sprintf(c.SignedOutF, vendor)}
 	case unfinished(g):
 		if t, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
 			return connectionHealth{State: HealthUnfinished, Words: fmt.Sprintf(c.UnfinishedOnF, rc.day(t))}

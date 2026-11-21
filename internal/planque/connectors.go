@@ -1414,7 +1414,7 @@ func (s *Server) signInRefused(ctx context.Context, g *Grant, why string) {
 		if json.Unmarshal(it.Doc, &other) != nil || other.Connector == nil || other.Connector.Account != g.Connector.Account || other.Status != StatusConnected {
 			continue
 		}
-		if err := s.signOut(ctx, &other, why, "refresh_refused"); err != nil {
+		if err := s.signOut(ctx, &other, why, CauseRefreshRefused); err != nil {
 			s.log().WarnContext(ctx, "sign-in refused: a connection wasn't marked", slog.String("grant", other.ID), slog.String("err", err.Error()))
 		}
 	}
@@ -1514,7 +1514,7 @@ func (s *Server) freshConnector(r *http.Request, g *Grant) ([]string, error) {
 		return nil, err
 	}
 	g.Status, g.Reconnect, g.FreshFrom, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", "", time.Time{}
-	g.SignedOutAt = time.Time{}
+	g.SignedOutAt, g.SignedOutCause = time.Time{}, ""
 	g.event(s.now(), "connected again on a fresh sign-in with the same tools and Card")
 	if err := s.saveGrant(ctx, g); err != nil {
 		return nil, err
@@ -1547,7 +1547,7 @@ func (s *Server) freshConnector(r *http.Request, g *Grant) ([]string, error) {
 			s.log().WarnContext(ctx, "fresh sign-in: a connection wasn't moved", slog.String("grant", o.ID), slog.String("err", err.Error()))
 			continue
 		}
-		o.Status, o.Reason, o.HeldUntil, o.SignedOutAt = StatusConnected, "", time.Time{}, time.Time{}
+		o.Status, o.Reason, o.HeldUntil, o.SignedOutAt, o.SignedOutCause = StatusConnected, "", time.Time{}, time.Time{}, ""
 		o.event(s.now(), "connected again on the fresh sign-in of "+g.ID+": its tools are as they were")
 		if err := s.saveGrant(ctx, o); err != nil {
 			s.log().WarnContext(ctx, "fresh sign-in: a connection wasn't moved", slog.String("grant", o.ID), slog.String("err", err.Error()))
@@ -1597,7 +1597,7 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 		return err
 	}
 	g.Status, g.Reconnect, g.ReconnectName, g.Reason, g.HeldUntil = StatusConnected, false, "", "", time.Time{}
-	g.SignedOutAt = time.Time{}
+	g.SignedOutAt, g.SignedOutCause = time.Time{}, ""
 	g.event(s.now(), "signed in again on "+g.Connector.AccountName+": connected with the same tools and Card")
 	return s.saveGrant(ctx, g)
 }

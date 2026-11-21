@@ -91,6 +91,7 @@ type Approval struct {
 	DoorEvents       string
 	ToolsBeingChosen string
 	SignedOutByF     string // the vendor
+	SignedOut        string // signed out, no vendor named
 	ApprovedWaitF    string // the vendor
 	WaitingToConfirm string
 	NotConnected     string
