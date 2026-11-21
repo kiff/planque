@@ -27,6 +27,8 @@ var whoAmI = map[string]struct {
 	"outlook":        {[]string{"OUTLOOK_GET_PROFILE"}, []string{"mail", "userPrincipalName", "displayName"}},
 	"github":         {[]string{"GITHUB_GET_THE_AUTHENTICATED_USER"}, []string{"login"}},
 	"typeform":       {[]string{"TYPEFORM_GET_ABOUT_ME"}, []string{"email", "alias"}},
+	"asana":          {[]string{"ASANA_GET_CURRENT_USER"}, []string{"email", "name"}},
+	"airtable":       {[]string{"AIRTABLE_GET_USER_INFO"}, []string{"email"}},
 	"calendly":       {[]string{"CALENDLY_GET_USER"}, []string{"email", "name"}},
 	"quickbooks":     {[]string{"QUICKBOOKS_GET_COMPANY_INFO"}, []string{"CompanyName", "LegalName"}},
 }
