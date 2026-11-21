@@ -1833,3 +1833,58 @@ func TestASharedSignInIsRevokedWhenTheLastOnItExpires(t *testing.T) {
 		t.Fatal("the shared token record outlived both")
 	}
 }
+
+// The sign-in link works for 60 minutes (it was 15: choosing an account,
+// setting up a workspace and sharing pages took longer, and Notion failed on
+// it twice), still once: at 59 minutes it opens and confirms, at 61 it does
+// not, and the same link never opens twice.
+func TestSignInLinkLastsSixtyMinutes(t *testing.T) {
+	if signInTTL != 60*time.Minute {
+		t.Fatalf("signInTTL is %s, want 60m", signInTTL)
+	}
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	link := out["sign_in_url"].(string)
+	e.s.Now = func() time.Time { return time.Now().Add(59 * time.Minute) }
+	code := e.signIn(link) // 59 minutes after the approval: still opens
+	e.s.Now = nil          // the confirm is signed with the phone's real clock
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm at 59 minutes: %d %v", st, out)
+	}
+	resp, err := http.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode == 200 && string(page) == "app opened" {
+		t.Fatal("the same sign-in link opened a second time")
+	}
+}
+
+// A link not opened within the 60 minutes is refused.
+func TestSignInLinkRefusedAfterSixtyMinutes(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": digest}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	link := out["sign_in_url"].(string)
+	e.s.Now = func() time.Time { return time.Now().Add(61 * time.Minute) }
+	resp, err := http.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode == 200 && string(page) == "app opened" {
+		t.Fatal("a sign-in link opened 61 minutes after the approval")
+	}
+}

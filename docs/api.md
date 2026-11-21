@@ -122,7 +122,7 @@ device.
 browser back to planque, which keeps the token unused and sends that
 browser on to the owner's app (`PLANQUE_APP_RETURN`, set by the operator)
 with a one-time code. The device that approved signs
-`POST …/grants/{id}/confirm` with that code within 15 minutes; only then
+`POST …/grants/{id}/confirm` with that code within 60 minutes; only then
 are the tools registered. A link someone else opens hands its code to
 their browser, never to the approver. Vendors are reached only at public
 addresses, checked when each connection is made.
