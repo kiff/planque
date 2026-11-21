@@ -7,6 +7,8 @@ package browser
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -242,7 +244,35 @@ const (
 	CodeOutcomeUnknown  = "outcome_unknown"     // an earlier pay on this checkout ended without a known outcome
 	CodeCurrencyOther   = "currency_other"      // the checkout isn't in the connection's currency
 	CodeBrowserDown     = "browser_unavailable" // the worker couldn't run the browser
+	CodePageChanged     = "page_changed"        // the page isn't the read the steps were built from
 )
+
+// Read is a page read's fingerprint: its address and title, and every
+// field, control and link with its ref, kind and words, in the page's own
+// order. Values are left out, so a fill doesn't change it. A taf's steps
+// name the read they were built from: refs restart on each new document,
+// so after a navigation a ref can name another element, and a step is run
+// only on the page it was read from.
+func Read(p Page) string {
+	h := sha256.New()
+	put := func(parts ...string) {
+		for _, x := range parts {
+			fmt.Fprintf(h, "%d:%s", len(x), x)
+		}
+		h.Write([]byte{'\n'})
+	}
+	put("page", strings.SplitN(p.URL, "#", 2)[0], p.Title)
+	for _, f := range p.Fields {
+		put("field", f.Ref, f.Kind, f.Label)
+	}
+	for _, c := range p.Controls {
+		put("control", c.Ref, c.Label)
+	}
+	for _, l := range p.Links {
+		put("link", l.Ref, l.Label, l.URL)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
 
 // Secret says the field's value is never shown and never typed by an
 // agent: a password, a card number or security code, a one-time code.

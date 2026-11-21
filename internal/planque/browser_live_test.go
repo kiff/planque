@@ -54,7 +54,7 @@ func TestBrowserLiveLookUpApproveAndPayOnce(t *testing.T) {
 	}
 	page := sc["page"].(map[string]any)
 	qty, add := refByLabel(page, "fields", "Quantity"), refByLabel(page, "controls", "Add to cart")
-	out, sc = e.call(g, "browse_act", map[string]any{"url": liveItem, "steps": []map[string]any{{"fill": qty, "value": "2"}, {"click": add}}})
+	out, sc = e.call(g, "browse_act", map[string]any{"url": liveItem, "read": sc["read"], "steps": []map[string]any{{"fill": qty, "value": "2"}, {"click": add}}})
 	if code(sc) != "" || sc["steps_run"] != float64(2) || !strings.Contains(out, "Your cart") {
 		t.Fatalf("add to cart: %s", out)
 	}
@@ -67,7 +67,7 @@ func TestBrowserLiveLookUpApproveAndPayOnce(t *testing.T) {
 	page = sc["page"].(map[string]any)
 	place := refByLabel(page, "controls", "Place order")
 	// A click on the checkout through browse_act is refused before it runs.
-	if out, sc := e.call(g, "browse_act", map[string]any{"url": liveCheckout, "steps": []map[string]any{{"click": place}}}); code(sc) != browser.CodePaymentStep || len(shop.Orders) != 0 {
+	if out, sc := e.call(g, "browse_act", map[string]any{"url": liveCheckout, "read": sc["read"], "steps": []map[string]any{{"click": place}}}); code(sc) != browser.CodePaymentStep || len(shop.Orders) != 0 {
 		t.Fatalf("placing the order through browse_act: %s (orders %v)", out, shop.Orders)
 	}
 	out, sc = e.call(g, "browse_checkout", map[string]any{"url": liveCheckout})
@@ -120,7 +120,7 @@ func TestBrowserLiveKeepsSecretsAndSites(t *testing.T) {
 		t.Fatalf("login page: %s", out)
 	}
 	pass := refByLabel(sc["page"].(map[string]any), "fields", "Password")
-	if _, sc := e.call(g, "browse_act", map[string]any{"url": liveLogin, "steps": []map[string]any{{"fill": pass, "value": "x"}}}); code(sc) != browser.CodeSecretField {
+	if _, sc := e.call(g, "browse_act", map[string]any{"url": liveLogin, "read": sc["read"], "steps": []map[string]any{{"fill": pass, "value": "x"}}}); code(sc) != browser.CodeSecretField {
 		t.Errorf("typing a password: %v", sc)
 	}
 	if _, sc := e.call(g, "browse_open", map[string]any{"url": liveOther}); code(sc) != browser.CodeSiteNotListed {
