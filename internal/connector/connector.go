@@ -172,6 +172,9 @@ func (t Tool) Covered(granted []string) bool {
 	if len(granted) == 0 || len(t.Scopes) == 0 || urlForm(granted[0]) != urlForm(t.Scopes[0]) {
 		return true
 	}
+	if all, ok := fullAccessScope[strings.ToLower(t.Toolkit)]; ok && slices.Contains(granted, all) {
+		return true
+	}
 	for _, need := range t.Scopes {
 		if slices.Contains(granted, need) || strings.HasSuffix(need, ".readonly") && slices.Contains(granted, strings.TrimSuffix(need, ".readonly")) {
 			return true
@@ -200,6 +203,17 @@ var writeImpliesRead = map[string]bool{"shopify": true}
 // partly signed in". A vendor is added here once its own docs say so, never by
 // guess: elsewhere a full scope covers no read it isn't listed for.
 var fullImpliesRead = map[string]bool{"pipedrive": true}
+
+// fullAccessScope lists the toolkits whose vendor grants a sign-in every
+// endpoint under one scope name, and that name. Calendly's sign-ins made
+// before its scoped permissions report "default" and "retain full access to
+// available endpoints" (developer.calendly.com, Authorization Scopes, Backward
+// Compatibility; its scope catalog has no scope named default). The provider
+// lists each Calendly tool with its new scope (List scheduled events:
+// scheduled_events:read), so without this a default sign-in left booked
+// meetings out as "only partly signed in" (a phone test on 21 Nov 2026). A
+// vendor is added here once its own docs say so, never by guess.
+var fullAccessScope = map[string]string{"calendly": "default"}
 
 // urlForm says a scope is written as a URL (https://…/auth/drive) rather
 // than a short name (drive.readonly).
