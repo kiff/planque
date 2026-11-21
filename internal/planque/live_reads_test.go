@@ -478,3 +478,59 @@ func TestAnAccountIndexedBeforeIsIndexedOnceMore(t *testing.T) {
 		t.Fatalf("indexed again on the next read: %v, %d items read", err, kv.read)
 	}
 }
+
+// A read that runs while a save is making a grant count again (its row
+// written, its record not yet) neither lists the grant nor deletes its row:
+// once the record is written, the grant is listed. A first save in flight
+// (a row at the first version, no record yet) is kept the same way.
+func TestAReadDuringASaveKeepsTheRowWrittenAhead(t *testing.T) {
+	kv := &store.Memory{}
+	s := &Server{KV: kv}
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	g := &Grant{ID: "grt_saving", Tenant: tenant, Status: StatusDisconnected,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	// The next save reconnects it: its row goes first (as saveGrant writes
+	// it), then a read runs before the record is written.
+	g.Status, g.SignedIn = StatusConnected, true
+	ahead := store.Item{PK: tenantPK(tenant), SK: skLive(g.ID), Ver: g.ver + 1}
+	if err := putDoc(t.Context(), kv, ahead, g, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.liveGrants(t.Context(), tenant)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("listed before its record counts: %d, %v", len(items), err)
+	}
+	if _, ok, _ := kv.Get(t.Context(), tenantPK(tenant), skLive(g.ID)); !ok {
+		t.Fatal("the read deleted the row written ahead")
+	}
+	if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, store.Cond{Ver: &g.ver}); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := s.liveGrants(t.Context(), tenant); err != nil || len(items) != 1 {
+		t.Fatalf("not listed once its record counts: %d, %v", len(items), err)
+	}
+}
+
+func TestAReadDuringAFirstSaveKeepsItsRow(t *testing.T) {
+	kv := &store.Memory{}
+	s := &Server{KV: kv}
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	g := &Grant{ID: "grt_first", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+	if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skLive(g.ID), Ver: 1}, g, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := s.liveGrants(t.Context(), tenant); err != nil || len(items) != 0 {
+		t.Fatalf("listed with no record: %d, %v", len(items), err)
+	}
+	if _, ok, _ := kv.Get(t.Context(), tenantPK(tenant), skLive(g.ID)); !ok {
+		t.Fatal("the read deleted a first save's row")
+	}
+}

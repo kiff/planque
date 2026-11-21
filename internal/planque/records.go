@@ -659,6 +659,19 @@ func (s *Server) ensureLive(ctx context.Context, tenant string) error {
 	return nil
 }
 
+// aheadOf says a live row was written by a save still writing its record:
+// the row is a later version of a record that doesn't count yet, or the
+// first version of a grant that has no record yet. Such a row is left in
+// place and not listed. A grant whose only save failed leaves its row so
+// too: never listed, never read as held.
+func aheadOf(row, record store.Item, found bool) bool {
+	if !found {
+		return row.Ver == 1
+	}
+	var g Grant
+	return (json.Unmarshal(record.Doc, &g) != nil || !g.live()) && row.Ver > record.Ver
+}
+
 // liveGrants are the account's grants that still count, as their records: it
 // reads only the live rows, after the account's older grants are indexed, and
 // confirms each against the grant's own record. A live row can outlive its
@@ -684,6 +697,12 @@ func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, e
 		}
 		var g Grant
 		switch {
+		case aheadOf(row, it, ok):
+			// Ahead of its record: a save that makes the grant count wrote
+			// its row first and is writing the record now (a grant's first
+			// save, or one that brings a finished grant back). Not listed
+			// yet, and never deleted, or that save would leave the grant
+			// out of the index; the save brings the two in step.
 		case !ok || json.Unmarshal(it.Doc, &g) != nil || !g.live():
 			_, _, err = s.KV.Delete(ctx, row.PK, row.SK)
 		case it.Ver != row.Ver:
