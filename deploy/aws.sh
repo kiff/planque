@@ -356,7 +356,14 @@ schedule() {
 # PLANQUE_BASE_URL). Set one to "off" to turn it off. The role's grants
 # follow, since they're read from the same variables.
 kept_settings() {
-  local now; now=$(aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}')
+  # A function that isn't there yet keeps nothing. One that is, but whose
+  # settings can't be read, stops the run before anything is written: read
+  # as none, the rerun would drop every one of them.
+  local now='{}'
+  if aws lambda get-function --function-name "$FN" --query Configuration.FunctionName >/dev/null 2>&1; then
+    now=$(aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json) ||
+      { echo "the function's settings couldn't be read; nothing was changed" >&2; exit 1; }
+  fi
   eval "$(python3 -c '
 import json,os,shlex,sys
 now=json.loads(sys.argv[1] or "{}") or {}
