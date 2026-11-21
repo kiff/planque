@@ -1564,7 +1564,9 @@ func (s *Server) reconnectConnector(r *http.Request, g *Grant) error {
 	switch {
 	case g.ReconnectName == "" || g.Connector.AccountName == "":
 		refused = errAccountUnknown
-	case g.Connector.AccountName != g.ReconnectName:
+	case !strings.EqualFold(g.Connector.AccountName, g.ReconnectName):
+		// Without regard to case: a name now comes from a vendor's own answer
+		// ("Carolina@kiff.dev" for "carolina@kiff.dev" is the same account).
 		refused = errOtherAccount
 	}
 	if refused != nil {

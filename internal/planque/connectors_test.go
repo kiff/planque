@@ -32,6 +32,9 @@ import (
 
 // The real adapter and real planque/KIFF handlers run in process. Only the
 // upstream service is synthetic; assertions inspect the outgoing wire request.
+// whoTool is desk_demo's "who am I" read, as the provider lists it.
+const whoTool = `{"slug":"DESK_DEMO_WHOAMI","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Get my profile","tags":["readOnlyHint"],"input_parameters":{"type":"object","properties":{}}}`
+
 type connectorFixture struct {
 	mu                            sync.Mutex
 	t                             *testing.T
@@ -74,6 +77,9 @@ type connectorFixture struct {
 	executeStatus                           int
 	executeBody                             string
 	authorizations, executions, revocations int
+	// who adds DESK_DEMO_WHOAMI, the app's "who am I" read; whoCalls counts the reads planque made of it after a sign-in.
+	who      bool
+	whoCalls int
 	// setUps are the apps whose sign-in planque asked the provider to set up, in order.
 	setUps  []string
 	sent    map[string]json.RawMessage
@@ -283,6 +289,11 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		b, _ := json.Marshal(map[string]any{"auth_scheme": "OAUTH2", "scopes": map[string]any{"least_privilege": least, "fewest": least}})
 		body = string(b)
+	case path == "/tools/DESK_DEMO_WHOAMI" && f.who:
+		body = whoTool
+	case path == "/tools/execute/DESK_DEMO_WHOAMI" && f.who:
+		f.whoCalls++
+		body = `{"data":{"response":{"login":"carolina-test"}},"successful":true}`
 	case path == "/tools" || path == "/tools/DESK_DEMO_REPLY":
 		schema := `{"type":"object","properties":{"ticket":{"type":"string"},"text":{"type":"string"}},"required":["ticket","text"],"additionalProperties":false}`
 		if f.changed {
@@ -301,6 +312,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 				}
 				items += `,{"slug":"DESK_DEMO_SEARCH","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Search tickets","tags":["readOnlyHint"],"scopes":` + string(searchScopes) +
 					`,"input_parameters":{"type":"object","properties":{"q":{"type":"string"` + searchQ + `}},"additionalProperties":false}}`
+			}
+			if f.who {
+				items += "," + whoTool
 			}
 			body = `{"items":[` + items + `]}`
 		} else {
