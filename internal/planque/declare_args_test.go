@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -15,6 +16,9 @@ func TestAKeyToolsResourceAndAmountAreTheOperationsOwn(t *testing.T) {
 	v := newRESTVendor(t)
 	// listCharges takes the account to list in, as a vendor's reads do: what a taf's read pins.
 	v.desc = strings.Replace(restDesc, `"parameters": [{"name": "limit"`, `"parameters": [{"name": "account", "in": "query", "schema": {"type": "string"}}, {"name": "limit"`, 1)
+	// And one charge's read, which says its currency: a refund names it (unit_lookup), or it's refused.
+	v.desc = strings.Replace(v.desc, `"/charges/{charge}/refunds":`, `"/charges/{charge}": {"get": {"operationId": "getCharge", "summary": "Read a charge", "parameters": [{"name": "charge", "in": "path", "required": true, "schema": {"type": "string"}}]}},
+  "/charges/{charge}/refunds":`, 1)
 	e.enrol()
 	tool := func(extra map[string]any) []map[string]any {
 		t := map[string]any{"tool": "createRefund", "title": "Refund a charge"}
@@ -48,7 +52,9 @@ func TestAKeyToolsResourceAndAmountAreTheOperationsOwn(t *testing.T) {
 	}
 	// The operation's own: declared, what the write acts on with it, and a
 	// read's pin kept on the grant the key then serves.
-	tools := append(tool(map[string]any{"name": "create_refund", "resource_argument": "charge", "amount_argument": "amount", "amount_unit": "EUR"}),
+	tools := append(tool(map[string]any{"name": "create_refund", "resource_argument": "charge", "amount_argument": "amount", "amount_unit": "EUR",
+		"unit_lookup": map[string]any{"tool": "get_charge", "argument": "charge", "path": "currency"}}),
+		map[string]any{"tool": "getCharge", "name": "get_charge", "title": "Read a charge", "read_only": true},
 		map[string]any{"tool": "listCharges", "name": "list_charges", "title": "List charges", "read_only": true, "fixed_arguments": map[string]any{"account": "acct_1"},
 			"arguments": map[string]any{"limit": map[string]any{"path": "limit", "type": "integer"}}})
 	st, out := e.askAPIGrant(v, tools, nil)
@@ -85,5 +91,43 @@ func TestDescribeGivesEachOperationsArguments(t *testing.T) {
 	want := `[{"in":"path","name":"charge","required":true,"type":"string"},{"in":"body","name":"amount","required":true,"type":"integer"}]`
 	if got != want {
 		t.Fatalf("createRefund's arguments:\n%s\nwant\n%s", got, want)
+	}
+}
+
+// Eval 44888646344, run 2: a refund in EUR on a charge with no unit_lookup, beside a list of charges and no read of one,
+// was connected and signed, so KIFF couldn't refuse a refund in another currency. It's refused at the request now,
+// before any approval, saying what to add, and nothing reaches KIFF. With the charge's read named, it goes on.
+func TestARefundNamesTheReadOfItsChargesCurrency(t *testing.T) {
+	e := newEnv(t)
+	v := newRESTVendor(t)
+	e.enrol()
+	refund := map[string]any{"tool": "createRefund", "name": "create_refund", "title": "Refund a charge", "resource_argument": "charge", "amount_argument": "amount", "amount_unit": "EUR"}
+	list := map[string]any{"tool": "listCharges", "name": "list_charges", "title": "List charges", "read_only": true}
+	st, out := e.askAPIGrant(v, []map[string]any{refund, list}, nil)
+	if st != 400 || out["code"] != refLookup || out["field"] != "unit_lookup" || !strings.Contains(out["error"].(string), "names no unit_lookup: add the read that takes the charge") {
+		t.Fatalf("run 2's request: %d %v", st, out)
+	}
+	if _, ok := e.kiff.Connection(tenant, "create_refund"); ok {
+		t.Fatal("a refused request reached KIFF")
+	}
+}
+
+// The same guard on the other door: a money tool added to a connection the
+// taf already has (qa-kiff, planque#331) is refused as a new request is, and
+// nothing reaches KIFF; the connection stays as it was, nothing pending.
+func TestAMoneyToolAddedWithoutItsCurrencyReadIsRefused(t *testing.T) {
+	e := newEnv(t)
+	id := e.connectedRefunds()
+	acct := "/v1/accounts/" + tenant + "/grants/" + id
+	capture := map[string]any{"tool": "capture_charge", "name": "capture_charge", "title": "Capture a charge", "resource_argument": "charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{capture}}, nil, "k_setup")
+	if st != 400 || out["code"] != refLookup || out["field"] != "unit_lookup" || !strings.Contains(out["error"].(string), "names no unit_lookup: add the read that takes the charge") {
+		t.Fatalf("the addition: %d %v", st, out)
+	}
+	if _, ok := e.kiff.Connection(tenant, "capture_charge"); ok {
+		t.Fatal("a refused addition reached KIFF")
+	}
+	if g, _ := e.s.loadGrant(context.Background(), tenant, id); g.Status != StatusConnected || len(g.Pending) != 0 {
+		t.Fatalf("the connection changed: %s, pending %v", g.Status, g.Pending)
 	}
 }

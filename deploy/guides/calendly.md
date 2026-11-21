@@ -17,6 +17,9 @@ Failure table checked against planque's answers on 2026-11-16.
   Ask for every tool the job needs in the first request.
 - **Calendly ends the sign-in** when the person changes their login email,
   password or way of logging in. Then the owner signs in again.
+- **Proved on a phone (21 Nov 2026):** who is signed in (Calendly's own
+  answer names the person and their email) and a week's busy times. Booking
+  for a guest was not tried: it emails the guest.
 
 ## Tools a job usually needs
 

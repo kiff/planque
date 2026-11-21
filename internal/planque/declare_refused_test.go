@@ -15,9 +15,14 @@ func TestAKeyToolsAmountKIFFWouldRefuseIsRefusedAtTheRequest(t *testing.T) {
 	e.enrol()
 	v.mu.Lock()
 	v.desc = strings.Replace(restDesc, `"properties": {"amount": {"type": "integer"}}`, `"properties": {"amount": {"type": "number"}}`, 1)
+	// With the charge's read and its currency named (unitLookupMissing), so the amount's type is what's refused.
+	v.desc = strings.Replace(v.desc, `"/charges/{charge}/refunds":`, `"/charges/{charge}": {"get": {"operationId": "getCharge", "summary": "Read a charge", "parameters": [{"name": "charge", "in": "path", "required": true, "schema": {"type": "string"}}]}},
+  "/charges/{charge}/refunds":`, 1)
 	v.mu.Unlock()
 	st, out := e.askAPIGrant(v, []map[string]any{{"tool": "createRefund", "name": "create_refund", "title": "Refund",
-		"amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2, "resource_argument": "charge"}}, nil)
+		"amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2, "resource_argument": "charge",
+		"unit_lookup": map[string]any{"tool": "get_charge", "argument": "charge", "path": "currency"}},
+		{"tool": "getCharge", "name": "get_charge", "title": "Read a charge", "read_only": true}}, nil)
 	if st != 400 || !strings.Contains(mustJSONString(out), "amount_argument amount") || !strings.Contains(mustJSONString(out), "is a number") {
 		t.Fatalf("a number amount was taken: %d %v", st, out)
 	}
