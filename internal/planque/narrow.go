@@ -143,6 +143,15 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 // tool, and the read's string argument that takes the resource.
 func checkLookups(tools []ToolRequest) *toolRefusal {
 	for k, t := range tools {
+		// A tool that moves money in a currency it names, on an item it names, says which read gives that item's currency:
+		// without it KIFF can't refuse a payment in another currency, and counts it against the agreed limits as if it
+		// were this one (Eval 44888646344, run 2: create_refund in EUR on a charge, with no unit_lookup and no read of one
+		// charge, was connected and signed).
+		if t.AmountArg != "" && t.AmountUnit != "" && t.ResourceArg != "" && t.AmountLookup == nil && t.UnitLookup == nil {
+			return &toolRefusal{Code: refLookup, Tool: refTool(t), Field: "unit_lookup", Want: "the read that says the " + t.ResourceArg + "'s currency",
+				Msg: t.Tool + " moves money on a " + t.ResourceArg + " in " + t.AmountUnit + " but names no unit_lookup: add the read that takes the " + t.ResourceArg +
+					" (one read of it, in this request) and name it in unit_lookup with the path of its currency, so KIFF refuses a payment in another currency"}
+		}
 		if l := t.UnitLookup; l != nil {
 			if t.AmountArg == "" || t.AmountUnit == "" || t.ResourceArg == "" {
 				return &toolRefusal{Code: refLookup, Tool: refTool(t), Field: "unit_lookup", Want: "amount_argument, amount_unit and resource_argument",
