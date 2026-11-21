@@ -23,6 +23,9 @@ Failure table checked against planque's answers on 2026-11-16.
 - **The sender is the connected account's own address,** from that profile.
   Never offer a display name (the taf's name, "your AI assistant") as the
   sender address; a name can go in the sender's display part only.
+- **A profile read refused for scope (403) says nothing about the mailbox.** A
+  send-only sign-in may not have the read scope. Coach goes on without the
+  read, and never widens the scopes asked just to read the profile.
 
 ## Tools a job usually needs
 
@@ -107,6 +110,6 @@ are in the part below.
 | Gmail's sign-in has expired (401) | The owner removed access, or the sign-in expired | "Gmail needs you to sign in again. Nothing was sent." |
 | At sign-in: "App is blocked" | A business admin, or Google, blocks this access for outside apps | "Your Google admin blocks this. Ask them to allow it, or connect another account." |
 | Refused (404), message or draft not found | It was deleted, or sent (a sent draft is no longer a draft) | "That email isn't there any more. The taf will skip it." |
-| Refused (400), `FAILED_PRECONDITION`, "Precondition check failed", or a send refused with "Unable to resolve the sender email address" | The connected Google account has no Gmail mailbox: a work account with Gmail turned off, or one made without Gmail. A read and a send both fail, and signing in again with the same account doesn't fix it. Say this cause; never call it a fault on our side | "The Google account connected for Gmail has no mailbox. Nothing was sent. Connect Gmail again with the account whose inbox you want." |
-| Refused (400), "Unable to resolve the sender email address" on an account that does have Gmail | The sender was a name (such as the taf's name) and not an address | Send again with the connected account's own address as the sender; tell the owner only if it fails again. |
+| Refused (400), `FAILED_PRECONDITION`, "Precondition check failed", or a send refused with "Unable to resolve the sender email address" **on an account whose profile read is refused as above** | The connected Google account has no Gmail mailbox: a work account with Gmail turned off, or one made without Gmail. A read and a send both fail, and signing in again with the same account doesn't fix it. Say this cause; never call it a fault on our side | "The Google account connected for Gmail has no mailbox. Nothing was sent. Connect Gmail again with the account whose inbox you want." |
+| Refused (400), "Unable to resolve the sender email address" **on an account whose profile read works** | The sender was a name (such as the taf's name) and not an address | Send again with the connected account's own address as the sender; tell the owner only if it fails again. |
 | Refused, daily sending cap reached | Google's cap for the account | "Gmail's daily sending limit is reached. The rest goes tomorrow." |
