@@ -739,3 +739,35 @@ func TestBrowserActStepsRunOnlyOnThePageTheyWereReadFrom(t *testing.T) {
 		t.Fatalf("a fill keeps the read (values aren't in it): %v", sc)
 	}
 }
+
+// The same address re-rendered between the read and the step: a field
+// replaced by another, or two fields whose refs swapped, makes another
+// read, and the step is refused with nothing run.
+func TestBrowserActRefusesAPageThatChangedAtTheSameAddress(t *testing.T) {
+	form := func(fields ...browser.Field) browser.Page {
+		return browser.Page{URL: fakes.ShopItem, Title: "Blue pen", Fields: fields,
+			Controls: []browser.Control{{Ref: "add", Label: "Add to cart", Submits: true}}}
+	}
+	for _, c := range []struct {
+		name         string
+		read, acting browser.Page
+	}{
+		{"a field replaced", form(browser.Field{Ref: "qty", Label: "Quantity", Kind: "number"}), form(browser.Field{Ref: "qty", Label: "Gift note", Kind: "text"})},
+		{"two refs swapped", form(browser.Field{Ref: "f1", Label: "Quantity", Kind: "number"}, browser.Field{Ref: "f2", Label: "Gift note", Kind: "text"}),
+			form(browser.Field{Ref: "f2", Label: "Quantity", Kind: "number"}, browser.Field{Ref: "f1", Label: "Gift note", Kind: "text"})},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newBrowserEnv(t)
+			g := e.connect()
+			e.b.Pages = map[string]browser.Page{fakes.ShopItem: c.read}
+			_, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem})
+			read := sc["read"]
+			e.b.Pages[fakes.ShopItem] = c.acting
+			before := e.b.Sent()
+			out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+			if code(sc) != browser.CodePageChanged || !strings.Contains(out, "step 1") || e.b.Sent() != before {
+				t.Fatalf("a re-rendered page: %s (sent %d)", out, e.b.Sent()-before)
+			}
+		})
+	}
+}
