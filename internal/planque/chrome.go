@@ -43,6 +43,10 @@ import (
 // chromePairingTTL is how long a pairing code works, from the phone.
 const chromePairingTTL = 10 * time.Minute
 
+// chromeKiffOfferMax is the longest KIFF device offer an extension may pass
+// to the phone: KIFF's own pairing offer is at most 4 KiB.
+const chromeKiffOfferMax = 4096
+
 // lookupAlphabet has no look-alike characters (no 0/O, 1/I/L, U/V): the
 // extension and the phones read codes in exactly these 30.
 const lookupAlphabet = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -97,6 +101,11 @@ type ChromePairing struct {
 	Browser      string `json:"browser,omitempty"`
 	OS           string `json:"os,omitempty"`
 	Proof        string `json:"proof,omitempty"`
+	// KiffOffer is the extension's view-only KIFF device offer (kiff.pair.v1),
+	// as its text: the phone pairs that device in the same step, and the
+	// extension's proof covers it, so planque keeps it as given and checks
+	// nothing in it (kiff/tafs docs/chrome.md).
+	KiffOffer string `json:"kiff_offer,omitempty"`
 	// Contested: a second Chrome posted on this code. The code is spent:
 	// the phone is told and opens a new one, and no Chrome collects it.
 	Contested bool `json:"contested,omitempty"`
@@ -322,6 +331,7 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		Browser      string `json:"browser"`
 		OS           string `json:"os"`
 		Proof        string `json:"proof"`
+		KiffOffer    string `json:"kiff_offer"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
@@ -337,6 +347,10 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if proof, err := base64.RawURLEncoding.DecodeString(req.Proof); err != nil || len(proof) != sha256.Size {
 		writeErr(w, http.StatusBadRequest, "proof must be an HMAC-SHA256 in base64url")
+		return
+	}
+	if len(req.KiffOffer) > chromeKiffOfferMax {
+		writeErr(w, http.StatusBadRequest, "kiff_offer is at most 4 KiB, as KIFF's pairing offer is")
 		return
 	}
 	p, it, err := s.loadChromeLookup(r, r.PathValue("lookup"))
@@ -361,7 +375,7 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no pairing has that code, or it expired: start again on your phone")
 		return
 	}
-	p.Key, p.Version, p.ManifestHash, p.Proof = req.Key, req.Version, req.ManifestHash, req.Proof
+	p.Key, p.Version, p.ManifestHash, p.Proof, p.KiffOffer = req.Key, req.Version, req.ManifestHash, req.Proof, req.KiffOffer
 	p.Browser, p.OS = oneLine(req.Browser, 60), oneLine(req.OS, 60)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); errors.Is(err, store.ErrCondition) {
 		// Another post won the race: this one is the second.
@@ -392,6 +406,9 @@ func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr si
 		sum, _ := spkiP256(p.Key)
 		out["status"], out["key"], out["key_sha256"], out["proof"] = "waiting_for_phone", p.Key, sum, p.Proof
 		out["version"], out["browser"], out["os"] = p.Version, p.Browser, p.OS
+		if p.KiffOffer != "" {
+			out["kiff_offer"] = p.KiffOffer
+		}
 	}
 	if p.Confirmed != nil {
 		out["status"], out["chrome_id"] = "confirmed", p.Confirmed.ChromeID
@@ -509,7 +526,13 @@ func (s *Server) collectChromePairing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _, _ = s.KV.Delete(r.Context(), pkChromeLookup(p.Lookup), "-")
-	writeJSON(w, http.StatusOK, p.Confirmed)
+	// The pairing's id goes with the phone's confirmation: the phone signed
+	// it, and the extension, which only knows the lookup, needs it to check
+	// that signature (kiff/tafs docs/chrome.md, "Pairing").
+	writeJSON(w, http.StatusOK, struct {
+		Pairing string `json:"pairing"`
+		*ChromeConfirmation
+	}{p.ID, p.Confirmed})
 }
 
 // listChromes is the account's paired Chromes, for the phone.
