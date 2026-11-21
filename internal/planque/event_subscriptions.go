@@ -143,6 +143,9 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		Slug     string          `json:"slug"`
 		Channels []string        `json:"channels"`
 		Config   json.RawMessage `json:"config"`
+		// Confirm: the caller will confirm the subscription once it has
+		// recorded it (app events only); one it never confirms is removed.
+		Confirm bool `json:"confirm"`
 	}
 	if len(sr.body) > 64<<10 {
 		writeErr(w, 400, "the event approval exceeds 64 KB")
@@ -153,6 +156,10 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		return
 	}
 	appEvent := ask.Channels == nil
+	if ask.Confirm && !appEvent {
+		writeErr(w, 400, "only an app event is confirmed after the caller records it")
+		return
+	}
 	if appEvent && s.EventSink == nil {
 		writeErr(w, 503, "the app event receiver is not configured")
 		return
@@ -255,11 +262,163 @@ func (s *Server) createTrigger(w http.ResponseWriter, r *http.Request, sr signed
 		undo(err)
 		return
 	}
+	if ask.Confirm {
+		// Only a subscription this request made waits for the caller's word;
+		// one already on, and confirmed before, stays as it was.
+		for _, m := range made {
+			s.awaitConfirmation(r.Context(), m)
+		}
+	}
 	if appEvent {
 		writeJSON(w, 201, map[string]any{"id": ids[0], "trigger": ids[0], "subscription": ids[0], "triggers": ids, "account": ask.Account, "event": definition.Slug, "config": subscriptions[0].config, "definition": definition})
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": ids[0], "trigger": ids[0], "triggers": ids, "account": ask.Account, "channels": ask.Channels, "definition": definition})
+}
+
+// triggerUnconfirmedPK holds app-event subscriptions whose caller said it
+// would record them (confirm) and has not yet: each is removed once its
+// deadline passes without the caller's word. A caller that never asked
+// (or asked for a door) has no note, so nothing it made is ever swept.
+const triggerUnconfirmedPK = "CONNECTOR#TRIGGER_UNCONFIRMED"
+
+// confirmWithin is how long a caller has to record an app-event subscription
+// and confirm it.
+const confirmWithin = 15 * time.Minute
+
+type triggerUnconfirmed struct {
+	Provider string `json:"provider"`
+	Trigger  string `json:"trigger"`
+	Tenant   string `json:"tenant"`
+	Grant    string `json:"grant"`
+	// Fence is the version of the trigger's record when it was made: the
+	// sweep deletes nothing once a newer write (the caller's confirmation, a
+	// new approval) has moved it, as for an undone approval's note.
+	Fence    int64 `json:"fence"`
+	Deadline int64 `json:"deadline"`
+}
+
+// awaitConfirmation notes a subscription this request made as waiting for its
+// caller's confirmation. Best effort: if the note can't be written the
+// subscription stays as it would without the option, never removed.
+func (s *Server) awaitConfirmation(ctx context.Context, m madeTrigger) {
+	if !m.record.AppEvent {
+		return
+	}
+	note := triggerUnconfirmed{Provider: m.record.Provider, Trigger: m.record.ID, Tenant: m.record.Tenant, Grant: m.record.Grant, Fence: m.ver, Deadline: s.now().Add(confirmWithin).UnixMilli()}
+	if err := putDoc(ctx, s.KV, store.Item{PK: triggerUnconfirmedPK, SK: note.Provider + "#" + note.Trigger}, note, store.Cond{}); err != nil {
+		s.log().WarnContext(ctx, "a subscription's confirmation deadline was not noted", "trigger", note.Trigger, "err", err.Error())
+	}
+}
+
+// confirmTrigger is the caller's word that it recorded a subscription: it
+// moves the trigger's record to a newer version, which the sweep's removal
+// claim can no longer win against, then drops the note. A subscription already
+// being removed, or gone, can't be confirmed: it is approved again.
+func (s *Server) confirmTrigger(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.agentsGrant(w, r)
+	if !ok {
+		return
+	}
+	id := r.PathValue("trigger")
+	if g.Request.Connector == nil || !slices.Contains(g.TriggerIDs, id) {
+		writeErr(w, 404, "no such approved trigger on this connection")
+		return
+	}
+	var record triggerRecord
+	it, err := getDoc(r.Context(), s.KV, triggerPK(g.Request.Connector.Provider, id), "-", &record)
+	if errors.Is(err, errNotFound) {
+		writeErr(w, 404, "no such approved trigger on this connection")
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if record.Tenant != g.Tenant || record.Grant != g.ID {
+		writeErr(w, 409, "the event binding does not match")
+		return
+	}
+	if !record.Active || record.Removing {
+		writeErr(w, 409, "this subscription was removed before it was confirmed: approve it again")
+		return
+	}
+	next := store.Item{PK: it.PK, SK: it.SK, Ver: it.Ver + 1}
+	if err := putDoc(r.Context(), s.KV, next, record, store.Cond{Ver: &it.Ver}); err != nil {
+		if errors.Is(err, store.ErrCondition) {
+			writeErr(w, 409, "this subscription is being removed: approve it again")
+			return
+		}
+		s.fail(w, r, err)
+		return
+	}
+	if _, _, err := s.KV.Delete(r.Context(), triggerUnconfirmedPK, record.Provider+"#"+id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"trigger": id, "confirmed": true})
+}
+
+// sweepUnconfirmed removes the subscriptions whose caller never confirmed them
+// by their deadline: each is noted for the cleanup sweep and removed as an
+// undone approval's is (so a worker that loses its claim, or a subscription
+// confirmed meanwhile, deletes nothing), then taken off its connection.
+func (s *Server) sweepUnconfirmed(ctx context.Context) (int, error) {
+	items, err := s.KV.Query(ctx, triggerUnconfirmedPK, "")
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	var errs []error
+	now := s.now().UnixMilli()
+	for _, it := range items {
+		var note triggerUnconfirmed
+		if json.Unmarshal(it.Doc, &note) != nil || note.Deadline > now {
+			continue
+		}
+		p, ok := s.Connectors[note.Provider].(connector.EventProvider)
+		if !ok {
+			continue
+		}
+		cleanup := triggerCleanup{Provider: note.Provider, Trigger: note.Trigger, Tenant: note.Tenant, Grant: note.Grant, Fence: note.Fence}
+		// The cleanup note first, then this one: the removal is never lost.
+		if err := putDoc(ctx, s.KV, store.Item{PK: triggerCleanupPK, SK: cleanup.Provider + "#" + cleanup.Trigger}, cleanup, store.Cond{}); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if _, _, err := s.KV.Delete(ctx, triggerUnconfirmedPK, it.SK); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		done, err := s.removeTrigger(ctx, p, cleanup)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if !done {
+			continue
+		}
+		var record triggerRecord
+		if _, err := getDoc(ctx, s.KV, triggerPK(note.Provider, note.Trigger), "-", &record); err == nil && (record.Active || record.Removing) {
+			continue // confirmed or approved again meanwhile: it stays on its connection
+		}
+		removed++
+		s.dropTrigger(ctx, note.Tenant, note.Grant, note.Trigger)
+	}
+	return removed, errors.Join(errs...)
+}
+
+// dropTrigger takes a removed subscription off its connection, so ending the
+// connection never tries to delete it upstream again. Best effort.
+func (s *Server) dropTrigger(ctx context.Context, tenant, grant, id string) {
+	g, err := s.loadGrant(ctx, tenant, grant)
+	if err != nil || !slices.Contains(g.TriggerIDs, id) {
+		return
+	}
+	g.TriggerIDs = slices.DeleteFunc(g.TriggerIDs, func(t string) bool { return t == id })
+	g.event(s.now(), "app event subscription removed: its caller never confirmed it")
+	if err := s.saveGrant(ctx, g); err != nil && !errors.Is(err, store.ErrCondition) {
+		s.log().WarnContext(ctx, "a removed subscription stayed on its connection", "trigger", id, "err", err.Error())
+	}
 }
 
 // triggerCleanupPK holds upstream subscriptions a failed approval made and

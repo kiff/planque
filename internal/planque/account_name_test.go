@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,5 +238,31 @@ func TestASignInAgainToTheSameAccountInAnotherCaseReconnects(t *testing.T) {
 	code := e.signIn(f.callback + "&status=ACTIVE")
 	if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": code}, e.phone, ""); st != 200 || out["status"] != StatusConnected {
 		t.Fatalf("confirm the same account in another case: %d %v", st, out)
+	}
+}
+
+// The account line says which account signed in, from a vendor's answer, so it
+// carries nothing that changes how it reads: direction marks (U+202E would
+// make "moc.ffik@aniloarc" look like "carolina@kiff.dev"), zero-width and
+// other format characters, control characters and line breaks are dropped,
+// and it is at most 120 characters (qa-kiff's review of the account name).
+func TestAnAccountLineCarriesNothingThatChangesHowItReads(t *testing.T) {
+	const rlo, lri, pdi, lrm, alm, zwsp, bom = "\u202e", "\u2066", "\u2069", "\u200e", "\u061c", "\u200b", "\ufeff"
+	for _, c := range []struct{ name, in, want string }{
+		{"a right-to-left override", rlo + "moc.ffik@aniloarc", "moc.ffik@aniloarc"},
+		{"an isolate", lri + "carolina@kiff.dev" + pdi, "carolina@kiff.dev"},
+		{"direction and letter marks", lrm + "carol" + alm + "ina", "carolina"},
+		{"zero-width and byte-order marks", "caro" + zwsp + "lina" + bom, "carolina"},
+		{"a line break and a null", "carol\n\x00ina", "carol ina"},
+	} {
+		data, _ := json.Marshal(map[string]any{"data": map[string]any{"login": c.in}})
+		if got := accountNameIn(data, []string{"login"}); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	long := strings.Repeat("a", 300)
+	data, _ := json.Marshal(map[string]any{"data": map[string]any{"login": long}})
+	if got := accountNameIn(data, []string{"login"}); len([]rune(got)) != maxAccountName {
+		t.Errorf("a 300-character name came back with %d characters, want %d", len([]rune(got)), maxAccountName)
 	}
 }

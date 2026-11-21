@@ -215,6 +215,9 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.cleanTriggers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: undone subscriptions not deleted yet", "err", err.Error())
 	}
+	if _, err := s.sweepUnconfirmed(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: unconfirmed subscriptions not all removed yet", "err", err.Error())
+	}
 	// Vendors' answers past answerTTL: each record keeps its outcome alone.
 	if dropped, err := s.SweepAnswers(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: answers not all dropped yet", slog.String("err", err.Error()))

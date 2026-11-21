@@ -146,9 +146,18 @@ func findText(v any, key string) string {
 	return ""
 }
 
-// safeLine makes s one line: control characters gone, runs of space one,
-// at most maxAccountName characters.
+// safeLine makes s one line: control characters and format characters gone
+// (the direction marks U+202A-202E, U+2066-2069, U+200E/F and U+061C are
+// format characters: a name with U+202E can make "moc.ffik@aniloarc" read as
+// "carolina@kiff.dev", and this line exists to say which account signed in),
+// runs of space one, at most maxAccountName characters.
 func safeLine(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1 // dropped, not a gap: "caro\u200blina" is "carolina"
+		}
+		return r
+	}, s)
 	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
 	if r := []rune(s); len(r) > maxAccountName {
 		s = string(r[:maxAccountName-1]) + "…"
