@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -108,5 +109,25 @@ func TestARefundNamesTheReadOfItsChargesCurrency(t *testing.T) {
 	}
 	if _, ok := e.kiff.Connection(tenant, "create_refund"); ok {
 		t.Fatal("a refused request reached KIFF")
+	}
+}
+
+// The same guard on the other door: a money tool added to a connection the
+// taf already has (qa-kiff, planque#331) is refused as a new request is, and
+// nothing reaches KIFF; the connection stays as it was, nothing pending.
+func TestAMoneyToolAddedWithoutItsCurrencyReadIsRefused(t *testing.T) {
+	e := newEnv(t)
+	id := e.connectedRefunds()
+	acct := "/v1/accounts/" + tenant + "/grants/" + id
+	capture := map[string]any{"tool": "capture_charge", "name": "capture_charge", "title": "Capture a charge", "resource_argument": "charge", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{capture}}, nil, "k_setup")
+	if st != 400 || out["code"] != refLookup || out["field"] != "unit_lookup" || !strings.Contains(out["error"].(string), "names no unit_lookup: add the read that takes the charge") {
+		t.Fatalf("the addition: %d %v", st, out)
+	}
+	if _, ok := e.kiff.Connection(tenant, "capture_charge"); ok {
+		t.Fatal("a refused addition reached KIFF")
+	}
+	if g, _ := e.s.loadGrant(context.Background(), tenant, id); g.Status != StatusConnected || len(g.Pending) != 0 {
+		t.Fatalf("the connection changed: %s, pending %v", g.Status, g.Pending)
 	}
 }
