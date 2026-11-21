@@ -30,11 +30,11 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off", "rerun_kept", "rerun_off"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
-unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED
+unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED PLANQUE_EVENT_URL PLANQUE_SIGNIN_READER_SHA256 PLANQUE_PUBLIC_URL
 export PLANQUE_APP_RETURN=https://app.example/confirm
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
@@ -91,10 +91,20 @@ aws() {
 				if scenario == "relay_off" {
 					script += "RELAY=off\nexport PLANQUE_CHROME_RELAY=off\n"
 				}
+			case "rerun_kept", "rerun_off":
+				// A bare rerun: nothing given, everything on the function.
+				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio","PLANQUE_DOOR_SECRET":"demo/doors/handoff","PLANQUE_DOOR_URL":"https://receiver.example/v1/doors/planque","PLANQUE_KIFF_EVENT_URL":"https://api.example/v1/planque/refund-events","PLANQUE_KIFF_EVENT_SECRET":"demo/kiff/events","PLANQUE_BASE_URL":"https://planque.example"}'` + "\nunset PLANQUE_APP_RETURN PLANQUE_COMPOSIO_SECRET\n"
+				if scenario == "rerun_off" {
+					script += "export PLANQUE_COMPOSIO_SECRET=off\n"
+				}
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
-			script += extract("role") + "\n" + extract("function_env") + "\nrole\nfunction_env https://lambda.example\n"
+			script += extract("kept_settings") + "\n" + extract("role") + "\n" + extract("function_env") + "\n"
+			if scenario != "fake" {
+				script += "kept_settings\n"
+			}
+			script += "role\nfunction_env https://lambda.example\n"
 			out, err := exec.Command(bash, "-c", script).CombinedOutput()
 			if scenario == "wrong_region" {
 				if err == nil || strings.Contains(string(out), `"Statement"`) {
@@ -153,7 +163,8 @@ aws() {
 						granted++
 						if action != "secretsmanager:GetSecretValue" || (stmt.Resource != "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf" &&
 							!(scenario == "handoff" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu") &&
-							!(scenario == "kiff_events" && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv")) {
+							!((scenario == "kiff_events" || strings.HasPrefix(scenario, "rerun_")) && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/kiff/events-QrStUv") &&
+							!(strings.HasPrefix(scenario, "rerun_") && stmt.Resource == "arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/doors/handoff-ZyXwVu")) {
 							t.Fatal("secret permission was broader than the exact configured resource")
 						}
 					}
@@ -211,6 +222,26 @@ aws() {
 				if signs != 0 || posts != 0 || relayEnv != [2]string{} {
 					t.Fatalf("the relay appeared from nowhere, or off kept it: %d %d %v", signs, posts, relayEnv)
 				}
+			}
+			// A bare rerun keeps every setting and its grant, and planque's
+			// public address; "off" turns one off, with its grant.
+			if strings.HasPrefix(scenario, "rerun_") {
+				want := map[string]string{"PLANQUE_DOOR_SECRET": "demo/doors/handoff", "PLANQUE_DOOR_URL": "https://receiver.example/v1/doors/planque",
+					"PLANQUE_KIFF_EVENT_URL": "https://api.example/v1/planque/refund-events", "PLANQUE_KIFF_EVENT_SECRET": "demo/kiff/events",
+					"PLANQUE_BASE_URL": "https://planque.example", "PLANQUE_COMPOSIO_SECRET": "demo/connectors/composio"}
+				grants := 3
+				if scenario == "rerun_off" {
+					want["PLANQUE_COMPOSIO_SECRET"], grants = "", 2
+				}
+				for k, v := range want {
+					if env.Variables[k] != v {
+						t.Errorf("%s: %q, want %q", k, env.Variables[k], v)
+					}
+				}
+				if granted != grants {
+					t.Fatalf("%d secret grants, want %d", granted, grants)
+				}
+				return
 			}
 			if scenario == "kiff_events" {
 				// The connector's secret and KIFF's: two exact reads, nothing wider.
