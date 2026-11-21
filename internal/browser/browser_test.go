@@ -39,7 +39,7 @@ func TestRefuseKeepsMoneyAndSecretsOutOfSteps(t *testing.T) {
 		{"a control that isn't there", Step{Click: "c9"}, CodeRefUnknown},
 		{"typing an email", Step{Fill: "f1", Value: "b@example.com"}, ""},
 		{"a plain click on a payment page", Step{Click: "c3"}, CodePaymentStep},
-		{"a link", Step{Click: "l1"}, ""},
+		{"a plain link on a payment page", Step{Click: "l1"}, CodePaymentStep},
 	} {
 		code, why := Refuse(p, c.step)
 		if code != c.code {
@@ -60,7 +60,7 @@ func TestRefuseKeepsMoneyAndSecretsOutOfSteps(t *testing.T) {
 		t.Errorf("buy now: %s", code)
 	}
 	// On a checkout, every control is refused, whatever it says and in
-	// whatever language, labelled or not; its links are followed.
+	// whatever language, labelled or not, and so is every link.
 	fr := Page{Checkout: &Checkout{Total: "2.50", Currency: "EUR"},
 		Controls: []Control{{Ref: "cmd", Label: "Commander", Submits: true}, {Ref: "icon", Label: ""}, {Ref: "zb", Label: "Jetzt kaufen"}, {Ref: "cp", Label: "Code promo", Submits: true}},
 		Links:    []Link{{Ref: "cgv", Label: "CGV", URL: "https://shop.example/cgv"}}}
@@ -69,7 +69,7 @@ func TestRefuseKeepsMoneyAndSecretsOutOfSteps(t *testing.T) {
 			t.Errorf("checkout control %s: %s", ref, code)
 		}
 	}
-	if code, why := Refuse(fr, Step{Click: "cgv"}); code != "" {
+	if code, why := Refuse(fr, Step{Click: "cgv"}); code != CodePaymentStep {
 		t.Errorf("a checkout's link: %s %s", code, why)
 	}
 	// A one-click buy on a product page, in any of the languages.
@@ -251,18 +251,21 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-// A link can run the page's script instead of going anywhere: one whose
-// words pay is refused anywhere, and one that stays on a checkout or
-// payment page is refused there. A link to another page is followed.
-func TestALinkThatPaysOrStaysOnACheckoutIsRefused(t *testing.T) {
+// A link can run the page's script instead of going anywhere, and a plain
+// one can place an order (a GET to /place-order): one whose words pay is
+// refused anywhere, and on a checkout or payment page no link is followed,
+// whatever its address or words. Off them, a link is followed.
+func TestALinkThatPaysOrIsOnACheckoutIsRefused(t *testing.T) {
 	checkout := checkoutPage()
 	checkout.Links = append(checkout.Links,
 		Link{Ref: "l2", Label: "Continue", URL: "https://shop.example/checkout#"},
 		Link{Ref: "l3", Label: "Next step", URL: "https://shop.example/checkout/?step=2"},
-		Link{Ref: "l4", Label: "Place order", URL: "https://shop.example/thanks"})
+		Link{Ref: "l4", Label: "Place order", URL: "https://shop.example/thanks"},
+		Link{Ref: "l5", Label: "Continue", URL: "https://shop.example/place-order"})
 	product := Page{URL: "https://shop.example/p/1", Title: "Mug",
 		Links: []Link{{Ref: "l1", Label: "Buy now", URL: "https://shop.example/p/1#"}, {Ref: "l2", Label: "Reviews", URL: "https://shop.example/p/1#reviews"},
-			{Ref: "l3", Label: "Kaufen", URL: "https://shop.example/cart"}, {Ref: "l4", Label: "Shipping", URL: "https://shop.example/shipping"}}}
+			{Ref: "l3", Label: "Kaufen", URL: "https://shop.example/cart"}, {Ref: "l4", Label: "Shipping", URL: "https://shop.example/shipping"},
+			{Ref: "l5", Label: "Continue", URL: "https://shop.example/place-order"}}}
 	for _, c := range []struct {
 		name string
 		page Page
@@ -272,7 +275,9 @@ func TestALinkThatPaysOrStaysOnACheckoutIsRefused(t *testing.T) {
 		{"a script link on a checkout", checkout, "l2", CodePaymentStep},
 		{"the same path with a query, on a checkout", checkout, "l3", CodePaymentStep},
 		{"a link whose words pay, to another page", checkout, "l4", CodePaymentStep},
-		{"a checkout's link to another page", checkout, "l1", ""},
+		{"a checkout's link to another page", checkout, "l1", CodePaymentStep},
+		{"a neutral link to another path, on a checkout", checkout, "l5", CodePaymentStep},
+		{"the same link off a checkout or payment page", product, "l5", ""},
 		{"a link whose words pay, on a product page", product, "l1", CodePaymentStep},
 		{"a link whose words pay in another language", product, "l3", CodePaymentStep},
 		{"a link within a page that doesn't pay", product, "l2", ""},
