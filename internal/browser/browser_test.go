@@ -250,3 +250,52 @@ func mustJSON(v any) string {
 	}
 	return string(b)
 }
+
+// A link can run the page's script instead of going anywhere: one whose
+// words pay is refused anywhere, and one that stays on a checkout or
+// payment page is refused there. A link to another page is followed.
+func TestALinkThatPaysOrStaysOnACheckoutIsRefused(t *testing.T) {
+	checkout := checkoutPage()
+	checkout.Links = append(checkout.Links,
+		Link{Ref: "l2", Label: "Continue", URL: "https://shop.example/checkout#"},
+		Link{Ref: "l3", Label: "Next step", URL: "https://shop.example/checkout/?step=2"},
+		Link{Ref: "l4", Label: "Place order", URL: "https://shop.example/thanks"})
+	product := Page{URL: "https://shop.example/p/1", Title: "Mug",
+		Links: []Link{{Ref: "l1", Label: "Buy now", URL: "https://shop.example/p/1#"}, {Ref: "l2", Label: "Reviews", URL: "https://shop.example/p/1#reviews"},
+			{Ref: "l3", Label: "Kaufen", URL: "https://shop.example/cart"}, {Ref: "l4", Label: "Shipping", URL: "https://shop.example/shipping"}}}
+	for _, c := range []struct {
+		name string
+		page Page
+		ref  string
+		code string
+	}{
+		{"a script link on a checkout", checkout, "l2", CodePaymentStep},
+		{"the same path with a query, on a checkout", checkout, "l3", CodePaymentStep},
+		{"a link whose words pay, to another page", checkout, "l4", CodePaymentStep},
+		{"a checkout's link to another page", checkout, "l1", ""},
+		{"a link whose words pay, on a product page", product, "l1", CodePaymentStep},
+		{"a link whose words pay in another language", product, "l3", CodePaymentStep},
+		{"a link within a page that doesn't pay", product, "l2", ""},
+		{"a plain link", product, "l4", ""},
+	} {
+		if code, why := Refuse(c.page, Step{Click: c.ref}); code != c.code {
+			t.Errorf("%s: %q (%s), want %q", c.name, code, why, c.code)
+		}
+	}
+}
+
+// A select whose options change under the same ref and label is another
+// read: a step picks from the list it was built on.
+func TestReadCoversASelectsOptions(t *testing.T) {
+	p := Page{URL: "https://shop.example/ship", Fields: []Field{{Ref: "f1", Label: "Shipping", Kind: "select", Options: []string{"Standard", "Express"}}}}
+	q := p
+	q.Fields = []Field{{Ref: "f1", Label: "Shipping", Kind: "select", Options: []string{"Standard", "Express (€30)"}}}
+	if Read(p) == Read(q) {
+		t.Fatal("a select's new options kept its read")
+	}
+	r := p
+	r.Fields = []Field{{Ref: "f1", Label: "Shipping", Kind: "select", Options: []string{"Standard", "Express"}, Value: "Express"}}
+	if Read(p) != Read(r) {
+		t.Fatal("a picked value moved the read")
+	}
+}

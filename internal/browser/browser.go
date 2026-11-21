@@ -245,11 +245,12 @@ const (
 	CodeCurrencyOther   = "currency_other"      // the checkout isn't in the connection's currency
 	CodeBrowserDown     = "browser_unavailable" // the worker couldn't run the browser
 	CodePageChanged     = "page_changed"        // the page isn't the read the steps were built from
+	CodePayNotApproved  = "pay_not_approved"    // a pay's permit names no approval by its owner
 )
 
 // Read is a page read's fingerprint: its address and title, and every
-// field, control and link with its ref, kind and words, in the page's own
-// order. Values are left out, so a fill doesn't change it. A taf's steps
+// field (with a select's options), control and link with its ref, kind and
+// words, in the page's own order. Values are left out, so a fill doesn't change it. A taf's steps
 // name the read they were built from: refs restart on each new document,
 // so after a navigation a ref can name another element, and a step is run
 // only on the page it was read from.
@@ -263,7 +264,9 @@ func Read(p Page) string {
 	}
 	put("page", strings.SplitN(p.URL, "#", 2)[0], p.Title)
 	for _, f := range p.Fields {
-		put("field", f.Ref, f.Kind, f.Label)
+		// A select's options are part of what a step picks from: a list that
+		// reloads under the same ref and label is another field.
+		put(append([]string{"field", f.Ref, f.Kind, f.Label}, f.Options...)...)
 	}
 	for _, c := range p.Controls {
 		put("control", c.Ref, c.Label)
@@ -272,6 +275,17 @@ func Read(p Page) string {
 		put("link", l.Ref, l.Label, l.URL)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// samePage says link stays on page: the same scheme, host and path, so only
+// its query or fragment differ, or it doesn't parse.
+func samePage(page, link string) bool {
+	a, errA := url.Parse(page)
+	b, errB := url.Parse(link)
+	if errA != nil || errB != nil {
+		return true
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host) && strings.TrimSuffix(a.Path, "/") == strings.TrimSuffix(b.Path, "/")
 }
 
 // Secret says the field's value is never shown and never typed by an
@@ -401,7 +415,8 @@ func Payment(p Page) bool {
 // it may. A fill or select of a secret field, a click that pays, any
 // click on a control of a checkout or payment page (labelled or not,
 // submitting or not: a button's effect can't be read from outside), and a
-// ref the page doesn't have are refused. Links are followed.
+// ref the page doesn't have are refused. A link is followed unless its words
+// say pay, or it stays on a checkout or payment page.
 func Refuse(p Page, step Step) (code, why string) {
 	ref := step.Ref()
 	if step.Click != "" {
@@ -418,9 +433,20 @@ func Refuse(p Page, step Step) (code, why string) {
 			return "", ""
 		}
 		for _, l := range p.Links {
-			if l.Ref == ref {
-				return "", ""
+			if l.Ref != ref {
+				continue
 			}
+			// A link can run the page's script instead of going anywhere
+			// (href="#" with a handler), so its words are a control's: one
+			// that says pay is refused. One that stays on the page, on a
+			// checkout or payment page, is refused like that page's controls.
+			switch {
+			case Pays(Control{Label: l.Label}):
+				return CodePaymentStep, "the link " + quote(l.Label) + " would pay or place an order; only browse_pay may, held for the owner"
+			case samePage(p.URL, l.URL) && (p.Checkout != nil || Payment(p)):
+				return CodePaymentStep, "on a checkout or payment page the taf follows no link that stays on the page (" + quote(l.Label) + "): it runs the page's script; only browse_pay may, held for the owner"
+			}
+			return "", ""
 		}
 		return CodeRefUnknown, "the page has no control or link " + ref
 	}

@@ -91,7 +91,7 @@ func TestBrowserLiveLookUpApproveAndPayOnce(t *testing.T) {
 	// Paid once with the permit KIFF issued; the replay sends nothing.
 	op := "op_live_pay"
 	args := mustJSON(map[string]any{"url": liveCheckout, "ref": place, IdempotencyArg: op})
-	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args, Approval: "exc_" + op})
 	first, fsc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 	if code(fsc) != "" || len(shop.Orders) != 1 || !strings.Contains(first, `"total": "3.00"`) || !strings.Contains(first, "Order 1001 placed") {
 		t.Fatalf("pay: %s (orders %v)", first, shop.Orders)
