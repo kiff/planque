@@ -675,11 +675,18 @@ func (c *Client) narrowest(ctx context.Context, app connector.App, tools, ceilin
 		// pick is its narrowest in the ceiling; best, its narrowest at all.
 		pick, best := "", ""
 		for n, s := range breadth {
-			if !slices.Contains(t.Scopes, s) || !read && strings.HasSuffix(s, ".readonly") || n < floor {
+			if !slices.Contains(t.Scopes, s) || !read && strings.HasSuffix(s, ".readonly") {
 				continue
 			}
 			if best == "" {
 				best = s
+			}
+			// A scope below the floor isn't one the tool can run on, but a
+			// pick above best is still wider than the tool's own narrowest
+			// (21 Nov: a Calendar create took calendar and the card said
+			// "only what this taf's actions need").
+			if n < floor {
+				continue
 			}
 			if slices.Contains(ceiling, s) {
 				pick = s
