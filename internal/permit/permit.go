@@ -43,6 +43,9 @@ type Permit struct {
 	Op       string
 	Card     string
 	Decision string
+	// Approval is the held call the owner approved, when KIFF minted this
+	// permit from that approval; "" when a Card's room allowed the call.
+	Approval string
 	IssuedAt time.Time
 	Expires  time.Time
 }
@@ -108,6 +111,7 @@ type claims struct {
 		Op         string `json:"op"`
 		Card       string `json:"card"`
 		Decision   string `json:"decision"`
+		Approval   string `json:"approval"`
 	} `json:"authorization_details"`
 }
 
@@ -172,7 +176,7 @@ func (v *Verifier) Verify(ctx context.Context, token string, want Want) (Permit,
 		return Permit{}, ErrLifetime
 	}
 	return Permit{ID: c.Jti, Subject: c.Sub, Tenant: d.Tenant, Tool: d.Tool, ArgsHash: d.ArgsSHA256,
-		Op: d.Op, Card: d.Card, Decision: d.Decision, IssuedAt: iat, Expires: exp}, nil
+		Op: d.Op, Card: d.Card, Decision: d.Decision, Approval: d.Approval, IssuedAt: iat, Expires: exp}, nil
 }
 
 func (v *Verifier) now() time.Time {

@@ -531,9 +531,12 @@ func (k *KIFF) Connection(tenant, name string) (Connection, bool) {
 // Permit is what Mint signs.
 type Permit struct {
 	Audience, Tenant, Tool, Sub, Op string
-	Args                            json.RawMessage
-	IssuedAt                        time.Time
-	Lifetime                        time.Duration
+	// Approval is the owner's approval the permit was minted from, as KIFF
+	// names it; "" for a call a Card's room allowed.
+	Approval string
+	Args     json.RawMessage
+	IssuedAt time.Time
+	Lifetime time.Duration
 }
 
 // AskHaltConfirm signs KIFF's ask that planque confirm agent's halt of
@@ -567,6 +570,9 @@ func (k *KIFF) Mint(p Permit) string {
 		"exp": p.IssuedAt.Add(p.Lifetime).Unix(), "jti": "pmt_" + randHex(8),
 		"authorization_details": []map[string]string{{"type": "https://kiff.dev/permits/tool-call", "tenant": p.Tenant,
 			"tool": p.Tool, "args_sha256": sum, "op": p.Op, "card": "crd_test", "decision": "dec_" + randHex(6)}}}
+	if p.Approval != "" {
+		claims["authorization_details"].([]map[string]string)[0]["approval"] = p.Approval
+	}
 	h, _ := json.Marshal(map[string]string{"alg": "Ed25519", "typ": "kiff-permit+jwt", "kid": k.KID})
 	c, _ := json.Marshal(claims)
 	in := b64(h) + "." + b64(c)

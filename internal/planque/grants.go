@@ -3602,7 +3602,8 @@ func holdsSignIn(g *Grant) bool {
 // accountConnections is how the account's tafs reach their vendors, for any
 // of the account's keys or sessions, as its catalog is: each grant that holds
 // a sign-in, with its taf agent, vendor, kind, what asks for the same again and its mode, with no
-// grant id, approval, text or tool. tafs cloud gives it to Coach when a
+// grant id, approval, text or tool; and, while the owner's own Chrome is
+// offered, the paired Chromes' names alone. tafs cloud gives it to Coach when a
 // conversation starts, for the tafs the person may see, so a new taf is
 // offered the kind of connection the account already uses for a vendor.
 func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
@@ -3629,7 +3630,26 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, connectionOf(&g))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"connections": out})
+	answer := map[string]any{"connections": out}
+	// While the owner's own Chrome is offered, its paired Chromes by name, so
+	// Coach offers a taf there only when one is paired, and says how to pair
+	// one when none is. Nothing about them while it isn't offered.
+	if s.chromeOn() {
+		chromes, err := s.KV.Query(r.Context(), tenantPK(tenant), "CHROME#")
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		names := []map[string]string{}
+		for _, it := range chromes {
+			var c Chrome
+			if json.Unmarshal(it.Doc, &c) == nil && c.ID != "" {
+				names = append(names, map[string]string{"name": c.Name})
+			}
+		}
+		answer["chromes"] = names
+	}
+	writeJSON(w, http.StatusOK, answer)
 }
 
 // listGrants is the account's grants and their signed approvals, for the

@@ -87,8 +87,12 @@ func (e *browserEnv) call(g *Grant, tool string, args map[string]any) (string, m
 	op := "op_" + strings.ToLower(tool) + "_" + randomSuffix()
 	args[IdempotencyArg] = op
 	raw := mustJSON(args)
-	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: tool, Sub: g.Request.Agent, Op: op, Args: raw})
-	return textOf(e.s.call(context.Background(), g, tool, raw, permit))
+	mint := fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: tool, Sub: g.Request.Agent, Op: op, Args: raw}
+	if tool == browsePay {
+		// KIFF holds every pay for its owner, so its permit names the approval.
+		mint.Approval = "exc_" + op
+	}
+	return textOf(e.s.call(context.Background(), g, tool, raw, e.kiff.Mint(mint)))
 }
 
 // textOf is a tool result as the agent reads it (its text) and its
@@ -151,11 +155,12 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 	for _, op := range p.Operations {
 		switch op.Tool {
 		case "browse_pay":
-			if op.Effect != profile.EffectMovesMoney || op.Amount == nil || op.Amount.From != "read" || op.Amount.Read.Tool != "browse_checkout" || op.Amount.Unit != "EUR" || op.Amount.Read.Args["url"] != "$args.url" {
+			// Every pay waits for its owner, whatever a Card's room.
+			if op.Effect != profile.EffectMovesMoney || !op.AskEachCall || op.Amount == nil || op.Amount.From != "read" || op.Amount.Read.Tool != "browse_checkout" || op.Amount.Unit != "EUR" || op.Amount.Read.Args["url"] != "$args.url" {
 				t.Errorf("browse_pay: %+v", op)
 			}
 		case "browse_act":
-			if op.Effect != profile.EffectWrites || op.Resource == nil || op.Resource.Arg != "url" {
+			if op.Effect != profile.EffectWrites || op.AskEachCall || op.Resource == nil || op.Resource.Arg != "url" {
 				t.Errorf("browse_act: %+v", op)
 			}
 		default:
@@ -408,7 +413,7 @@ func TestBrowserPaysOnceWhatWasRead(t *testing.T) {
 	// Paid once, with the permit; the same permit again sends nothing.
 	op := "op_pay_once"
 	args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
-	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args, Approval: "exc_" + op})
 	first, _ := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 	if strings.Contains(first, "Refused") || len(e.b.Orders) != 1 || !strings.Contains(first, `"total": "3.00"`) || !strings.Contains(first, "Order 1001 placed") {
 		t.Fatalf("pay: %s (orders %v)", first, e.b.Orders)
@@ -441,7 +446,7 @@ func TestAnUnknownPayBlocksTheSameCheckoutUnderAnyOperation(t *testing.T) {
 	var last map[string]any
 	pay := func(op string) string {
 		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
-		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args, Approval: "exc_" + op})
 		out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 		last = sc
 		return out
@@ -489,7 +494,7 @@ func TestThePayIsMarkedBeforeItsClick(t *testing.T) {
 	}
 	pay := func(e *browserEnv, g *Grant, op string) (string, map[string]any) {
 		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
-		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args, Approval: "exc_" + op})
 		return textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 	}
 	t.Run("two pays at once", func(t *testing.T) {
@@ -569,7 +574,7 @@ func TestAnUnknownMarkLastsADayNotTwentyMinutes(t *testing.T) {
 		// Only the table's clock moves: the mark's lifetime is the table's TTL, and a permit is signed in real time.
 		e.kv.Now = func() time.Time { return time.Now().Add(after) }
 		args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
-		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+		permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args, Approval: "exc_" + op})
 		out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 		last = sc
 		return out
@@ -613,7 +618,7 @@ func TestACheckoutReadCountsForFifteenMinutes(t *testing.T) {
 			}
 			e.kv.Now = func() time.Time { return base.Add(c.after) }
 			args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: "op_" + c.name})
-			permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: "op_" + c.name, Args: args, IssuedAt: base})
+			permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: "op_" + c.name, Args: args, IssuedAt: base, Approval: "exc_" + c.name})
 			out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
 			if code(sc) != c.code || len(e.b.Orders) != c.orders {
 				t.Fatalf("a pay %s after the read: %s (orders %v)", c.name, out, e.b.Orders)
@@ -769,5 +774,39 @@ func TestBrowserActRefusesAPageThatChangedAtTheSameAddress(t *testing.T) {
 				t.Fatalf("a re-rendered page: %s (sent %d)", out, e.b.Sent()-before)
 			}
 		})
+	}
+}
+
+// A pay runs only on its owner's approval, whatever a Card's room: a
+// permit KIFF minted from a Card's room names no approval, and pays
+// nothing, before any browser starts. The same checkout pays once the
+// owner's approval is named.
+func TestAPayWithoutTheOwnersApprovalPaysNothing(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	if _, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout}); sc["total"] != "2.50" {
+		t.Fatalf("checkout: %v", sc)
+	}
+	sessions := e.b.Sessions
+	op := "op_pay_room"
+	args := mustJSON(map[string]any{"url": fakes.ShopCheckout, "ref": "place", IdempotencyArg: op})
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_pay", Sub: g.Request.Agent, Op: op, Args: args})
+	out, sc := textOf(e.s.call(context.Background(), g, "browse_pay", args, permit))
+	if code(sc) != browser.CodePayNotApproved || sc["sent"] != false || len(e.b.Orders) != 0 || e.b.Sessions != sessions {
+		t.Fatalf("a pay a Card's room allowed: %s (orders %v, sessions %d → %d)", out, e.b.Orders, sessions, e.b.Sessions)
+	}
+	if out, sc := e.call(g, "browse_pay", map[string]any{"url": fakes.ShopCheckout, "ref": "place"}); code(sc) != "" || len(e.b.Orders) != 1 {
+		t.Fatalf("the approved pay: %s (orders %v)", out, e.b.Orders)
+	}
+}
+
+// A browse_act with no read is told plainly where the read comes from, and
+// runs nothing.
+func TestBrowserActWithoutAReadSaysWhereItComesFrom(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": "", "steps": []map[string]any{{"click": "add"}}})
+	if code(sc) != browser.CodePageChanged || !strings.Contains(out, "needs the read from browse_open") || len(e.b.Steps) != 0 {
+		t.Fatalf("no read: %s", out)
 	}
 }

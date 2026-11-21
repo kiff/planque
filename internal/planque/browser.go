@@ -109,7 +109,7 @@ var browserTools = []browserTool{
 		Description: "Reads a page's full text, for reading rather than acting." + dataNotInstructions,
 		Schema:      `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"}}}`},
 	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "read", "steps"},
-		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. Each step runs only while the page is still that read: after a navigation or a change to the page's fields and controls, the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's." + dataNotInstructions,
+		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's." + dataNotInstructions,
 		Schema: `{"type":"object","required":["url","read","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from"},` +
 			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"fill":{"type":"string","description":"A field's ref"},"value":{"type":"string"},` +
 			`"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string"},"click":{"type":"string","description":"A control's or link's ref"}}}}}}`},
@@ -233,6 +233,8 @@ func browserProfile(b *BrowserRequest, tools []ToolRequest) (json.RawMessage, er
 			op.Resource = &profile.Resource{Arg: "url", Noun: "page"}
 		}
 		if t.Tool == browsePay {
+			// Every pay waits for its owner, whatever a Card's room.
+			op.AskEachCall = true
 			op.Amount = &profile.Amount{From: "read", Read: &profile.Read{Tool: checkout, Args: map[string]string{"url": "$args.url"}, Path: "total"},
 				Format: "decimal_string", Scale: 2, Unit: b.Currency}
 		}
@@ -624,7 +626,9 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 	before, ran := page, 0
 	for i, st := range a.Steps {
 		code, why := "", ""
-		if got := browser.Read(page); got != a.Read {
+		if a.Read == "" {
+			code, why = browser.CodePageChanged, "browse_act needs the read from browse_open: open the page with browse_open and pass its read with the steps"
+		} else if got := browser.Read(page); got != a.Read {
 			// Refs restart on each new document: after a navigation, or a
 			// change to the page's fields and controls, a ref the taf read can
 			// name another element, so no step runs on a page it didn't read.
@@ -668,6 +672,13 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 // checkout is opened again and read again, and nothing is clicked unless
 // it shows what was read before, in the grant's currency.
 func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a browserArgs, rec checkoutRecord, ver int64) (string, any) {
+	// A pay runs only on its owner's approval, whatever a Card's room: KIFF
+	// holds every browse_pay call (its profile's ask_each_call), and a
+	// permit minted from the owner's approval names it. One that names none
+	// came from a Card's room, and pays nothing.
+	if p.Approval == "" {
+		return OpNotSent, browserRefusal(browser.CodePayNotApproved, "a pay runs only once its owner approves it on the phone, and this call's permit names no approval: nothing was paid", false)
+	}
 	if s.Browser == nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "no browser worker is configured", false)
 	}

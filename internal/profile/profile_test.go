@@ -327,3 +327,20 @@ func TestOutsideIsKeptAsSaid(t *testing.T) {
 		t.Fatal("accepted outside: false on a write")
 	}
 }
+
+// ask_each_call holds every call of a write for its owner: taken on a write,
+// refused on a read, and kept as said.
+func TestAskEachCallIsAWritesOnly(t *testing.T) {
+	prof := func(kind, effect string) []byte {
+		return []byte(`{"v":"kiff.profile.v1","vendor":"shop.example","transport":"mcp","pin":{"kind":"none"},` +
+			`"source":"catalog","catalog_entry":"browser@1","test_proven":false,"operations":[{"tool":"browse_pay","title":"Pay a checkout",` +
+			`"kind":"` + kind + `"` + effect + `,"ask_each_call":true}]}`)
+	}
+	p, err := Parse(prof("write", `,"effect":"writes"`))
+	if err != nil || !p.Operations[0].AskEachCall {
+		t.Fatalf("a write with ask_each_call: %+v %v", p, err)
+	}
+	if _, err := Parse(prof("read", "")); err == nil || !strings.Contains(err.Error(), "ask_each_call") {
+		t.Errorf("a read with ask_each_call: %v", err)
+	}
+}
