@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kiff/planque/internal/store"
 )
 
 const releasedManifest = "aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11"
@@ -319,5 +322,30 @@ func TestTheKiffOfferReachesThePhoneAndTheCollectNamesThePairing(t *testing.T) {
 	st, out := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+extKey, nil, nil, "")
 	if st != 200 || out["pairing"] != pairing || out["phone_key"] != phoneKey {
 		t.Fatalf("the collect names the pairing: %d %v", st, out)
+	}
+}
+
+// The account's connections name its paired Chromes, by name alone, while
+// the owner's own Chrome is offered, and say nothing of them otherwise: Coach
+// offers a taf in Chrome only when one is paired.
+func TestTheConnectionsNameThePairedChromesOnlyWhileOffered(t *testing.T) {
+	path := "/v1/accounts/" + tenant + "/connections"
+	off := newEnv(t)
+	off.enrol()
+	if st, out := off.do("GET", path, nil, nil, "k_setup"); st != 200 || out["chromes"] != nil {
+		t.Fatalf("off: %d %v", st, out)
+	}
+	e := chromeEnv(t)
+	if _, out := e.do("GET", path, nil, nil, "k_setup"); out["chromes"] == nil || len(out["chromes"].([]any)) != 0 {
+		t.Fatalf("offered, none paired: %v", out)
+	}
+	c := Chrome{ID: "chr_workmac0001", Tenant: tenant, Name: "Work Mac", Key: "k", KeySHA256: "s"}
+	if err := putDoc(context.Background(), e.s.KV, store.Item{PK: tenantPK(tenant), SK: skChrome(c.ID)}, c, store.Cond{NotExists: true}); err != nil {
+		t.Fatal(err)
+	}
+	_, out := e.do("GET", path, nil, nil, "k_setup")
+	list := out["chromes"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["name"] != "Work Mac" || len(list[0].(map[string]any)) != 1 {
+		t.Fatalf("paired: %v", out)
 	}
 }
