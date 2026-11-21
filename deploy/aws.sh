@@ -30,8 +30,9 @@
 # door_secret, kiff_event_secret and apps ({id: {client_id, client_secret}}),
 # read first; a value it lacks is still read from its own secret above, so
 # those go only once it's proven live. It gets its own exact resource too, is
-# kept on a rerun, and stands in for PLANQUE_KIFF_EVENT_SECRET beside
-# PLANQUE_KIFF_EVENT_URL.
+# kept on a rerun like the rest (kept_settings, resolved once for the checks,
+# the grants and the function), and stands in for PLANQUE_KIFF_EVENT_SECRET
+# beside PLANQUE_KIFF_EVENT_URL.
 #
 # deploy/server-apps.json, the reviewed list of which app a vendor's own
 # server is, ships with the function and is read at start
@@ -144,13 +145,6 @@ role() {
     if [[ -n "${PLANQUE_KIFF_EVENT_URL:-}" && -z "${PLANQUE_KIFF_EVENT_SECRET:-}" && -z "${PLANQUE_SECRET:-}" ]] || [[ -z "${PLANQUE_KIFF_EVENT_URL:-}" && -n "${PLANQUE_KIFF_EVENT_SECRET:-}" ]]; then
       echo "PLANQUE_KIFF_EVENT_URL and PLANQUE_KIFF_EVENT_SECRET go together: set both, or neither" >&2
       return 1
-    fi
-    # The one secret is kept from the function on a rerun (below), so its
-    # grant is too: a rerun without it set never takes its read away.
-    if [[ -z "${PLANQUE_SECRET:-}" ]]; then
-      PLANQUE_SECRET=$(aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables.PLANQUE_SECRET --output text 2>/dev/null || true)
-      [[ "$PLANQUE_SECRET" == None ]] && PLANQUE_SECRET=""
-      export PLANQUE_SECRET
     fi
     local secret_reference
     for secret_reference in "${PLANQUE_COMPOSIO_SECRET:-}" "${PLANQUE_DOOR_SECRET:-}" "${PLANQUE_KIFF_EVENT_SECRET:-}" "${PLANQUE_SECRET:-}"; do
@@ -327,7 +321,7 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
 for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
-for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_SECRET","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
+for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
     if now.get(k) and not v.get(k): v[k]=now[k]
 if os.environ.get("PLANQUE_CHROME_RELAY") == "off":
     v.pop("PLANQUE_CHROME_STEP_KEY", None); v.pop("PLANQUE_CHROME_WS_ENDPOINT", None)
@@ -362,8 +356,29 @@ schedule() {
   fi
 }
 
+# A rerun keeps planque's settings as the function has them. Each named here
+# is taken from the environment when given, else from the function, so a
+# rerun without one never turns a connector, a receiver or its secret off,
+# nor moves planque's public address (PLANQUE_PUBLIC_URL, kept from
+# PLANQUE_BASE_URL). Set one to "off" to turn it off. The role's grants
+# follow, since they're read from the same variables.
+kept_settings() {
+  local now; now=$(aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}')
+  eval "$(python3 -c '
+import json,os,shlex,sys
+now=json.loads(sys.argv[1] or "{}") or {}
+kept={n: now.get(n) for n in ("PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_SECRET")}
+kept["PLANQUE_PUBLIC_URL"]=now.get("PLANQUE_BASE_URL")
+for n,v in kept.items():
+    given=os.environ.get(n)
+    if given=="off": print("unset %s" % n)
+    elif not given and v: print("export %s=%s" % (n, shlex.quote(v)))
+' "$now")"
+}
+
 up() {
   if [[ -n "$FAKE" && -n "$RELAY" ]]; then echo "PLANQUE_CHROME_RELAY is for planque itself, not a fake" >&2; exit 2; fi
+  if [[ -z "$FAKE" ]]; then kept_settings; fi
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
   if [[ "$RELAY" == on ]]; then stepkey; wsapi; fi
   if [[ "$FAKE" == vendor ]]; then table; fi
