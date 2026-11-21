@@ -15,12 +15,12 @@ Failure table checked against planque's answers on 2026-11-16.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
 - **Only a real QuickBooks Online company connects.** The managed sign-in is a
-  production app: Intuit's page, after the owner signs in, says "Create a
-  company to use with your app" and offers no list of companies, so a
-  **sandbox company** (made at developer.intuit.com) is never offered (phone
-  run, 21 Nov 2026: nothing was granted). Don't plan a test on a sandbox
-  through this sign-in. Never start a company or a trial for the owner to get
-  past that page: it can ask for a card.
+  production app: after the owner signs in, Intuit's page says "Create a
+  company to use with your app" and offers no list, so a **developer
+  sandbox company** (made at developer.intuit.com) is never offered (phone
+  run, 21 Nov 2026: nothing was granted). A free QuickBooks Online company
+  is offered, and a test can run on one (a dummy company, no card). Coach
+  never starts a company or a trial for the owner itself.
 
 ## Tools a job usually needs
 
