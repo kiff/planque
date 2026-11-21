@@ -17,6 +17,8 @@ func TestARefusedPinNamesWhatToFix(t *testing.T) {
 		"a space in the path":     {"post author", `"urn:li:person:1"`, []string{`linkedin_post: fixed argument "post author" isn't a dotted path`, `{"author": "urn:li:person:…"}`}},
 		"a path too deep":         {"a.b.c.d.e", `"x"`, []string{`fixed argument "a.b.c.d.e" isn't a dotted path`, "up to 4 names"}},
 		"a value that isn't JSON": {"author", `urn:li:person:1`, []string{`linkedin_post: fixed argument "author"'s value isn't JSON`, `{"author": "urn:li:person:…"}`}},
+		"an id beyond 2^53 - 1":   {"administration_id", `504060379197867402`, []string{`linkedin_post: fixed argument "administration_id" holds a whole number beyond 2^53 - 1`, `write it as text, in quotes`, `{"administration_id": "123456789012345678"}`}},
+		"one inside an object":    {"filter", `{"admin": 504060379197867402}`, []string{`fixed argument "filter" holds a whole number beyond 2^53 - 1`}},
 	} {
 		tool := ToolRequest{Tool: "CREATE_POST", Name: "linkedin_post", Title: "Post", Fixed: map[string]json.RawMessage{c.pin: json.RawMessage(c.value)}}
 		r := checkNarrowing(tool)
@@ -36,5 +38,12 @@ func TestARefusedPinNamesWhatToFix(t *testing.T) {
 	ok := ToolRequest{Tool: "CREATE_POST", Name: "linkedin_post", Fixed: map[string]json.RawMessage{"author": json.RawMessage(`"urn:li:person:1"`)}}
 	if msg := checkNarrowing(ok); msg != nil {
 		t.Errorf("a good pin was refused: %s", msg)
+	}
+	// The same id as text, and a whole number within 2^53 - 1, are both fine.
+	for _, v := range []string{`"504060379197867402"`, `9007199254740991`} {
+		pin := ToolRequest{Tool: "CREATE_POST", Name: "linkedin_post", Fixed: map[string]json.RawMessage{"administration_id": json.RawMessage(v)}}
+		if msg := checkNarrowing(pin); msg != nil {
+			t.Errorf("%s was refused: %s", v, msg.Msg)
+		}
 	}
 }

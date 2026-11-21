@@ -178,6 +178,13 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		s.log().InfoContext(ctx, "call refused", slog.String("grant", g.ID), slog.String("tool", name), slog.String("code", code), slog.String("why", why))
 		return refusal(code, "Refused by planque: "+why+". Nothing was sent to "+sentTo(g)+".")
 	}
+	// A removed connection serves nothing, whether or not its sign-in is kept
+	// for another connection on the same vendor account (kiff/planque, the
+	// removal that never signs another out): the relay's credential is gone
+	// with the removal, and this is the second lock.
+	if g.Status == StatusDisconnected {
+		return refused(CodeConnectionDown, "this connection was removed")
+	}
 	i := slices.IndexFunc(g.Tools, func(t GrantedTool) bool { return t.Name == name })
 	// An addition's tool, declared while it waits: nothing is usable until the owner approves it.
 	if i < 0 && slices.ContainsFunc(g.Pending, func(t GrantedTool) bool { return t.Name == name }) {
