@@ -2,7 +2,11 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/kiff/planque/internal/fakes"
 )
 
 // 21 Nov: removing a taf's Drive connection signed another taf's Drive
@@ -179,5 +183,37 @@ func TestWhoStillUsesAVendorAccountIsReadForTheTenantAndTheFamily(t *testing.T) 
 	lone := put("grt_typeform", tenant, "typeform", "", StatusConnected)
 	if n := users(lone); n != 0 {
 		t.Fatalf("an app of its own family with no other connection: %d users, want 0", n)
+	}
+}
+
+// A removed connection whose sign-in is kept for another connection serves
+// no call at all: the call is refused before anything reaches the provider,
+// even with a valid permit, and its relay credential is gone (legal-i18n's
+// question on the retention text: the kept sign-in is "unused").
+// Category: authority
+// Attack: a removed taf's connection, its sign-in kept for another's, still sends with the owner's account
+// Refused: "Not sent", nothing reaches the provider, no relay credential
+func TestARemovedConnectionWhoseSignInIsKeptServesNoCalls(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	a, b := twoOwnSignIns(t, e, f)
+	remove(t, e, a)
+	if f.revocations != 0 {
+		t.Fatalf("setup: the first removal revoked: %d", f.revocations)
+	}
+	g, _ := e.s.loadGrant(ctx, tenant, a.ID)
+	if g.Status != StatusDisconnected || g.Transport != "" || len(g.Transports) != 0 || g.Connected != nil {
+		t.Fatalf("the removed connection still holds a way in: %s %q %v %v", g.Status, g.Transport, g.Transports, g.Connected)
+	}
+	args := json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"op_removed"}`)
+	permit := e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "op_removed", Args: args})
+	executions := f.executions
+	got := mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit))
+	if !strings.Contains(got, `"code":"`+CodeConnectionDown+`"`) || !strings.Contains(got, `"sent":false`) || f.executions != executions {
+		t.Fatalf("a call on the removed connection: %s (provider executions %d→%d)", got, executions, f.executions)
+	}
+	// The other connection is untouched, and its provider account was not revoked.
+	if live, _ := e.s.loadGrant(ctx, tenant, b.ID); live.Status != StatusConnected || f.revocations != 0 {
+		t.Fatalf("the other connection after the first's removal: %s, %d revocations", live.Status, f.revocations)
 	}
 }
