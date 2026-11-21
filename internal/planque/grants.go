@@ -339,6 +339,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeRefusal(w, r)
 		return
 	}
+	if r := unitLookupMissing(*req.Tools); r != nil && len(req.Profile) == 0 {
+		writeRefusal(w, r)
+		return
+	}
 	if msg := oneOfWithoutKey(req.Kind, *req.Tools); msg != "" {
 		writeErr(w, http.StatusBadRequest, msg)
 		return
@@ -1521,6 +1525,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	originalNames := toolNames(req.Tools)
 
 	if r := checkTools(g.Request.Agent, req.Tools); r != nil {
+		writeRefusal(w, r)
+		return
+	}
+	if r := unitLookupMissing(req.Tools); r != nil && len(req.Profile) == 0 {
 		writeRefusal(w, r)
 		return
 	}
