@@ -16,6 +16,12 @@ Failure table checked against planque's answers on 2026-11-16.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request, so nothing is asked
   twice.
+- **Proved on a phone (21 Nov 2026), on a personal Microsoft account:**
+  list a folder, create a folder, and upload a file, each write after the
+  owner's yes. A personal account works; Excel needs a work or school
+  one. **An upload takes a link to the file, not typed words:** to keep a
+  note, ask the owner for a link to it, and never say a typed note was
+  stored.
 
 ## Tools a job usually needs
 

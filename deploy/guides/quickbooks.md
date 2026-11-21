@@ -14,6 +14,14 @@ Failure table checked against planque's answers on 2026-11-16.
   `unusable`, with why.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
   Ask for every tool the job needs in the first request.
+- **Only a real QuickBooks Online company connects.** The managed sign-in is a
+  production app: after the owner signs in, Intuit's page says "Create a
+  company to use with your app" and offers no list, so a **developer
+  sandbox company** (made at developer.intuit.com) is never offered (phone
+  run, 21 Nov 2026: nothing was granted). Don't offer a sandbox company
+  through this sign-in. A free QuickBooks Online company is offered, and a
+  test can run on one (a dummy company, no card). Coach never starts a
+  company or a trial for the owner itself.
 
 ## Tools a job usually needs
 
