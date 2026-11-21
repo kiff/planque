@@ -30,7 +30,7 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 		}
 		return v
 	}
-	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given"} {
+	for _, scenario := range []string{"enabled", "disabled", "fake", "wrong_region", "handoff", "browser", "kiff_events", "kiff_events_half", "switches_kept", "switches_given", "relay", "relay_kept", "relay_off"} {
 		t.Run(scenario, func(t *testing.T) {
 			script := `set -euo pipefail
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
@@ -43,6 +43,7 @@ aws() {
  case "$1 $2" in
  "iam get-role") return 0;;
  "lambda get-function-configuration") echo "$current_env";;
+ "apigatewayv2 get-apis") echo abc123;;
  "kms describe-key") echo arn:aws:kms:eu-west-1:000000000000:key/demo;;
  "secretsmanager describe-secret")
   while [[ $# -gt 0 ]]; do
@@ -82,6 +83,14 @@ aws() {
 				script += `current_env='{"PLANQUE_DIGEST":"v2","PLANQUE_WINDOW_REQUIRED":"true"}'` + "\n"
 			case "switches_given":
 				script += `current_env='{"PLANQUE_DIGEST":"v2","PLANQUE_WINDOW_REQUIRED":"true"}'` + "\nexport PLANQUE_DIGEST=v1\n"
+			case "relay":
+				// As up() exports them once the key and the API are there.
+				script += "RELAY=on\nexport PLANQUE_CHROME_RELAY=on PLANQUE_CHROME_STEP_KEY=alias/demo-chrome-steps PLANQUE_CHROME_WS_ENDPOINT=https://abc123.execute-api.eu-west-1.amazonaws.com/v1\nWS_STAGE=v1 STEP_ALIAS=alias/demo-chrome-steps WSAPI=demo-chrome\n" + extract("wsapi_id") + "\n"
+			case "relay_kept", "relay_off":
+				script += `current_env='{"PLANQUE_CHROME_STEP_KEY":"alias/demo-chrome-steps","PLANQUE_CHROME_WS_ENDPOINT":"https://abc123.execute-api.eu-west-1.amazonaws.com/v1"}'` + "\n"
+				if scenario == "relay_off" {
+					script += "RELAY=off\nexport PLANQUE_CHROME_RELAY=off\n"
+				}
 			case "wrong_region":
 				script += "connector_arn=arn:aws:secretsmanager:us-east-1:000000000000:secret:other\n"
 			}
@@ -117,9 +126,23 @@ aws() {
 			if json.Unmarshal([]byte(lines[0]), &policy) != nil {
 				t.Fatal("invalid IAM policy")
 			}
-			granted, apps := 0, 0
+			granted, apps, signs, posts := 0, 0, 0, 0
 			for _, stmt := range policy.Statement {
 				for _, action := range stmt.Action {
+					// The Chrome relay: sign with its own key, post to and drop
+					// the API's connections in stage v1, nothing wider.
+					switch {
+					case action == "kms:Sign" || action == "kms:GetPublicKey":
+						if stmt.Resource != "arn:aws:kms:eu-west-1:000000000000:key/demo" || len(stmt.Action) != 2 {
+							t.Fatalf("the step key's grant is wider than the key: %v", stmt)
+						}
+						signs++
+					case strings.HasPrefix(action, "execute-api:"):
+						if action != "execute-api:ManageConnections" || stmt.Resource != "arn:aws:execute-api:eu-west-1:000000000000:abc123/v1/*/@connections/*" {
+							t.Fatalf("the WebSocket API's grant is wider than its connections: %v", stmt)
+						}
+						posts++
+					}
 					if strings.HasPrefix(action, "secretsmanager:") {
 						// KIFF's own OAuth clients: one secret per app, under
 						// planque/apps/ alone, never wider; counted apart.
@@ -171,6 +194,24 @@ aws() {
 					t.Fatalf("a switch appeared from nowhere: %v", want)
 				}
 			}
+			// The relay's grants and settings are there exactly when it's on, and a
+			// rerun without PLANQUE_CHROME_RELAY keeps its settings.
+			relayEnv := [2]string{env.Variables["PLANQUE_CHROME_STEP_KEY"], env.Variables["PLANQUE_CHROME_WS_ENDPOINT"]}
+			wantEnv := [2]string{"alias/demo-chrome-steps", "https://abc123.execute-api.eu-west-1.amazonaws.com/v1"}
+			switch scenario {
+			case "relay":
+				if signs != 2 || posts != 1 || relayEnv != wantEnv {
+					t.Fatalf("the relay wasn't granted or configured: %d %d %v", signs, posts, relayEnv)
+				}
+			case "relay_kept":
+				if signs != 0 || posts != 0 || relayEnv != wantEnv {
+					t.Fatalf("a rerun dropped the relay's settings or granted it: %v", relayEnv)
+				}
+			default:
+				if signs != 0 || posts != 0 || relayEnv != [2]string{} {
+					t.Fatalf("the relay appeared from nowhere, or off kept it: %d %d %v", signs, posts, relayEnv)
+				}
+			}
 			if scenario == "kiff_events" {
 				// The connector's secret and KIFF's: two exact reads, nothing wider.
 				if granted != 2 || env.Variables["PLANQUE_KIFF_EVENT_URL"] != "https://api.example/v1/planque/refund-events" || env.Variables["PLANQUE_KIFF_EVENT_SECRET"] != "demo/kiff/events" {
@@ -185,7 +226,7 @@ aws() {
 				if granted != 2 || env.Variables["PLANQUE_DOOR_SECRET"] != "demo/doors/handoff" || env.Variables["PLANQUE_DOOR_URL"] != "https://receiver.example/v1/doors/planque" {
 					t.Fatal("handoff secret or fixed receiver was not configured")
 				}
-			} else if scenario == "enabled" || scenario == "browser" || strings.HasPrefix(scenario, "switches_") {
+			} else if scenario == "enabled" || scenario == "browser" || strings.HasPrefix(scenario, "switches_") || strings.HasPrefix(scenario, "relay") {
 				if granted != 1 || env.Variables["PLANQUE_COMPOSIO_SECRET"] != "demo/connectors/composio" {
 					t.Fatal("managed connector was not configured")
 				}

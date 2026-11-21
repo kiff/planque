@@ -71,7 +71,7 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]any{"calls": calls})
 	})
 	if lambda.Running() {
-		log.Fatal(lambda.Start(mux))
+		log.Fatal(lambda.Start(mux, nil))
 	}
 	log.Fatal(http.ListenAndServe(":8082", mux))
 }

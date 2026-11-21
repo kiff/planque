@@ -39,7 +39,7 @@ func main() {
 		log.Fatal("FAKEKIFF_CARDS: ", err)
 	}
 	if lambda.Running() {
-		log.Fatal(lambda.Start(k.Handler()))
+		log.Fatal(lambda.Start(k.Handler(), nil))
 	}
 	log.Fatal(http.ListenAndServe(":8081", k.Handler()))
 }
