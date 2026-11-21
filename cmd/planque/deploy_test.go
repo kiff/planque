@@ -446,3 +446,42 @@ func TestDeploymentNamesEverySettingTheServerReads(t *testing.T) {
 		}
 	}
 }
+
+// Every file a setting points planque at (/var/task/…) is in the function's
+// bundle, both deploy/aws.sh's and the merge deploy's (ci.yml): a file one
+// leaves out stops planque at start once the setting names it. The merge
+// deploy's bundle without chrome-builds.txt did, on 21 Nov 2026, until its
+// rollback put the previous code back.
+func TestEveryBundleHoldsTheFilesTheSettingsName(t *testing.T) {
+	script, err := os.ReadFile("../../deploy/aws.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := map[string]bool{}
+	for _, m := range regexp.MustCompile(`"/var/task/([^"]+)"`).FindAllStringSubmatch(string(script), -1) {
+		named[m[1]] = true
+	}
+	if !named["chrome-builds.txt"] || len(named) < 4 {
+		t.Fatalf("read %v from deploy/aws.sh's settings, want its four files", named)
+	}
+	zipped := func(src []byte) map[string]bool {
+		out := map[string]bool{}
+		for _, m := range regexp.MustCompile(`zip -q function\.zip bootstrap ([^)\n]+)\)`).FindAllStringSubmatch(string(src), -1) {
+			for _, f := range strings.Fields(m[1]) {
+				out[f] = true
+			}
+		}
+		return out
+	}
+	for name, bundle := range map[string]map[string]bool{"deploy/aws.sh": zipped(script), "ci.yml's deploy": zipped(ci)} {
+		for f := range named {
+			if !bundle[f] {
+				t.Errorf("%s's bundle has no %s, which a setting names: planque wouldn't start", name, f)
+			}
+		}
+	}
+}
