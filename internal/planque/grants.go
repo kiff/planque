@@ -370,10 +370,12 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	// fail once the owner approved. Then the request signs in anew, to the
 	// same server, on its first card, and says why.
 	refusedReuse := ""
+	var reusedTools []mcpTool
 	if req.Reuse != "" {
 		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Status == StatusConnected && from.SignedIn &&
 			from.Request.Connector == nil && (strings.TrimSpace(req.Server) == "" || strings.TrimSpace(req.Server) == from.Request.Server) {
-			switch err := s.signInWorks(r.Context(), from); {
+			listed, err := s.signInWorks(r.Context(), from)
+			switch {
 			case errors.Is(err, errSignInRefused):
 				refusedReuse, req.Reuse, req.Kind = from.ID, "", from.Request.Kind
 				req.Server = from.Request.Server
@@ -384,6 +386,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 				s.fail(w, r, err)
 				return
 			}
+			reusedTools = listed
 		}
 	}
 	if (req.Kind == appconfig.MCP || req.Kind == appconfig.REST) && req.Application == "" && req.Reuse == "" {
@@ -423,6 +426,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			return
 		}
 		application = g.Request.Application
+		if r := serverToolsCheck(g, reusedTools, *req.Tools); r != nil {
+			writeRefusal(w, r)
+			return
+		}
 		if api != nil {
 			snap, err := s.loadSnapshot(r.Context(), tenant, g.ID)
 			if err == nil {
@@ -1386,11 +1393,74 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		s.connectorCatalog(w, r, g)
 		return
 	}
+	if len(g.Catalog) == 0 && liveCatalog(g) {
+		s.liveCatalog(w, r, g)
+		return
+	}
 	if len(g.Catalog) == 0 || g.Status == StatusFailed || g.Status == StatusDisconnected {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+}
+
+// liveCatalog says g is a vendor's own MCP server connected with tools of
+// its own, so it kept no catalog: its catalog is the server's list now.
+// Before, it answered "no catalog", and Coach, told to read a reused
+// grant's catalog before adding a tool, named one from memory instead (a
+// phone test on 21 Nov 2026: Stripe's stripe_api_execute, which its server
+// no longer lists, failed only once the owner had approved it).
+func liveCatalog(g *Grant) bool {
+	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindBrowser || len(g.Tools) == 0 {
+		return false
+	}
+	return g.Status == StatusConnected || g.Status == StatusPending && g.SignedIn
+}
+
+// liveCatalog answers g's catalog as its server lists the tools now, read
+// with g's own sign-in, as checkDefinitions reads them. Nothing is kept: a
+// tool chosen from it is checked against the server's list again when the
+// owner approves it.
+func (s *Server) liveCatalog(w http.ResponseWriter, r *http.Request, g *Grant) {
+	access, _, err := s.accessToken(r.Context(), g, 0)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	listed, _, err := s.MCP.ListTools(r.Context(), g.Request.Server, access)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
+		return
+	}
+	tools := make([]CatalogTool, 0, len(listed))
+	for _, t := range listed {
+		tools = append(tools, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools})
+}
+
+// serverToolsCheck refuses, before the owner sees anything, a tool a reused
+// vendor's MCP server doesn't list now, as the reuse's own check read the list
+// (signInWorks): before, the name was checked only once the owner had
+// approved (a phone test on 21 Nov 2026: stripe_api_execute, renamed
+// stripe_api_write at Stripe). With no list read, the connection checks it,
+// as before.
+func serverToolsCheck(g *Grant, listed []mcpTool, tools []ToolRequest) *toolRefusal {
+	if len(listed) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(listed))
+	for _, t := range listed {
+		names = append(names, t.Name)
+	}
+	for _, t := range tools {
+		if !slices.Contains(names, t.Tool) {
+			return &toolRefusal{Code: refNotListed, Tool: refTool(t), Field: "tool", Want: strings.Join(names, ", "),
+				Msg: hostOf(g.Request.Server) + " has no tool named " + t.Tool + " now; it lists: " + strings.Join(names, ", ") + ". Read grant " + g.ID + "'s catalog and take a name from it"}
+		}
+	}
+	return nil
 }
 
 // setTools is the asking agent choosing, from the catalog, the tools a
