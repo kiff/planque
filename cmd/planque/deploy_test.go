@@ -333,6 +333,7 @@ func TestDeploymentKeepsPointInTimeRecovery(t *testing.T) {
 	}
 	// unavailable is how often a new table refuses recovery before it takes
 	// it (ContinuousBackupsUnavailableException): a few times, then never.
+	indexes := "1" // the live index is there, unless a case says otherwise
 	runAs := func(exists bool, unavailable int, fake, protected string) (string, error) {
 		found := "1"
 		if exists {
@@ -348,6 +349,7 @@ aws() {
  case "$1 $2" in
  "dynamodb describe-table")
   if [[ "$*" == *DeletionProtectionEnabled* ]]; then echo ` + protected + `; return 0; fi
+  if [[ "$*" == *GlobalSecondaryIndexes* ]]; then echo ` + indexes + `; return 0; fi
   return ` + found + `;;
  "dynamodb create-table"|"dynamodb wait"|"dynamodb update-time-to-live"|"dynamodb update-table") return 0;;
  "dynamodb update-continuous-backups")
@@ -393,6 +395,23 @@ aws() {
 			t.Fatalf("table (fake=%q protected=%s) asked for deletion protection=%v, want %v:\n%s", c.fake, c.protected, !c.want, c.want, calls)
 		}
 	}
+	// The live index: added when it's missing, left alone when it's there,
+	// and never added to the fake vendor's test table.
+	const index = `--global-secondary-index-updates [{"Create":{"IndexName":"live","KeySchema":[{"AttributeName":"live","KeyType":"HASH"}],"Projection":{"ProjectionType":"ALL"}}}]`
+	for _, c := range []struct {
+		indexes, fake string
+		want          bool
+	}{{"0", "", true}, {"1", "", false}, {"0", "vendor", false}} {
+		indexes = c.indexes
+		calls, err := runAs(true, 0, c.fake, "True")
+		if err != nil {
+			t.Fatalf("table (indexes=%s fake=%q) failed: %v", c.indexes, c.fake, err)
+		}
+		if strings.Contains(calls, index) != c.want {
+			t.Fatalf("table (indexes=%s fake=%q) added the live index=%v, want %v:\n%s", c.indexes, c.fake, !c.want, c.want, calls)
+		}
+	}
+	indexes = "1"
 	// A new table that refuses recovery for a moment still gets it, and the run goes on.
 	calls, err := run(false, 2)
 	if err != nil {

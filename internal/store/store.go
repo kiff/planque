@@ -25,6 +25,10 @@ type Item struct {
 	Ver    int64
 	Lease  int64
 	TTL    int64
+	// Live, when set, puts the item in the live index under this key
+	// (QueryLive); empty, it's not in it. The index is kept with the item in
+	// the same write.
+	Live string
 }
 
 // Cond is what must hold for a write to happen.
@@ -49,6 +53,10 @@ type KV interface {
 	Delete(ctx context.Context, pk, sk string) (Item, bool, error)
 	// Query lists the items under pk whose SK starts with prefix.
 	Query(ctx context.Context, pk, prefix string) ([]Item, error)
+	// QueryLive lists the items whose Live is live, from the live index:
+	// eventually consistent, so an item written a moment ago may be
+	// missing, or read as it was.
+	QueryLive(ctx context.Context, live string) ([]Item, error)
 	// QueryTo lists the items under pk whose SK is at most maxSK, in SK
 	// order: reading a range never costs more than the range.
 	QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error)
@@ -121,6 +129,20 @@ func (m *Memory) Query(_ context.Context, pk, prefix string) ([]Item, error) {
 	return m.list(pk, func(sk string) bool { return strings.HasPrefix(sk, prefix) }), nil
 }
 
+func (m *Memory) QueryLive(_ context.Context, live string) ([]Item, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Item
+	for _, it := range m.items {
+		if live != "" && it.Live == live && m.live(it) {
+			it.Doc = slices.Clone(it.Doc)
+			out = append(out, it)
+		}
+	}
+	slices.SortFunc(out, func(a, b Item) int { return strings.Compare(a.PK+"\x00"+a.SK, b.PK+"\x00"+b.SK) })
+	return out, nil
+}
+
 func (m *Memory) QueryTo(_ context.Context, pk, maxSK string) ([]Item, error) {
 	return m.list(pk, func(sk string) bool { return sk <= maxSK }), nil
 }
@@ -180,6 +202,9 @@ func encode(it Item) av {
 	if it.TTL != 0 {
 		m["ttl"] = av{"N": strconv.FormatInt(it.TTL, 10)}
 	}
+	if it.Live != "" {
+		m["live"] = av{"S": it.Live}
+	}
 	return m
 }
 
@@ -196,6 +221,9 @@ func decode(m map[string]attr) Item {
 	}
 	if v := m["sk"].S; v != nil {
 		it.SK = *v
+	}
+	if v := m["live"].S; v != nil {
+		it.Live = *v
 	}
 	if v := m["doc"].B; v != nil {
 		it.Doc, _ = base64.StdEncoding.DecodeString(*v)
@@ -356,6 +384,18 @@ func (d *Dynamo) Query(ctx context.Context, pk, prefix string) ([]Item, error) {
 		return d.query(ctx, "pk = :pk", av{":pk": av{"S": pk}})
 	}
 	return d.query(ctx, "pk = :pk AND begins_with(sk, :p)", av{":pk": av{"S": pk}, ":p": av{"S": prefix}})
+}
+
+// LiveIndex is the name of the table's live index, on the "live" attribute.
+const LiveIndex = "live"
+
+func (d *Dynamo) QueryLive(ctx context.Context, live string) ([]Item, error) {
+	if live == "" {
+		return nil, nil
+	}
+	// A global secondary index can't be read consistently.
+	return d.pages(ctx, "Query", av{"TableName": d.Table, "IndexName": LiveIndex,
+		"KeyConditionExpression": "live = :l", "ExpressionAttributeValues": av{":l": av{"S": live}}})
 }
 
 func (d *Dynamo) QueryTo(ctx context.Context, pk, maxSK string) ([]Item, error) {

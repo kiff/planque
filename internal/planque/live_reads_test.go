@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kiff/planque/internal/store"
@@ -337,5 +338,188 @@ func TestAStaleLiveRowIsNeverRead(t *testing.T) {
 	var mended Grant
 	if err := json.Unmarshal(row.Doc, &mended); err != nil || mended.Status != StatusConnected {
 		t.Fatalf("the row wasn't mended: %v %q", err, mended.Status)
+	}
+}
+
+// countingLive also counts what the live index returns.
+type countingLive struct{ *countingKV }
+
+func (c countingLive) QueryLive(ctx context.Context, live string) ([]store.Item, error) {
+	items, err := c.countingKV.KV.QueryLive(ctx, live)
+	c.read += len(items)
+	return items, err
+}
+
+// With the live index, the live reads take one query of live grants only:
+// a record carries its key while it counts and drops it when it ends, in
+// the same write, so nothing is kept in step by hand. An account's records
+// from before the index are keyed once, and that first read answers from
+// them; after it, what's read stays flat as finished grants grow.
+func TestTheLiveIndexListsLiveGrantsOnly(t *testing.T) {
+	read := func(finished int) (int, []string) {
+		kv := &countingKV{KV: &store.Memory{}}
+		s := &Server{KV: countingLive{kv}, LiveIndex: true}
+		// Two live grants from before the index: records without its key.
+		for _, id := range []string{"grt_a", "grt_b"} {
+			g := &Grant{ID: id, Tenant: tenant, Status: StatusConnected, SignedIn: true,
+				Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+			if err := putDoc(t.Context(), kv.KV, store.Item{PK: tenantPK(tenant), SK: skGrant(id), Ver: 1}, g, store.Cond{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		finishedGrants(t, s, finished)
+		first, err := s.liveGrants(t.Context(), tenant)
+		if err != nil || len(first) != 2 {
+			t.Fatalf("the first read, from the records: %d, %v", len(first), err)
+		}
+		kv.read = 0
+		items, err := s.liveGrants(t.Context(), tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, it := range items {
+			var g Grant
+			_ = json.Unmarshal(it.Doc, &g)
+			ids = append(ids, g.ID)
+		}
+		return kv.read, ids
+	}
+	small, ids := read(5)
+	big, bigIDs := read(200)
+	if fmt.Sprint(ids) != "[grt_a grt_b]" || fmt.Sprint(bigIDs) != "[grt_a grt_b]" {
+		t.Fatalf("listed %v and %v", ids, bigIDs)
+	}
+	if small != big || big > 3 {
+		t.Fatalf("items read: %d at 5 finished, %d at 200", small, big)
+	}
+}
+
+// A grant that ends leaves the index with its own save, one that starts is
+// in it with its own save, and no LIVE# row is needed for either.
+func TestTheLiveIndexFollowsEachSave(t *testing.T) {
+	kv := &store.Memory{}
+	s := &Server{KV: kv, LiveIndex: true}
+	if _, err := s.liveGrants(t.Context(), tenant); err != nil { // the account is keyed (nothing to key)
+		t.Fatal(err)
+	}
+	g := &Grant{ID: "grt_x", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := kv.Delete(t.Context(), tenantPK(tenant), skLive(g.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := s.liveGrants(t.Context(), tenant); len(items) != 1 {
+		t.Fatalf("a live grant without its LIVE# row isn't listed: %d", len(items))
+	}
+	g.Status = StatusDisconnected
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := s.liveGrants(t.Context(), tenant); len(items) != 0 {
+		t.Fatalf("a finished grant is still listed: %d", len(items))
+	}
+	g.Status = StatusConnected
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := s.liveGrants(t.Context(), tenant); len(items) != 1 {
+		t.Fatalf("a reconnected grant isn't listed: %d", len(items))
+	}
+}
+
+// Keying an account's old records never overwrites a save made since: the
+// key is written under the version read.
+func TestKeyingOldRecordsNeverOverwritesANewerSave(t *testing.T) {
+	kv := &store.Memory{}
+	s := &Server{KV: kv, LiveIndex: true}
+	g := &Grant{ID: "grt_old", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+	if err := putDoc(t.Context(), kv, store.Item{PK: tenantPK(tenant), SK: skGrant(g.ID), Ver: 1}, g, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	// A save lands between the backfill's read and its write.
+	race := &saveBeforePut{KV: kv, save: func() {
+		g.ver, g.Status = 1, StatusDisconnected
+		if err := (&Server{KV: kv}).saveGrant(t.Context(), g); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	s.KV = race
+	if _, err := s.liveGrants(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	it, _, _ := kv.Get(t.Context(), tenantPK(tenant), skGrant(g.ID))
+	if it.Ver != 2 || it.Live != "" || !strings.Contains(string(it.Doc), StatusDisconnected) {
+		t.Fatalf("the backfill overwrote the newer save: ver %d live %q", it.Ver, it.Live)
+	}
+}
+
+// saveBeforePut runs save just before the first GRANT# write goes through.
+type saveBeforePut struct {
+	store.KV
+	save func()
+}
+
+func (r *saveBeforePut) Put(ctx context.Context, it store.Item, c store.Cond) error {
+	if f := r.save; f != nil && strings.HasPrefix(it.SK, "GRANT#") {
+		r.save = nil
+		f()
+	}
+	return r.KV.Put(ctx, it, c)
+}
+
+// staleLive answers the live index from a snapshot taken earlier: what an
+// eventually consistent index can still say just after a save.
+type staleLive struct {
+	store.KV
+	snapshot []store.Item
+}
+
+func (s *staleLive) QueryLive(context.Context, string) ([]store.Item, error) { return s.snapshot, nil }
+
+func TestAHeldSignInIsCheckedOnItsOwnRecordNotTheIndex(t *testing.T) {
+	for name, change := range map[string]func(g *Grant){
+		"disconnected": func(g *Grant) { g.Status = StatusDisconnected },
+		"narrowed":     func(g *Grant) { g.Request.Connector.AskedTools = []string{"GMAIL_FETCH_EMAILS"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			kv := &store.Memory{}
+			s := &Server{KV: kv, LiveIndex: true}
+			g := &Grant{ID: "grt_live", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+				Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+					Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+				Connector: &ConnectorState{Account: "acct_1"}}
+			if err := s.saveGrant(t.Context(), g); err != nil {
+				t.Fatal(err)
+			}
+			asked := []string{"GMAIL_SEND_EMAIL"}
+			// The account is indexed, and the grant is held as it stands.
+			if h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked); err != nil || h == nil {
+				t.Fatalf("before the change: held %v, %v; want the grant", h, err)
+			}
+			snapshot, err := kv.QueryLive(t.Context(), tenant)
+			if err != nil || len(snapshot) != 1 {
+				t.Fatalf("index: %d, %v", len(snapshot), err)
+			}
+			current, err := s.loadGrant(t.Context(), tenant, g.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			change(current)
+			if err := s.saveGrant(t.Context(), current); err != nil {
+				t.Fatal(err)
+			}
+			s.KV = &staleLive{KV: kv, snapshot: snapshot}
+			h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if h != nil {
+				t.Fatalf("held %s: the index's old copy was reused", h.ID)
+			}
+		})
 	}
 }

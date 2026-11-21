@@ -582,7 +582,7 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 	if err := s.markDue(ctx, g); err != nil {
 		return err
 	}
-	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, c)
+	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skGrant(g.ID), Ver: g.ver + 1, Live: liveKey(g)}, g, c)
 	if err != nil {
 		return err
 	}
@@ -641,6 +641,78 @@ func (s *Server) ensureLive(ctx context.Context, tenant string) error {
 	return nil
 }
 
+// liveKey is a grant record's key in the live index: its tenant while it
+// counts, and none once it's finished, so the index holds live grants only.
+func liveKey(g *Grant) string {
+	if g.live() {
+		return g.Tenant
+	}
+	return ""
+}
+
+// skLiveIndexedGSI marks an account whose live grant records all carry
+// their live index key.
+const skLiveIndexedGSI = "LIVEGSI"
+
+// liveFromIndex are the account's live grants as the live index has them:
+// one query, of live grants only, kept by DynamoDB in the same write as
+// each record, so no second record is kept in step by hand. The index is
+// eventually consistent: a grant saved a moment ago may be read as it was.
+// An account's records from before the index are given their key once
+// (indexLive), and that first read answers from the records themselves.
+func (s *Server) liveFromIndex(ctx context.Context, tenant string) ([]store.Item, error) {
+	if _, ok, err := s.KV.Get(ctx, tenantPK(tenant), skLiveIndexedGSI); err != nil {
+		return nil, err
+	} else if !ok {
+		return s.indexLive(ctx, tenant)
+	}
+	items, err := s.KV.QueryLive(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.Item, 0, len(items))
+	for _, it := range items {
+		var g Grant
+		if it.PK != tenantPK(tenant) || !strings.HasPrefix(it.SK, "GRANT#") || json.Unmarshal(it.Doc, &g) != nil || !g.live() {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// indexLive gives each of the account's live grant records its live index
+// key, once: written under the version read, so a save in between (which
+// writes the key itself) is never overwritten; then the account is marked.
+// It answers the live grants from the records it read.
+func (s *Server) indexLive(ctx context.Context, tenant string) ([]store.Item, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Item
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || !g.live() || g.ID == "" || skGrant(g.ID) != it.SK {
+			continue
+		}
+		out = append(out, it)
+		if it.Live == tenant {
+			continue
+		}
+		keyed := it
+		keyed.Live = tenant
+		if err := s.KV.Put(ctx, keyed, store.Cond{Ver: &it.Ver}); err != nil && !errors.Is(err, store.ErrCondition) {
+			return nil, err
+		}
+	}
+	err = s.KV.Put(ctx, store.Item{PK: tenantPK(tenant), SK: skLiveIndexedGSI, Doc: []byte("{}"), Ver: 1}, store.Cond{NotExists: true})
+	if err != nil && !errors.Is(err, store.ErrCondition) {
+		return nil, err
+	}
+	return out, nil
+}
+
 // liveGrants are the account's grants that still count, as their records: it
 // reads only the live rows, after the account's older grants are indexed, and
 // confirms each against the grant's own record. A live row can outlive its
@@ -650,6 +722,9 @@ func (s *Server) ensureLive(ctx context.Context, tenant string) error {
 // rewritten from the grant if it still counts and deleted if not. The live
 // set is small, so this is a handful of reads, flat as finished grants grow.
 func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, error) {
+	if s.LiveIndex {
+		return s.liveFromIndex(ctx, tenant)
+	}
 	if err := s.ensureLive(ctx, tenant); err != nil {
 		return nil, err
 	}

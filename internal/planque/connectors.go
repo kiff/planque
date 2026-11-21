@@ -1282,6 +1282,10 @@ func connectorTextSaid(w words.Approval, q Request, reusedSaid bool) string {
 // sign-in narrowed to some tools covers only those: asked with none, a
 // narrowed one isn't reused, since what the taf needs isn't known. Its
 // scopes granted, when known, must let each tool asked run.
+//
+// The live index only finds the candidates: it's eventually consistent, so
+// a grant just disconnected or narrowed may still read there as it was.
+// Each candidate is read again from its own record, and checked as that.
 func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string) (*Grant, error) {
 	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
@@ -1293,6 +1297,19 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
 			continue
+		}
+		if c := g.Request.Connector; c == nil || c.Provider != providerID || c.Toolkit != toolkit {
+			continue
+		}
+		if s.LiveIndex {
+			current, ok, err := s.KV.Get(ctx, tenantPK(tenant), skGrant(g.ID))
+			if err != nil {
+				return nil, err
+			}
+			g = Grant{}
+			if !ok || json.Unmarshal(current.Doc, &g) != nil || g.Tenant != tenant {
+				continue
+			}
 		}
 		c := g.Request.Connector
 		if c == nil || c.Provider != providerID || c.Toolkit != toolkit || g.Status != StatusConnected || !g.SignedIn ||
