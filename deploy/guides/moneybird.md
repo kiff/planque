@@ -12,7 +12,10 @@ Failure table checked against planque's answers on 2026-11-16.
   approve the sign-in.
 - **Every call names an administration** (one set of books). A person with
   several administrations has the taf list them first and keep the one the
-  job is for.
+  job is for. **Pin its id as text in quotes**: it has 18 digits, and a number
+  that large is refused (the app takes it as text on find and list, as an
+  integer on create). Before the first call, check the sign-in covers that
+  administration: Moneybird's authorized apps shows which one it was given for.
 - **Access is granted by area:** sales invoices, documents (purchase invoices
   and receipts), estimates, bank, time entries and settings. A sign-in made
   for one area doesn't reach the others. With a known sign-in, the grant's
@@ -91,7 +94,7 @@ planque's own refusals, and an expired sign-in, are in the part below.
 |---|---|---|
 | Moneybird's sign-in has expired (401) | Access was revoked, or the sign-in is invalid | "Moneybird needs you to sign in again. Nothing was changed in your books." |
 | Refused (402), account limit reached | The Moneybird account hit its plan's limit | "Your Moneybird account has reached its limit, so the taf can't add more. Check your plan in Moneybird." |
-| Refused, blocked (403) | Moneybird has blocked the calling address | "Moneybird is refusing the taf's requests right now. The taf has stopped." |
+| Refused, blocked (403) | Moneybird has blocked the calling address, or says "No access to administration": the sign-in wasn't given for that one | "Moneybird is refusing the taf's requests right now. The taf has stopped." For the second, "this sign-in isn't on that set of books: sign in again and choose it." |
 | Refused, a step's area isn't covered | The sign-in didn't include that area (bank or settings, say) | "Moneybird is only partly connected: this step needs access you didn't give. Want to sign in again and allow it, or do without this step?" |
 | Refused (404), not found | The contact or invoice was deleted, or a draft was looked up by number | "That record isn't in Moneybird any more. The taf will skip it." |
 | Refused (422), rejected | A required field is missing or a value isn't valid | "Moneybird didn't accept that invoice: some details are missing or wrong. The taf has stopped and will show you what it tried." |

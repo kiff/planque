@@ -12,6 +12,10 @@ Failure table checked against planque's answers on 2026-11-16.
   under `unusable`, with why. Offer only what's under `tools`.
 - **A held sign-in is reused** for a new taf when it covers the tools asked.
 - **One approval for the sign-in, one for the tools and the Card.**
+- **Which account:** Google's chooser lists every Google account signed in on
+  the phone, in Google's own order, and the connection takes the one tapped.
+  Once the sign-in is confirmed the connection line names the account: check
+  it is the one the job is for.
 
 ## Two kinds of access
 
