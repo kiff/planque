@@ -45,6 +45,9 @@ type Browser struct {
 	// handed back: a test interleaves another act there (the owner's Done
 	// while a call is still running).
 	BeforeClose func()
+	// Pages, when set, replace a URL's page: a test re-renders a page at the
+	// same address (a form whose fields change between a read and a step).
+	Pages map[string]browser.Page
 	// held are the open sessions by id, for Resume.
 	held map[string]*browserSession
 	seq  int
@@ -87,7 +90,17 @@ const (
 	ShopItemDE = "https://shop.example/artikel/stift"
 )
 
+// ReadOf is the read browse_open gives for the page at u, for a test's
+// browse_act to name, as a taf names the read it built its steps from.
+func (b *Browser) ReadOf(u string) string {
+	p, _ := b.page(u)
+	return browser.Read(p)
+}
+
 func (b *Browser) page(u string) (browser.Page, bool) {
+	if p, ok := b.Pages[u]; ok {
+		return p, true
+	}
 	lines := []browser.Line{{Item: "Blue pen", Quantity: 2, Price: "1.25"}}
 	switch u {
 	case ShopItem:
