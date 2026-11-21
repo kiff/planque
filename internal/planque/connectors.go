@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -970,6 +971,12 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 		if !definition.Covered(grantedScopes(g)) {
 			return apiError{http.StatusConflict, uncoveredWords(g, definition) + ": choose the tools its catalog offers"}
 		}
+		// What KIFF scopes the Card on is checked against the vendor's schema here, as the API-key path does, not
+		// first at approve: there it failed after the owner's fingerprint, as "could not complete" (a Moneybird
+		// administration_id, an integer, 21 Nov).
+		if r := resourceOutsideSchema(ask, definition.InputSchema); r != nil {
+			return r
+		}
 		g.Connector.Tools = append(g.Connector.Tools, definition)
 		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Slug: definition.Slug, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
 	}
@@ -1675,4 +1682,17 @@ func (s *Server) livenessRead(ctx context.Context, g *Grant) (connector.Tool, bo
 		}
 	}
 	return connector.Tool{}, false
+}
+
+// resourceOutsideSchema says why a tool not narrowed can't scope its Card on its resource_argument: KIFF reads a
+// string, and the vendor's schema gives that argument another type, or none. Nil when it can. A narrowed tool's
+// arguments are its own, and checkNarrowing holds them to the same rule.
+func resourceOutsideSchema(t ToolRequest, schema json.RawMessage) *toolRefusal {
+	path := cmp.Or(t.ResourcePath, t.ResourceArg)
+	if path == "" || t.narrowed() || schemaType(schema, path) == "string" {
+		return nil
+	}
+	strs := opArgNames(schema, "string")
+	return &toolRefusal{Code: refResourceArgument, Tool: refTool(t), Field: "resource_argument", Want: strs,
+		Msg: "resource_argument " + path + " must be one of " + t.Tool + "'s string arguments (" + strs + "): leave it out when none names what the call acts on, and limit the tool by calls a day"}
 }

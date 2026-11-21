@@ -3203,8 +3203,15 @@ func (s *Server) failGrant(ctx context.Context, g *Grant, reason string) error {
 		return err
 	}
 	s.logEnded(ctx, g, from, "planque, on a failed connect")
-	return errors.New(reason)
+	return connectFailed(reason)
 }
+
+// connectFailed is a connect that ended failed, and why, in words for the asking agent: the approve answers with
+// them, as the grant's reason says, never as "could not complete" (a resource type planque found only at approve,
+// 21 Nov: Coach read nothing it could fix).
+type connectFailed string
+
+func (c connectFailed) Error() string { return string(c) }
 
 // disconnect is the owner's signed act: the tools leave KIFF, the token
 // is revoked at the vendor and deleted here.

@@ -1642,3 +1642,34 @@ func TestAManagedConnectTakesItsSetupReadsAsPlannedTools(t *testing.T) {
 		}
 	}
 }
+
+// A managed app's tool scoped on an argument that isn't a string in the vendor's schema is refused when its tools are
+// chosen, naming the string arguments it has: never first at approve, after the owner's fingerprint, as "could not
+// complete" (a Moneybird administration_id, an integer, 21 Nov).
+func TestAResourceArgumentThatIsntAStringIsRefusedWhenChosen(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	first := connectConnector(t, e, f)
+	grants := "/v1/accounts/" + tenant + "/grants"
+	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_refunds", "agent_name": "Refund requests", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	path := grants + "/" + out["id"].(string)
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	alias := catalog["tools"].([]any)[0].(map[string]any)["name"].(string)
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply", ResourceArg: "administration_id"}}}, nil, "k_setup")
+	if st != 400 || out["code"] != refResourceArgument || !strings.Contains(out["error"].(string), "(text, ticket)") {
+		t.Fatalf("a resource the schema doesn't give as a string: %d %v", st, out)
+	}
+	// Named as the schema gives it, the same choice goes on.
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
+		Operations: []profile.Operation{{Tool: "refund_reply", Title: "Reply to a ticket", Kind: "write", Effect: profile.EffectSends, Shape: "single",
+			Resource: &profile.Resource{Arg: "ticket", Noun: "ticket", Outside: new(true)}, RequiredArguments: []string{"ticket", "text"}}}}
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply", ResourceArg: "ticket"}}, "profile": p}, nil, "k_setup")
+	if st != 200 || out["status"] != StatusPending {
+		t.Fatalf("a string resource: %d %v", st, out)
+	}
+}

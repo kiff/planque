@@ -317,6 +317,12 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeErr(w, ae.status, ae.msg)
 		return
 	}
+	var cf connectFailed
+	if errors.As(err, &cf) {
+		s.log().WarnContext(r.Context(), "connect failed", slog.String("path", loggedPath(r.URL.Path)), slog.String("err", err.Error()))
+		writeJSON(w, http.StatusConflict, map[string]string{"error": string(cf), "code": "connect_failed"})
+		return
+	}
 	s.log().ErrorContext(r.Context(), "request failed", slog.String("path", loggedPath(r.URL.Path)), slog.String("err", err.Error()))
 	writeErr(w, http.StatusInternalServerError, "planque could not complete this request")
 }

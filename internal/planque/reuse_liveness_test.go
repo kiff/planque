@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kiff/planque/internal/connector"
+	"github.com/kiff/planque/internal/store"
 )
 
 // liveProvider answers each read with what refuse says, and records what it was asked.
@@ -15,8 +16,14 @@ type liveProvider struct {
 	connector.Provider
 	t      *testing.T
 	tools  map[string]connector.Tool
-	status int // 0 answers; else refused with this status
+	user   string
+	status int   // 0 answers; else refused with this status
+	err    error // returned instead of an answer: a slow or unreachable vendor
 	calls  []string
+}
+
+func (p *liveProvider) Account(_ context.Context, id string) (connector.Account, error) {
+	return connector.Account{ID: id, User: p.user, Toolkit: "googlecalendar", Status: "ACTIVE"}, nil
 }
 
 func (p *liveProvider) Platform() connector.Platform {
@@ -33,6 +40,9 @@ func (p *liveProvider) Tools(context.Context, string, string) (connector.Page[co
 
 func (p *liveProvider) Execute(_ context.Context, _ connector.Identity, _ string, t connector.Tool, args json.RawMessage, _ func() bool) (connector.Result, error) {
 	p.calls = append(p.calls, t.Slug)
+	if p.err != nil {
+		return connector.Result{}, p.err
+	}
 	if string(args) != `{}` {
 		p.t.Fatalf("the check asked %s with %s", t.Slug, args)
 	}
@@ -87,4 +97,74 @@ func TestAReusedSignInIsReadAtItsVendorFirst(t *testing.T) {
 			t.Errorf("%s: the connection reads %s", c.name, after.Status)
 		}
 	}
+}
+
+// qa-kiff on #330: the check is wired into the reuse request, an error or a timeout signs no one out, and a 401 signs
+// out every connection on that sign-in, the one that reused it too.
+func TestAReuseRequestOfARefusedSignInIsRefusedAndSignsItOut(t *testing.T) {
+	const calendar = "https://www.googleapis.com/auth/calendar"
+	who := connector.Tool{Slug: "GOOGLECALENDAR_GET_CURRENT_USER", Toolkit: "googlecalendar", Version: "20300101_00", Name: "Who", ReadOnly: true,
+		InputSchema: json.RawMessage(`{"type":"object"}`), Scopes: []string{calendar}}
+	setup := func(p *liveProvider) (*env, *Grant, *Grant) {
+		e := newInProcessEnv(t)
+		e.s.Connectors = map[string]connector.Provider{"composio": p}
+		e.s.ManagedTestTenants = map[string]bool{tenant: true}
+		e.enrol()
+		saved := func(id string) *Grant {
+			g := whoGrant(e, "googlecalendar", []string{calendar}, []string{calendar})
+			g.ID, g.Status, g.SignedIn = id, StatusConnected, true
+			g.Request.API = &APIRequest{}
+			if err := e.s.saveGrant(context.Background(), g); err != nil {
+				t.Fatal(err)
+			}
+			return g
+		}
+		first, second := saved("grt_first"), saved("grt_second")
+		p.user = first.Connector.User
+		return e, first, second
+	}
+	reuse := func(e *env, from *Grant) (int, map[string]any) {
+		return e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"reuse": from.ID, "agent": "agt_taf", "agent_name": "Today's agenda", "tools": []any{}}, nil, "k_setup")
+	}
+	status := func(e *env, id string) string {
+		g, _ := e.s.loadGrant(context.Background(), tenant, id)
+		return g.Status
+	}
+
+	// A 401: 409 sign_in_refused, nothing reused, and both connections on that sign-in read signed out.
+	p := &liveProvider{t: t, tools: map[string]connector.Tool{who.Slug: who}, status: http.StatusUnauthorized}
+	e, first, second := setup(p)
+	before := len(e.kvGrants(t))
+	st, out := reuse(e, first)
+	if st != http.StatusConflict || out["code"] != "sign_in_refused" {
+		t.Fatalf("a refused sign-in's reuse: %d %v", st, out)
+	}
+	if n := len(e.kvGrants(t)); n != before {
+		t.Fatalf("a grant was made: %d → %d", before, n)
+	}
+	if status(e, first.ID) != StatusNeedsReconnect || status(e, second.ID) != StatusNeedsReconnect {
+		t.Fatalf("the sign-in's connections: %s, %s", status(e, first.ID), status(e, second.ID))
+	}
+
+	// The vendor erring or timing out isn't a refusal: the reuse goes on, and no one is signed out.
+	for _, err := range []error{errors.New("provider unreachable"), context.DeadlineExceeded} {
+		p := &liveProvider{t: t, tools: map[string]connector.Tool{who.Slug: who}, err: err}
+		e, first, second := setup(p)
+		if st, out := reuse(e, first); st != http.StatusCreated {
+			t.Fatalf("%v: the reuse: %d %v", err, st, out)
+		}
+		if status(e, first.ID) != StatusConnected || status(e, second.ID) != StatusConnected {
+			t.Fatalf("%v: signed out: %s, %s", err, status(e, first.ID), status(e, second.ID))
+		}
+	}
+}
+
+// kvGrants are the account's grants as kept.
+func (e *env) kvGrants(t *testing.T) []store.Item {
+	t.Helper()
+	items, err := e.s.KV.Query(context.Background(), tenantPK(tenant), "GRANT#")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return items
 }
