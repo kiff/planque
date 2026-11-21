@@ -3151,8 +3151,13 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 // that reuse its token (TokenOf, kiff/planque#36), or for a provider's app,
 // those that pin the same connected account. A disconnected or failed grant
 // uses nothing.
+//
+// It reads every grant, not the LIVE# index: an empty answer revokes the
+// sign-in at the vendor, and a live grant whose LIVE# row wasn't written
+// (keepLive is its own write) would be signed out. These are rare paths
+// (a removal, a revoke, the kept sweep), so the full read costs little.
 func (s *Server) signInUsers(ctx context.Context, g *Grant) ([]string, error) {
-	items, err := s.liveGrants(ctx, g.Tenant)
+	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
 	if err != nil {
 		return nil, err
 	}

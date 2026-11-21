@@ -341,12 +341,11 @@ func TestAStaleLiveRowIsNeverRead(t *testing.T) {
 	}
 }
 
-// The tool names a new connection can't reuse, and the grants on the same
-// sign-in as one being revoked, read the live grants only: the same answers,
-// and the same number of items read, at 5 finished grants and at 200 (two
-// test accounts held 341 and 151, each read on these paths).
-func TestNamesInUseAndSignInUsersReadOnlyLiveGrants(t *testing.T) {
-	read := func(finished int) (reads int, names map[string]string, users []string) {
+// The tool names a new connection can't reuse read the live grants only:
+// the same answer, and the same number of items read, at 5 finished grants
+// and at 200 (two test accounts held 341 and 151).
+func TestNamesInUseReadsOnlyLiveGrants(t *testing.T) {
+	read := func(finished int) (reads int, names map[string]string) {
 		kv := &countingKV{KV: &store.Memory{}}
 		s := &Server{KV: kv}
 		connected := &Grant{ID: "grt_live", Tenant: tenant, Status: StatusConnected, SignedIn: true,
@@ -372,22 +371,13 @@ func TestNamesInUseAndSignInUsersReadOnlyLiveGrants(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		u, err := s.signInUsers(t.Context(), sibling)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return kv.read, n, u
+		return kv.read, n
 	}
-	smallReads, smallNames, smallUsers := read(5)
-	bigReads, bigNames, bigUsers := read(200)
+	smallReads, smallNames := read(5)
+	bigReads, bigNames := read(200)
 	for name, got := range map[string]map[string]string{"5 finished": smallNames, "200 finished": bigNames} {
 		if len(got) != 1 || got["gmail_send"] == "" {
 			t.Errorf("%s: names in use changed: %v", name, got)
-		}
-	}
-	for name, got := range map[string][]string{"5 finished": smallUsers, "200 finished": bigUsers} {
-		if len(got) != 1 || got[0] != "grt_live" {
-			t.Errorf("%s: the sign-in's other users must be the live grant alone, got %v", name, got)
 		}
 	}
 	if bigReads != smallReads {

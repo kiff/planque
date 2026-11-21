@@ -217,3 +217,29 @@ func TestARemovedConnectionWhoseSignInIsKeptServesNoCalls(t *testing.T) {
 		t.Fatalf("the other connection after the first's removal: %s, %d revocations", live.Status, f.revocations)
 	}
 }
+
+// Category: authority
+// Attack: a live connection whose LIVE# row was never written (keepLive is its own write) is missed, so removing its sibling revokes the sign-in both use
+// Refused: the check before a revoke reads every grant, so the sign-in is kept while the other connection lives
+func TestALiveConnectionMissingFromTheLiveIndexKeepsTheSignIn(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	ctx := context.Background()
+	a := connectConnector(t, e, f)
+	b := connectConnector(t, e, f) // the same sign-in: the fixture gives both one connected account
+	if err := e.s.ensureLive(ctx, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := e.s.KV.Delete(ctx, tenantPK(tenant), skLive(b.ID)); err != nil || !ok {
+		t.Fatalf("setup: drop b's LIVE# row: %v %v", ok, err)
+	}
+	remove(t, e, a)
+	if f.revocations != 0 {
+		t.Fatalf("removing a revoked the sign-in the live b still uses: %d revocations", f.revocations)
+	}
+	if g, _ := e.s.loadGrant(ctx, tenant, b.ID); g.Status != StatusConnected {
+		t.Fatalf("b after a's removal: %s", g.Status)
+	}
+	if n, err := e.s.SweepKept(ctx); err != nil || n != 0 || f.revocations != 0 {
+		t.Fatalf("sweep with b live: %d, %v, %d revocations", n, err, f.revocations)
+	}
+}
