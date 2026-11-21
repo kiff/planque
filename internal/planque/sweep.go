@@ -63,6 +63,13 @@ func (g *Grant) deadline() time.Time {
 			return asked.Add(pendingTTL)
 		}
 	}
+	// A connection first holding Setup's reads alone, whose tools were never
+	// asked for: a week past its request it ends (abandonedDraft).
+	if g.draftOnReads() {
+		if asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt); err == nil {
+			return asked.Add(pendingTTL)
+		}
+	}
 	if g.waitsForSignIn() {
 		return g.Approval.ApprovedAt.Add(pendingTTL)
 	}
