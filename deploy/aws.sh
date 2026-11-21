@@ -368,17 +368,19 @@ kept_settings() {
     # failure (throttled, denied, offline) stops the run.
     echo "whether the function exists couldn't be read; nothing was changed" >&2; exit 1
   fi
+  # The settings go to the parser on stdin, never as an argument: they hold
+  # values (a token among them) that a process list would show.
   local exports
-  exports=$(python3 -c '
+  exports=$(printf '%s' "$now" | python3 -c '
 import json,os,shlex,sys
-now=json.loads(sys.argv[1] or "{}") or {}
+now=json.loads(sys.stdin.read() or "{}") or {}
 kept={n: now.get(n) for n in ("PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256")}
 kept["PLANQUE_PUBLIC_URL"]=now.get("PLANQUE_BASE_URL")
 for n,v in kept.items():
     given=os.environ.get(n)
     if given=="off": print("unset %s" % n)
     elif not given and v: print("export %s=%s" % (n, shlex.quote(v)))
-' "$now") || { echo "the function's settings couldn't be parsed; nothing was changed" >&2; exit 1; }
+') || { echo "the function's settings couldn't be parsed; nothing was changed" >&2; exit 1; }
   eval "$exports"
 }
 
