@@ -268,7 +268,7 @@ func TestAnExpiredFreshSignInLeavesNoFreshMarker(t *testing.T) {
 	if g.Status != StatusSignedIn || g.FreshFrom == "" {
 		t.Fatalf("before expiry: %s, fresh from %q", g.Status, g.FreshFrom)
 	}
-	e.at(time.Hour)
+	e.at(signInTTL + time.Minute) // past the sign-in window, whatever its length
 	if _, err := e.s.expire(ctx, g); err != nil {
 		t.Fatal(err)
 	}

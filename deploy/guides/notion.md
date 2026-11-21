@@ -20,7 +20,7 @@ Sign-in steps checked on a run through the owner's phone, 2026-11-20.
   Ask for every tool the job needs in the first request.
 - **Notion's sign-in can't be narrowed.** Its page asks for broad access; the
   taf's Card sets what the taf may do. Say so before the owner taps Allow.
-- **The whole sign-in has 15 minutes:** choose the account, let Notion set up
+- **The whole sign-in has 60 minutes:** choose the account, let Notion set up
   a workspace if there is none (free plan, no invitations, no setup session,
   no trial), pick pages. Two runs failed on the deadline. Tell the owner the
   clock first.
