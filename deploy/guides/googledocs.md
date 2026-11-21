@@ -35,6 +35,13 @@ Failure table checked against planque's answers on 2026-11-16.
 then replace its placeholders (`{{client}}`) in the copy. The template itself
 is never changed.
 
+**Read a document with `GOOGLEDOCS_GET_DOCUMENT_PLAINTEXT`, not with Drive's
+download.** Its result is the document's text. The catalog lists the same
+Docs access (`documents`) for it as for the writes, so a taf that adds to a
+document can read it too. Drive's download of a Google Doc returns a storage
+link, not text (a phone test on 21 Nov 2026). A taf that writes and reads
+a document names both tools in the connect.
+
 **Writing by position is fragile.** A place in a document is counted in
 characters, and it shifts with every edit. Read the document again before
 each write that depends on a position, or replace by phrase instead.
