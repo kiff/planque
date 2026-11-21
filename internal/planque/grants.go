@@ -639,6 +639,12 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 		s.fail(w, r, err)
 		return
 	}
+	// And the vendor still takes it: the provider can call an account active while the vendor has ended its token.
+	if err := s.reuseSignInWorks(r.Context(), from); errors.Is(err, errSignInRefused) {
+		writeJSON(w, http.StatusConflict, map[string]string{"code": "sign_in_refused",
+			"error": "connection " + from.ID + "'s sign-in no longer works at " + vendorName(from) + ", so it can't be reused (it reads signed out now): request the app again, and the owner signs in anew"})
+		return
+	}
 	if g.Request.CatalogEntry == "" {
 		// Reusing a sign-in made before requests named their app.
 		g.Request.CatalogEntry = s.deriveEntry(g)
