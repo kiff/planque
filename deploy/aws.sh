@@ -349,8 +349,44 @@ schedule() {
   fi
 }
 
+# A rerun keeps planque's settings as the function has them. Each named here
+# is taken from the environment when given, else from the function, so a
+# rerun without one never turns a connector, a receiver or its secret off,
+# nor moves planque's public address (PLANQUE_PUBLIC_URL, kept from
+# PLANQUE_BASE_URL). Set one to "off" to turn it off. The role's grants
+# follow, since they're read from the same variables.
+kept_settings() {
+  # A function that isn't there yet keeps nothing. One that is, but whose
+  # settings can't be read, stops the run before anything is written: read
+  # as none, the rerun would drop every one of them.
+  local now='{}' probe
+  if probe=$(aws lambda get-function --function-name "$FN" --query Configuration.FunctionName 2>&1); then
+    now=$(aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json) ||
+      { echo "the function's settings couldn't be read; nothing was changed" >&2; exit 1; }
+  elif [[ "$probe" != *ResourceNotFoundException* ]]; then
+    # Only a function that's confirmed missing keeps nothing; any other
+    # failure (throttled, denied, offline) stops the run.
+    echo "whether the function exists couldn't be read; nothing was changed" >&2; exit 1
+  fi
+  # The settings go to the parser on stdin, never as an argument: they hold
+  # values (a token among them) that a process list would show.
+  local exports
+  exports=$(printf '%s' "$now" | python3 -c '
+import json,os,shlex,sys
+now=json.loads(sys.stdin.read() or "{}") or {}
+kept={n: now.get(n) for n in ("PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SIGNIN_READER_SHA256")}
+kept["PLANQUE_PUBLIC_URL"]=now.get("PLANQUE_BASE_URL")
+for n,v in kept.items():
+    given=os.environ.get(n)
+    if given=="off": print("unset %s" % n)
+    elif not given and v: print("export %s=%s" % (n, shlex.quote(v)))
+') || { echo "the function's settings couldn't be parsed; nothing was changed" >&2; exit 1; }
+  eval "$exports"
+}
+
 up() {
   if [[ -n "$FAKE" && -n "$RELAY" ]]; then echo "PLANQUE_CHROME_RELAY is for planque itself, not a fake" >&2; exit 2; fi
+  if [[ -z "$FAKE" ]]; then kept_settings; fi
   if [[ -z "$FAKE" ]]; then table; kmskey; fi
   if [[ "$RELAY" == on ]]; then stepkey; wsapi; fi
   if [[ "$FAKE" == vendor ]]; then table; fi
