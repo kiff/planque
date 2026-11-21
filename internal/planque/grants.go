@@ -2252,6 +2252,7 @@ func (s *Server) confirm(w http.ResponseWriter, r *http.Request, sr signedReques
 			return
 		}
 		g.SignedIn = true
+		s.nameAccount(r.Context(), g)
 		if g.Reconnect && g.FreshFrom != "" {
 			// A fresh sign-in: not held to the old account, which the
 			// signed-out connections on it share, so they come back with this one.
