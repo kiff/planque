@@ -159,7 +159,8 @@ func TestAFailedCallIsntALastUse(t *testing.T) {
 	}
 }
 
-// A signed-out managed connection says when its sign-in expired and offers
+// A signed-out managed connection says when it was signed out (a 401 is the vendor
+// no longer taking the sign-in, not an expiry) and offers
 // Sign in again on itself (planque's approve) before Remove access; in the
 // owner's language too.
 func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
@@ -176,7 +177,7 @@ func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
 		t.Fatalf("sign in again: %v", a)
 	}
 	h := health(row)
-	if h["state"] != HealthSignedOut || h["ok"] != false || !strings.HasPrefix(h["words"].(string), vendor+"'s sign-in expired on ") || strings.HasSuffix(h["words"].(string), "UTC") || h["at"] == nil {
+	if h["state"] != HealthSignedOut || h["ok"] != false || !strings.HasPrefix(h["words"].(string), vendor+" was signed out on ") || strings.HasSuffix(h["words"].(string), "UTC") || h["at"] == nil {
 		t.Fatalf("health: %v", h)
 	}
 	// A day said in UTC, with no zone named, says so too.
@@ -192,7 +193,7 @@ func TestASignedOutConnectionOffersSignInAgainAndSaysWhen(t *testing.T) {
 	if a := action(row, ActionSignInAgain); a["words"] != "Se reconnecter" {
 		t.Fatalf("fr sign in again: %v", a)
 	}
-	if w := health(row)["words"].(string); !strings.HasPrefix(w, "La connexion à "+vendor+" a expiré le ") {
+	if w := health(row)["words"].(string); !strings.HasPrefix(w, vendor+" a été déconnecté le ") {
 		t.Fatalf("fr health: %s", w)
 	}
 }

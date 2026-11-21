@@ -1149,10 +1149,15 @@ type grantView struct {
 	Tools   []string `json:"tools,omitempty"`
 	// Declared says Tools are in KIFF while the grant waits for its key:
 	// a Card can be drafted over them, and none of them is usable yet.
-	Declared bool          `json:"declared,omitempty"`
-	Audience string        `json:"audience"`
-	Reason   string        `json:"reason,omitempty"`
-	Approval *approvalView `json:"approval,omitempty"`
+	Declared bool   `json:"declared,omitempty"`
+	Audience string `json:"audience"`
+	Reason   string `json:"reason,omitempty"`
+	// SignedOutCause is why a signed-out connection's sign-in ended, as planque's
+	// code (refresh_refused, reused_sign_in_gone, no_refresh_token), so an app
+	// words it from the cause. Empty for a connection that isn't signed out,
+	// and for one signed out before planque kept it.
+	SignedOutCause string        `json:"signed_out_cause,omitempty"`
+	Approval       *approvalView `json:"approval,omitempty"`
 	// SignedIn: planque holds a confirmed sign-in for this grant, so
 	// approving its tools needs no second sign-in.
 	SignedIn  bool      `json:"signed_in,omitempty"`
@@ -1217,7 +1222,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	}
 	lang, text := g.shown(asked)
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
-		Account: g.Account, Audience: g.Audience, Reason: g.Reason, Events: ownerEvents(g),
+		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
 	if c := g.Request.Connector; c != nil {
@@ -1302,7 +1307,10 @@ func statusIn(w words.Approval, g *Grant) string {
 		}
 		return w.ToolsBeingChosen
 	case StatusNeedsReconnect:
-		return fmt.Sprintf(w.SignedOutByF, vendorName(g))
+		if vendorEndedIt(g) {
+			return fmt.Sprintf(w.SignedOutByF, vendorName(g))
+		}
+		return w.SignedOut
 	case StatusApproved:
 		return fmt.Sprintf(w.ApprovedWaitF, vendorName(g))
 	case StatusSignedIn:

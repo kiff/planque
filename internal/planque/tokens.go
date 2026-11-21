@@ -169,7 +169,7 @@ func (s *Server) accessToken(ctx context.Context, g *Grant, stale int64) (string
 	}
 	tok, it, err := s.openToken(ctx, g)
 	if errors.Is(err, errNotFound) && g.TokenOf != "" {
-		return "", 0, s.signOut(ctx, g, "the connection whose sign-in it used was disconnected", "reused_sign_in_gone")
+		return "", 0, s.signOut(ctx, g, "the connection whose sign-in it used was disconnected", CauseSharedSignInGone)
 	}
 	if errors.Is(err, errNotFound) {
 		return "", 0, errNoToken
@@ -212,13 +212,13 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 	}
 	if tok.Refresh == "" {
 		s.releaseLease(ctx, it, ver)
-		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token", "no_refresh_token")
+		return "", 0, s.signOut(ctx, g, "its token expired and the vendor gave no refresh token", CauseNoRefreshToken)
 	}
 	next, err := s.refreshToken(ctx, g, tok.Refresh)
 	if err != nil {
 		s.releaseLease(ctx, it, ver)
 		if errors.Is(err, oauth.ErrInvalidGrant) {
-			return "", 0, s.signOut(ctx, g, "the vendor refused its refresh (invalid_grant)", "refresh_refused")
+			return "", 0, s.signOut(ctx, g, "the vendor refused its refresh (invalid_grant)", CauseRefreshRefused)
 		}
 		return "", 0, err
 	}
@@ -287,6 +287,37 @@ func (e signedOutError) Error() string {
 	return fmt.Sprintf("%s ended the sign-in planque holds; the owner signs in to %s again in tafs", e.vendor, e.vendor)
 }
 
+// The causes planque keeps for a sign-out (SignedOutCause), the codes it also
+// tells KIFF. An app words each from the cause, never as "expired" unless the
+// sign-in really ran out.
+const (
+	// CauseRefreshRefused: the vendor stopped taking the sign-in (a refused
+	// refresh, or a 401 on a call). Revoked by us, the vendor or the owner at
+	// the vendor all look alike here.
+	CauseRefreshRefused = "refresh_refused"
+	// CauseSharedSignInGone: the connection used another connection's sign-in,
+	// and that one was removed.
+	CauseSharedSignInGone = "reused_sign_in_gone"
+	// CauseNoRefreshToken: the access ran out and the vendor gave no way to
+	// renew it: a real expiry.
+	CauseNoRefreshToken = "no_refresh_token"
+)
+
+// signedOutCauseOf is g's cause for the view: only while it's signed out.
+func signedOutCauseOf(g *Grant) string {
+	if g.Status != StatusNeedsReconnect {
+		return ""
+	}
+	return g.SignedOutCause
+}
+
+// vendorEndedIt: the vendor stopped taking the sign-in, which is what
+// "Signed out by {vendor}" says. A shared sign-in's removal, a cause planque
+// doesn't know and a grant signed out before the cause was kept read plain.
+func vendorEndedIt(g *Grant) bool {
+	return g.SignedOutCause == CauseRefreshRefused || g.SignedOutCause == CauseNoRefreshToken
+}
+
 // signOut marks a connected grant as signed out by its vendor, so its
 // calls are refused saying why and the owner's next sign-in really signs
 // in, rather than finding the grant connected. It reads the grant again,
@@ -303,6 +334,7 @@ func (s *Server) signOut(ctx context.Context, g *Grant, why, reason string) erro
 		// in (or takes a key) on its own (kiff/planque#36).
 		now.Status, now.Reason, now.TokenOf = StatusNeedsReconnect, why, ""
 		now.SignedOutAt = s.now().UTC().Truncate(time.Second)
+		now.SignedOutCause = reason
 		now.event(s.now(), "signed out by "+vendorName(now)+": "+why+"; waiting for the owner to sign in again")
 		if err = s.markTell(ctx, now, reason); err == nil {
 			if err = s.saveGrant(ctx, now); err == nil {

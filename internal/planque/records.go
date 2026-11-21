@@ -354,6 +354,11 @@ type Grant struct {
 	// SignedOutAt is when the vendor last ended its sign-in: KIFF is told
 	// of each sign-out once, by it.
 	SignedOutAt time.Time `json:"signed_out_at,omitzero"`
+	// SignedOutCause is planque's code for why the sign-in ended
+	// (CauseRefreshRefused, CauseSharedSignInGone, CauseNoRefreshToken), kept so
+	// every app words it from the cause. A grant signed out before this field
+	// has none, and reads as an unknown cause.
+	SignedOutCause string `json:"signed_out_cause,omitempty"`
 	// HeldUntil is when a held sign-in that isn't connected (a listed
 	// grant, or its tools waiting for approval) is revoked if nothing
 	// connected it: planque keeps no live vendor token the taf doesn't use.
