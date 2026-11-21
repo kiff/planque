@@ -2982,11 +2982,48 @@ func (s *Server) signInUsers(ctx context.Context, g *Grant) ([]string, error) {
 		if json.Unmarshal(it.Doc, &o) != nil || o.ID == g.ID || o.Status == StatusDisconnected || o.Status == StatusFailed {
 			continue
 		}
-		if sameSignIn(g, &o) {
+		if sameSignIn(g, &o) || mayShareVendorAccount(g, &o) {
 			out = append(out, o.ID)
 		}
 	}
 	return out, nil
+}
+
+// providerFamily groups the apps whose sign-ins are one vendor account's
+// grant to one OAuth client: revoking any one token of it ends them all, so a
+// removal that revokes at the vendor signs the others out too (21 Nov: removing
+// a Drive connection signed out another taf's Drive connection, made as its
+// own sign-in, on the same Google account). An app not listed is its own family.
+var providerFamily = map[string]string{
+	"gmail": "google", "googlecalendar": "google", "googledocs": "google", "googledrive": "google",
+	"googlemeet": "google", "googlephotos": "google", "googlesheets": "google", "googlesuper": "google",
+	"googletasks": "google", "googlebigquery": "google", "youtube": "google",
+	"outlook": "microsoft", "one_drive": "microsoft", "excel": "microsoft", "microsoft_teams": "microsoft", "dynamics365": "microsoft",
+}
+
+func familyOf(toolkit string) string {
+	t := strings.ToLower(toolkit)
+	if f, ok := providerFamily[t]; ok {
+		return f
+	}
+	return t
+}
+
+// mayShareVendorAccount: a and b are connections of one provider, in one
+// family of apps, and they may be on the same vendor account: their names
+// (the account_name each shows) are the same without regard to case, or
+// either has none, since a connection that can't say which account it is on
+// is taken as possibly the other's. Two named different accounts don't share.
+// It only keeps the connection provider's account from being revoked at the
+// vendor under another: it never lets one grant use the other's sign-in.
+func mayShareVendorAccount(a, b *Grant) bool {
+	if a.Request.Connector == nil || b.Request.Connector == nil || a.Connector == nil || b.Connector == nil ||
+		a.Request.Connector.Provider != b.Request.Connector.Provider ||
+		familyOf(a.Request.Connector.Toolkit) != familyOf(b.Request.Connector.Toolkit) {
+		return false
+	}
+	an, bn := a.Connector.AccountName, b.Connector.AccountName
+	return an == "" || bn == "" || strings.EqualFold(an, bn)
 }
 
 // sameSignIn: a and b use one sign-in, the same token record, or the same
