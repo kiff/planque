@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kiff/planque/internal/kiff"
@@ -397,5 +398,83 @@ func TestTheAccountsConnectionsAndAskedGrantsReadOnlyLiveGrants(t *testing.T) {
 	}
 	if bigReads != smallReads {
 		t.Errorf("items read grew with finished grants: %d at 5, %d at 200", smallReads, bigReads)
+	}
+}
+
+// failLiveAfter fails every write to a LIVE# row after the first n.
+type failLiveAfter struct {
+	store.KV
+	n int
+}
+
+func (f *failLiveAfter) Put(ctx context.Context, it store.Item, cond store.Cond) error {
+	if strings.HasPrefix(it.SK, "LIVE#") {
+		if f.n == 0 {
+			return fmt.Errorf("throttled")
+		}
+		f.n--
+	}
+	return f.KV.Put(ctx, it, cond)
+}
+
+// A grant that starts to count has its live row before its record says so:
+// when the write that brings the row in step after the save fails, the
+// grant is still listed, so a listing, a fresh sign-in's move or the names
+// in use never miss a live grant.
+func TestALiveGrantIsIndexedEvenWhenTheWriteAfterItsSaveFails(t *testing.T) {
+	kv := &failLiveAfter{KV: &store.Memory{}, n: 1}
+	s := &Server{KV: kv}
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	g := &Grant{ID: "grt_new", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+			Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+		Connector: &ConnectorState{Account: "acct_1"}}
+	if err := s.saveGrant(t.Context(), g); err == nil {
+		t.Fatal("setup: the write after the save should have failed")
+	}
+	if _, ok, err := kv.Get(t.Context(), tenantPK(tenant), skGrant(g.ID)); err != nil || !ok {
+		t.Fatalf("setup: the record wasn't written: %v %v", ok, err)
+	}
+	items, err := s.liveGrants(t.Context(), tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !strings.Contains(string(items[0].Doc), `"grt_new"`) {
+		t.Fatalf("the live grant isn't listed: %d items", len(items))
+	}
+}
+
+// An account indexed under the first mark, with a live grant whose row was
+// never written (a save from before the row went first), is indexed once
+// more: the grant is listed, and the row already there is left as it was.
+func TestAnAccountIndexedBeforeIsIndexedOnceMore(t *testing.T) {
+	kv := &countingKV{KV: &store.Memory{}}
+	s := &Server{KV: kv}
+	missing := &Grant{ID: "grt_missing", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+			Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+		Connector: &ConnectorState{Account: "acct_1"}}
+	if err := s.saveGrant(t.Context(), missing); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := kv.Delete(t.Context(), tenantPK(tenant), skLive(missing.ID)); err != nil {
+		t.Fatal(err)
+	}
+	// Marked by the first version: no backfill would run under it.
+	if err := kv.Put(t.Context(), store.Item{PK: tenantPK(tenant), SK: "LIVEIDX", Doc: []byte("{}"), Ver: 1}, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := s.liveGrants(t.Context(), tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !strings.Contains(string(items[0].Doc), `"grt_missing"`) {
+		t.Fatalf("the grant missing its row isn't listed: %d items", len(items))
+	}
+	kv.read = 0
+	if _, err := s.liveGrants(t.Context(), tenant); err != nil || kv.read > 2 {
+		t.Fatalf("indexed again on the next read: %v, %d items read", err, kv.read)
 	}
 }

@@ -506,9 +506,15 @@ func skGrant(id string) string { return "GRANT#" + id }
 // included, and an account that connects and disconnects a lot holds
 // hundreds (the Eval's held 960). skLiveIndexed marks an account whose
 // live rows are all written.
+//
+// Its second version: before a save wrote the row ahead of its record, a
+// save whose row write failed left a live grant out of the index until its
+// next save. Each account is indexed once more under the new mark, which
+// writes any row missing and overwrites none; the first mark ("LIVEIDX")
+// is left as it is.
 func skLive(id string) string { return "LIVE#" + id }
 
-const skLiveIndexed = "LIVEIDX"
+const skLiveIndexed = "LIVEIDX2"
 
 // live says the grant still counts: every status but the finished ones.
 func (g *Grant) live() bool    { return g.Status != StatusDisconnected && g.Status != StatusFailed }
@@ -582,6 +588,17 @@ func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
 	if err := s.markDue(ctx, g); err != nil {
 		return err
 	}
+	// A grant that counts has its live row before its record says so, so
+	// no live record is ever missing from the LIVE# index: a row written
+	// for a save that then fails is only a pointer, confirmed against the
+	// record and dropped by liveGrants. One already there is kept here and
+	// brought in step after the save.
+	if g.live() {
+		row := store.Item{PK: tenantPK(g.Tenant), SK: skLive(g.ID), Ver: g.ver + 1}
+		if err := putDoc(ctx, s.KV, row, g, store.Cond{NotExists: true}); err != nil && !errors.Is(err, store.ErrCondition) {
+			return err
+		}
+	}
 	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, c)
 	if err != nil {
 		return err
@@ -603,7 +620,8 @@ func (g *Grant) event(now time.Time, what string) {
 }
 
 // keepLive writes g's live row when it counts and deletes it when it's
-// finished: the one place a grant is written (saveGrant) keeps the two in step.
+// finished, after its record: the one place a grant is written (saveGrant)
+// keeps the two in step, the row first when it starts to count.
 func (s *Server) keepLive(ctx context.Context, g *Grant) error {
 	if !g.live() {
 		_, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skLive(g.ID))
@@ -671,10 +689,12 @@ func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, e
 		case it.Ver != row.Ver:
 			heal := store.Item{PK: row.PK, SK: row.SK, Doc: it.Doc, Ver: it.Ver}
 			if err = s.KV.Put(ctx, heal, store.Cond{}); err == nil {
-				out = append(out, heal)
+				out = append(out, it)
 			}
 		default:
-			out = append(out, row)
+			// The record itself, never the row's copy: the row is the
+			// index, and the record is what a save wrote last.
+			out = append(out, it)
 		}
 		if err != nil {
 			return nil, err
