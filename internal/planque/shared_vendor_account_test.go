@@ -125,3 +125,59 @@ func TestTheAppsThatShareAVendorAccountAreOneFamily(t *testing.T) {
 		t.Error("two providers' connections are never one account")
 	}
 }
+
+// Who still needs a vendor account, asked of the store as the removal asks
+// it: connections of one tenant, of the same provider and family of apps, on
+// one account or one that names none; never another tenant's, another
+// family's, a different named account's, or a disconnected or failed one
+// (qa-kiff's review).
+func TestWhoStillUsesAVendorAccountIsReadForTheTenantAndTheFamily(t *testing.T) {
+	e := newInProcessEnv(t)
+	ctx := context.Background()
+	put := func(id, tnt, toolkit, name, status string) *Grant {
+		g := &Grant{ID: id, Tenant: tnt, Status: status,
+			Request:   Request{Server: "https://backend.composio.dev", Connector: &ConnectorRequest{Provider: "composio", Toolkit: toolkit}},
+			Connector: &ConnectorState{Account: "acct_" + id, AccountName: name}}
+		if err := e.s.saveGrant(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	users := func(g *Grant) int {
+		t.Helper()
+		ids, err := e.s.signInUsers(ctx, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(ids)
+	}
+	// Google, one tenant: Drive removed, Docs on the same account, Gmail on another named account.
+	drive := put("grt_drive", tenant, "googledrive", "carolina@kiff.dev", StatusConnected)
+	put("grt_docs", tenant, "googledocs", "Carolina@kiff.dev", StatusConnected)
+	put("grt_gmail_other", tenant, "gmail", "someone@else.example", StatusConnected)
+	if n := users(drive); n != 1 {
+		t.Fatalf("Google: %d users of the account, want 1 (Docs, same name in another case)", n)
+	}
+	// A disconnected or failed one uses nothing; another tenant's never counts; an unnamed one may.
+	put("grt_sheets_gone", tenant, "googlesheets", "carolina@kiff.dev", StatusDisconnected)
+	put("grt_calendar_failed", tenant, "googlecalendar", "carolina@kiff.dev", StatusFailed)
+	put("grt_docs_other_tenant", "tnt_other", "googledocs", "carolina@kiff.dev", StatusConnected)
+	if n := users(drive); n != 1 {
+		t.Fatalf("Google: %d users after a disconnected, a failed and another tenant's, want 1", n)
+	}
+	put("grt_sheets_unnamed", tenant, "googlesheets", "", StatusConnected)
+	if n := users(drive); n != 2 {
+		t.Fatalf("Google: %d users with an unnamed one live, want 2", n)
+	}
+	// Microsoft, in the same store: Outlook removed, OneDrive on the same account, Drive (Google) never.
+	outlook := put("grt_outlook", tenant, "outlook", "carolona@kiff.dev", StatusConnected)
+	put("grt_onedrive", tenant, "one_drive", "CAROLONA@kiff.dev", StatusConnected)
+	if n := users(outlook); n != 1 {
+		t.Fatalf("Microsoft: %d users of the account, want 1 (OneDrive); Google's apps never count", n)
+	}
+	// The last one on its account: nothing else of its family on the account.
+	lone := put("grt_typeform", tenant, "typeform", "", StatusConnected)
+	if n := users(lone); n != 0 {
+		t.Fatalf("an app of its own family with no other connection: %d users, want 0", n)
+	}
+}
