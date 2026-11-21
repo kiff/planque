@@ -478,7 +478,7 @@ func TestACalendarWriteThatReadsTheCalendarTakesTheWholeScope(t *testing.T) {
 		want  []string
 		wide  bool
 	}{
-		{"a create, which reads the calendar first", []string{"GOOGLECALENDAR_CREATE_EVENT"}, []string{g + "calendar"}, false},
+		{"a create, which reads the calendar first", []string{"GOOGLECALENDAR_CREATE_EVENT"}, []string{g + "calendar"}, true},
 		{"a quick add, events only", []string{"GOOGLECALENDAR_QUICK_ADD"}, []string{g + "calendar.events"}, false},
 		{"a read and a create", []string{"GOOGLECALENDAR_EVENTS_LIST", "GOOGLECALENDAR_CREATE_EVENT"}, []string{g + "calendar", g + "calendar.events"}, true},
 	} {
