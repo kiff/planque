@@ -83,6 +83,25 @@ func skChromeLive(chrome string) string { return "CHROMELIVE#" + chrome }
 
 func pkChromeResult(chrome, step string) string { return "CHROMERESULT#" + chrome + "#" + step }
 
+// pkChromeStep is a step planque sent to a Chrome and waits on: its nonce and
+// when it lapses. A result is filed only against it.
+func pkChromeStep(chrome, step string) string { return "CHROMESTEP#" + chrome + "#" + step }
+
+// pendingStep is what planque keeps of a step it sent, until its result or
+// its lapse.
+type pendingStep struct {
+	Nonce string `json:"nonce"`
+	Exp   int64  `json:"exp"` // ms since the epoch, as the step's own exp
+}
+
+// chromeStepTTL is how long a step may take to start (its exp); a result may
+// come a while after it starts, so one is taken until exp plus
+// chromeResultGrace.
+const (
+	chromeStepTTL     = 30 * time.Second
+	chromeResultGrace = 2 * time.Minute
+)
+
 // relayOn says the relay runs: the owner's Chrome is offered, and planque
 // has its step key and the WebSocket API to post through.
 func (s *Server) relayOn() bool {
@@ -265,21 +284,32 @@ func (s *Server) relayHello(ctx context.Context, connID string, it store.Item, c
 // relayResult keeps a step's result, once its signature is the Chrome's: a
 // result is never taken on planque's word or the network's.
 func (s *Server) relayResult(ctx context.Context, conn chromeConn, m map[string]json.RawMessage) {
+	// Signed over the step's own nonce and this Chrome's id too, so a result
+	// is filed only against the step planque sent to this Chrome.
 	body := map[string]json.RawMessage{}
-	for _, k := range []string{"id", "ok", "page", "error"} {
+	for _, k := range []string{"id", "nonce", "chrome_id", "ok", "page", "error"} {
 		v, ok := m[k]
 		if !ok {
 			return
 		}
 		body[k] = v
 	}
-	var id, sig string
-	if json.Unmarshal(m["id"], &id) != nil || id == "" || len(id) > 64 || json.Unmarshal(m["sig"], &sig) != nil {
+	var id, nonce, chromeID, sig string
+	if json.Unmarshal(m["id"], &id) != nil || id == "" || len(id) > 64 || json.Unmarshal(m["sig"], &sig) != nil ||
+		json.Unmarshal(m["nonce"], &nonce) != nil || json.Unmarshal(m["chrome_id"], &chromeID) != nil || chromeID != conn.Chrome {
 		return
 	}
 	var c Chrome
 	if _, err := getDoc(ctx, s.KV, tenantPK(conn.Tenant), skChrome(conn.Chrome), &c); err != nil || !stepkey.Verify(c.Key, labelResult, body, sig) {
 		s.log().WarnContext(ctx, "chrome relay: a result not signed by its Chrome", slog.String("chrome", conn.Chrome))
+		return
+	}
+	// Only for a step planque sent this Chrome, with that step's nonce, before
+	// it lapsed: a result for a step not sent yet can't take its place.
+	var pending pendingStep
+	if _, err := getDoc(ctx, s.KV, pkChromeStep(conn.Chrome, id), "-", &pending); err != nil || pending.Nonce == "" || pending.Nonce != nonce ||
+		s.now().After(time.UnixMilli(pending.Exp).Add(chromeResultGrace)) {
+		s.log().WarnContext(ctx, "chrome relay: a result for no step sent", slog.String("chrome", conn.Chrome))
 		return
 	}
 	it := store.Item{PK: pkChromeResult(conn.Chrome, id), SK: "-", TTL: s.now().Add(chromeResultKept).Unix()}
@@ -333,9 +363,15 @@ func (s *Server) sendChromeStep(ctx context.Context, tenant string, step chromeS
 		return err
 	}
 	step.Nonce = oauth.Random(16)
-	step.Exp = s.now().Add(30 * time.Second).UnixMilli()
+	step.Exp = s.now().Add(chromeStepTTL).UnixMilli()
 	sig, err := stepkey.SignBody(ctx, s.ChromeSigner, labelStep, step)
 	if err != nil {
+		return err
+	}
+	// Kept before it goes out, so its result has something to match; a step
+	// id is sent once.
+	pending := store.Item{PK: pkChromeStep(step.ChromeID, step.ID), SK: "-", TTL: time.UnixMilli(step.Exp).Add(chromeResultGrace).Unix() + 1}
+	if err := putDoc(ctx, s.KV, pending, pendingStep{Nonce: step.Nonce, Exp: step.Exp}, store.Cond{NotExists: true}); err != nil {
 		return err
 	}
 	b, _ := json.Marshal(map[string]any{"type": "step", "step": step, "sig": sig})

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/lambda"
 	"github.com/kiff/planque/internal/stepkey"
@@ -164,22 +165,60 @@ func TestTheRelayProvesBothEndsThenSendsSignedStepsAndKeepsSignedResults(t *test
 	if m["type"] != "step" || step["nonce"] == "" || !stepkey.Verify(r.planque.PublicKey(), labelStep, step, m["sig"].(string)) {
 		t.Fatalf("step: %v", m)
 	}
-	// A result signed by another key is not taken; the Chrome's is, once.
+	if exp := time.UnixMilli(int64(step["exp"].(float64))); exp.After(time.Now().Add(31*time.Second)) || exp.Before(time.Now()) {
+		t.Fatalf("a step lapses within 30 s of being sent, not at %v", exp)
+	}
+	nonce := step["nonce"].(string)
+	// A result counts only when the Chrome signed it, over the step's own
+	// nonce and its own id, for a step planque sent it: the first such one.
 	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	result := func(key stepkey.Local, page string) map[string]any {
-		body := map[string]any{"id": "st_1", "ok": true, "page": map[string]any{"title": page}, "error": nil}
+	result := func(key stepkey.Local, id, nonce, chromeID, page string) map[string]any {
+		body := map[string]any{"id": id, "nonce": nonce, "chrome_id": chromeID, "ok": true, "page": map[string]any{"title": page}, "error": nil}
 		sig, _ := stepkey.SignBody(ctx, key, labelResult, body)
-		return map[string]any{"type": "result", "id": "st_1", "ok": true, "page": body["page"], "error": nil, "sig": sig}
+		msg := map[string]any{"type": "result", "sig": sig}
+		for k, v := range body {
+			msg[k] = v
+		}
+		return msg
 	}
-	r.event("$default", "c1", result(stepkey.Local{Key: other}, "forged"))
-	if _, found, _ := r.e.s.chromeResult(ctx, r.chrome, "st_1"); found {
-		t.Fatal("a result not signed by the Chrome was kept")
+	for name, m := range map[string]map[string]any{
+		"another key":          result(stepkey.Local{Key: other}, "st_1", nonce, r.chrome, "forged"),
+		"another step's nonce": result(r.ext, "st_1", "not-the-nonce", r.chrome, "forged"),
+		"another Chrome's id":  result(r.ext, "st_1", nonce, "chr_someoneelse01", "forged"),
+	} {
+		r.event("$default", "c1", m)
+		if _, found, _ := r.e.s.chromeResult(ctx, r.chrome, "st_1"); found {
+			t.Fatalf("%s: a result was kept", name)
+		}
 	}
-	r.event("$default", "c1", result(r.ext, "Shop"))
-	r.event("$default", "c1", result(r.ext, "Second"))
+	// A step not sent yet: its result is never filed, so it can't stand in
+	// for the real one later.
+	r.event("$default", "c1", result(r.ext, "st_9", nonce, r.chrome, "early"))
+	if _, found, _ := r.e.s.chromeResult(ctx, r.chrome, "st_9"); found {
+		t.Fatal("a result for a step never sent was kept")
+	}
+	r.event("$default", "c1", result(r.ext, "st_1", nonce, r.chrome, "Shop"))
+	r.event("$default", "c1", result(r.ext, "st_1", nonce, r.chrome, "Second"))
 	got, found, err := r.e.s.chromeResult(ctx, r.chrome, "st_1")
 	if err != nil || !found || string(got["page"]) != `{"title":"Shop"}` {
 		t.Fatalf("result: %v %v %s", found, err, got["page"])
+	}
+	// A step id is sent once.
+	if err := r.e.s.sendChromeStep(ctx, tenant, chromeStep{ID: "st_1", ChromeID: r.chrome}); err == nil {
+		t.Fatal("a step id was sent twice")
+	}
+	// A result after its step lapsed (exp plus the grace) isn't filed.
+	if err := r.e.s.sendChromeStep(ctx, tenant, chromeStep{ID: "st_3", ChromeID: r.chrome}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(r.poster.last("c1")["step"])
+	var late map[string]any
+	_ = json.Unmarshal(raw, &late)
+	r.e.s.Now = func() time.Time { return time.Now().Add(chromeStepTTL + chromeResultGrace + time.Minute) }
+	r.event("$default", "c1", result(r.ext, "st_3", late["nonce"].(string), r.chrome, "late"))
+	r.e.s.Now = nil
+	if _, found, _ := r.e.s.chromeResult(ctx, r.chrome, "st_3"); found {
+		t.Fatal("a result after its step lapsed was kept")
 	}
 	// Disconnected: a step finds no Chrome.
 	r.event("$disconnect", "c1", nil)
@@ -234,6 +273,13 @@ func TestTheRelayClosesWhatItCantTrustWithItsCode(t *testing.T) {
 		r.event("$connect", "c1", r.chrome)
 		r.event("$default", "c1", map[string]any{"type": "open"})
 		r.event("$default", "c1", r.hello(t, stepkey.Local{Key: other}, r.poster.last("c1")["nonce_p"].(string), releasedManifest))
+		closedWith(t, r, "c1", 4401)
+	})
+	t.Run("a second open", func(t *testing.T) {
+		r := newRelayRig(t)
+		r.event("$connect", "c1", r.chrome)
+		r.event("$default", "c1", map[string]any{"type": "open"})
+		r.event("$default", "c1", map[string]any{"type": "open"})
 		closedWith(t, r, "c1", 4401)
 	})
 	t.Run("a step's result before the proofs", func(t *testing.T) {
