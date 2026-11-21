@@ -26,6 +26,7 @@ Outlook has hundreds of tools; most jobs need these.
 | `OUTLOOK_QUERY_EMAILS` | Lists messages matching a filter (sender, date, unread, folder) | read | message ids, conversation ids |
 | `OUTLOOK_SEARCH_MESSAGES` | Finds messages by words | read | message ids |
 | `OUTLOOK_GET_MESSAGE` | Reads one message | read | its conversation id |
+| `OUTLOOK_GET_PROFILE` | Reads the signed-in person's name and address (the sign-in's own account, `User.Read`) | read | their address |
 | `OUTLOOK_LIST_MAIL_FOLDERS` | Lists the mailbox's folders | read | folder ids |
 | `OUTLOOK_DOWNLOAD_OUTLOOK_ATTACHMENT` | Downloads one attachment | read | |
 | `OUTLOOK_CREATE_DRAFT` | Writes a new draft; sends nothing | write | **the draft's id** |
