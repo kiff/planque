@@ -247,6 +247,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/triggers", s.listTriggers)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers", s.signed(s.createTrigger))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}", s.signedSafe(s.deleteTrigger))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/triggers/{trigger}/confirm", s.confirmTrigger)
 	mux.HandleFunc("POST /connectors/{provider}/webhook", s.connectorWebhook)
 	mux.HandleFunc("POST /telegram/{hook}", s.telegramWebhook)
 	mux.HandleFunc("GET /oauth/client-metadata.json", s.clientMetadata)
