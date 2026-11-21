@@ -1629,10 +1629,11 @@ func errAttrs(err error) []any {
 // reuseSignInWorks checks, before a managed app's sign-in is reused, that the vendor still takes it. The provider's
 // account can read active while the vendor has ended its token (21 Nov: Google Calendar's 18 Nov sign-in read
 // "Connected", was reused at 10:24 and refused at its first call). One read, planque's own, never shown and never
-// counted against a Card: the app's "who am I" when the sign-in covers it, else one of the connection's own approved
-// reads that takes no input, asked with nothing. The vendor refusing the sign-in (401), or the provider calling the
-// account inactive, signs every connection on it out (signInRefused) and is errSignInRefused. Anything else (no such
-// read, a slow or unreachable vendor, another refusal) lets the reuse go on, as it did.
+// counted against a Card: the app's "who am I" (whoAmI), and only when the sign-in covers it. It names the account and
+// reads no content (dev-android on #330: a content read, outside any Card, on another taf's approval, is a wider
+// precedent). The vendor refusing the sign-in (401), or the provider calling the account inactive, signs every
+// connection on it out (signInRefused) and is errSignInRefused. Anything else lets the reuse go on, as it did: no such
+// read (Calendar on events alone; its first call's 401 marks it then), a slow or unreachable vendor, another refusal.
 func (s *Server) reuseSignInWorks(ctx context.Context, g *Grant) error {
 	if g.Connector == nil || g.Request.Connector == nil || g.Connector.Account == "" {
 		return nil
@@ -1656,22 +1657,21 @@ func (s *Server) reuseSignInWorks(ctx context.Context, g *Grant) error {
 	return errSignInRefused
 }
 
-// livenessRead is the read reuseSignInWorks asks: the app's "who am I" (whoAmI) when the sign-in covers it, else the
-// first of g's own approved reads whose input requires nothing.
+// livenessRead is the read reuseSignInWorks asks: the app's "who am I" (whoAmI), when the sign-in covers it. None
+// otherwise: never a read of the owner's content.
 func (s *Server) livenessRead(ctx context.Context, g *Grant) (connector.Tool, bool) {
-	granted := grantedScopes(g)
-	if ask, ok := whoAmI[strings.ToLower(g.Request.Connector.Toolkit)]; ok {
-		if defs, err := s.toolDefinitions(ctx, g.Request.Connector.Provider, g.Request.Connector.Toolkit, ask.Tools); err == nil {
-			for _, slug := range ask.Tools {
-				if t, ok := defs[slug]; ok && t.ReadOnly && t.Covered(granted) {
-					return t, true
-				}
-			}
-		}
+	ask, ok := whoAmI[strings.ToLower(g.Request.Connector.Toolkit)]
+	if !ok {
+		return connector.Tool{}, false
 	}
-	for _, gt := range g.Tools {
-		if c := gt.Connector; c != nil && c.ReadOnly && gt.ReadOnly && len(requiredArgs(c.InputSchema)) == 0 {
-			return *c, true
+	defs, err := s.toolDefinitions(ctx, g.Request.Connector.Provider, g.Request.Connector.Toolkit, ask.Tools)
+	if err != nil {
+		return connector.Tool{}, false
+	}
+	granted := grantedScopes(g)
+	for _, slug := range ask.Tools {
+		if t, ok := defs[slug]; ok && t.ReadOnly && t.Covered(granted) {
+			return t, true
 		}
 	}
 	return connector.Tool{}, false

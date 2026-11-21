@@ -43,39 +43,36 @@ func (p *liveProvider) Execute(_ context.Context, _ connector.Identity, _ string
 }
 
 // A managed sign-in to reuse is read once at its vendor first (21 Nov: Google Calendar's sign-in read "Connected", was
-// reused, and was refused at its first call). A refused sign-in (401) isn't reused, and every connection on it reads
-// signed out; a live one, or another refusal, goes on as before. A sign-in on events alone doesn't cover Calendar's
-// "who am I", so the connection's own read that takes no input is asked, with nothing.
+// reused, and was refused at its first call), with the app's own "who am I" only. A refused sign-in (401) isn't reused,
+// and every connection on it reads signed out; a live one, or another refusal, goes on as before. A sign-in that doesn't
+// cover "who am I" (Calendar on events alone) is never read at all: never the owner's content, even through a read its
+// connection has (dev-android on #330).
 func TestAReusedSignInIsReadAtItsVendorFirst(t *testing.T) {
-	const events = "https://www.googleapis.com/auth/calendar.events"
+	const events, calendar = "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar"
 	list := connector.Tool{Slug: "GOOGLECALENDAR_EVENTS_LIST", Toolkit: "googlecalendar", Version: "20300101_00", Name: "List events", ReadOnly: true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"calendarId":{"type":"string"}}}`)}
-	one := connector.Tool{Slug: "GOOGLECALENDAR_EVENTS_GET", Toolkit: "googlecalendar", Version: "20300101_00", Name: "Read an event", ReadOnly: true,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"eventId":{"type":"string"}},"required":["eventId"]}`)}
 	who := connector.Tool{Slug: "GOOGLECALENDAR_GET_CURRENT_USER", Toolkit: "googlecalendar", Version: "20300101_00", Name: "Who", ReadOnly: true,
-		InputSchema: json.RawMessage(`{"type":"object"}`), Scopes: []string{"https://www.googleapis.com/auth/calendar"}}
+		InputSchema: json.RawMessage(`{"type":"object"}`), Scopes: []string{calendar, "https://www.googleapis.com/auth/calendar.readonly"}}
 	for _, c := range []struct {
 		name      string
 		status    int
-		tools     []connector.Tool
+		scope     string
 		want      error
 		signedOut bool
 		asked     []string
 	}{
-		{"refused (401): not reused, signed out", http.StatusUnauthorized, []connector.Tool{one, list}, errSignInRefused, true, []string{list.Slug}},
-		{"live: reused", 0, []connector.Tool{one, list}, nil, false, []string{list.Slug}},
-		{"another refusal (403): reused as before", http.StatusForbidden, []connector.Tool{one, list}, nil, false, []string{list.Slug}},
-		{"no read that takes nothing: not asked", http.StatusUnauthorized, []connector.Tool{one}, nil, false, nil},
+		{"refused (401): not reused, signed out", http.StatusUnauthorized, calendar, errSignInRefused, true, []string{who.Slug}},
+		{"live: reused", 0, calendar, nil, false, []string{who.Slug}},
+		{"another refusal (403): reused as before", http.StatusForbidden, calendar, nil, false, []string{who.Slug}},
+		{"events alone doesn't cover who am I: nothing read, not even its events", http.StatusUnauthorized, events, nil, false, nil},
 	} {
 		e := newInProcessEnv(t)
 		p := &liveProvider{t: t, tools: map[string]connector.Tool{who.Slug: who}, status: c.status}
 		e.s.Connectors = map[string]connector.Provider{"composio": p}
-		g := whoGrant(e, "googlecalendar", []string{events}, []string{events})
+		g := whoGrant(e, "googlecalendar", []string{c.scope}, []string{c.scope})
 		g.ID, g.Status, g.SignedIn = "grt_calendar", StatusConnected, true
-		for _, tl := range c.tools {
-			def := tl
-			g.Tools = append(g.Tools, GrantedTool{ToolRequest: ToolRequest{Tool: def.Alias(), Name: def.Slug, ReadOnly: true}, Connector: &def})
-		}
+		def := list
+		g.Tools = append(g.Tools, GrantedTool{ToolRequest: ToolRequest{Tool: def.Alias(), Name: def.Slug, ReadOnly: true}, Connector: &def})
 		if err := e.s.saveGrant(context.Background(), g); err != nil {
 			t.Fatal(err)
 		}
