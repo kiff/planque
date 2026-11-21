@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -228,5 +229,65 @@ func TestMemoryScanPages(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "TENANT#a OP#1,TENANT#a OP#2,TENANT#b OP#1" {
 		t.Fatalf("pages: %v", got)
+	}
+}
+
+// QueryLive lists the items carrying that live key, and only those: an item
+// whose key is dropped leaves the index with the same write.
+func TestMemoryQueryLiveListsTheKeyedItemsOnly(t *testing.T) {
+	ctx := context.Background()
+	m := &Memory{}
+	put := func(sk, live string) {
+		if err := m.Put(ctx, Item{PK: "A#t1", SK: sk, Doc: []byte("{}"), Ver: 1, Live: live}, Cond{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("GRANT#1", "t1")
+	put("GRANT#2", "")
+	put("GRANT#3", "t2")
+	got, err := m.QueryLive(ctx, "t1")
+	if err != nil || len(got) != 1 || got[0].SK != "GRANT#1" || got[0].Live != "t1" {
+		t.Fatalf("t1: %v %v", got, err)
+	}
+	put("GRANT#1", "")
+	if got, _ := m.QueryLive(ctx, "t1"); len(got) != 0 {
+		t.Fatalf("a dropped key is still listed: %v", got)
+	}
+	if got, _ := m.QueryLive(ctx, ""); len(got) != 0 {
+		t.Fatalf("the empty key lists items: %v", got)
+	}
+}
+
+// Dynamo writes "live" only when set, reads it back, and queries the live
+// index by it (never consistently: an index can't be).
+func TestDynamoLiveKeyAndIndexQuery(t *testing.T) {
+	if enc := encode(Item{PK: "p", SK: "s"}); enc["live"] != nil {
+		t.Fatalf("an unkeyed item wrote live: %v", enc)
+	}
+	enc := encode(Item{PK: "p", SK: "s", Live: "t1"})
+	if fmt.Sprint(enc["live"]) != "map[S:t1]" {
+		t.Fatalf("live written as %v", enc["live"])
+	}
+	s := "t1"
+	if it := decode(map[string]attr{"live": {S: &s}}); it.Live != "t1" {
+		t.Fatalf("live read back as %q", it.Live)
+	}
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+		_, _ = io.WriteString(w, `{"Items":[]}`)
+	}))
+	defer srv.Close()
+	d := &Dynamo{Table: "t", API: &awsapi.Client{Service: "dynamodb", Region: "eu-west-1", Target: "DynamoDB_20120810",
+		JSONType: "application/x-amz-json-1.0", Endpoint: srv.URL,
+		Creds: func() (awsapi.Credentials, error) {
+			return awsapi.Credentials{AccessKey: "AKID", SecretKey: "secret"}, nil
+		}}}
+	if _, err := d.QueryLive(context.Background(), "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if got["IndexName"] != "live" || got["KeyConditionExpression"] != "live = :l" || got["ConsistentRead"] != nil {
+		t.Fatalf("queried with %v", got)
 	}
 }

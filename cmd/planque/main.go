@@ -297,6 +297,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ManagedTestTenants: testTenants,
 		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
+		LiveIndex:          os.Getenv("PLANQUE_LIVE_GSI") == "on",
 		Browser:            browserWorker,
 		ChromeBuilds:       chromeBuilds,
 		ChromeSigner:       chromeSigner,

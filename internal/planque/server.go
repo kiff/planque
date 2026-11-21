@@ -45,6 +45,12 @@ const IdempotencyArg = "planque_op"
 
 // Server is planque.
 type Server struct {
+	// LiveIndex: the reads that want an account's live grants only (the
+	// catalog, a held sign-in) read the table's live index, which DynamoDB
+	// keeps with each grant record in the same write (store.Item.Live),
+	// instead of the LIVE# rows. Off until the index exists
+	// (PLANQUE_LIVE_GSI=on).
+	LiveIndex bool
 	// BaseURL is where planque is reached publicly, without a trailing
 	// slash: the vendor redirects the owner back to BaseURL/oauth/callback.
 	BaseURL string

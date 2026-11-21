@@ -124,6 +124,8 @@ role() {
   if [[ -z "$FAKE" ]]; then
     local key; key=$(aws kms describe-key --key-id "$ALIAS" --query KeyMetadata.Arn)
     stmts="$logs,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:DeleteItem\",\"dynamodb:Query\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE\"},{\"Effect\":\"Allow\",\"Action\":[\"kms:GenerateDataKey\",\"kms:Decrypt\"],\"Resource\":\"$key\"}"
+    # The live index: read only (store.QueryLive), the table's own index alone.
+    stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:Query\"],\"Resource\":\"arn:aws:dynamodb:$REGION:$ACCOUNT:table/$TABLE/index/live\"}"
     # KIFF's own OAuth clients, one secret per app, under planque/apps/ alone.
     stmts="$stmts,{\"Effect\":\"Allow\",\"Action\":[\"secretsmanager:GetSecretValue\"],\"Resource\":\"arn:aws:secretsmanager:$REGION:$ACCOUNT:secret:planque/apps/*\"}"
     # The Chrome relay: sign steps with its own key, and post to or drop the
@@ -167,6 +169,15 @@ table() {
   # The fake vendor's test table goes without.
   if [[ -z "$FAKE" && "$(aws dynamodb describe-table --table-name "$TABLE" --query Table.DeletionProtectionEnabled)" != "True" ]]; then
     aws dynamodb update-table --table-name "$TABLE" --deletion-protection-enabled --query TableDescription.TableName >/dev/null
+  fi
+  # The live index (store.LiveIndex): a grant record carries "live" only while
+  # it counts, so the index holds live grants alone, kept by DynamoDB in the
+  # same write. Added once; reads use it only with PLANQUE_LIVE_GSI=on, set
+  # after it's active.
+  if [[ -z "$FAKE" ]] && [[ "$(aws dynamodb describe-table --table-name "$TABLE" --query "length(Table.GlobalSecondaryIndexes[?IndexName=='live'] || \`[]\`)")" == 0 ]]; then
+    aws dynamodb update-table --table-name "$TABLE" --attribute-definitions AttributeName=live,AttributeType=S \
+      --global-secondary-index-updates '[{"Create":{"IndexName":"live","KeySchema":[{"AttributeName":"live","KeyType":"HASH"}],"Projection":{"ProjectionType":"ALL"}}}]' \
+      --query TableDescription.TableName >/dev/null
   fi
   # Point-in-time recovery, asked for on every run, so a table rebuilt or
   # changed by hand gets it back: without it, a bad write can't be undone.
@@ -318,7 +329,7 @@ for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","
     if now.get(k) and not v.get(k): v[k]=now[k]
 if os.environ.get("PLANQUE_CHROME_RELAY") == "off":
     v.pop("PLANQUE_CHROME_STEP_KEY", None); v.pop("PLANQUE_CHROME_WS_ENDPOINT", None)
-for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED"):
+for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED","PLANQUE_LIVE_GSI"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi
