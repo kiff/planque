@@ -47,6 +47,9 @@ type KV interface {
 	Put(ctx context.Context, it Item, c Cond) error
 	// Delete removes the item and returns it as it was, if it existed.
 	Delete(ctx context.Context, pk, sk string) (Item, bool, error)
+	// DeleteIf removes the item only while it has version ver: one written
+	// since it was read stays (ErrCondition). None there is ErrCondition too.
+	DeleteIf(ctx context.Context, pk, sk string, ver int64) error
 	// Query lists the items under pk whose SK starts with prefix.
 	Query(ctx context.Context, pk, prefix string) ([]Item, error)
 	// QueryTo lists the items under pk whose SK is at most maxSK, in SK
@@ -115,6 +118,17 @@ func (m *Memory) Delete(_ context.Context, pk, sk string) (Item, bool, error) {
 	it, ok := m.items[[2]string{pk, sk}]
 	delete(m.items, [2]string{pk, sk})
 	return it, ok && m.live(it), nil
+}
+
+func (m *Memory) DeleteIf(_ context.Context, pk, sk string, ver int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	it, ok := m.items[[2]string{pk, sk}]
+	if !ok || !m.live(it) || it.Ver != ver {
+		return ErrCondition
+	}
+	delete(m.items, [2]string{pk, sk})
+	return nil
 }
 
 func (m *Memory) Query(_ context.Context, pk, prefix string) ([]Item, error) {
@@ -349,6 +363,15 @@ func (d *Dynamo) Delete(ctx context.Context, pk, sk string) (Item, bool, error) 
 	}
 	it := decode(out.Attributes)
 	return it, d.live(it), nil
+}
+
+func (d *Dynamo) DeleteIf(ctx context.Context, pk, sk string, ver int64) error {
+	err := d.write(ctx, "DeleteItem", av{"TableName": d.Table, "Key": d.key(pk, sk),
+		"ConditionExpression": "ver = :ver", "ExpressionAttributeValues": av{":ver": av{"N": strconv.FormatInt(ver, 10)}}}, nil)
+	if awsapi.Is(err, "ConditionalCheckFailedException") {
+		return ErrCondition
+	}
+	return err
 }
 
 func (d *Dynamo) Query(ctx context.Context, pk, prefix string) ([]Item, error) {

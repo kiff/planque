@@ -534,3 +534,58 @@ func TestAReadDuringAFirstSaveKeepsItsRow(t *testing.T) {
 		t.Fatal("the read deleted a first save's row")
 	}
 }
+
+// reconnectMidRead runs a reconnect (a save that makes the grant count
+// again) just before a read's first cleanup or repair write lands, as two
+// requests would overlap.
+type reconnectMidRead struct {
+	store.KV
+	reconnect func()
+}
+
+func (r *reconnectMidRead) DeleteIf(ctx context.Context, pk, sk string, ver int64) error {
+	if f := r.reconnect; f != nil {
+		r.reconnect = nil
+		f()
+	}
+	return r.KV.DeleteIf(ctx, pk, sk, ver)
+}
+
+// A read that found a finished grant's row and is cleaning it up, while a
+// reconnect rewrites that row, leaves the reconnect's row: the grant is
+// listed on the next read.
+func TestACleanupOverlappingAReconnectLeavesTheNewRow(t *testing.T) {
+	mem := &store.Memory{}
+	kv := &reconnectMidRead{KV: mem}
+	s := &Server{KV: kv}
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	g := &Grant{ID: "grt_back", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant}}
+	if err := s.saveGrant(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+	// Disconnected, its row left behind (as a failed delete would).
+	g.Status = StatusDisconnected
+	if err := putDoc(t.Context(), mem, store.Item{PK: tenantPK(tenant), SK: skGrant(g.ID), Ver: g.ver + 1}, g, store.Cond{Ver: &g.ver}); err != nil {
+		t.Fatal(err)
+	}
+	g.ver++
+	kv.reconnect = func() {
+		back := *g
+		back.Status = StatusConnected
+		if err := (&Server{KV: mem}).saveGrant(t.Context(), &back); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.liveGrants(t.Context(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := mem.Get(t.Context(), tenantPK(tenant), skLive(g.ID)); !ok {
+		t.Fatal("the cleanup deleted the reconnect's row")
+	}
+	if items, err := s.liveGrants(t.Context(), tenant); err != nil || len(items) != 1 {
+		t.Fatalf("the reconnected grant isn't listed: %d, %v", len(items), err)
+	}
+}

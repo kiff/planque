@@ -230,3 +230,65 @@ func TestMemoryScanPages(t *testing.T) {
 		t.Fatalf("pages: %v", got)
 	}
 }
+
+// DeleteIf removes an item only at the version read: one written since
+// stays, and none there is a failed condition.
+func TestDeleteIfOnlyAtTheVersionRead(t *testing.T) {
+	ctx := context.Background()
+	m := &Memory{}
+	if err := m.Put(ctx, Item{PK: "p", SK: "s", Doc: []byte("{}"), Ver: 2}, Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeleteIf(ctx, "p", "s", 1); err != ErrCondition {
+		t.Fatalf("an older version: %v", err)
+	}
+	if _, ok, _ := m.Get(ctx, "p", "s"); !ok {
+		t.Fatal("deleted at another version")
+	}
+	if err := m.DeleteIf(ctx, "p", "s", 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := m.Get(ctx, "p", "s"); ok {
+		t.Fatal("left at its version")
+	}
+	if err := m.DeleteIf(ctx, "p", "s", 2); err != ErrCondition {
+		t.Fatalf("none there: %v", err)
+	}
+}
+
+// Dynamo's DeleteIf sends the version as the delete's condition, and a
+// failed one is ErrCondition.
+func TestDynamoDeleteIfSendsTheVersion(t *testing.T) {
+	var got struct {
+		ConditionExpression       string
+		ExpressionAttributeValues map[string]map[string]string
+	}
+	fail := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &got)
+		if fail {
+			w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"__type":"com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException","message":"The conditional request failed"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	d := &Dynamo{Table: "t", API: &awsapi.Client{Service: "dynamodb", Region: "eu-west-1", Target: "DynamoDB_20120810",
+		JSONType: "application/x-amz-json-1.0", Endpoint: srv.URL,
+		Creds: func() (awsapi.Credentials, error) {
+			return awsapi.Credentials{AccessKey: "AKID", SecretKey: "secret"}, nil
+		}}}
+	if err := d.DeleteIf(context.Background(), "p", "s", 7); err != nil {
+		t.Fatal(err)
+	}
+	if got.ConditionExpression != "ver = :ver" || got.ExpressionAttributeValues[":ver"]["N"] != "7" {
+		t.Fatalf("sent %q %v", got.ConditionExpression, got.ExpressionAttributeValues)
+	}
+	fail = true
+	if err := d.DeleteIf(context.Background(), "p", "s", 7); err != ErrCondition {
+		t.Fatalf("a failed condition: %v", err)
+	}
+}

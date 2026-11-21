@@ -704,10 +704,20 @@ func (s *Server) liveGrants(ctx context.Context, tenant string) ([]store.Item, e
 			// yet, and never deleted, or that save would leave the grant
 			// out of the index; the save brings the two in step.
 		case !ok || json.Unmarshal(it.Doc, &g) != nil || !g.live():
-			_, _, err = s.KV.Delete(ctx, row.PK, row.SK)
+			// Only the row as read: a save that rewrote it meanwhile (a
+			// reconnect) keeps it.
+			if err = s.KV.DeleteIf(ctx, row.PK, row.SK, row.Ver); errors.Is(err, store.ErrCondition) {
+				err = nil
+			}
 		case it.Ver != row.Ver:
+			// Mended only from the row as read, so an older record never
+			// overwrites a row a save wrote since. The record counts either
+			// way, so it's listed.
 			heal := store.Item{PK: row.PK, SK: row.SK, Doc: it.Doc, Ver: it.Ver}
-			if err = s.KV.Put(ctx, heal, store.Cond{}); err == nil {
+			if err = s.KV.Put(ctx, heal, store.Cond{Ver: &row.Ver}); errors.Is(err, store.ErrCondition) {
+				err = nil
+			}
+			if err == nil {
 				out = append(out, it)
 			}
 		default:
