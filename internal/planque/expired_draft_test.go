@@ -136,3 +136,70 @@ func TestAConnectionWithAnApprovedToolIsNotADraft(t *testing.T) {
 		t.Fatalf("a month on: %d %v", st, out["status"])
 	}
 }
+
+// A taf from a catalog entry that lists its tools has its Setup reads marked
+// on its own grant (markEntrySetupReads), and the request's own setup_reads
+// are cleared. A read-only taf whose every tool is marked is a live taf, not
+// a draft: neither rule ends its sign-in, however old (kiff/planque#322
+// review). Modelled as that grant is stored: the connect-first draft with
+// Request.SetupReads cleared.
+func TestAReadOnlyTafWhoseEveryToolIsMarkedSetupReadsIsNotADraft(t *testing.T) {
+	e := newEnv(t)
+	phone := e.device("dev_phone")
+	if st, out := e.enrolAs(phone); st != 201 {
+		t.Fatalf("enrol: %d %v", st, out)
+	}
+	e.enrolled, e.phone = true, phone
+	id, digest := e.askWithSetupReads("list_charges")
+	if st, out := e.approveAndSignIn(id, digest); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	ctx := context.Background()
+	g, _ := e.s.loadGrant(ctx, tenant, id)
+	g.Request.SetupReads = nil // as an entry's own marking leaves the grant
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, id)
+	if len(g.Tools) == 0 || !g.Tools[0].SetupReads {
+		t.Fatalf("the tools aren't marked: %+v", g.Tools)
+	}
+	asked, _ := time.Parse(time.RFC3339, g.Request.CreatedAt)
+	if !g.deadline().IsZero() {
+		t.Fatalf("a live taf has a draft's deadline: %v", g.deadline())
+	}
+	acct := "/v1/accounts/" + tenant + "/grants/" + id
+
+	// Rule 2: thirty days on, still connected, sign-in live, the sweep ends nothing.
+	e.s.Now = func() time.Time { return asked.Add(30 * 24 * time.Hour) }
+	if n, err := e.s.Sweep(ctx); err != nil || n != 0 {
+		t.Fatalf("the sweep a month on: ended %d, %v", n, err)
+	}
+	if st, out := e.do("GET", acct, nil, nil, "k_setup"); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("a month on: %d %v", st, out["status"])
+	}
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("a live taf's sign-in was revoked")
+	}
+
+	// Rule 1: an addition nobody approves goes after its day, and drops only the addition.
+	e.s.Now = func() time.Time { return time.Now() }
+	refund := map[string]any{"tool": "create_refund", "title": "Refund a charge", "name": "create_refund", "amount_argument": "amount", "amount_unit": "EUR", "amount_scale": 2}
+	if st, out := e.do("POST", acct+"/tools", map[string]any{"tools": []any{refund}}, nil, "k_setup"); st != 200 || out["declared"] != true {
+		t.Fatalf("the addition: %d %v", st, out)
+	}
+	e.s.Now = func() time.Time { return time.Now().Add(holdTTL + time.Minute) }
+	if st, out := e.do("GET", acct, nil, nil, "k_setup"); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("a day after the addition: %d %v", st, out["status"])
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, id)
+	if len(g.Tools) != 1 || len(g.Pending) != 0 || g.Tools[0].Tool != "list_charges" {
+		t.Fatalf("what the grant holds after the addition went: tools %+v pending %v", g.Tools, g.Pending)
+	}
+	if a, _ := e.vendor.Live(); a == 0 {
+		t.Fatal("the addition's expiry revoked the taf's sign-in")
+	}
+	if _, ok := e.kiff.Connection(tenant, "create_refund"); ok {
+		t.Fatal("the unapproved addition is still in KIFF")
+	}
+}

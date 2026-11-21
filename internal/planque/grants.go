@@ -1667,7 +1667,7 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 		// the grant stays connected with what it had. Its sign-in is in use.
 		// Unless what it had is Setup's reads alone: the owner approved those
 		// for a draft, not a taf, so no taf is using the sign-in and it goes.
-		if onlySetupReads(g.Connected) {
+		if g.connectFirst() && onlySetupReads(g.Connected) {
 			return s.endDraft(ctx, g, "its tools were not approved within a day; the sign-in was revoked")
 		}
 		if err := s.dropAddition(ctx, g, "the added tools were not approved within a day; what it had stays connected"); err != nil {
@@ -1773,16 +1773,30 @@ func onlySetupReads(ts []ToolRequest) bool {
 	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t ToolRequest) bool { return !t.SetupReads })
 }
 
-// abandonedDraft says g is a draft that never asked for tools: connected for
-// Setup's reads alone, nothing waiting for the owner, and a week past its
-// request (pendingTTL: an app may be connected one evening and its taf set up
-// the next). A connection with only the reads a week on belongs to a taf
-// nobody built; the sign-in it holds is revoked.
+// connectFirst says g was asked for as a connection first: Setup's reads
+// named on the request (grants.go connectSetupReads), the taf's tools to come
+// later as an addition. Only that path keeps Request.SetupReads. A catalog
+// entry that lists its tools marks the reads Setup uses on the taf's own
+// grant (markEntrySetupReads) and clears it, so such a taf, a read-only one
+// whose every tool is marked, is never taken for a draft.
+func (g *Grant) connectFirst() bool { return len(g.Request.SetupReads) > 0 }
+
+// draftOnReads says g is a connection first holding nothing but Setup's
+// reads: connected, nothing waiting for the owner, no tool of the taf's own.
+func (g *Grant) draftOnReads() bool {
+	return g.connectFirst() && g.Status == StatusConnected && len(g.Pending) == 0 && len(g.Tools) > 0 &&
+		!slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads })
+}
+
+// abandonedDraft says g is a draft that never asked for tools: a connection
+// first holding Setup's reads alone (draftOnReads) a week past its request
+// (pendingTTL: an app may be connected one evening and its taf set up the
+// next). The week runs from the request, not from the sign-in, so activity
+// can't extend it; a request is signed within minutes in practice. A
+// connection with only the reads a week on belongs to a taf nobody built;
+// the sign-in it holds is revoked.
 func (g *Grant) abandonedDraft(now time.Time) bool {
-	if g.Status != StatusConnected || len(g.Pending) > 0 || len(g.Tools) == 0 {
-		return false
-	}
-	if slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads }) {
+	if !g.draftOnReads() {
 		return false
 	}
 	asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt)
