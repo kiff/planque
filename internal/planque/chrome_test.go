@@ -287,3 +287,37 @@ func TestTheExtensionsRoutesAreLimited(t *testing.T) {
 		}
 	})
 }
+
+// The extension's view-only KIFF device offer rides its key post and reaches
+// the phone as given; the collect answer names the pairing the phone signed,
+// which the extension needs to check that signature (kiff/tafs docs/chrome.md).
+func TestTheKiffOfferReachesThePhoneAndTheCollectNamesThePairing(t *testing.T) {
+	e := chromeEnv(t)
+	acct := "/v1/accounts/" + tenant
+	_, out := e.do("POST", acct+"/chromes/pairings", map[string]any{}, e.phone, "")
+	pairing, lookup := out["pairing"].(string), out["lookup"].(string)
+	extKey, extSum := p256Key(t)
+	offer := `{"exp":"2026-11-21T12:04:30Z","key_store":"software","kind":"extension","name":"tafs for Chrome","platform":"chrome","v":"kiff.pair.v1"}`
+
+	big := strings.Repeat("x", chromeKiffOfferMax+1)
+	if st, _ := e.do("POST", "/v1/extension/pairings/"+lookup, map[string]any{"key": extKey, "version": "1.0.0", "manifest_hash": releasedManifest,
+		"browser": "Chrome 131", "os": "macOS 15", "proof": b64(32), "kiff_offer": big}, nil, ""); st != 400 {
+		t.Fatalf("an offer over 4 KiB: %d", st)
+	}
+	if st, out := e.do("POST", "/v1/extension/pairings/"+lookup, map[string]any{"key": extKey, "version": "1.0.0", "manifest_hash": releasedManifest,
+		"browser": "Chrome 131", "os": "macOS 15", "proof": b64(32), "kiff_offer": offer}, nil, ""); st != 202 {
+		t.Fatalf("the extension's key with its KIFF offer: %d %v", st, out)
+	}
+	if st, out := e.do("GET", acct+"/chromes/pairings/"+pairing, nil, e.phone, ""); st != 200 || out["kiff_offer"] != offer {
+		t.Fatalf("the phone reads the offer as given: %d %v", st, out)
+	}
+	phoneKey, _ := p256Key(t)
+	if st, out := e.do("POST", acct+"/chromes/pairings/"+pairing+"/confirm", map[string]any{"chrome_key_sha256": extSum, "name": "Work Mac",
+		"phone_key": phoneKey, "phone_proof": b64(32), "phone_sig": b64(64)}, e.phone, ""); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	st, out := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+extKey, nil, nil, "")
+	if st != 200 || out["pairing"] != pairing || out["phone_key"] != phoneKey {
+		t.Fatalf("the collect names the pairing: %d %v", st, out)
+	}
+}
