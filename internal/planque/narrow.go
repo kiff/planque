@@ -48,6 +48,13 @@ func checkPin(t ToolRequest, p string, v json.RawMessage) *toolRefusal {
 		return &toolRefusal{Code: refPinShape, Tool: tool, Field: p, Want: "dotted path → JSON value",
 			Msg: fmt.Sprintf("%s: fixed argument %q's value isn't JSON: write the value itself as JSON, a string in quotes, like {%q: \"urn:li:person:…\"}", tool, p, p)}
 	}
+	// An id past 2^53 - 1 (a bookkeeping administration's) isn't one number to
+	// the request's hash, so its only exact form is text: refused here, with
+	// the way to write it, not later as a failure Coach reads as planque's.
+	if _, err := jcs.Canonical(v); err != nil {
+		return &toolRefusal{Code: refPinShape, Tool: tool, Field: p, Want: "a number within 2^53 - 1, or text",
+			Msg: fmt.Sprintf("%s: fixed argument %q holds a whole number beyond 2^53 - 1, which can't be told from its neighbours: write it as text, in quotes, like {%q: \"123456789012345678\"}", tool, p, p)}
+	}
 	return nil
 }
 
