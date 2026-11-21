@@ -1530,7 +1530,7 @@ func (s *Server) freshConnector(r *http.Request, g *Grant) ([]string, error) {
 		return nil, err
 	}
 	ids := []string{g.ID}
-	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	items, err := s.liveGrants(ctx, g.Tenant)
 	if err != nil {
 		s.log().WarnContext(ctx, "fresh sign-in: the account's other connections couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		return ids, nil

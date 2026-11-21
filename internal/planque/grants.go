@@ -3152,7 +3152,7 @@ func (s *Server) revoke(ctx context.Context, g *Grant) []string {
 // those that pin the same connected account. A disconnected or failed grant
 // uses nothing.
 func (s *Server) signInUsers(ctx context.Context, g *Grant) ([]string, error) {
-	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	items, err := s.liveGrants(ctx, g.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -3395,7 +3395,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 // approved, signed in), the tools it asks for, which it registers next. A
 // failed or disconnected grant holds none.
 func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[string]string, error) {
-	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -3479,7 +3479,7 @@ func (s *Server) askedGrants(w http.ResponseWriter, r *http.Request, agent strin
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "GRANT#")
+	items, err := s.liveGrants(r.Context(), tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -3612,7 +3612,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "GRANT#")
+	items, err := s.liveGrants(r.Context(), tenant)
 	if err != nil {
 		s.fail(w, r, err)
 		return

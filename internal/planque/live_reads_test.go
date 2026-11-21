@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -337,5 +338,90 @@ func TestAStaleLiveRowIsNeverRead(t *testing.T) {
 	var mended Grant
 	if err := json.Unmarshal(row.Doc, &mended); err != nil || mended.Status != StatusConnected {
 		t.Fatalf("the row wasn't mended: %v %q", err, mended.Status)
+	}
+}
+
+// The tool names a new connection can't reuse, and the grants on the same
+// sign-in as one being revoked, read the live grants only: the same answers,
+// and the same number of items read, at 5 finished grants and at 200 (two
+// test accounts held 341 and 151, each read on these paths).
+func TestNamesInUseAndSignInUsersReadOnlyLiveGrants(t *testing.T) {
+	read := func(finished int) (reads int, names map[string]string, users []string) {
+		kv := &countingKV{KV: &store.Memory{}}
+		s := &Server{KV: kv}
+		connected := &Grant{ID: "grt_live", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+			Tools: []GrantedTool{{ToolRequest: ToolRequest{Name: "gmail_send"}}},
+			Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant, Server: "https://mcp.gmail.example/",
+				Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+			Connector: &ConnectorState{Account: "acct_1"}}
+		sibling := &Grant{ID: "grt_sibling", Tenant: tenant, Status: StatusConnected, SignedIn: true,
+			Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
+				Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
+			Connector: &ConnectorState{Account: "acct_1"}}
+		for _, g := range []*Grant{connected, sibling} {
+			if err := s.saveGrant(t.Context(), g); err != nil {
+				t.Fatal(err)
+			}
+		}
+		finishedGrants(t, s, finished)
+		if err := s.ensureLive(t.Context(), tenant); err != nil {
+			t.Fatal(err)
+		}
+		kv.read = 0
+		n, err := s.namesInUse(t.Context(), tenant, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := s.signInUsers(t.Context(), sibling)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return kv.read, n, u
+	}
+	smallReads, smallNames, smallUsers := read(5)
+	bigReads, bigNames, bigUsers := read(200)
+	for name, got := range map[string]map[string]string{"5 finished": smallNames, "200 finished": bigNames} {
+		if len(got) != 1 || got["gmail_send"] == "" {
+			t.Errorf("%s: names in use changed: %v", name, got)
+		}
+	}
+	for name, got := range map[string][]string{"5 finished": smallUsers, "200 finished": bigUsers} {
+		if len(got) != 1 || got[0] != "grt_live" {
+			t.Errorf("%s: the sign-in's other users must be the live grant alone, got %v", name, got)
+		}
+	}
+	if bigReads != smallReads {
+		t.Errorf("items read grew with finished grants: %d at 5, %d at 200", smallReads, bigReads)
+	}
+}
+
+// tafs cloud's read of an account's connections and Setup's read of what it
+// asked for, the two routes read on most requests, read the live grants
+// only: the same answers, and the same number of items read, at 5 finished
+// grants and at 200.
+func TestTheAccountsConnectionsAndAskedGrantsReadOnlyLiveGrants(t *testing.T) {
+	read := func(finished int) (reads int, conns, asked int) {
+		e := newEnv(t)
+		e.kiff.Keys["k_person"] = kiff.Me{TenantID: tenant}
+		e.connect()
+		finishedGrants(t, e.s, finished)
+		if err := e.s.ensureLive(t.Context(), tenant); err != nil {
+			t.Fatal(err)
+		}
+		kv := &countingKV{KV: e.s.KV}
+		e.s.KV = kv
+		st, cs := e.connections("k_person")
+		if st != 200 {
+			t.Fatalf("connections: %d", st)
+		}
+		return kv.read, len(cs), len(e.asked())
+	}
+	smallReads, smallConns, smallAsked := read(5)
+	bigReads, bigConns, bigAsked := read(200)
+	if smallConns != 1 || bigConns != 1 || smallAsked != 1 || bigAsked != 1 {
+		t.Errorf("the connected grant alone is listed: connections %d/%d, asked %d/%d", smallConns, bigConns, smallAsked, bigAsked)
+	}
+	if bigReads != smallReads {
+		t.Errorf("items read grew with finished grants: %d at 5, %d at 200", smallReads, bigReads)
 	}
 }
