@@ -1665,10 +1665,18 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	if g.Status == StatusPending && g.Connected != nil && !g.HeldUntil.IsZero() && s.now().After(g.HeldUntil) {
 		// Tools added to a connected grant and never approved: they go, and
 		// the grant stays connected with what it had. Its sign-in is in use.
+		// Unless what it had is Setup's reads alone: the owner approved those
+		// for a draft, not a taf, so no taf is using the sign-in and it goes.
+		if g.connectFirst() && onlySetupReads(g.Connected) {
+			return s.endDraft(ctx, g, "its tools were not approved within a day; the sign-in was revoked")
+		}
 		if err := s.dropAddition(ctx, g, "the added tools were not approved within a day; what it had stays connected"); err != nil {
 			return false, err
 		}
 		return false, nil
+	}
+	if g.abandonedDraft(s.now()) {
+		return s.endDraft(ctx, g, "no tools were asked for within a week of Setup's reads; the sign-in was revoked")
 	}
 	var reason string
 	held := g.SignedIn && (g.Status == StatusListed || g.Status == StatusPending)
@@ -1756,6 +1764,83 @@ func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
 	}
 	s.logEnded(ctx, g, from, "planque's sweep")
 	s.log().InfoContext(ctx, "expired sign-in revoked", slog.String("grant", g.ID), slog.String("reason", reason))
+	return true, nil
+}
+
+// onlySetupReads says every tool in ts is one of Setup's reads, and there is
+// at least one: a connection nothing but the draft's own reads uses.
+func onlySetupReads(ts []ToolRequest) bool {
+	return len(ts) > 0 && !slices.ContainsFunc(ts, func(t ToolRequest) bool { return !t.SetupReads })
+}
+
+// connectFirst says g was asked for as a connection first: Setup's reads
+// named on the request (grants.go connectSetupReads), the taf's tools to come
+// later as an addition. Only that path keeps Request.SetupReads. A catalog
+// entry that lists its tools marks the reads Setup uses on the taf's own
+// grant (markEntrySetupReads) and clears it, so such a taf, a read-only one
+// whose every tool is marked, is never taken for a draft.
+func (g *Grant) connectFirst() bool { return len(g.Request.SetupReads) > 0 }
+
+// draftOnReads says g is a connection first holding nothing but Setup's
+// reads: connected, nothing waiting for the owner, no tool of the taf's own.
+func (g *Grant) draftOnReads() bool {
+	return g.connectFirst() && g.Status == StatusConnected && len(g.Pending) == 0 && len(g.Tools) > 0 &&
+		!slices.ContainsFunc(g.Tools, func(t GrantedTool) bool { return !t.SetupReads })
+}
+
+// abandonedDraft says g is a draft that never asked for tools: a connection
+// first holding Setup's reads alone (draftOnReads) a week past its request
+// (pendingTTL: an app may be connected one evening and its taf set up the
+// next). The week runs from the request, not from the sign-in, so activity
+// can't extend it; a request is signed within minutes in practice. A
+// connection with only the reads a week on belongs to a taf nobody built;
+// the sign-in it holds is revoked.
+func (g *Grant) abandonedDraft(now time.Time) bool {
+	if !g.draftOnReads() {
+		return false
+	}
+	asked, err := time.Parse(time.RFC3339, g.Request.CreatedAt)
+	return err == nil && now.After(asked.Add(pendingTTL))
+}
+
+// endDraft ends a draft whose tools nobody approved within their day, when
+// all its connection had was Setup's reads (kiff/planque#320's rule for
+// the sign-in: a sign-in another connection still uses stays, kept for the
+// sweep to revoke). The tools it declared and Setup's reads leave KIFF, the
+// sign-in is revoked, and the grant fails; an error leaves g as stored, for
+// the next sweep or read to try again.
+func (s *Server) endDraft(ctx context.Context, g *Grant, reason string) (ended bool, err error) {
+	was := *g
+	if err := s.undeclareAddition(ctx, g); err != nil {
+		*g = was
+		return false, err
+	}
+	key, err := s.connectorKey(ctx, g.Tenant)
+	if err != nil {
+		*g = was
+		return false, fmt.Errorf("open the KIFF connector key to take the reads out: %w", err)
+	}
+	for _, t := range g.Tools {
+		if err := s.KIFF.Disconnect(ctx, key, t.Name); err != nil {
+			*g = was
+			return false, fmt.Errorf("KIFF kept %s: %w", t.Name, err)
+		}
+	}
+	if err := s.revokeNow(ctx, g); err != nil {
+		*g = was
+		return false, err
+	}
+	from := g.Status
+	g.Tools, g.Connected, g.Pending, g.Transport, g.Transports, g.PendingTransport, g.Declared = nil, nil, nil, "", nil, "", false
+	g.HeldUntil = time.Time{}
+	g.Status, g.Reason = StatusFailed, reason
+	g.event(s.now(), "failed: "+reason)
+	if err := s.saveGrant(ctx, g); err != nil {
+		*g = was
+		return false, err
+	}
+	s.logEnded(ctx, g, from, "planque's sweep")
+	s.log().InfoContext(ctx, "expired draft's sign-in revoked", slog.String("grant", g.ID))
 	return true, nil
 }
 
