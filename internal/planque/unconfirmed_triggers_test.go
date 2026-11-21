@@ -175,3 +175,51 @@ func TestAConfirmationBeatsASweepThatAlreadyReadItsNote(t *testing.T) {
 		t.Fatalf("the confirmed subscription was taken: %+v %v", record, err)
 	}
 }
+
+// One agent holds two connections, G and H, each with a subscription it asked
+// to confirm. Confirming H's real subscription through G's path is refused
+// (the two checks in confirmTrigger, each by itself enough), and H's
+// subscription is neither confirmed nor touched: its note stays, so it is
+// still swept if H's caller never confirms it.
+// Category: authority
+// Attack: an agent with two connections confirms one connection's subscription through the other's path
+// Refused: 404 or 409, the other subscription's note and record unchanged
+func TestConfirmingAnotherConnectionsSubscriptionIsRefused(t *testing.T) {
+	e, f, g := newEventFixture(t)
+	ctx := context.Background()
+	h := *g
+	h.ID = "grt_other_connection"
+	h.Request.Grant = h.ID
+	h.TriggerIDs, h.ver, h.dueAt = nil, 0, time.Time{}
+	if err := e.s.saveGrant(ctx, &h); err != nil {
+		t.Fatal(err)
+	}
+	idG := approveAppEvent(t, e, f, g, true, "CDEMO123")
+	idH := approveAppEvent(t, e, f, &h, true, "CDEMO456")
+	if idG == idH {
+		t.Fatalf("two subscriptions share an id: %s", idG)
+	}
+	var before triggerRecord
+	itBefore, err := getDoc(ctx, e.kv, triggerPK("composio", idH), "-", &before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e.do("POST", confirmPath(g, idH), nil, nil, "k_taf"); st != 404 && st != 409 {
+		t.Fatalf("H's subscription confirmed through G's path: %d %v", st, out)
+	}
+	var after triggerRecord
+	itAfter, err := getDoc(ctx, e.kv, triggerPK("composio", idH), "-", &after)
+	if err != nil || itAfter.Ver != itBefore.Ver || !after.Active || after.Grant != h.ID {
+		t.Fatalf("H's subscription record changed: %+v %v", after, err)
+	}
+	if unconfirmedNotes(t, e) != 2 {
+		t.Fatalf("a note was removed by a refused confirmation: %d", unconfirmedNotes(t, e))
+	}
+	// Its own path still confirms it, and only then does its note go.
+	if st, out := e.do("POST", confirmPath(&h, idH), nil, nil, "k_taf"); st != 200 {
+		t.Fatalf("H confirming its own: %d %v", st, out)
+	}
+	if unconfirmedNotes(t, e) != 1 {
+		t.Fatalf("notes after H's own confirmation: %d", unconfirmedNotes(t, e))
+	}
+}
