@@ -341,47 +341,31 @@ func TestAStaleLiveRowIsNeverRead(t *testing.T) {
 	}
 }
 
-// The tool names a new connection can't reuse read the live grants only:
-// the same answer, and the same number of items read, at 5 finished grants
-// and at 200 (two test accounts held 341 and 151).
-func TestNamesInUseReadsOnlyLiveGrants(t *testing.T) {
-	read := func(finished int) (reads int, names map[string]string) {
-		kv := &countingKV{KV: &store.Memory{}}
-		s := &Server{KV: kv}
-		connected := &Grant{ID: "grt_live", Tenant: tenant, Status: StatusConnected, SignedIn: true,
-			Tools: []GrantedTool{{ToolRequest: ToolRequest{Name: "gmail_send"}}},
-			Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant, Server: "https://mcp.gmail.example/",
-				Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
-			Connector: &ConnectorState{Account: "acct_1"}}
-		sibling := &Grant{ID: "grt_sibling", Tenant: tenant, Status: StatusConnected, SignedIn: true,
-			Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant,
-				Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}},
-			Connector: &ConnectorState{Account: "acct_1"}}
-		for _, g := range []*Grant{connected, sibling} {
-			if err := s.saveGrant(t.Context(), g); err != nil {
-				t.Fatal(err)
-			}
-		}
-		finishedGrants(t, s, finished)
-		if err := s.ensureLive(t.Context(), tenant); err != nil {
-			t.Fatal(err)
-		}
-		kv.read = 0
-		n, err := s.namesInUse(t.Context(), tenant, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return kv.read, n
+// The tool names a new connection can't reuse count every live grant's,
+// one whose LIVE# row was never written included (keepLive is its own
+// write): its names aren't handed to another connection.
+func TestNamesInUseCountAGrantMissingFromTheLiveIndex(t *testing.T) {
+	kv := &countingKV{KV: &store.Memory{}}
+	s := &Server{KV: kv}
+	pending := &Grant{ID: "grt_pending", Tenant: tenant, Status: StatusPending,
+		Request: Request{CatalogEntry: "gmail-key@1", Tenant: tenant, Server: "https://mcp.gmail.example/",
+			Tools: []ToolRequest{{Name: "gmail_send"}}}}
+	if err := s.saveGrant(t.Context(), pending); err != nil {
+		t.Fatal(err)
 	}
-	smallReads, smallNames := read(5)
-	bigReads, bigNames := read(200)
-	for name, got := range map[string]map[string]string{"5 finished": smallNames, "200 finished": bigNames} {
-		if len(got) != 1 || got["gmail_send"] == "" {
-			t.Errorf("%s: names in use changed: %v", name, got)
-		}
+	finishedGrants(t, s, 5)
+	if err := s.ensureLive(t.Context(), tenant); err != nil {
+		t.Fatal(err)
 	}
-	if bigReads != smallReads {
-		t.Errorf("items read grew with finished grants: %d at 5, %d at 200", smallReads, bigReads)
+	if _, ok, err := kv.KV.Delete(t.Context(), tenantPK(tenant), skLive(pending.ID)); err != nil || !ok {
+		t.Fatalf("setup: drop the LIVE# row: %v %v", ok, err)
+	}
+	names, err := s.namesInUse(t.Context(), tenant, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names["gmail_send"] == "" {
+		t.Fatalf("a live grant missing from the index lost its name: %v", names)
 	}
 }
 

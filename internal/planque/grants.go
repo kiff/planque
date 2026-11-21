@@ -3399,8 +3399,12 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 // before that, at any step on the way (listed with tools set, pending,
 // approved, signed in), the tools it asks for, which it registers next. A
 // failed or disconnected grant holds none.
+//
+// It reads every grant, not the LIVE# index: a live grant whose LIVE# row
+// wasn't written (keepLive is its own write) would otherwise lose its names
+// to a new connection. It runs only when a grant asks for tools.
 func (s *Server) namesInUse(ctx context.Context, tenant, except string) (map[string]string, error) {
-	items, err := s.liveGrants(ctx, tenant)
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
 	if err != nil {
 		return nil, err
 	}
