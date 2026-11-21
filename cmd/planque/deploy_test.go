@@ -36,6 +36,9 @@ func TestDeploymentScopesManagedConnectorSecret(t *testing.T) {
 REGION=eu-west-1 ACCOUNT=000000000000 ROLE=demo-lambda FN=demo TABLE=demo ALIAS=alias/demo FAKE=""
 unset PLANQUE_DOOR_SECRET PLANQUE_DOOR_URL PLANQUE_KIFF_EVENT_URL PLANQUE_KIFF_EVENT_SECRET PLANQUE_DIGEST PLANQUE_WINDOW_REQUIRED PLANQUE_EVENT_URL PLANQUE_SIGNIN_READER_SHA256 PLANQUE_PUBLIC_URL PLANQUE_SECRET
 export PLANQUE_APP_RETURN=https://app.example/confirm
+# A value from the function's settings must never be a process's argument,
+# where a process list would show it.
+python3() { case "$*" in *tok_never_an_argument*) echo "the token went to python3 as an argument" >&2; return 9;; esac; command python3 "$@"; }
 export PLANQUE_COMPOSIO_SECRET=demo/connectors/composio
 connector_arn=arn:aws:secretsmanager:eu-west-1:000000000000:secret:demo/connectors/composio-AbCdEf
 current_env=null
@@ -98,7 +101,7 @@ aws() {
 				}
 			case "rerun_kept", "rerun_off":
 				// A bare rerun: nothing given, everything on the function.
-				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio","PLANQUE_DOOR_SECRET":"demo/doors/handoff","PLANQUE_DOOR_URL":"https://receiver.example/v1/doors/planque","PLANQUE_KIFF_EVENT_URL":"https://api.example/v1/planque/refund-events","PLANQUE_KIFF_EVENT_SECRET":"demo/kiff/events","PLANQUE_BASE_URL":"https://planque.example"}'` + "\nunset PLANQUE_APP_RETURN PLANQUE_COMPOSIO_SECRET\n"
+				script += `current_env='{"PLANQUE_COMPOSIO_SECRET":"demo/connectors/composio","PLANQUE_DOOR_SECRET":"demo/doors/handoff","PLANQUE_DOOR_URL":"https://receiver.example/v1/doors/planque","PLANQUE_KIFF_EVENT_URL":"https://api.example/v1/planque/refund-events","PLANQUE_KIFF_EVENT_SECRET":"demo/kiff/events","PLANQUE_BASE_URL":"https://planque.example","PLANQUE_PROOF_STATE_TOKEN":"tok_never_an_argument"}'` + "\nunset PLANQUE_APP_RETURN PLANQUE_COMPOSIO_SECRET\n"
 				if scenario == "rerun_off" {
 					script += "export PLANQUE_COMPOSIO_SECRET=off\n"
 				}
