@@ -60,7 +60,7 @@ func TestAReusedServersToolItDoesntListIsRefusedWhenAsked(t *testing.T) {
 	}
 	st, out := ask("stripe_api_execute")
 	if st != 400 || out["code"] != refNotListed || out["field"] != "tool" || !strings.Contains(out["error"].(string), "has no tool named stripe_api_execute now; it lists: ") ||
-		!strings.Contains(out["error"].(string), "stripe_api_read") {
+		!strings.Contains(out["error"].(string), "stripe_api_read") || !strings.Contains(out["error"].(string), "Read grant "+first.ID+"'s catalog") {
 		t.Fatalf("an unlisted tool: %d %v", st, out)
 	}
 	if items, _ := e.s.KV.Query(context.Background(), tenantPK(tenant), "GRANT#"); len(items) != 1 {

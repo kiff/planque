@@ -1453,7 +1453,7 @@ func serverToolsCheck(g *Grant, listed []mcpTool, tools []ToolRequest) *toolRefu
 	for _, t := range tools {
 		if !slices.Contains(names, t.Tool) {
 			return &toolRefusal{Code: refNotListed, Tool: refTool(t), Field: "tool", Want: strings.Join(names, ", "),
-				Msg: hostOf(g.Request.Server) + " has no tool named " + t.Tool + " now; it lists: " + strings.Join(names, ", ") + ". Read the grant's catalog {grant} and take a name from it"}
+				Msg: hostOf(g.Request.Server) + " has no tool named " + t.Tool + " now; it lists: " + strings.Join(names, ", ") + ". Read grant " + g.ID + "'s catalog and take a name from it"}
 		}
 	}
 	return nil
