@@ -39,8 +39,12 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusConflict, "this connection doesn't use the owner's own Chrome")
 		return
 	}
-	if g.Status == StatusDisconnected || g.Status == StatusFailed {
-		writeErr(w, http.StatusConflict, "this connection has ended: connect again")
+	// Only a connection the owner approved moves (qa-kiff): never one only
+	// asked for, failed or ended.
+	switch g.Status {
+	case StatusApproved, StatusSignedIn, StatusConnected, StatusListed, StatusNeedsReconnect:
+	default:
+		writeErr(w, http.StatusConflict, "only a connection the owner approved, and that hasn't ended, can use another Chrome")
 		return
 	}
 	if b.Chrome == req.ChromeID {

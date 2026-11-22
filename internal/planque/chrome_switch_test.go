@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/store"
 )
@@ -75,12 +76,47 @@ func TestABrowserConnectionSwitchesToAnotherChrome(t *testing.T) {
 		t.Errorf("the event: %+v", last)
 	}
 
-	// A connection that ended can't be switched.
-	g.Status = StatusDisconnected
-	if err := c.s.saveGrant(context.Background(), g); err != nil {
-		t.Fatal(err)
+	// A connection the owner didn't approve, or that ended, or that isn't on
+	// the owner's own Chrome, can't be switched; nor can any while the Chrome
+	// isn't offered to the account. Each refused, and nothing changes.
+	back := map[string]any{"chrome_id": c.r.chrome, "chrome_sites_sig": testSitesSig}
+	// Each refusal is its own signed request (a second apart: the same request
+	// within a second is a replay), so the answer is the check's own.
+	refused := func(what, want string) {
+		t.Helper()
+		time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+		if st, out := c.do("PUT", path, back, c.phone, ""); st != 409 || !strings.Contains(mustJSONString(out), want) {
+			t.Errorf("%s: %d %v, want 409 %q", what, st, out, want)
+		}
 	}
-	if st, out := c.do("PUT", path, map[string]any{"chrome_id": c.r.chrome, "chrome_sites_sig": testSitesSig}, c.phone, ""); st != 409 {
-		t.Errorf("an ended connection: %d %v", st, out)
+	const notApproved, notOwnChrome = "only a connection the owner approved", "doesn't use the owner's own Chrome"
+	for what, tc := range map[string]struct {
+		edit func(g *Grant)
+		want string
+	}{
+		"ended":                      {func(g *Grant) { g.Status = StatusDisconnected }, notApproved},
+		"failed":                     {func(g *Grant) { g.Status = StatusFailed }, notApproved},
+		"only asked for (pending)":   {func(g *Grant) { g.Status = StatusPending }, notApproved},
+		"not the owner's own Chrome": {func(g *Grant) { g.Request.Browser.Driver = "" }, notOwnChrome},
+		"not a browser's (a key)":    {func(g *Grant) { g.Request.Browser = nil; g.Request.Kind = KindAPIKey }, notOwnChrome},
+	} {
+		g, _ := c.s.loadGrant(context.Background(), tenant, id)
+		was := *g
+		wasBrowser := *g.Request.Browser
+		tc.edit(g)
+		if err := c.s.saveGrant(context.Background(), g); err != nil {
+			t.Fatal(err)
+		}
+		refused(what, tc.want)
+		after, _ := c.s.loadGrant(context.Background(), tenant, id)
+		after.Status, after.Request.Kind, after.Request.Browser = was.Status, was.Request.Kind, &wasBrowser
+		if err := c.s.saveGrant(context.Background(), after); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.s.ChromeOffer = ChromeOffer{}
+	refused("the owner's Chrome not offered", "isn't offered to this account")
+	if g, _ := c.s.loadGrant(context.Background(), tenant, id); g.Request.Browser.Chrome != home.ID || g.ChromeSitesSig != newSig {
+		t.Fatalf("a refused switch changed the connection: %+v", g.Request.Browser)
 	}
 }
