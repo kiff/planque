@@ -173,7 +173,10 @@ func TestAReadInTheOwnersChromeIsSignedMaskedAgainAndFenced(t *testing.T) {
 	if sc["site"] != "shop.example" {
 		t.Fatalf("open: %s", out)
 	}
-	_ = sc
+	// The answer's structured copy is rid of marker look-alikes too.
+	if title, _ := sc["page"].(map[string]any)["title"].(string); strings.Contains(title, "<<</page-words:title") {
+		t.Errorf("a marker in the page's title survived in the structured answer: %q", title)
+	}
 	steps := c.sent()
 	if len(steps) == 0 {
 		t.Fatal("no step was sent")
