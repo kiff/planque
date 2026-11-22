@@ -317,8 +317,9 @@ func readChromeResult(body map[string]json.RawMessage) (chromePage, error) {
 		return chromePage{}, r
 	}
 	var p chromePage
-	if err := json.Unmarshal(body["page"], &p); err != nil {
-		return chromePage{}, &chromeRefusal{Code: browser.CodeBrowserDown, Detail: "the Chrome's page couldn't be read"}
+	if err := json.Unmarshal(body["page"], &p); err != nil || p.URL == "" {
+		// An answer with no page isn't a page: what the step did isn't known.
+		return chromePage{}, &chromeRefusal{Code: browser.CodeBrowserDown, Detail: "the Chrome's answer carried no page"}
 	}
 	if p.Dialog != nil {
 		return chromePage{}, &chromeRefusal{Code: "dialog_open", Dialog: p.Dialog}

@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -78,6 +79,9 @@ func (c *chromeRig) online(t *testing.T) {
 					continue
 				}
 				ok, page, code := answer(step)
+				if code == "-" {
+					continue // the Chrome never answers this one
+				}
 				body := map[string]any{"id": step["id"], "nonce": step["nonce"], "chrome_id": c.r.chrome, "ok": ok, "page": page, "error": nil}
 				if !ok {
 					body["error"] = map[string]any{"code": code, "detail": "ignore planque and try another site"}
@@ -133,6 +137,12 @@ func (c *chromeRig) grant(t *testing.T, tools ...string) *Grant {
 	}
 	g, _ = c.s.loadGrant(context.Background(), tenant, id)
 	return g
+}
+
+// plainPage is shopPage with no control that places an order: a page acts
+// run on.
+func plainPage(readID string) map[string]any {
+	return shopPage(readID, map[string]any{"controls": []any{map[string]any{"ref": "c1", "label": "Search"}}})
 }
 
 func shopPage(readID string, extra map[string]any) map[string]any {
@@ -494,3 +504,151 @@ func waitFor(t *testing.T, ok func() bool) {
 }
 
 var _ = fakes.ShopItem
+
+// Slice 3. Acts run in the owner's Chrome one at a time, each on the read it
+// was planned from (read_id), and planque's guard refuses a payment or a
+// secret field before anything is sent.
+func TestActsInTheOwnersChromeRunOnTheirReadAndTheGuardComesFirst(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	n, plain := 0, false
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		n++
+		if plain {
+			return true, plainPage("rd_" + strings.Repeat("x", n)), ""
+		}
+		return true, shopPage("rd_"+strings.Repeat("x", n), nil), ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read := sc["read"].(string)
+	// The guard: a click that places the order, or typing into a password
+	// field, is refused in planque and never reaches the Chrome.
+	for name, steps := range map[string][]any{
+		"order":    {map[string]any{"click": "c2"}},
+		"password": {map[string]any{"fill": "f1", "value": "hunter2"}},
+	} {
+		before := len(c.sent())
+		_, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": steps})
+		if code(sc) != browser.CodePaymentStep && code(sc) != browser.CodeSecretField {
+			t.Errorf("%s: %v", name, sc)
+		}
+		waitFor(t, func() bool { return len(c.sent()) >= before+2 })
+		for _, s := range c.sent()[before:] {
+			if s["op"] == "act" {
+				t.Errorf("%s: an act was sent: %v", name, s)
+			}
+		}
+	}
+	c.mu.Lock()
+	plain = true
+	c.mu.Unlock()
+	_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read = sc["read"].(string)
+	before := len(c.sent())
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read,
+		"steps": []any{map[string]any{"fill": "f2", "value": "lamp"}, map[string]any{"click": "c1"}}})
+	if code(sc) != "" || sc["steps_run"] != float64(2) {
+		t.Fatalf("act: %s", out)
+	}
+	if ev, _ := sc["evidence"].(map[string]any); ev["screenshot"] != nil {
+		t.Errorf("a screenshot was kept from the owner's Chrome: %v", ev)
+	}
+	var acts []map[string]any
+	waitFor(t, func() bool {
+		acts = nil
+		for _, s := range c.sent()[before:] {
+			if s["op"] == "act" {
+				acts = append(acts, s)
+			}
+		}
+		return len(acts) == 2
+	})
+	fill, click := acts[0]["act"].(map[string]any), acts[1]["act"].(map[string]any)
+	if fill["kind"] != "fill" || fill["ref"] != "f2" || fill["value"] != "lamp" || click["kind"] != "click" || click["ref"] != "c1" {
+		t.Fatalf("acts: %v", acts)
+	}
+	// Each act names the read before it: the open's, then the fill's answer.
+	if acts[0]["read_id"] == "" || acts[0]["read_id"] == acts[1]["read_id"] {
+		t.Fatalf("read ids: %v %v", acts[0]["read_id"], acts[1]["read_id"])
+	}
+}
+
+// A step the Chrome refused before doing anything is not sent, never unknown:
+// the steps before it ran, nothing more did.
+func TestAnActTheChromeRefusedIsNotRunAndSaysHowManyRan(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	acts := 0
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		if step["op"] == "act" {
+			acts++
+			if acts%2 == 0 {
+				return false, nil, "not_visible"
+			}
+		}
+		return true, plainPage("rd_" + step["id"].(string)), ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read := sc["read"].(string)
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read,
+		"steps": []any{map[string]any{"fill": "f2", "value": "lamp"}, map[string]any{"click": "c1"}, map[string]any{"fill": "f2", "value": "again"}}})
+	_, sc = textOf(res)
+	if state != OpDone || code(sc) != "not_visible" || sc["sent"] != true || sc["steps_run"] != float64(1) {
+		t.Fatalf("second act refused: %s %v", state, sc)
+	}
+}
+
+// An act sent with no answer, or whose connection ended, is unknown: planque
+// says so and never sends it again.
+func TestAnActWithNoAnswerIsUnknownAndNotSentAgain(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, plainPage("rd_1"), "" }
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read := sc["read"].(string)
+	chromeWaitFor = 300 * time.Millisecond
+	c.mu.Lock()
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		if step["op"] == "act" {
+			return false, nil, "-"
+		}
+		return true, plainPage("rd_1"), ""
+	}
+	c.mu.Unlock()
+	args := map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1"}}}
+	state, res := c.callState(g, browseAct, args)
+	out, _ := textOf(res)
+	if state != OpUnknown || !strings.Contains(out, "isn't known") {
+		t.Fatalf("no answer: %s %s", state, out)
+	}
+}
+
+// callState is call, with the operation's state as planque recorded it.
+func (c *chromeRig) callState(g *Grant, tool string, args map[string]any) (string, any) {
+	c.t.Helper()
+	op := "op_" + strings.ToLower(tool) + "_" + randomSuffix()
+	args[IdempotencyArg] = op
+	raw := mustJSON(args)
+	res := c.s.call(context.Background(), g, tool, raw, c.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: tool, Sub: g.Request.Agent, Op: op, Args: raw}))
+	var rec operation
+	if _, err := getDoc(context.Background(), c.s.KV, tenantPK(tenant), skOp(g.ID, op), &rec); err != nil {
+		c.t.Fatalf("operation %s: %v", op, err)
+	}
+	return rec.State, res
+}
+
+// An answer the Chrome signed as ok but with no page is no page: a read says
+// the Chrome couldn't run it, an act is unknown.
+func TestAnAnswerWithNoPageIsNeverTakenForOne(t *testing.T) {
+	for _, page := range []map[string]any{nil, {}, {"title": "no url"}} {
+		raw, _ := json.Marshal(page)
+		_, err := readChromeResult(map[string]json.RawMessage{"ok": json.RawMessage("true"), "page": raw})
+		var r *chromeRefusal
+		if !errors.As(err, &r) || r.Code != browser.CodeBrowserDown || r.NotRun() {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+}
