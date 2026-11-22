@@ -1057,7 +1057,7 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	// A sign-in marked never to be used isn't called, by any grant on its
 	// account; its state can't be read, so nothing is sent either.
 	never, err := s.neverUsedAccounts(ctx, g.Tenant)
-	if err != nil || s.NeverUse[g.ID] || never[g.Connector.Account] {
+	if err != nil || never[g.Connector.Account] {
 		return OpNotSent, refusal(CodeConnectionDown, "Not sent: this sign-in is marked never to be used. Sign in again with the account meant for this taf.")
 	}
 	// The app was taken off the published list: a connection made while it was on is closed.
@@ -1337,9 +1337,13 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 		}
 		// A sign-in marked never to be used is never reused, by any grant on
 		// its account.
-		if s.NeverUse[g.ID] || never[g.Connector.Account] {
+		if never[g.Connector.Account] {
 			continue
 		}
+		// Every account held at the app counts, before the checks below pick
+		// the candidate: a second account whose sign-in doesn't cover the
+		// tools asked still means planque mustn't pick between them.
+		accounts[g.Connector.Account] = true
 		if !(c.UsualAccess || len(c.AskedTools) == 0) {
 			if len(asked) == 0 || slices.ContainsFunc(asked, func(t string) bool { return !slices.Contains(c.AskedTools, t) }) {
 				continue
@@ -1370,7 +1374,6 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 				continue
 			}
 		}
-		accounts[g.Connector.Account] = true
 		if best == nil || g.Request.CreatedAt > best.Request.CreatedAt {
 			best = &g
 		}

@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -69,6 +70,46 @@ func TestTwoSignInsAtAnAppAreNeverPickedBetween(t *testing.T) {
 	}
 }
 
+// The second account counts even when its sign-in doesn't cover the tools
+// asked: the one that does isn't reused silently while another account is
+// held at the app.
+// Category: authority
+// Attack: a narrowed test sign-in dropping out, so the other account is "the only one"
+// Refused: no reuse, nothing named
+func TestASecondAccountCountsThoughItsSignInDoesntCoverTheAsk(t *testing.T) {
+	ctx := t.Context()
+	s := &Server{KV: &store.Memory{}}
+	narrowed := heldMoneybird("grt_testbooks0000001", "ca_test", "2026-11-18T10:00:00Z")
+	narrowed.Request.Connector.AskedTools = []string{"MONEYBIRD_LIST_SALES_INVOICES"}
+	wide := heldMoneybird("grt_realbooks0000001", "ca_real", "2026-11-17T10:00:00Z")
+	wide.Request.Connector.AskedTools = []string{"MONEYBIRD_CREATE_SALES_INVOICE"}
+	for _, g := range []*Grant{narrowed, wide} {
+		if err := s.saveGrant(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	asked := []string{"MONEYBIRD_CREATE_SALES_INVOICE"}
+	if h, err := s.heldSignIn(ctx, tenant, "composio", "moneybird", asked, ""); err != nil || h != nil {
+		t.Fatalf("one account covering the ask, another held: reused %v (%v)", h, err)
+	}
+	if h, err := s.heldSignIn(ctx, tenant, "composio", "moneybird", asked, wide.ID); err != nil || h == nil || h.ID != wide.ID {
+		t.Fatalf("named: reused %v (%v)", h, err)
+	}
+}
+
+// failingGets fails a read of one record, as a store that can't be reached.
+type failingGets struct {
+	store.KV
+	sk string
+}
+
+func (f failingGets) Get(ctx context.Context, pk, sk string) (store.Item, bool, error) {
+	if sk == f.sk {
+		return store.Item{}, false, errors.New("store unavailable")
+	}
+	return f.KV.Get(ctx, pk, sk)
+}
+
 // A sign-in marked never to be used serves no call, through its own grant
 // or another on the same account, though each is connected and permitted.
 // Category: authority
@@ -97,6 +138,15 @@ func TestASignInMarkedNeverToBeUsedServesNoCall(t *testing.T) {
 	if f.executions != 0 || !strings.Contains(res, "marked never to be used") {
 		t.Fatalf("a call on a never-use account: %s executions=%d", res, f.executions)
 	}
+	// The mark can't be read: nothing is sent.
+	e.s.KV = failingGets{KV: e.s.KV, sk: skGrant(other.ID)}
+	args = json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"operation_never4"}`)
+	permit = e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "reply_ticket", Sub: "agt_taf", Op: "operation_never4", Args: args})
+	res = mustJSONString(e.s.call(ctx, g, "reply_ticket", args, permit))
+	if f.executions != 0 || !strings.Contains(res, "Not sent") {
+		t.Fatalf("a call while the mark can't be read: %s executions=%d", res, f.executions)
+	}
+	e.s.KV = e.s.KV.(failingGets).KV
 	// Unmarked, the same call is sent.
 	e.s.NeverUse = nil
 	args = json.RawMessage(`{"ticket":"ticket_demo","text":"hello","planque_op":"operation_never3"}`)
