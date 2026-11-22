@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -138,19 +139,26 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 }
 
 // chromeURLRead says why u isn't an address the taf may open in the owner's
-// Chrome, or "": a listed site's start page, or the latest read's page or
-// one of its links, as they were read. A URL the model put together, with a
-// query or a path of its own, is never sent.
+// Chrome, or "": a listed site's start page (its own, or its www. one's, as
+// many sites start there; the host in any case, nothing after the slash),
+// or the latest read's page or one of its links,
+// as they were read. A URL the model put together, with a query or a path
+// of its own, is never sent.
 func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
-	for _, site := range g.Request.Browser.Sites {
-		if u == "https://"+site+"/" || u == "https://"+site {
-			return "", ""
+	if start, err := url.Parse(u); err == nil && start.Scheme == "https" && start.User == nil && start.Port() == "" &&
+		(start.Path == "" || start.Path == "/") && start.RawQuery == "" && !start.ForceQuery && start.Fragment == "" && start.Opaque == "" {
+		// A host is compared in lower case, as a browser reads it.
+		host := strings.ToLower(start.Host)
+		for _, site := range g.Request.Browser.Sites {
+			if host == site || host == "www."+site {
+				return "", ""
+			}
 		}
 	}
 	if latest != nil && (u == latest.URL || slices.Contains(latest.Links, u)) {
 		return "", ""
 	}
-	return CodeURLNotRead, "in the owner's Chrome a taf opens a listed site's start page (https://<site>/), or the page or a link from its latest read, as it was read; " + u + " is neither"
+	return CodeURLNotRead, "in the owner's Chrome a taf opens a listed site's start page (https://<site>/ or https://www.<site>/), or the page or a link from its latest read, as it was read; " + u + " is neither"
 }
 
 func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, error) {

@@ -280,7 +280,11 @@ func (s *Server) relayHello(ctx context.Context, connID string, it store.Item, c
 		s.relayClose(ctx, connID, closeUnknownChrome, "planque couldn't prove itself")
 		return
 	}
-	s.relayPost(ctx, connID, map[string]any{"type": "welcome", "sig": welcome})
+	// now is planque's clock, in milliseconds: the extension reads a step's
+	// expiry against it when its own computer's clock is a little off (it
+	// moves that reading by two minutes at most). It isn't signed: the
+	// welcome's proof is over the connection's nonces.
+	s.relayPost(ctx, connID, map[string]any{"type": "welcome", "sig": welcome, "now": s.now().UnixMilli()})
 }
 
 // relayResult keeps a step's result, once its signature is the Chrome's: a

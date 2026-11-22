@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **The owner's Chrome gets planque's time in the relay's welcome** (`now`, milliseconds since 1970). The extension reads a step's expiry against it when its computer's clock is a little off, and moves its own reading by two minutes at most. It isn't signed: the welcome's proof stays over the connection's nonces, and the welcome's other fields are unchanged.
 - **An image of each act in the owner's own Chrome, kept for the record, behind a switch (off).** With `PLANQUE_CHROME_SCREENSHOTS=on`, each `act` step planque sends to a paired Chrome records a one-time allowance. The extension then sends that step's image to `POST /v1/extension/steps/{step}/screenshot` as `{chrome_id, image, sig}`: the WebP bytes in base64url, signed with its own key over `{chrome_id, step, sha256}` (label `tafs-chrome/screenshot/v1`).
   - **Only an act planque sent to that Chrome,** within its lifetime plus two minutes, and once. Never a read or an open. Another key, a signature over another step, or a step never sent is 404, and nothing is kept.
   - **WebP only,** at most 1280 pixels wide and 8000 high (read from its VP8, VP8L or VP8X chunk) and 120 KB: otherwise 415 or 413.
@@ -156,6 +157,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- **In the owner's own Chrome, a listed site's `www.` start page opens.** A grant for `wikipedia.org` opened only `https://wikipedia.org/`, and a taf starting at `https://www.wikipedia.org/` got `url_not_read`. The `www.` start page now counts as a start page too, and the host is compared in lower case (`https://Wikipedia.org/` is the start page). No other name in front counts (`en.`, `m.`, `www.www.`), and nothing after the slash does: a path, a query, a fragment, a port or user info of the taf's own is still refused.
 - **Coach's browser connection in the owner's Chrome is asked and reaches the Chrome.** Three gaps on that path, found on the first real try (22 Nov):
   - **The catalog id:** `browser@1`, the catalog's own `<id>@<version>` form that Coach's `a-browser-taf` asks for and the browser's profile records, is the browser entry, as `browser` is. Before, it was "no such catalog entry".
   - **No hosted browser:** whether one is needed is the request's to say. Only a grant for the hosted browser answers "this installation has no browser", and a grant in the owner's Chrome doesn't need one.
