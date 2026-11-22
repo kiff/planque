@@ -3371,48 +3371,59 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request, sr signedReq
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
+	if err := s.endGrant(r.Context(), g, "disconnected "+sr.approval.Who(), "the owner's signed disconnect"); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(r, g))
+}
+
+// endGrant disconnects g as the owner's disconnect does: KIFF's tools for
+// it go, its sign-in or key is revoked where nothing else uses it, and its
+// record says so. said begins its event ("disconnected by …"); by is why it
+// ended, for the log.
+func (s *Server) endGrant(ctx context.Context, g *Grant, said, by string) error {
 	var problems []string
-	if key, err := s.connectorKey(r.Context(), g.Tenant); err != nil {
+	if key, err := s.connectorKey(ctx, g.Tenant); err != nil {
 		problems = append(problems, "the KIFF connector key could not be opened")
 	} else {
 		for _, t := range g.inKIFF() {
-			if err := s.KIFF.Disconnect(r.Context(), key, t.Name); err != nil {
+			if err := s.KIFF.Disconnect(ctx, key, t.Name); err != nil {
 				problems = append(problems, "KIFF kept "+t.Name+": "+err.Error())
 			}
 		}
 	}
-	problems = append(problems, s.revoke(r.Context(), g)...)
+	problems = append(problems, s.revoke(ctx, g)...)
 	from := g.Status
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	g.Pending, g.PendingTransport = nil, ""
-	what := "disconnected " + sr.approval.Who() + ": token deleted"
+	what := said + ": token deleted"
 	switch {
 	case g.keptFor > 0:
-		what = "disconnected " + sr.approval.Who() + ": the sign-in stays, another taf's connection uses it"
+		what = said + ": the sign-in stays, another taf's connection uses it"
 	case g.revokedShared && g.Request.Kind == KindAPIKey:
-		what = "disconnected " + sr.approval.Who() + ": the key it shared was deleted, no other connection used it"
+		what = said + ": the key it shared was deleted, no other connection used it"
 	case g.revokedShared:
-		what = "disconnected " + sr.approval.Who() + ": the sign-in it shared was revoked, no other connection used it"
+		what = said + ": the sign-in it shared was revoked, no other connection used it"
 	case g.TokenOf != "":
-		what = "disconnected " + sr.approval.Who() + ": the sign-in it used stays with the connection it came from"
+		what = said + ": the sign-in it used stays with the connection it came from"
 	case g.Request.Kind == KindAPIKey:
-		what = "disconnected " + sr.approval.Who() + ": key deleted"
+		what = said + ": key deleted"
 	case g.Request.Kind == KindBrowser:
-		what = "disconnected " + sr.approval.Who() + ": the browser's sign-ins and screenshots deleted"
+		what = said + ": the browser's sign-ins and screenshots deleted"
 	}
 	if g.Request.API != nil {
-		s.dropSnapshot(r.Context(), g.Tenant, g.ID)
+		s.dropSnapshot(ctx, g.Tenant, g.ID)
 	}
 	if len(problems) > 0 {
 		what += "; " + strings.Join(problems, "; ")
 	}
 	g.event(s.now(), what)
-	if err := s.saveGrant(r.Context(), g); err != nil {
-		s.fail(w, r, err)
-		return
+	if err := s.saveGrant(ctx, g); err != nil {
+		return err
 	}
-	s.logEnded(r.Context(), g, from, "the owner's signed disconnect")
-	writeJSON(w, http.StatusOK, s.view(r, g))
+	s.logEnded(ctx, g, from, by)
+	return nil
 }
 
 // errGrantRepeated: the account's grants can't be listed each once.

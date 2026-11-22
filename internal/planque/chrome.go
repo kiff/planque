@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
@@ -670,7 +671,35 @@ func (s *Server) removeChrome(ctx context.Context, tenant, id string) (bool, err
 	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
 	// Its acts' images go with it (chrome_screenshot.go).
 	s.dropChromeShots(ctx, tenant, func(shot chromeShot) bool { return shot.Chrome == id })
+	// Its connections end with it, so none is left on a Chrome that's gone
+	// (kiff/tafs docs/chrome.md, "Your Chrome" 3). They come back only by
+	// connecting again.
+	s.endChromesGrants(ctx, tenant, id)
 	return true, nil
+}
+
+// endChromesGrants disconnects every connection of the account that runs in
+// the Chrome id, as the owner's disconnect does. One that can't be read or
+// saved is logged and the rest still end.
+func (s *Server) endChromesGrants(ctx context.Context, tenant, id string) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		s.log().ErrorContext(ctx, "an unpaired Chrome's connections couldn't be listed", slog.String("tenant", tenant), slog.String("chrome", id), slog.String("err", err.Error()))
+		return
+	}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.ID == "" || skGrant(g.ID) != it.SK || g.Status == StatusDisconnected {
+			continue
+		}
+		if b := g.Request.Browser; b == nil || b.Driver != DriverExtension || b.Chrome != id {
+			continue
+		}
+		g.ver = it.Ver
+		if err := s.endGrant(ctx, &g, "disconnected: its Chrome was unpaired", "its Chrome was unpaired"); err != nil {
+			s.log().ErrorContext(ctx, "an unpaired Chrome's connection didn't end", slog.String("tenant", tenant), slog.String("grant", g.ID), slog.String("err", err.Error()))
+		}
+	}
 }
 
 // labelUnpair is what the extension signs to unpair itself (kiff/tafs
