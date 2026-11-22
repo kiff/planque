@@ -79,6 +79,10 @@ type Server struct {
 	// once a build is listed (PLANQUE_CHROME_OFFER, ChromeOfferFrom): every
 	// account (All), or only Tenants. Neither, it's offered to none.
 	ChromeOffer ChromeOffer
+	// ChromeScreenshots keeps an image of each acting step in the owner's
+	// own Chrome, for the taf's Activity (PLANQUE_CHROME_SCREENSHOTS=on,
+	// chrome_screenshot.go). Off, the routes answer 404 and nothing is kept.
+	ChromeScreenshots bool
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's
 	// WebSocket connections. Without both, the relay refuses every connect.
@@ -215,6 +219,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/pairings/{pairing}", s.signedSafe(s.readChromePairing))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/chromes/pairings/{pairing}/confirm", s.signed(s.confirmChromePairing))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes", s.signedSafe(s.listChromes))
+	// An acting step's image in the owner's own Chrome: the extension sends
+	// it, the owner reads it (chrome_screenshot.go; off unless switched on).
+	mux.HandleFunc("POST /v1/extension/steps/{step}/screenshot", extensionCORS(s.postChromeShot))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/screenshots/{step}", s.signedSafe(s.readChromeShot))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
 	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
 	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))
