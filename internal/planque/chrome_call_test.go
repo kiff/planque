@@ -280,6 +280,11 @@ func TestPairingOfferAndSignedSitesAreCheckedOnEveryCall(t *testing.T) {
 	if _, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"}); code(sc) != CodeSitesUnsigned {
 		t.Errorf("no signed sites: %v", sc)
 	}
+	// planque refuses it itself: nothing reaches the Chrome, which here
+	// would run anything.
+	if len(c.sent()) != 0 {
+		t.Fatalf("a step went to the Chrome without signed sites: %v", c.ops())
+	}
 	g.ChromeSitesSig = testSitesSig
 	if _, _, err := c.s.KV.Delete(ctx, tenantPK(tenant), skChrome(c.r.chrome)); err != nil {
 		t.Fatal(err)
@@ -833,6 +838,9 @@ func TestAResultFiledJustBeforeTheDropWins(t *testing.T) {
 		}
 		c.r.event("$default", "c1", msg)
 		c.r.event("$disconnect", "c1", nil)
+		if live, err := c.s.chromeLive(ctx, tenant, c.r.chrome); err != nil || live {
+			t.Errorf("the drop didn't end the connection: %v %v", live, err)
+		}
 	}
 	t.Cleanup(func() { afterResultCheck = nil })
 	page, err := sess.Open(ctx, "https://shop.example/")
