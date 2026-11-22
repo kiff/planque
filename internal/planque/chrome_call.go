@@ -267,13 +267,15 @@ func fence(text, tag string) string {
 // fencedAnswer is browserAnswer for the owner's Chrome: every string a page
 // wrote (its text, title, labels, options, link words) is first rid of
 // anything that looks like a marker, and the whole answer the taf reads sits
-// inside one fence.
+// inside one fence. Only the fence carries them: a structured copy beside it
+// would hand a caller that reads structured content the page's words outside
+// the fence, so the structured content only says the answer is fenced.
 func fencedAnswer(v map[string]any, tag string) map[string]any {
 	v = neutral(v).(map[string]any)
 	v["note"] = strings.TrimSpace(dataNotInstructions)
 	text, _ := json.MarshalIndent(v, "", " ")
 	r := toolResult(fence(string(text), tag), false)
-	r["structuredContent"] = v
+	r["structuredContent"] = map[string]any{"fenced": true}
 	return r
 }
 
