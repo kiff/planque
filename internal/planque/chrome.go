@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,6 +136,25 @@ type ChromeConfirmation struct {
 	PhoneKey   string `json:"phone_key"`
 	PhoneProof string `json:"phone_proof"`
 	PhoneSig   string `json:"phone_sig"`
+	// One fingerprint for the pairing and KIFF's view-only device (kiff/tafs
+	// docs/chrome.md, "Your Chrome" 5): phone_sig is then the approval key's
+	// kiff.requests.v1 signature, and the extension rebuilds it from these,
+	// relayed as the phone sent them. All three or none.
+	Tenant            string `json:"tenant,omitempty"`
+	SignedAt          string `json:"signed_at,omitempty"`
+	KiffRequestSHA256 string `json:"kiff_request_sha256,omitempty"`
+	// Replaces is the Chrome this one replaces ("Your Chrome" 1), and Carried
+	// each connection the replace moves with its sites, inside what the phone
+	// signed for the extension: it keeps them as those grants' signed sites.
+	Replaces string          `json:"replaces,omitempty"`
+	Carried  []ChromeCarried `json:"carried,omitempty"`
+}
+
+// ChromeCarried is a connection a re-pairing moves, with its sites as the
+// owner approved them.
+type ChromeCarried struct {
+	Grant string   `json:"grant"`
+	Sites []string `json:"sites"`
 }
 
 // Chrome is a paired Chrome: its key, and what it said it was.
@@ -525,11 +545,16 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		return
 	}
 	var req struct {
-		ChromeKeySHA256 string `json:"chrome_key_sha256"`
-		Name            string `json:"name"`
-		PhoneKey        string `json:"phone_key"`
-		PhoneProof      string `json:"phone_proof"`
-		PhoneSig        string `json:"phone_sig"`
+		ChromeKeySHA256   string          `json:"chrome_key_sha256"`
+		Name              string          `json:"name"`
+		PhoneKey          string          `json:"phone_key"`
+		PhoneProof        string          `json:"phone_proof"`
+		PhoneSig          string          `json:"phone_sig"`
+		Tenant            string          `json:"tenant"`
+		SignedAt          string          `json:"signed_at"`
+		KiffRequestSHA256 string          `json:"kiff_request_sha256"`
+		Replaces          string          `json:"replaces"`
+		Carried           []ChromeCarried `json:"carried"`
 	}
 	if err := decodeStrict(sr.body, &req); err != nil {
 		s.fail(w, r, err)
@@ -550,6 +575,59 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 	}
 	if sig, err := base64.RawURLEncoding.DecodeString(req.PhoneSig); err != nil || len(sig) != 64 {
 		writeErr(w, http.StatusBadRequest, "phone_sig must be a P-256 signature, r‖s in base64url")
+		return
+	}
+	// One fingerprint (Your Chrome 5): all three or none, the account's own,
+	// each a single line, so the extension rebuilds the bytes the phone signed.
+	if together := req.Tenant + req.SignedAt + req.KiffRequestSHA256; together != "" {
+		if req.Tenant != sr.tenant || !oneTimeLine(req.SignedAt) || !hex64(req.KiffRequestSHA256) {
+			writeErr(w, http.StatusBadRequest, "signed with KIFF's pairing: send tenant (this account), signed_at (RFC 3339) and kiff_request_sha256 (64 lower-case hex), all three")
+			return
+		}
+	}
+	// Re-pairing replaces (Your Chrome 1): the Chrome it replaces is the
+	// account's, and only the connections it carries move, each on that
+	// Chrome, with exactly the sites the owner approved for it.
+	var replaced *Chrome
+	var carried []*Grant
+	if req.Replaces != "" {
+		var old Chrome
+		if !chromeIDRe.MatchString(req.Replaces) {
+			writeErr(w, http.StatusBadRequest, "replaces must be one of this account's Chromes (chr_…)")
+			return
+		} else if _, err := getDoc(r.Context(), s.KV, tenantPK(sr.tenant), skChrome(req.Replaces), &old); errors.Is(err, errNotFound) {
+			writeErr(w, http.StatusConflict, "the Chrome this one replaces isn't paired to this account any more: pair it as a new Chrome")
+			return
+		} else if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		replaced = &old
+		if len(req.Carried) > chromeCarriedMax {
+			writeErr(w, http.StatusBadRequest, "carried moves at most 50 connections at once")
+			return
+		}
+		seen := map[string]bool{}
+		for _, m := range req.Carried {
+			g, err := s.loadGrant(r.Context(), sr.tenant, m.Grant)
+			// Only a connection the owner approved for the old Chrome moves: its
+			// sites signed for it (or carried to it by an earlier replace), and
+			// live, never one only asked for, failed or ended (qa-kiff).
+			if errors.Is(err, errNotFound) || err == nil && (seen[m.Grant] || g.Status == StatusDisconnected || g.Status == StatusPending ||
+				g.Status == StatusFailed || g.Request.Browser == nil || g.Request.Browser.Driver != DriverExtension ||
+				g.Request.Browser.Chrome != old.ID || g.ChromeSitesSig == "" && g.ChromeSitesCarried != old.ID ||
+				!slices.Equal(g.Request.Browser.Sites, m.Sites)) {
+				writeErr(w, http.StatusConflict, "carried names "+m.Grant+", which isn't a connection on the Chrome replaced with those sites: read the Chrome's connections again")
+				return
+			} else if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			seen[m.Grant] = true
+			carried = append(carried, g)
+		}
+	} else if len(req.Carried) > 0 {
+		writeErr(w, http.StatusBadRequest, "carried moves connections only with replaces, the Chrome they're on")
 		return
 	}
 	var p ChromePairing
@@ -592,7 +670,8 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		s.fail(w, r, err)
 		return
 	}
-	p.Confirmed = &ChromeConfirmation{ChromeID: c.ID, Name: name, PhoneKey: req.PhoneKey, PhoneProof: req.PhoneProof, PhoneSig: req.PhoneSig}
+	p.Confirmed = &ChromeConfirmation{ChromeID: c.ID, Name: name, PhoneKey: req.PhoneKey, PhoneProof: req.PhoneProof, PhoneSig: req.PhoneSig,
+		Tenant: req.Tenant, SignedAt: req.SignedAt, KiffRequestSHA256: req.KiffRequestSHA256, Replaces: req.Replaces, Carried: req.Carried}
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); err != nil {
 		// The Chrome was kept but the extension can't learn it: it goes.
 		_, _, _ = s.KV.Delete(r.Context(), tenantPK(c.Tenant), skChrome(c.ID))
@@ -600,7 +679,50 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": c.ID, "name": name})
+	// The carried connections move to the new Chrome, their sites now the
+	// pairing's to vouch for; then the old Chrome goes, ending the rest (3).
+	moved := []string{}
+	if replaced != nil {
+		for _, g := range carried {
+			g.Request.Browser.Chrome, g.Request.Browser.ChromeName = c.ID, label(c.Name)
+			g.ChromeSitesSig, g.ChromeSitesCarried = "", c.ID
+			g.event(s.now(), "moved to the Chrome \""+c.Name+"\" that replaced \""+replaced.Name+"\", with the same sites")
+			// One that can't be saved stays on the old Chrome and ends with it
+			// below: fail closed, and `moved` leaves it out.
+			if err := s.saveGrant(r.Context(), g); err != nil {
+				s.log().ErrorContext(r.Context(), "a carried connection didn't move", slog.String("tenant", sr.tenant), slog.String("grant", g.ID), slog.String("err", err.Error()))
+				continue
+			}
+			moved = append(moved, g.ID)
+		}
+		if _, err := s.removeChrome(r.Context(), sr.tenant, replaced.ID); err != nil {
+			s.log().ErrorContext(r.Context(), "the replaced Chrome wasn't removed", slog.String("tenant", sr.tenant), slog.String("chrome", replaced.ID), slog.String("err", err.Error()))
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": c.ID, "name": name, "moved": moved})
+}
+
+// chromeCarriedMax is the most connections one re-pairing moves, as the
+// extension keeps them (kiff/tafs docs/chrome.md, "Your Chrome" 1).
+const chromeCarriedMax = 50
+
+// oneTimeLine: an RFC 3339 time on one line.
+func oneTimeLine(v string) bool {
+	_, err := time.Parse(time.RFC3339, v)
+	return err == nil && !strings.ContainsAny(v, "\r\n")
+}
+
+// hex64: a SHA-256 as 64 lower-case hex digits.
+func hex64(v string) bool {
+	if len(v) != 64 {
+		return false
+	}
+	for _, c := range v {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // collectChromePairing is step 4: the extension, with the key it posted,
