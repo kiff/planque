@@ -72,6 +72,9 @@ type Approval struct {
 	BrowserFills string
 	BrowserPaysF string // the currency
 	BrowserTail  string
+	// The owner's own Chrome, through the tafs extension.
+	ChromeSitesF string // the taf, opening a sentence, then the sites, then the Chrome's name
+	ChromeTail   string
 
 	// A Telegram bot.
 	TelegramHookF     string // the taf
