@@ -5,6 +5,14 @@ package words
 // language) and for "because" (a piece of text in the "asks for more access"
 // line). The first eight are in approval_test.go.
 var morePartner = map[string]string{
+	"az": `(?i)giriş tərəfdaş`,
+	"hy": `(?i)մուտքի գործընկեր`,
+	"ka": `(?i)შესვლის პარტნიორ`,
+	"sq": `(?i)partner\S* (ynë|tonë) (i|të) hyrjes`,
+	"sr": `(?i)partner\w* za prijavu`,
+	"he": `(?i)שותף הכניסה`,
+	"ar": `(?i)شريك تسجيل الدخول`,
+	"el": `(?i)συνεργάτ\S* σύνδεσής`,
 	"ja": `(?i)サインインパートナー`,
 	"ko": `(?i)로그인 파트너`,
 	"zh": `(?i)登入合作夥伴`,
@@ -25,6 +33,14 @@ var morePartner = map[string]string{
 }
 
 var moreBecause = map[string]string{
+	"az": "çünki",
+	"hy": "քանի որ",
+	"ka": "რადგან",
+	"sq": " sepse ",
+	"sr": " jer ",
+	"he": " כי ",
+	"ar": "لأن",
+	"el": " επειδή ",
 	"ja": "ため",
 	"ko": "때문",
 	"zh": "因為",
