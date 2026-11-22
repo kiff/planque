@@ -778,6 +778,14 @@ func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRe
 		s.fail(w, r, err)
 		return
 	}
+	// Each Chrome's live connections ("Your Chrome" 3 and 4), decided here once
+	// so no app writes the rule again: the ones unpairing it would end that
+	// still matter (a failed one ends too, with nothing to lose).
+	on, err := s.chromesConnections(r.Context(), sr.tenant)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	out := []map[string]any{}
 	for _, it := range items {
 		var c Chrome
@@ -787,6 +795,10 @@ func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRe
 		row := map[string]any{"chrome_id": c.ID, "name": c.Name, "browser": c.Browser, "os": c.OS, "version": c.Version, "paired_at": c.PairedAt}
 		if c.ProfileID != "" {
 			row["profile_id"] = c.ProfileID
+		}
+		row["connections"] = on[c.ID]
+		if on[c.ID] == nil {
+			row["connections"] = []chromeConnection{}
 		}
 		out = append(out, row)
 	}
@@ -959,4 +971,37 @@ func profileIDShape(v string) bool {
 		}
 	}
 	return true
+}
+
+// chromeConnection is one browser connection on a paired Chrome, as the
+// Chromes list says it: its grant, the taf's name and the sites it reaches.
+type chromeConnection struct {
+	Grant string   `json:"grant"`
+	Name  string   `json:"name"`
+	Sites []string `json:"sites"`
+}
+
+// chromesConnections is each Chrome's live connections (asked for or
+// approved, not ended or failed) driven by the owner's Chrome, by the
+// Chrome's id, in the grants' own order.
+func (s *Server) chromesConnections(ctx context.Context, tenant string) (map[string][]chromeConnection, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "GRANT#")
+	if err != nil {
+		return nil, err
+	}
+	on := map[string][]chromeConnection{}
+	for _, it := range items {
+		var g Grant
+		if json.Unmarshal(it.Doc, &g) != nil || g.ID == "" || skGrant(g.ID) != it.SK || g.Status == StatusDisconnected || g.Status == StatusFailed {
+			continue
+		}
+		if b := g.Request.Browser; b != nil && b.Driver == DriverExtension && b.Chrome != "" {
+			name := g.Request.AgentName
+			if name == "" {
+				name = g.Request.Agent
+			}
+			on[b.Chrome] = append(on[b.Chrome], chromeConnection{Grant: g.ID, Name: name, Sites: b.Sites})
+		}
+	}
+	return on, nil
 }
