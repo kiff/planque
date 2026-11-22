@@ -238,14 +238,16 @@ func TestTheOwnersChromeOpensOnlyStartPagesAndWhatWasRead(t *testing.T) {
 		t.Fatalf("a step was sent for an address the taf wrote: %v", c.ops())
 	}
 	// Its www. start page is a start page too; no other name in front is.
-	for _, u := range []string{"https://shop.example/", "https://www.shop.example/", "https://www.shop.example"} {
+	// The host in any case, as a browser reads it.
+	for _, u := range []string{"https://shop.example/", "https://www.shop.example/", "https://www.shop.example", "https://Shop.Example/", "https://WWW.SHOP.EXAMPLE/"} {
 		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) != "" {
 			t.Fatalf("start page %s: %v", u, sc)
 		}
 	}
-	waitFor(t, func() bool { return len(c.sent()) == 6 }) // each start page: open, then close
+	waitFor(t, func() bool { return len(c.sent()) == 10 }) // each start page: open, then close
 	sent := len(c.sent())
-	for _, u := range []string{"https://m.shop.example/", "https://www.www.shop.example/", "https://www.shop.example/items/lamp?x=1", "http://www.shop.example/", "https://wwwshop.example/"} {
+	for _, u := range []string{"https://m.shop.example/", "https://www.www.shop.example/", "https://www.shop.example/items/lamp?x=1", "http://www.shop.example/", "https://wwwshop.example/",
+		"https://en.shop.example/", "https://shop.example/?", "https://shop.example/#top", "https://shop.example:443/", "https://u@shop.example/", "https://shop.example./"} {
 		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) != CodeURLNotRead && code(sc) != browser.CodeSiteNotListed && code(sc) != browser.CodeBadURL {
 			t.Errorf("%s: %v", u, sc)
 		}
