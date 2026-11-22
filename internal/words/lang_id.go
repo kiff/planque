@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Sudah masuk · menunggu konfirmasi Anda",
 		NotConnected:        "Tidak terhubung",
 		Disconnected:        "Terputus",
+		ChromeSitesF:        "%[1]s boleh memakai situs ini, di Chrome Anda sendiri “%[3]s”, dalam grup tab tersendiri yang bisa Anda lihat, jeda, atau hentikan: %[2]s. Tidak ada situs lain, dan tidak pernah tab Anda yang lain.\n\n%[1]s boleh:\n",
+		ChromeTail:          "\nIa bekerja dengan proses masuk yang sudah ada di Chrome itu, dan tidak pernah melihat kata sandi, nomor kartu, kode, atau cookie. Ia tidak mengambil tangkapan layar. Setiap langkah dikirim hanya dengan izin KIFF untuk panggilan itu saja. Memutuskan koneksi, atau melepas pasangan Chrome itu, menghentikannya seketika.",
 	}
 	connections["id"] = Connections{
 		SignInAgain:      "Masuk lagi",

@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Daxil olunub · təsdiqiniz gözlənilir",
 		NotConnected:        "Qoşulmayıb",
 		Disconnected:        "Əlaqə kəsilib",
+		ChromeSitesF:        "%[1]s bu saytlardan öz Chrome-unuzda “%[3]s”, sizin görə, fasilə verə və ya dayandıra biləcəyiniz öz tab qrupunda istifadə edə bilər: %[2]s. Başqa sayt yoxdur və digər tablarınıza heç vaxt toxunmur.\n\n%[1]s bunları edə bilər:\n",
+		ChromeTail:          "\nO, həmin Chrome-da artıq olan girişlərlə işləyir və heç vaxt parol, kart nömrəsi, kod və ya kuki görmür. Ekran görüntüsü çəkmir. Hər addım yalnız KIFF-in məhz həmin çağırış üçün verdiyi icazə ilə göndərilir. Qoşulmanı kəsmək və ya həmin Chrome-un cütləşməsini ləğv etmək onu dərhal dayandırır.",
 	}
 	connections["az"] = Connections{
 		SignInAgain:      "Yenidən daxil ol",

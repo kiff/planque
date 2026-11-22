@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Prisijungta · laukiama jūsų patvirtinimo",
 		NotConnected:        "Neprijungta",
 		Disconnected:        "Atjungta",
+		ChromeSitesF:        "%[1]s gali naudoti šias svetaines, jūsų paties Chrome „%[3]s“, savoje skirtukų grupėje, kurią galite matyti, pristabdyti ar sustabdyti: %[2]s. Jokios kitos svetainės ir niekada jūsų kiti skirtukai.\n\n%[1]s gali:\n",
+		ChromeTail:          "\nJis dirba su prisijungimais, kurie tame Chrome jau yra, ir niekada nemato slaptažodžio, kortelės numerio, kodo ar slapuko. Ekrano nuotraukų nedaro. Kiekvienas žingsnis siunčiamas tik su KIFF leidimu būtent tam iškvietimui. Atjungimas arba to Chrome susiejimo nutraukimas jį sustabdo iš karto.",
 	}
 	connections["lt"] = Connections{
 		SignInAgain:      "Prisijungti dar kartą",

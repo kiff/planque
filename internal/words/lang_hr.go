@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Prijavljeni · čeka se vaša potvrda",
 		NotConnected:        "Nije povezano",
 		Disconnected:        "Prekinuta veza",
+		ChromeSitesF:        "%[1]s smije koristiti ove stranice, u vašem vlastitom Chromeu „%[3]s“, u vlastitoj grupi kartica koju možete vidjeti, pauzirati ili zaustaviti: %[2]s. Nijedna druga stranica i nikada vaše druge kartice.\n\n%[1]s smije:\n",
+		ChromeTail:          "\nRadi s prijavama koje u tom Chromeu već postoje i nikada ne vidi lozinku, broj kartice, kod ni kolačić. Ne snima zaslon. Svaki se korak šalje samo s dozvolom KIFF-a za upravo taj poziv. Prekid veze ili raskidanje uparivanja tog Chromea zaustavlja ga odmah.",
 	}
 	connections["hr"] = Connections{
 		SignInAgain:      "Prijavite se ponovno",

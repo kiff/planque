@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Oturum açıldı · onayınız bekleniyor",
 		NotConnected:        "Bağlı değil",
 		Disconnected:        "Bağlantı kesildi",
+		ChromeSitesF:        "%[1]s, kendi Chrome'unuzda (“%[3]s”), görebileceğiniz, duraklatabileceğiniz veya durdurabileceğiniz kendi sekme grubunda şu siteleri kullanabilir: %[2]s. Başka site yok ve diğer sekmeleriniz asla.\n\n%[1]s şunları yapabilir:\n",
+		ChromeTail:          "\nO Chrome'da zaten var olan oturumlarla çalışır ve asla bir parola, kart numarası, kod veya çerez görmez. Ekran görüntüsü almaz. Her adım yalnızca KIFF'in tam o çağrı için verdiği izinle gönderilir. Bağlantıyı kesmek veya o Chrome'un eşlemesini kaldırmak onu hemen durdurur.",
 	}
 	connections["tr"] = Connections{
 		SignInAgain:      "Tekrar oturum aç",

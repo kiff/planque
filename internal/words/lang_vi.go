@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Đã đăng nhập · đang chờ bạn xác nhận",
 		NotConnected:        "Chưa kết nối",
 		Disconnected:        "Đã ngắt kết nối",
+		ChromeSitesF:        "%[1]s có thể dùng các trang này, trong Chrome của chính bạn “%[3]s”, trong một nhóm tab riêng mà bạn có thể xem, tạm dừng hoặc dừng: %[2]s. Không có trang nào khác, và không bao giờ là các tab khác của bạn.\n\n%[1]s có thể:\n",
+		ChromeTail:          "\nNó làm việc với các đăng nhập đã có sẵn trong Chrome đó, và không bao giờ thấy mật khẩu, số thẻ, mã hay cookie. Nó không chụp ảnh màn hình. Mỗi bước chỉ được gửi kèm giấy phép của KIFF cho đúng lệnh gọi đó. Ngắt kết nối, hoặc hủy ghép đôi Chrome đó, sẽ dừng nó ngay.",
 	}
 	connections["vi"] = Connections{
 		SignInAgain:      "Đăng nhập lại",

@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Pierakstīts · tiek gaidīts tavs apstiprinājums",
 		NotConnected:        "Nav pievienots",
 		Disconnected:        "Atvienots",
+		ChromeSitesF:        "%[1]s drīkst izmantot šīs vietnes tavā paša Chrome „%[3]s“, savā cilņu grupā, ko vari redzēt, iepauzēt vai apturēt: %[2]s. Neviena cita vietne un nekad tavas citas cilnes.\n\n%[1]s drīkst:\n",
+		ChromeTail:          "\nTas strādā ar pierakstīšanās, kas šajā Chrome jau ir, un nekad neredz paroli, kartes numuru, kodu vai sīkdatni. Tas neveido ekrānuzņēmumus. Katrs solis tiek sūtīts tikai ar KIFF atļauju tieši šim izsaukumam. Atvienošana vai šī Chrome atsaiste to aptur uzreiz.",
 	}
 	connections["lv"] = Connections{
 		SignInAgain:      "Pierakstīties vēlreiz",

@@ -316,7 +316,26 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Kind == KindBrowser {
 		// The browser's tools and profile are planque's: the request names
 		// which tools, and what the browser is limited to.
-		if s.Browser == nil {
+		if req.Browser != nil && req.Browser.Driver == DriverExtension {
+			// The owner's own Chrome: offered to this account, and paired to it.
+			if !s.relayOn() || !s.chromeOnFor(tenant) {
+				writeErr(w, http.StatusServiceUnavailable, "the owner's own Chrome isn't offered to this account")
+				return
+			}
+			if chromeIDRe.MatchString(req.Browser.Chrome) {
+				var c Chrome
+				if _, err := getDoc(r.Context(), s.KV, tenantPK(tenant), skChrome(req.Browser.Chrome), &c); errors.Is(err, errNotFound) {
+					writeErr(w, http.StatusBadRequest, "browser.chrome isn't a Chrome paired to this account")
+					return
+				} else if err != nil {
+					s.fail(w, r, err)
+					return
+				}
+				req.Browser.ChromeName = label(c.Name)
+			} else {
+				req.Browser.ChromeName = ""
+			}
+		} else if s.Browser == nil {
 			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
 			return
 		}
@@ -2005,6 +2024,9 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 	var req struct {
 		Digest  string          `json:"digest"`
 		Profile *ProfileDigests `json:"kiff_profile,omitempty"`
+		// ChromeSitesSig is the phone's signature over an extension grant's
+		// sites (tafs-chrome/sites/v1), carried in this signed approval.
+		ChromeSitesSig string `json:"chrome_sites_sig,omitempty"`
 	}
 	if err := decodeStrict(sr.body, &req); err != nil {
 		s.fail(w, r, err)
@@ -2077,11 +2099,18 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		s.approveConnector(w, r, sr, g)
 		return
 	}
+	if extension := g.Request.Browser != nil && g.Request.Browser.Driver == DriverExtension; extension || req.ChromeSitesSig != "" {
+		if msg := s.chromeApprovable(r.Context(), g, req.ChromeSitesSig); msg != "" {
+			writeErr(w, http.StatusConflict, msg)
+			return
+		}
+	}
 	if g.Request.Kind == KindBrowser && g.Status == StatusPending {
 		// A browser grant has no vendor to sign in at: approving it
 		// connects at once. A site's sign-in, when one is needed, is the
-		// owner's own, later, in the live view.
+		// owner's own, later, in the live view (or in their own Chrome).
 		a := sr.approval
+		g.ChromeSitesSig = req.ChromeSitesSig
 		g.Approval = &a
 		g.event(s.now(), "approved "+a.Who())
 		if err := s.connect(r.Context(), g, ""); err != nil {

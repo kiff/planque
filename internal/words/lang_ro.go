@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Conectat · se așteaptă să confirmați",
 		NotConnected:        "Neconectat",
 		Disconnected:        "Deconectat",
+		ChromeSitesF:        "%[1]s poate folosi aceste site-uri, în propriul dvs. Chrome „%[3]s”, într-un grup de file al său pe care îl puteți vedea, întrerupe sau opri: %[2]s. Niciun alt site și niciodată celelalte file ale dvs.\n\n%[1]s poate:\n",
+		ChromeTail:          "\nLucrează cu conectările deja existente în acel Chrome și nu vede niciodată o parolă, un număr de card, un cod sau un cookie. Nu face capturi de ecran. Fiecare pas este trimis doar cu autorizarea KIFF pentru exact acel apel. Deconectarea sau disocierea acelui Chrome îl oprește pe loc.",
 	}
 	connections["ro"] = Connections{
 		SignInAgain:      "Conectați-vă din nou",

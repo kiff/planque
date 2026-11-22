@@ -70,7 +70,12 @@ type relayRig struct {
 
 func newRelayRig(t *testing.T) *relayRig {
 	t.Helper()
-	e := chromeEnv(t)
+	return newRelayRigOn(t, chromeEnv(t))
+}
+
+// newRelayRigOn is newRelayRig on e, whose Chrome offer the test has set.
+func newRelayRigOn(t *testing.T, e *env) *relayRig {
+	t.Helper()
 	pk, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	ek, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	r := &relayRig{e: e, poster: &fakePoster{}, planque: stepkey.Local{Key: pk}, ext: stepkey.Local{Key: ek}, chrome: "chr_workmac0001"}

@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "로그인함 · 확인을 기다리는 중",
 		NotConnected:        "연결 안 됨",
 		Disconnected:        "연결 해제됨",
+		ChromeSitesF:        "%[1]s은(는) 직접 쓰는 Chrome “%[3]s”에서, 직접 보고 일시 중지하거나 멈출 수 있는 자체 탭 그룹으로 다음 사이트를 쓸 수 있습니다: %[2]s. 다른 사이트는 없고, 다른 탭은 절대 건드리지 않습니다.\n\n%[1]s이(가) 할 수 있는 일:\n",
+		ChromeTail:          "\n그 Chrome에 이미 있는 로그인으로 작동하며, 비밀번호, 카드 번호, 코드, 쿠키를 절대 보지 못합니다. 스크린샷도 찍지 않습니다. 각 단계는 해당 호출에 대한 KIFF의 허가와 함께만 전송됩니다. 연결을 끊거나 그 Chrome의 페어링을 해제하면 즉시 멈춥니다.",
 	}
 	connections["ko"] = Connections{
 		SignInAgain:      "다시 로그인",

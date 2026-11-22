@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Bejelentkezve · a megerősítésedre vár",
 		NotConnected:        "Nincs csatlakoztatva",
 		Disconnected:        "Szétkapcsolva",
+		ChromeSitesF:        "%[1]s ezeket az oldalakat használhatja, a saját Chrome-odban („%[3]s”), egy saját lapcsoportban, amelyet láthatsz, szüneteltethetsz vagy leállíthatsz: %[2]s. Más oldalt nem, és soha a többi lapodat.\n\n%[1]s megteheti:\n",
+		ChromeTail:          "\nA Chrome-ban már meglévő bejelentkezésekkel dolgozik, és soha nem lát jelszót, kártyaszámot, kódot vagy sütit. Nem készít képernyőképet. Minden lépés csak a KIFF pontosan arra a hívásra szóló engedélyével megy ki. A kapcsolat megszakítása vagy a Chrome párosításának megszüntetése azonnal leállítja.",
 	}
 	connections["hu"] = Connections{
 		SignInAgain:      "Bejelentkezés újra",

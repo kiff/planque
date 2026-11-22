@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Prijavljeni · čaka se na vašo potrditev",
 		NotConnected:        "Ni povezano",
 		Disconnected:        "Povezava prekinjena",
+		ChromeSitesF:        "%[1]s sme uporabljati ta spletna mesta, v vašem lastnem Chromu »%[3]s«, v lastni skupini zavihkov, ki jo lahko vidite, začasno ustavite ali ustavite: %[2]s. Nobeno drugo mesto in nikoli vaši drugi zavihki.\n\n%[1]s sme:\n",
+		ChromeTail:          "\nDela s prijavami, ki že obstajajo v tem Chromu, in nikoli ne vidi gesla, številke kartice, kode ali piškotka. Ne naredi posnetkov zaslona. Vsak korak se pošlje samo z dovoljenjem KIFF za natanko ta klic. Prekinitev povezave ali razdružitev tega Chroma ga takoj ustavi.",
 	}
 	connections["sl"] = Connections{
 		SignInAgain:      "Znova se prijavi",

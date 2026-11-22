@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Keni hyrë · po pritet konfirmimi juaj",
 		NotConnected:        "Nuk është e lidhur",
 		Disconnected:        "E shkëputur",
+		ChromeSitesF:        "%[1]s mund t'i përdorë këto faqe, në Chrome-in tuaj “%[3]s”, në një grup skedash të veten që mund ta shihni, ta pezulloni ose ta ndaloni: %[2]s. Asnjë faqe tjetër dhe kurrë skedat tuaja të tjera.\n\n%[1]s mund të:\n",
+		ChromeTail:          "\nPunon me hyrjet që ekzistojnë tashmë në atë Chrome dhe nuk sheh kurrë fjalëkalim, numër karte, kod ose cookie. Nuk bën pamje ekrani. Çdo hap dërgohet vetëm me lejen e KIFF-it për pikërisht atë thirrje. Ndërprerja e lidhjes ose zhdoganimi i çiftimit të atij Chrome-i e ndalon menjëherë.",
 	}
 	connections["sq"] = Connections{
 		SignInAgain:      "Hyni përsëri",

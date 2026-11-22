@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "サインイン済み・確認待ちです",
 		NotConnected:        "未接続",
 		Disconnected:        "接続解除済み",
+		ChromeSitesF:        "%[1]sは、あなた自身のChrome「%[3]s」で、あなたが見て一時停止も停止もできる専用のタブグループの中で、次のサイトを使えます: %[2]s。ほかのサイトは使えず、ほかのタブには決して触れません。\n\n%[1]sができること:\n",
+		ChromeTail:          "\nそのChromeにすでにあるサインインで動き、パスワード、カード番号、コード、Cookieを決して見ません。スクリーンショットも撮りません。各ステップは、その呼び出しに対するKIFFの許可とともにのみ送られます。接続を解除するか、そのChromeのペアリングを解除すると、すぐに止まります。",
 	}
 	connections["ja"] = Connections{
 		SignInAgain:      "もう一度サインイン",

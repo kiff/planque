@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Sessió iniciada · esperant que ho confirmis",
 		NotConnected:        "No connectat",
 		Disconnected:        "Desconnectat",
+		ChromeSitesF:        "%[1]s pot fer servir aquests llocs, al teu propi Chrome «%[3]s», en un grup de pestanyes seu que pots veure, posar en pausa o aturar: %[2]s. Cap altre lloc i mai les teves altres pestanyes.\n\n%[1]s pot:\n",
+		ChromeTail:          "\nTreballa amb els inicis de sessió que ja hi ha en aquell Chrome i no veu mai una contrasenya, un número de targeta, un codi ni una galeta. No fa captures de pantalla. Cada pas s'envia només amb el permís de KIFF per a aquella crida exacta. Desconnectar, o desvincular aquell Chrome, l'atura a l'instant.",
 	}
 	connections["ca"] = Connections{
 		SignInAgain:      "Torna a iniciar la sessió",

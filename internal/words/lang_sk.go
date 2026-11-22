@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Prihlásené · čaká sa na vaše potvrdenie",
 		NotConnected:        "Nepripojené",
 		Disconnected:        "Odpojené",
+		ChromeSitesF:        "%[1]s smie používať tieto weby, vo vašom vlastnom Chrome „%[3]s“, vo vlastnej skupine kariet, ktorú môžete vidieť, pozastaviť alebo zastaviť: %[2]s. Žiadny iný web a nikdy vaše ostatné karty.\n\n%[1]s smie:\n",
+		ChromeTail:          "\nPracuje s prihláseniami, ktoré v tom Chrome už sú, a nikdy nevidí heslo, číslo karty, kód ani cookie. Nerobí snímky obrazovky. Každý krok sa posiela len s povolením KIFF pre práve to volanie. Odpojenie alebo zrušenie spárovania toho Chrome ho okamžite zastaví.",
 	}
 	connections["sk"] = Connections{
 		SignInAgain:      "Prihlásiť sa znova",

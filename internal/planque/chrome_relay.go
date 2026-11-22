@@ -337,17 +337,25 @@ func (s *Server) relayClose(ctx context.Context, connID string, code int, reason
 
 // chromeStep is one signed step, as the extension checks it.
 type chromeStep struct {
-	ID       string          `json:"id"`
-	Nonce    string          `json:"nonce"`
-	Exp      int64           `json:"exp"` // ms since the epoch, at most 30 s ahead
-	ChromeID string          `json:"chrome_id"`
-	Run      string          `json:"run"`
-	Grant    string          `json:"grant"`
-	Sites    []string        `json:"sites"`
-	Op       string          `json:"op"`
-	URL      string          `json:"url,omitempty"`
-	ReadID   string          `json:"read_id,omitempty"`
-	Act      json.RawMessage `json:"act,omitempty"`
+	ID       string   `json:"id"`
+	Nonce    string   `json:"nonce"`
+	Exp      int64    `json:"exp"` // ms since the epoch, at most 30 s ahead
+	ChromeID string   `json:"chrome_id"`
+	Run      string   `json:"run"`
+	Taf      string   `json:"taf,omitempty"`
+	Grant    string   `json:"grant"`
+	Sites    []string `json:"sites"`
+	// SitesSigned is the owner's phone's signature over the grant's sites,
+	// as the phone made it (chrome_driver.go): the extension runs nothing
+	// without it.
+	SitesSigned *chromeSitesSigned `json:"sites_signed,omitempty"`
+	Op          string             `json:"op"`
+	URL         string             `json:"url,omitempty"`
+	// Offset is where a paged read starts in the page's text, bound to the
+	// read it came from (ReadID).
+	Offset int             `json:"offset,omitempty"`
+	ReadID string          `json:"read_id,omitempty"`
+	Act    json.RawMessage `json:"act,omitempty"`
 }
 
 // errChromeOffline: no proven connection from that Chrome now.

@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "Sisse logitud · oodatakse sinu kinnitust",
 		NotConnected:        "Ühendamata",
 		Disconnected:        "Lahti ühendatud",
+		ChromeSitesF:        "%[1]s tohib kasutada neid lehti, sinu enda Chrome'is „%[3]s“, oma vahekaardirühmas, mida saad näha, pausile panna või peatada: %[2]s. Ühtegi teist lehte ega kunagi sinu teisi vahekaarte.\n\n%[1]s tohib:\n",
+		ChromeTail:          "\nSee töötab selles Chrome'is juba olemasolevate sisselogimistega ega näe kunagi parooli, kaardinumbrit, koodi ega küpsist. Ekraanipilte ta ei tee. Iga samm saadetakse ainult KIFFi loaga just selle kutse jaoks. Ühenduse katkestamine või selle Chrome'i sidumise lõpetamine peatab selle kohe.",
 	}
 	connections["et"] = Connections{
 		SignInAgain:      "Logi uuesti sisse",

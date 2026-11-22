@@ -115,6 +115,8 @@ func init() {
 		WaitingToConfirm:    "已登入 · 等待您確認",
 		NotConnected:        "未連接",
 		Disconnected:        "已中斷連線",
+		ChromeSitesF:        "%[1]s 可以使用這些網站，在您自己的 Chrome「%[3]s」中，於它自己的分頁群組裡，您可以查看、暫停或停止：%[2]s。沒有其他網站，也絕不碰您的其他分頁。\n\n%[1]s 可以：\n",
+		ChromeTail:          "\n它使用該 Chrome 中已有的登入，絕不會看到密碼、卡號、驗證碼或 Cookie。它不截圖。每個步驟只會附上 KIFF 針對該次呼叫核發的許可。中斷連線，或解除該 Chrome 的配對，會立即停止它。",
 	}
 	connections["zh"] = Connections{
 		SignInAgain:      "重新登入",

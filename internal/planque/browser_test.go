@@ -109,6 +109,10 @@ func textOf(res any) (string, map[string]any) {
 	if len(m.Content) > 0 {
 		text = m.Content[0].Text
 	}
+	if m.Structured["fenced"] == true {
+		// The owner's Chrome: the answer is only inside the fence.
+		return text, fencedJSON(text)
+	}
 	return text, m.Structured
 }
 
@@ -117,6 +121,18 @@ var suffixes int
 func randomSuffix() string {
 	suffixes++
 	return strings.Repeat("x", suffixes%5+1) + string(rune('a'+suffixes%26))
+}
+
+// fencedJSON is the answer inside a fence, as the taf reads it.
+func fencedJSON(text string) map[string]any {
+	start := strings.Index(text, ">>>\n")
+	end := strings.LastIndex(text, "\n<<</page-words:")
+	if start < 0 || end < start {
+		return nil
+	}
+	var v map[string]any
+	_ = json.Unmarshal([]byte(text[start+4:end]), &v)
+	return v
 }
 
 func code(sc map[string]any) string {
