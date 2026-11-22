@@ -223,6 +223,8 @@ func (s *Server) Handler() http.Handler {
 	// it, the owner reads it (chrome_screenshot.go; off unless switched on).
 	mux.HandleFunc("POST /v1/extension/steps/{step}/screenshot", extensionCORS(s.postChromeShot))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/screenshots/{step}", s.signedSafe(s.readChromeShot))
+	// One operation's images, listed for a taf's Activity row by its proposal_id.
+	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/screenshots", s.signedSafe(s.listChromeShots))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
 	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
 	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))

@@ -429,3 +429,30 @@ func TestPinAccountPinsOnlyTheOneAccountTheConnectionCovers(t *testing.T) {
 		t.Errorf("not a narrowed Stripe tool: %q %+v", msg, other)
 	}
 }
+
+// A new taf's first request that reuses a connected sign-in already knows
+// the account, so a narrowed Stripe tool left open is pinned to it there,
+// before the owner's words, as on an addition; another account is refused.
+func TestAReusedSignInsRequestPinsItsAccount(t *testing.T) {
+	read := func(fixed map[string]any) map[string]any {
+		return map[string]any{"tool": "stripe_api_read", "name": "read_charge_2", "title": "Read one charge", "read_only": true,
+			"fixed_arguments": fixed, "arguments": map[string]any{"id": map[string]any{"path": "parameters.id", "type": "string"}}}
+	}
+	e := newEnv(t)
+	id := e.detailsGrant()
+	ask := func(tool map[string]any) (int, map[string]any) {
+		return e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "reuse": id, "agent": "agt_second",
+			"tools": []any{tool}}, nil, "k_setup")
+	}
+	if st, out := ask(read(map[string]any{"stripe_api_operation_id": "GetChargesCharge", "stripe_context": "acct_other"})); st != 400 ||
+		!strings.Contains(out["error"].(string), "names another account than this connection's (acct_fake123)") {
+		t.Fatalf("another account: %d %v", st, out)
+	}
+	st, out := ask(read(map[string]any{"stripe_api_operation_id": "GetChargesCharge"}))
+	if st != 201 {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	if terms, _ := json.Marshal(out["terms"]); !strings.Contains(string(terms), `stripe_context = \"acct_fake123\"`) {
+		t.Fatalf("the owner doesn't read the pinned account: %s", terms)
+	}
+}

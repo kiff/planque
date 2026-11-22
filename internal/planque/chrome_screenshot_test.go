@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -273,5 +275,114 @@ func TestImagesGoWithTheirChromeAndTheirConnection(t *testing.T) {
 	}
 	if kept("stp_other") {
 		t.Error("the unpaired Chrome's image is still kept")
+	}
+}
+
+// A taf's Activity row reads its pictures by its proposal_id, KIFF's
+// operation, which planque runs a Chrome call as (PM, 22 Nov 22:12): only
+// that operation's images, kept and within 30 days, oldest first, the newest
+// 20 at most, never the bytes; none, or the switch off, an empty list.
+func TestAnOperationsImagesAreListedForItsActivityRow(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeScreenshots = true
+	c.r.connect(t, "c1")
+	ctx := context.Background()
+	now := time.Now()
+	c.s.Now = func() time.Time { return now }
+	tick := 0
+	c.phone.Now = func() time.Time { tick++; return now.Add(time.Duration(tick) * time.Second) }
+	img := webp(640, 8<<10)
+	keep := func(op string, n int) string {
+		t.Helper()
+		id := chromeStepID(op, n)
+		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: op, Grant: "grt_x", Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(img)
+		sig, err := stepkey.SignBody(ctx, c.r.ext, labelScreenshot, map[string]string{"chrome_id": c.r.chrome, "step": id, "sha256": hex.EncodeToString(sum[:])})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st, _ := c.do("POST", "/v1/extension/steps/"+id+"/screenshot", map[string]any{"chrome_id": c.r.chrome,
+			"image": base64.RawURLEncoding.EncodeToString(img), "sig": sig}, nil, ""); st != http.StatusNoContent {
+			t.Fatalf("keep %s: %d", id, st)
+		}
+		now = now.Add(time.Second)
+		return id
+	}
+	list := func(query string) (int, []map[string]any) {
+		t.Helper()
+		st, out := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots"+query, nil, c.phone, "")
+		var shots []map[string]any
+		if raw, ok := out["shots"].([]any); ok {
+			for _, s := range raw {
+				shots = append(shots, s.(map[string]any))
+			}
+		}
+		return st, shots
+	}
+	steps := func(shots []map[string]any) []string {
+		var out []string
+		for _, s := range shots {
+			out = append(out, s["step"].(string))
+		}
+		return out
+	}
+
+	op := "prp_intro_1"
+	a, b := keep(op, 1), keep(op, 2)
+	keep("prp_intro_10", 1) // another operation, its ids sharing the first one's start
+	// An operation too long for the relay's ids: its steps' ids are a hash of it.
+	long := "prp_" + strings.Repeat("x", 70)
+	l1 := keep(long, 1)
+	if !strings.HasPrefix(l1, "op_") {
+		t.Fatalf("a long operation's step id: %s", l1)
+	}
+
+	st, shots := list("?op=" + op)
+	if st != 200 || !slices.Equal(steps(shots), []string{a, b}) {
+		t.Fatalf("its own images, oldest first: %d %v", st, shots)
+	}
+	for _, s := range shots {
+		if len(s) != 3 || s["sha256"] == "" || s["taken_at"] == "" || s["image"] != nil {
+			t.Errorf("an entry is {step, taken_at, sha256}, never the bytes: %v", s)
+		}
+	}
+	if _, shots := list("?op=" + long); !slices.Equal(steps(shots), []string{l1}) {
+		t.Errorf("a long operation: %v", shots)
+	}
+	if st, shots := list("?op=prp_none"); st != 200 || len(shots) != 0 {
+		t.Errorf("an operation with none: %d %v", st, shots)
+	}
+
+	// The newest 20 at most.
+	many := "prp_many"
+	var kept []string
+	for n := 1; n <= 22; n++ {
+		kept = append(kept, keep(many, n))
+	}
+	if _, shots := list("?op=" + many); !slices.Equal(steps(shots), kept[2:]) {
+		t.Errorf("the newest 20: %v", steps(shots))
+	}
+
+	// Past 30 days, an image isn't listed, whether or not the store has deleted it.
+	now = now.Add(chromeShotKept + time.Hour)
+	if _, shots := list("?op=" + op); len(shots) != 0 {
+		t.Errorf("after 30 days: %v", shots)
+	}
+
+	// Asked wrong, or unsigned, it's refused; off, it's an empty list.
+	for _, q := range []string{"", "?op=", "?op=a&op=b", "?op=" + strings.Repeat("y", 513)} {
+		if st, _ := list(q); st != http.StatusBadRequest {
+			t.Errorf("%q: %d", q, st)
+		}
+	}
+	if st, _ := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots?op="+op, nil, nil, ""); st != 401 {
+		t.Errorf("unsigned: %d", st)
+	}
+	now = time.Now()
+	c.s.ChromeScreenshots = false
+	if st, shots := list("?op=" + many); st != 200 || len(shots) != 0 {
+		t.Errorf("off: %d %v", st, shots)
 	}
 }

@@ -470,6 +470,12 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			writeRefusal(w, r)
 			return
 		}
+		// The reused sign-in's account is known: an open one is pinned to it
+		// before the owner's words, as on an addition (pinAccount).
+		if msg := pinAccount(g, *req.Tools); msg != "" {
+			writeErr(w, http.StatusBadRequest, msg)
+			return
+		}
 		if api != nil {
 			snap, err := s.loadSnapshot(r.Context(), tenant, g.ID)
 			if err == nil {
