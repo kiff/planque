@@ -5,6 +5,18 @@ package words
 // language) and for "because" (a piece of text in the "asks for more access"
 // line). The first eight are in approval_test.go.
 var morePartner = map[string]string{
+	"dz": `(?i)ཐོ་འཛུལ་ལས་རོགས`,
+	"dv": `(?i)ސައިން-އިން ޕާޓްނަރ`,
+	"tg": `(?i)шарик\S* воридшав`,
+	"ta": `(?i)உள்நுழைவுக் கூட்டாளர`,
+	"si": `(?i)පිවිසුම් හවුල්කරු`,
+	"lo": `(?i)ຄູ່ຮ່ວມງານການເຂົ້າສູ່ລະບົບ`,
+	"km": `(?i)ដៃគូចូលគណនី`,
+	"ne": `(?i)साइन इन साझेदार`,
+	"mn": `(?i)нэвтрэлтийн түнш`,
+	"mk": `(?i)партнер за најава`,
+	"ca": `(?i)soci d'inici de sessió`,
+	"bn": `(?i)সাইন ইন অংশীদার`,
 	"az": `(?i)giriş tərəfdaş`,
 	"hy": `(?i)մուտքի գործընկեր`,
 	"ka": `(?i)შესვლის პარტნიორ`,
@@ -33,6 +45,18 @@ var morePartner = map[string]string{
 }
 
 var moreBecause = map[string]string{
+	"dz": "ཅིའི་ཕྱིར་ཟེར་བ་ཅིན",
+	"dv": "ސަބަބުންނެވެ",
+	"tg": "зеро",
+	"ta": "ஏனெனில்",
+	"si": "මන්ද",
+	"lo": "ເພາະວ່າ",
+	"km": "ព្រោះ",
+	"ne": "किनभने",
+	"mn": "учир нь",
+	"mk": "бидејќи",
+	"ca": "perquè",
+	"bn": "কারণ",
 	"az": "çünki",
 	"hy": "քանի որ",
 	"ka": "რადგან",
