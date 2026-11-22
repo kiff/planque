@@ -61,6 +61,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "pays a checkout in %s only, with the total read from the page, held for your approval each time",
 		BrowserTail: "\nWhen a site needs a sign-in, you sign in yourself, on your phone; the taf never sees a password, a card number, a code or a cookie. " +
 			"Each call is sent only with KIFF's permit for that exact call. You can disconnect at any time, which deletes the kept sign-ins.",
+		ChromeSitesF: "%[1]s may use these sites, in your own Chrome \"%[3]s\", in a tab group of its own that you can see, pause or stop: %[2]s. No other site, and never your other tabs.\n\n%[1]s may:\n",
+		ChromeTail:   "\nIt works with the sign-ins already in that Chrome, and never sees a password, a card number, a code or a cookie. It takes no screenshots. Each step is sent only with KIFF's permit for that exact call. Disconnecting, or unpairing that Chrome, stops it at once.",
 
 		TelegramHookF: "Giving it points the bot's webhook at planque, replacing any the bot had: messages people send the bot in a private chat, " +
 			"and group messages that mention it, go to %s as they arrive. Other messages are dropped.",
@@ -145,6 +147,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "bezahlt einen Checkout nur in %s, mit dem Betrag von der Seite, jedes Mal zu deiner Genehmigung zurückgehalten",
 		BrowserTail: "\nWenn eine Seite eine Anmeldung braucht, meldest du dich selbst an, auf deinem Telefon; der taf sieht nie ein Passwort, eine Kartennummer, einen Code oder ein Cookie. " +
 			"Jeder Aufruf wird nur mit KIFFs Freigabe für genau diesen Aufruf gesendet. Du kannst jederzeit trennen, wodurch die behaltenen Anmeldungen gelöscht werden.",
+		ChromeSitesF: "%[1]s darf diese Seiten nutzen, in deinem eigenen Chrome „%[3]s“, in einer eigenen Tab-Gruppe, die du sehen, anhalten oder beenden kannst: %[2]s. Keine andere Seite, und nie deine anderen Tabs.\n\n%[1]s darf:\n",
+		ChromeTail:   "\nEr arbeitet mit den Anmeldungen, die in diesem Chrome schon bestehen, und sieht nie ein Passwort, eine Kartennummer, einen Code oder ein Cookie. Er macht keine Screenshots. Jeder Schritt wird nur mit KIFFs Erlaubnis für genau diesen Aufruf gesendet. Trennen oder das Entkoppeln dieses Chrome beendet ihn sofort.",
 
 		TelegramHookF: "Damit zeigt der Webhook des Bots auf planque und ersetzt einen, den der Bot hatte: Nachrichten, die Leute dem Bot privat schicken, " +
 			"und Gruppennachrichten, die ihn erwähnen, gehen an %s, sobald sie ankommen. Andere Nachrichten werden verworfen.",
@@ -229,6 +233,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "paie une commande en %s uniquement, avec le total lu sur la page, retenu pour votre approbation à chaque fois",
 		BrowserTail: "\nQuand un site demande une connexion, vous vous connectez vous-même, sur votre téléphone ; le taf ne voit jamais un mot de passe, un numéro de carte, un code ou un cookie. " +
 			"Chaque appel n'est envoyé qu'avec l'autorisation de KIFF pour cet appel précis. Vous pouvez déconnecter à tout moment, ce qui supprime les connexions gardées.",
+		ChromeSitesF: "%[1]s pourra utiliser ces sites, dans votre propre Chrome « %[3]s », dans un groupe d'onglets à lui que vous pouvez voir, mettre en pause ou arrêter : %[2]s. Aucun autre site, et jamais vos autres onglets.\n\n%[1]s pourra :\n",
+		ChromeTail:   "\nIl utilise les connexions déjà présentes dans ce Chrome et ne voit jamais un mot de passe, un numéro de carte, un code ou un cookie. Il ne fait aucune capture d'écran. Chaque étape n'est envoyée qu'avec l'autorisation de KIFF pour cet appel précis. Déconnecter, ou dissocier ce Chrome, l'arrête aussitôt.",
 
 		TelegramHookF: "Le donner fait pointer le webhook du bot vers planque, en remplaçant celui que le bot avait : les messages qu'on envoie au bot en privé, " +
 			"et les messages de groupe qui le mentionnent, vont à %s dès leur arrivée. Les autres messages sont ignorés.",
@@ -313,6 +319,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "paga un pedido solo en %s, con el total leído de la página, retenido para tu aprobación cada vez",
 		BrowserTail: "\nCuando un sitio pide iniciar sesión, la inicias tú, en tu teléfono; el taf nunca ve una contraseña, un número de tarjeta, un código ni una cookie. " +
 			"Cada llamada se envía solo con el permiso de KIFF para esa llamada exacta. Puedes desconectar en cualquier momento, lo que borra los inicios de sesión guardados.",
+		ChromeSitesF: "%[1]s podrá usar estos sitios, en tu propio Chrome «%[3]s», en un grupo de pestañas propio que puedes ver, pausar o detener: %[2]s. Ningún otro sitio, y nunca tus otras pestañas.\n\n%[1]s podrá:\n",
+		ChromeTail:   "\nUsa las sesiones ya iniciadas en ese Chrome y nunca ve una contraseña, un número de tarjeta, un código ni una cookie. No hace capturas de pantalla. Cada paso se envía solo con el permiso de KIFF para esa llamada exacta. Desconectar, o desvincular ese Chrome, lo detiene al instante.",
 
 		TelegramHookF: "Darlo apunta el webhook del bot a planque, en lugar del que tuviera: los mensajes que la gente envía al bot en un chat privado, " +
 			"y los mensajes de grupo que lo mencionan, van a %s en cuanto llegan. Los demás mensajes se descartan.",
@@ -397,6 +405,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "paga un checkout solo in %s, con il totale letto dalla pagina, trattenuto ogni volta per la tua approvazione",
 		BrowserTail: "\nQuando un sito chiede un accesso, accedi tu, sul tuo telefono; il taf non vede mai una password, un numero di carta, un codice o un cookie. " +
 			"Ogni chiamata è inviata solo con il permesso di KIFF per quella chiamata esatta. Puoi scollegarlo in qualsiasi momento, il che elimina gli accessi conservati.",
+		ChromeSitesF: "%[1]s potrà usare questi siti, nel tuo Chrome «%[3]s», in un gruppo di schede suo che puoi vedere, mettere in pausa o fermare: %[2]s. Nessun altro sito, e mai le tue altre schede.\n\n%[1]s potrà:\n",
+		ChromeTail:   "\nUsa gli accessi già presenti in quel Chrome e non vede mai una password, un numero di carta, un codice o un cookie. Non fa screenshot. Ogni passo è inviato solo con il permesso di KIFF per quella chiamata esatta. Disconnettere, o scollegare quel Chrome, lo ferma subito.",
 
 		TelegramHookF: "Darlo punta il webhook del bot su planque, sostituendo quello che il bot aveva: i messaggi che le persone inviano al bot in una chat privata, " +
 			"e i messaggi di gruppo che lo menzionano, vanno a %s appena arrivano. Gli altri messaggi vengono scartati.",
@@ -481,6 +491,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "paga um checkout só em %s, com o total lido da página, retido para a sua aprovação de cada vez",
 		BrowserTail: "\nQuando um site pede um início de sessão, é você que inicia sessão, no seu telemóvel; o taf nunca vê uma palavra-passe, um número de cartão, um código ou um cookie. " +
 			"Cada chamada só é enviada com a autorização da KIFF para essa chamada exata. Pode desligar a qualquer momento, o que apaga os inícios de sessão guardados.",
+		ChromeSitesF: "%[1]s poderá usar estes sites, no seu próprio Chrome «%[3]s», num grupo de separadores próprio que pode ver, pausar ou parar: %[2]s. Nenhum outro site, e nunca os seus outros separadores.\n\n%[1]s poderá:\n",
+		ChromeTail:   "\nUsa as sessões já iniciadas nesse Chrome e nunca vê uma palavra-passe, um número de cartão, um código ou um cookie. Não faz capturas de ecrã. Cada passo só é enviado com a autorização da KIFF para essa chamada exata. Desligar, ou desemparelhar esse Chrome, para-o de imediato.",
 
 		TelegramHookF: "Dá-lo aponta o webhook do bot para planque, substituindo o que o bot tinha: as mensagens que as pessoas enviam ao bot num chat privado, " +
 			"e as mensagens de grupo que o mencionam, vão para %s assim que chegam. As outras mensagens são descartadas.",
@@ -565,6 +577,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "betaalt een checkout alleen in %s, met het totaal van de pagina, elke keer vastgehouden voor je goedkeuring",
 		BrowserTail: "\nAls een site een inlog nodig heeft, log je zelf in, op je telefoon; het taf ziet nooit een wachtwoord, een kaartnummer, een code of een cookie. " +
 			"Elke aanroep wordt alleen verzonden met de toestemming van KIFF voor precies die aanroep. Je kunt op elk moment ontkoppelen, waarmee de bewaarde inlogs worden verwijderd.",
+		ChromeSitesF: "%[1]s mag deze sites gebruiken, in je eigen Chrome \"%[3]s\", in een eigen tabbladgroep die je kunt zien, pauzeren of stoppen: %[2]s. Geen andere site, en nooit je andere tabbladen.\n\n%[1]s mag:\n",
+		ChromeTail:   "\nHij werkt met de aanmeldingen die al in die Chrome staan en ziet nooit een wachtwoord, kaartnummer, code of cookie. Hij maakt geen schermafbeeldingen. Elke stap wordt alleen verstuurd met KIFF's toestemming voor precies die aanroep. Loskoppelen, of die Chrome ontkoppelen, stopt hem meteen.",
 
 		TelegramHookF: "Daarmee wijst de webhook van de bot naar planque, in plaats van een die de bot had: berichten die mensen de bot in een privéchat sturen, " +
 			"en groepsberichten die hem noemen, gaan naar %s zodra ze binnenkomen. Andere berichten worden genegeerd.",
@@ -649,6 +663,8 @@ var approvals = map[string]Approval{
 		BrowserPaysF: "płaci za zamówienie tylko w %s, kwotą odczytaną ze strony, za każdym razem wstrzymaną do Twojego zatwierdzenia",
 		BrowserTail: "\nGdy strona wymaga logowania, logujesz się sam, na swoim telefonie; taf nigdy nie widzi hasła, numeru karty, kodu ani pliku cookie. " +
 			"Każde wywołanie jest wysyłane tylko ze zgodą KIFF na dokładnie to wywołanie. Możesz rozłączyć w każdej chwili, co usuwa zachowane logowania.",
+		ChromeSitesF: "%[1]s może korzystać z tych stron, w Twoim własnym Chrome „%[3]s”, we własnej grupie kart, którą możesz widzieć, wstrzymać lub zatrzymać: %[2]s. Żadnej innej strony i nigdy Twoich pozostałych kart.\n\n%[1]s może:\n",
+		ChromeTail:   "\nKorzysta z logowań, które już są w tym Chrome, i nigdy nie widzi hasła, numeru karty, kodu ani pliku cookie. Nie robi zrzutów ekranu. Każdy krok jest wysyłany tylko z pozwoleniem KIFF na dokładnie to wywołanie. Rozłączenie albo odparowanie tego Chrome zatrzymuje go od razu.",
 
 		TelegramHookF: "Podanie go kieruje webhook bota do planque, zastępując ten, który bot miał: wiadomości, które ludzie wysyłają botowi na czacie prywatnym, " +
 			"i wiadomości grupowe, które go wspominają, trafiają do %s, gdy tylko dotrą. Inne wiadomości są odrzucane.",

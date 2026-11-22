@@ -53,6 +53,16 @@ type BrowserRequest struct {
 	// checkout in another is never paid. Required when browse_pay is
 	// among the tools.
 	Currency string `json:"currency,omitempty"`
+	// Driver is "extension" for the owner's own paired Chrome
+	// (chrome_driver.go), or empty for the hosted worker. Only the owner's
+	// approval on the phone sets it: nothing in a call changes it.
+	Driver string `json:"driver,omitempty"`
+	// Chrome is the paired Chrome an extension grant uses, chosen when it's
+	// approved; a run never picks another.
+	Chrome string `json:"chrome,omitempty"`
+	// ChromeName is that Chrome's name as it was paired, which the owner's
+	// words show. planque sets it from the pairing; an ask can't.
+	ChromeName string `json:"chrome_name,omitempty"`
 }
 
 // maxSites bounds a grant's site list.
@@ -106,8 +116,9 @@ var browserTools = []browserTool{
 		Description: "Opens a page and returns it as text: its title, its readable text, and its links, form fields and controls, each with a ref later steps name, and the page's read, which browse_act names. Secret fields are masked." + dataNotInstructions,
 		Schema:      `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"}}}`},
 	{Name: browseRead, Title: "Read a page", Read: true, Required: []string{"url"},
-		Description: "Reads a page's full text, for reading rather than acting." + dataNotInstructions,
-		Schema:      `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"}}}`},
+		Description: "Reads a page's full text, for reading rather than acting. In the owner's Chrome a long page comes in parts: the answer says more and gives next_offset, and the next part is read with offset and that answer's read." + dataNotInstructions,
+		Schema: `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"},` +
+			`"read":{"type":"string","description":"With offset: the read of the answer that gave next_offset"},"offset":{"type":"integer","minimum":0,"description":"With read: where the next part starts, as next_offset gave it"}}}`},
 	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "read", "steps"},
 		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's." + dataNotInstructions,
 		Schema: `{"type":"object","required":["url","read","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from"},` +
@@ -165,9 +176,29 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest) (*BrowserRequest, []Tool
 	if b.Currency != "" && !currencyCode.MatchString(b.Currency) {
 		return nil, nil, nil, "browser.currency is an ISO 4217 code, such as EUR"
 	}
+	switch b.Driver {
+	case "":
+		if b.Chrome != "" {
+			return nil, nil, nil, `browser.chrome names a paired Chrome only with browser.driver "extension"`
+		}
+	case DriverExtension:
+		if !chromeIDRe.MatchString(b.Chrome) {
+			return nil, nil, nil, "browser.chrome is the paired Chrome the grant uses (chr_…)"
+		}
+		// The owner's Chrome is signed in everywhere: a grant names its sites,
+		// and an all-sites grant isn't offered (tafs docs/chrome.md).
+		if len(sites) == 0 {
+			return nil, nil, nil, "browser.sites is required with the owner's Chrome: it reaches only the sites listed"
+		}
+	default:
+		return nil, nil, nil, `browser.driver is "extension" (the owner's paired Chrome), or left out for the hosted browser`
+	}
 	tools := asked
 	if len(tools) == 0 {
 		for _, t := range browserTools {
+			if t.Name == browsePay && b.Driver == DriverExtension {
+				continue
+			}
 			tools = append(tools, ToolRequest{Tool: t.Name, Name: t.Name})
 		}
 	}
@@ -189,6 +220,11 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest) (*BrowserRequest, []Tool
 			t.Title = bt.Title
 		}
 		pays = pays || t.Tool == browsePay
+	}
+	if pays && b.Driver == DriverExtension {
+		// Paying through the owner's Chrome stays off until the owner turns it
+		// on (kiff/work#18, "Off by default").
+		return nil, nil, nil, "browse_pay isn't offered with the owner's Chrome yet"
 	}
 	if pays {
 		if b.Currency == "" {
@@ -266,8 +302,10 @@ func browserText(w words.Approval, q Request, catalog ...CatalogTool) string {
 		b = &BrowserRequest{}
 	}
 	var out strings.Builder
-	switch len(b.Sites) {
-	case 0:
+	switch {
+	case b.Driver == DriverExtension:
+		fmt.Fprintf(&out, w.ChromeSitesF, tafWordsFirst(w, q), strings.Join(b.Sites, ", "), b.ChromeName)
+	case len(b.Sites) == 0:
 		fmt.Fprintf(&out, w.AnySiteF, tafWordsFirst(w, q))
 	default:
 		fmt.Fprintf(&out, w.TheseSitesF, tafWordsFirst(w, q), strings.Join(b.Sites, ", "))
@@ -284,7 +322,11 @@ func browserText(w words.Approval, q Request, catalog ...CatalogTool) string {
 		}
 		fmt.Fprintf(&out, "• %s: %s\n", toolTitle(t, catalog...), how)
 	}
-	out.WriteString(w.BrowserTail)
+	if b.Driver == DriverExtension {
+		out.WriteString(w.ChromeTail)
+	} else {
+		out.WriteString(w.BrowserTail)
+	}
 	return out.String()
 }
 
@@ -421,6 +463,9 @@ type browserArgs struct {
 	Read  string         `json:"read"`
 	Steps []browser.Step `json:"steps"`
 	Ref   string         `json:"ref"`
+	// Offset pages browse_read's text in the owner's Chrome, from the
+	// next_offset of the read named in Read.
+	Offset int `json:"offset"`
 }
 
 // callBrowser is one call of a browser grant's tool, after the permit,
@@ -452,6 +497,12 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	}
 	if len(a.Steps) > 20 {
 		return OpNotSent, browserRefusal(CodeBadArguments, "at most 20 steps a call", false)
+	}
+	if chromeGrant(g) {
+		return s.callChrome(ctx, g, tool, p, a)
+	}
+	if a.Offset != 0 {
+		return OpNotSent, browserRefusal(CodeBadArguments, "offset pages a read in the owner's Chrome only", false)
 	}
 	if tool.Tool == browsePay {
 		// Before the browser opens: the checkout must have been read, so
@@ -599,7 +650,8 @@ func noteOf(p browser.Page) pageNote {
 // the page after, kept with the operation when a store is configured.
 func (s *Server) keepEvidence(ctx context.Context, g *Grant, op string, sess browser.Session, before, after browser.Page) evidence {
 	ev := evidence{Before: noteOf(before), After: noteOf(after)}
-	if s.Evidence == nil {
+	if _, chrome := sess.(*chromeSession); s.Evidence == nil || chrome {
+		// The owner's Chrome takes no screenshots (tafs Privacy).
 		return ev
 	}
 	png, err := sess.Screenshot(ctx)
@@ -649,6 +701,20 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			return state, res
 		}
 		next, err := sess.Do(ctx, st)
+		if cr := (*chromeRefusal)(nil); errors.Is(err, errChromeOffline) || errors.As(err, &cr) && cr.NotRun() {
+			// The owner's Chrome refused the step before doing anything, or
+			// wasn't there to take it: nothing more runs, and nothing is unknown.
+			state := OpNotSent
+			if ran > 0 {
+				state = OpDone
+			}
+			res := chromeFailed(err, ran)
+			res["structuredContent"].(map[string]any)["steps_run"] = ran
+			if ran > 0 {
+				res["structuredContent"].(map[string]any)["evidence"] = s.keepEvidence(ctx, g, p.Op, sess, before, page)
+			}
+			return state, res
+		}
 		if err != nil {
 			s.log().WarnContext(ctx, "browser step failed", slog.String("grant", g.ID), slog.String("op", p.Op), slog.String("err", err.Error()))
 			res := toolResult(fmt.Sprintf("Step %d failed in the browser (%s): the steps before it ran; what the page did with them isn't known. planque will not run them again; read the page before a new call.", i+1, err.Error()), true)

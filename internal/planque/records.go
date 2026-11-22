@@ -333,6 +333,11 @@ type Grant struct {
 	// SignedIn: the owner's sign-in was confirmed on the phone and its
 	// token is held, so approving new tools needs no second sign-in.
 	SignedIn bool `json:"signed_in,omitempty"`
+	// ChromeSitesSig is the owner's phone's signature over an extension
+	// grant's sites (tafs-chrome/sites/v1 over {chrome_id, grant, sites}),
+	// given with its approval. planque relays it on every step, and the
+	// extension runs nothing without it.
+	ChromeSitesSig string `json:"chrome_sites_sig,omitempty"`
 	// OnDemand: the app's sign-in was set up at the provider on this
 	// owner's pick (kiff/planque#87). Coach drafts such an app's writes and
 	// money to ask the owner by default.
