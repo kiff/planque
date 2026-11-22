@@ -143,8 +143,10 @@ func (s *Server) relayConnect(ctx context.Context, ev lambda.WSEvent) int {
 			case ix.Unpaired:
 				conn.Close = closeUnpaired
 			default:
+				// A Chrome whose account isn't offered it is refused as an
+				// unknown one.
 				var c Chrome
-				if _, err := getDoc(ctx, s.KV, tenantPK(ix.Tenant), skChrome(id), &c); err == nil {
+				if _, err := getDoc(ctx, s.KV, tenantPK(ix.Tenant), skChrome(id), &c); err == nil && s.chromeOnFor(ix.Tenant) {
 					conn.Tenant, conn.Close = ix.Tenant, 0
 				}
 			}
@@ -353,6 +355,9 @@ var errChromeOffline = errors.New("the Chrome isn't connected")
 
 // sendChromeStep signs step and sends it to the Chrome's live connection.
 func (s *Server) sendChromeStep(ctx context.Context, tenant string, step chromeStep) error {
+	if !s.chromeOnFor(tenant) {
+		return errChromeOffline
+	}
 	var live struct {
 		Conn string `json:"conn"`
 	}

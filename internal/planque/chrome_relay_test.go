@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -308,6 +309,32 @@ func TestTheRelayClosesWhatItCantTrustWithItsCode(t *testing.T) {
 			t.Fatalf("a step after unpairing: %v", err)
 		}
 	})
+}
+
+// A paired Chrome whose account isn't offered it is refused as an unknown
+// one, and no step is sent to it.
+func TestTheRelayRefusesAChromeWhoseAccountIsntOffered(t *testing.T) {
+	r := newRelayRig(t)
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	if st := r.event("$connect", "c1", r.chrome); st != http.StatusOK {
+		t.Fatalf("connect: %d", st)
+	}
+	r.event("$default", "c1", map[string]any{"type": "open"})
+	closedWith(t, r, "c1", 4401)
+}
+
+// A Chrome connected while its account was offered gets no step once the
+// account is taken off, though its connection is still open.
+func TestNoStepGoesToAConnectedChromeOnceItsAccountIsntOffered(t *testing.T) {
+	r := newRelayRig(t)
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{tenant: true}}
+	r.connect(t, "c1")
+	sent := len(r.poster.posts["c1"])
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	err := r.e.s.sendChromeStep(context.Background(), tenant, chromeStep{ID: "st_1", ChromeID: r.chrome, Op: "read", URL: "https://shop.example/"})
+	if !errors.Is(err, errChromeOffline) || len(r.poster.posts["c1"]) != sent {
+		t.Fatalf("a step for an account no longer offered: %v, %d posts after %d", err, len(r.poster.posts["c1"]), sent)
+	}
 }
 
 // With no step key or no WebSocket API, or the Chrome not offered, every

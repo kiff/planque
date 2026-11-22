@@ -75,6 +75,10 @@ type Server struct {
 	// their packed manifest (deploy/chrome-builds.txt): only these pair and
 	// connect. Empty, the owner's own Chrome isn't offered.
 	ChromeBuilds map[string]ChromeBuild
+	// ChromeOffer is which accounts the owner's own Chrome is offered to
+	// once a build is listed (PLANQUE_CHROME_OFFER, ChromeOfferFrom): every
+	// account (All), or only Tenants. Neither, it's offered to none.
+	ChromeOffer ChromeOffer
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's
 	// WebSocket connections. Without both, the relay refuses every connect.
