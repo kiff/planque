@@ -338,6 +338,11 @@ type Grant struct {
 	// given with its approval. planque relays it on every step, and the
 	// extension runs nothing without it.
 	ChromeSitesSig string `json:"chrome_sites_sig,omitempty"`
+	// ChromeSitesCarried is the Chrome whose pairing carried this grant's
+	// sites when it replaced the Chrome they were signed for (kiff/tafs
+	// docs/chrome.md, "Your Chrome" 1): that extension vouches for them from
+	// the pairing the phone signed, and ChromeSitesSig is empty.
+	ChromeSitesCarried string `json:"chrome_sites_carried,omitempty"`
 	// OnDemand: the app's sign-in was set up at the provider on this
 	// owner's pick (kiff/planque#87). Coach drafts such an app's writes and
 	// money to ask the owner by default.
