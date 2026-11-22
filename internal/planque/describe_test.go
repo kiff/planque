@@ -503,8 +503,14 @@ func TestCallAccountHoldsAStripeCallToTheConnectionsAccount(t *testing.T) {
 		t.Errorf("missing: %s %q", out, why)
 	}
 	if out, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_one","amount":12345678901234567890}`)); why != "" ||
-		string(out) != `{"stripe_context":"acct_one","amount":12345678901234567890}` {
-		t.Errorf("its own, kept as sent: %s %q", out, why)
+		string(out) != `{"amount":12345678901234567890,"stripe_context":"acct_one"}` {
+		t.Errorf("its own, sent decoded with the number exact: %s %q", out, why)
+	}
+	// A key given twice goes out once, the connection's account, whichever
+	// one another program's parser would take.
+	out, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_other","stripe_context":"acct_one"}`))
+	if why != "" || strings.Count(string(out), "stripe_context") != 1 || string(out) != `{"stripe_context":"acct_one"}` {
+		t.Errorf("a duplicate key: %s %q", out, why)
 	}
 	if _, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_two"}`)); !strings.Contains(why, "names another account than this connection's (acct_one)") {
 		t.Errorf("another: %q", why)

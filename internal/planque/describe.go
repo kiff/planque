@@ -462,8 +462,10 @@ func callAccount(g *Grant, tool string, args json.RawMessage) (json.RawMessage, 
 		if json.Unmarshal(given, &account) != nil || account != g.Account {
 			return nil, tool + " names another account than this connection's (" + g.Account + ")"
 		}
-		return args, ""
 	}
+	// What's sent is always the decoded object, never the bytes as they
+	// came: a key given twice is sent once, as checked, whichever one
+	// another program's parser would have taken.
 	in[stripeContext], _ = json.Marshal(g.Account)
 	out, err := json.Marshal(in)
 	if err != nil {
