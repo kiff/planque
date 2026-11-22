@@ -71,7 +71,11 @@ func TestDeletingFinishedGrantsKeepsEverythingElse(t *testing.T) {
 	row(skOp(live.ID, "keep1"))
 	row(skOp("grt_waiting", "keep2"))
 	// The due index: a finished grant's stale row goes, a live one's stays.
-	due := func(id string) string { return dueSK(time.Now().Add(time.Hour), tenant, id) }
+	// One time for both rows, taken once: the key is by the second, so a key
+	// rebuilt from the clock later is another row when a second passed between
+	// (CI under -race, 22 Nov: "a kept grant's due row was deleted").
+	dueAt := time.Now().Add(time.Hour)
+	due := func(id string) string { return dueSK(dueAt, tenant, id) }
 	for _, id := range []string{"grt_done_0", "grt_waiting"} {
 		if err := e.kv.Put(ctx, store.Item{PK: pkDue, SK: due(id), Doc: []byte("{}")}, store.Cond{}); err != nil {
 			t.Fatal(err)
