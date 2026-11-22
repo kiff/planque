@@ -109,6 +109,13 @@ type ChromePairing struct {
 	// extension's proof covers it, so planque keeps it as given and checks
 	// nothing in it (kiff/tafs docs/chrome.md).
 	KiffOffer string `json:"kiff_offer,omitempty"`
+	// ProfileID is the id the extension keeps for its Chrome profile, a hint
+	// the phone uses to pre-select the Chrome a re-pairing replaces; it proves
+	// nothing (kiff/tafs docs/chrome.md, "Your Chrome" 1). OneTouch says the
+	// extension checks a phone_sig made with KIFF's pairing under one
+	// fingerprint (5): the phone sends that only then. Both kept as given.
+	ProfileID string `json:"profile_id,omitempty"`
+	OneTouch  bool   `json:"one_touch,omitempty"`
 	// Contested: a second Chrome posted on this code. The code is spent:
 	// the phone is told and opens a new one, and no Chrome collects it.
 	Contested bool `json:"contested,omitempty"`
@@ -138,6 +145,9 @@ type Chrome struct {
 	Browser      string    `json:"browser"`
 	OS           string    `json:"os"`
 	PairedAt     time.Time `json:"paired_at"`
+	// ProfileID is the extension's id for its Chrome profile, as it paired
+	// (a hint for the phone's re-pairing pick, "Your Chrome" 1).
+	ProfileID string `json:"profile_id,omitempty"`
 }
 
 func skChromePairing(id string) string { return "CHROMEPAIRING#" + id }
@@ -390,6 +400,8 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		OS           string `json:"os"`
 		Proof        string `json:"proof"`
 		KiffOffer    string `json:"kiff_offer"`
+		ProfileID    string `json:"profile_id"`
+		OneTouch     bool   `json:"one_touch"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
@@ -405,6 +417,10 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 	}
 	if proof, err := base64.RawURLEncoding.DecodeString(req.Proof); err != nil || len(proof) != sha256.Size {
 		writeErr(w, http.StatusBadRequest, "proof must be an HMAC-SHA256 in base64url")
+		return
+	}
+	if req.ProfileID != "" && !profileIDShape(req.ProfileID) {
+		writeErr(w, http.StatusBadRequest, "profile_id is 32 lower-case hex digits")
 		return
 	}
 	if len(req.KiffOffer) > chromeKiffOfferMax {
@@ -441,6 +457,7 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Key, p.Version, p.ManifestHash, p.Proof, p.KiffOffer = req.Key, req.Version, req.ManifestHash, req.Proof, req.KiffOffer
+	p.ProfileID, p.OneTouch = req.ProfileID, req.OneTouch
 	p.Browser, p.OS = oneLine(req.Browser, 60), oneLine(req.OS, 60)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); errors.Is(err, store.ErrCondition) {
 		// Another post won the race: this one is the second.
@@ -471,6 +488,12 @@ func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr si
 		sum, _ := spkiP256(p.Key)
 		out["status"], out["key"], out["key_sha256"], out["proof"] = "waiting_for_phone", p.Key, sum, p.Proof
 		out["version"], out["browser"], out["os"] = p.Version, p.Browser, p.OS
+		if p.ProfileID != "" {
+			out["profile_id"] = p.ProfileID
+		}
+		if p.OneTouch {
+			out["one_touch"] = true
+		}
 		if p.KiffOffer != "" {
 			out["kiff_offer"] = p.KiffOffer
 		}
@@ -547,7 +570,7 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		return
 	}
 	c := Chrome{ID: "chr_" + oauth.Random(12), Tenant: sr.tenant, Name: name, Key: p.Key, KeySHA256: sum,
-		Version: p.Version, ManifestHash: p.ManifestHash, Browser: p.Browser, OS: p.OS, PairedAt: s.now().UTC()}
+		Version: p.Version, ManifestHash: p.ManifestHash, Browser: p.Browser, OS: p.OS, PairedAt: s.now().UTC(), ProfileID: p.ProfileID}
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(c.Tenant), SK: skChrome(c.ID)}, c, store.Cond{NotExists: true}); err != nil {
 		s.fail(w, r, err)
 		return
@@ -628,7 +651,11 @@ func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRe
 		if json.Unmarshal(it.Doc, &c) != nil {
 			continue
 		}
-		out = append(out, map[string]any{"chrome_id": c.ID, "name": c.Name, "browser": c.Browser, "os": c.OS, "version": c.Version, "paired_at": c.PairedAt})
+		row := map[string]any{"chrome_id": c.ID, "name": c.Name, "browser": c.Browser, "os": c.OS, "version": c.Version, "paired_at": c.PairedAt}
+		if c.ProfileID != "" {
+			row["profile_id"] = c.ProfileID
+		}
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"chromes": out})
 }
@@ -786,4 +813,17 @@ func oneLine(s string, max int) string {
 		return string(r[:max])
 	}
 	return t
+}
+
+// profileIDShape: the extension's profile id, 16 bytes as 32 lower-case hex.
+func profileIDShape(v string) bool {
+	if len(v) != 32 {
+		return false
+	}
+	for _, c := range v {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
