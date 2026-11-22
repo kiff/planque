@@ -156,6 +156,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- **In the owner's own Chrome, a listed site's `www.` start page opens.** A grant for `wikipedia.org` opened only `https://wikipedia.org/`, and a taf starting at `https://www.wikipedia.org/` got `url_not_read`. The `www.` start page now counts as a start page too; no other name in front does (`m.`, `www.www.`), and a path or query of the taf's own is still refused.
 - **Coach's browser connection in the owner's Chrome is asked and reaches the Chrome.** Three gaps on that path, found on the first real try (22 Nov):
   - **The catalog id:** `browser@1`, the catalog's own `<id>@<version>` form that Coach's `a-browser-taf` asks for and the browser's profile records, is the browser entry, as `browser` is. Before, it was "no such catalog entry".
   - **No hosted browser:** whether one is needed is the request's to say. Only a grant for the hosted browser answers "this installation has no browser", and a grant in the owner's Chrome doesn't need one.

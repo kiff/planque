@@ -138,19 +138,22 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 }
 
 // chromeURLRead says why u isn't an address the taf may open in the owner's
-// Chrome, or "": a listed site's start page, or the latest read's page or
-// one of its links, as they were read. A URL the model put together, with a
-// query or a path of its own, is never sent.
+// Chrome, or "": a listed site's start page (its own, or its www. one's, as
+// many sites start there), or the latest read's page or one of its links,
+// as they were read. A URL the model put together, with a query or a path
+// of its own, is never sent.
 func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 	for _, site := range g.Request.Browser.Sites {
-		if u == "https://"+site+"/" || u == "https://"+site {
-			return "", ""
+		for _, host := range []string{site, "www." + site} {
+			if u == "https://"+host+"/" || u == "https://"+host {
+				return "", ""
+			}
 		}
 	}
 	if latest != nil && (u == latest.URL || slices.Contains(latest.Links, u)) {
 		return "", ""
 	}
-	return CodeURLNotRead, "in the owner's Chrome a taf opens a listed site's start page (https://<site>/), or the page or a link from its latest read, as it was read; " + u + " is neither"
+	return CodeURLNotRead, "in the owner's Chrome a taf opens a listed site's start page (https://<site>/ or https://www.<site>/), or the page or a link from its latest read, as it was read; " + u + " is neither"
 }
 
 func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, error) {
