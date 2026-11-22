@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/permit"
@@ -263,24 +264,47 @@ func fence(text, tag string) string {
 	return fenceNote + "\n<<<page-words:" + tag + ">>>\n" + text + "\n<<</page-words:" + tag + ">>>"
 }
 
-// fencedAnswer is browserAnswer with the page's text fenced.
+// fencedAnswer is browserAnswer for the owner's Chrome: every string a page
+// wrote (its text, title, labels, options, link words) is first rid of
+// anything that looks like a marker, and the whole answer the taf reads sits
+// inside one fence.
 func fencedAnswer(v map[string]any, tag string) map[string]any {
-	fenceValue(v, tag)
-	return browserAnswer(v)
+	v = neutral(v).(map[string]any)
+	v["note"] = strings.TrimSpace(dataNotInstructions)
+	text, _ := json.MarshalIndent(v, "", " ")
+	r := toolResult(fence(string(text), tag), false)
+	r["structuredContent"] = v
+	return r
 }
 
-func fenceValue(v map[string]any, tag string) {
-	if t, ok := v["text"].(string); ok {
-		v["text"] = fence(t, tag)
-	}
-	if p, ok := v["page"].(browser.Page); ok {
-		p.Text = fence(p.Text, tag)
-		v["page"] = p
-	}
+// neutral is v as JSON gives it, with every string rid of marker look-alikes.
+func neutral(v any) any {
+	raw, _ := json.Marshal(v)
+	var out any
+	_ = json.Unmarshal(raw, &out)
+	return neutralize(out)
 }
 
-// fenceResult fences a finished answer's page text, as fencedAnswer would
-// have, and writes its text again from it.
+func neutralize(v any) any {
+	switch x := v.(type) {
+	case string:
+		return fenceLike.ReplaceAllString(x, "‹page words")
+	case map[string]any:
+		for k, e := range x {
+			x[k] = neutralize(e)
+		}
+		return x
+	case []any:
+		for i, e := range x {
+			x[i] = neutralize(e)
+		}
+		return x
+	}
+	return v
+}
+
+// fenceResult fences a finished answer that carries a page, as fencedAnswer
+// does; a refusal's words are planque's own and stay as they are.
 func fenceResult(res any, tag string) any {
 	r, ok := res.(map[string]any)
 	if !ok {
@@ -290,15 +314,11 @@ func fenceResult(res any, tag string) any {
 	if !ok {
 		return res
 	}
-	if _, ok := sc["page"].(browser.Page); !ok {
+	if isErr, _ := r["isError"].(bool); isErr {
 		return res
 	}
-	fenceValue(sc, tag)
-	if isErr, _ := r["isError"].(bool); !isErr {
-		text, _ := json.MarshalIndent(sc, "", " ")
-		r["content"] = []map[string]string{{"type": "text", "text": string(text)}}
-	}
-	return r
+	delete(sc, "note")
+	return fencedAnswer(sc, tag)
 }
 
 // answerPage is the page an answer carries, if it carries one.
@@ -308,8 +328,15 @@ func answerPage(res any) (browser.Page, bool) {
 		return browser.Page{}, false
 	}
 	sc, _ := r["structuredContent"].(map[string]any)
-	p, ok := sc["page"].(browser.Page)
-	return p, ok
+	switch p := sc["page"].(type) {
+	case browser.Page:
+		return p, true
+	case map[string]any:
+		var out browser.Page
+		raw, _ := json.Marshal(p)
+		return out, json.Unmarshal(raw, &out) == nil
+	}
+	return browser.Page{}, false
 }
 
 // read reads the run's page again, its text from offset, with its paging.
@@ -321,4 +348,32 @@ func (c *chromeSession) read(ctx context.Context, offset int) (chromePage, error
 func (s *Server) chromeLive(ctx context.Context, tenant, chrome string) (bool, error) {
 	_, ok, err := s.KV.Get(ctx, tenantPK(tenant), skChromeLive(chrome))
 	return ok, err
+}
+
+// chromeUnknownWhy is planque's words for a step whose outcome isn't known:
+// the code the Chrome gave, or that it didn't answer; never its detail.
+func chromeUnknownWhy(err error) string {
+	var r *chromeRefusal
+	switch {
+	case errors.As(err, &r):
+		if why, ok := chromeWhy[r.Code]; ok {
+			return why
+		}
+		return "the owner's Chrome answered " + r.Code
+	case errors.Is(err, errChromeDropped):
+		return "the owner's Chrome's connection ended while the step waited"
+	default:
+		return "the owner's Chrome didn't answer in time"
+	}
+}
+
+// cut is s at most n bytes, on a rune boundary.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
 }

@@ -55,6 +55,10 @@ const (
 // chromeWaitFor is chromeWait, shorter in tests.
 var chromeWaitFor = chromeWait
 
+// afterResultCheck runs, in tests only, between a step's look for its result
+// and its look at the connection.
+var afterResultCheck func()
+
 // latestReadKept is how long a grant's latest read stays the one its links
 // come from: as long as a run's window (docs/chrome.md, "Runs").
 const latestReadKept = 2 * time.Hour
@@ -260,6 +264,9 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 		// before its connection ended still stands.
 		if p, found, err := c.result(ctx, st.ID); found || err != nil {
 			return p, err
+		}
+		if afterResultCheck != nil {
+			afterResultCheck()
 		}
 		// Then the connection: one that ended won't answer, so the step
 		// stops now rather than at its timeout. A result filed just before

@@ -716,8 +716,15 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			return state, res
 		}
 		if err != nil {
+			why := err.Error()
+			if _, chrome := sess.(*chromeSession); chrome {
+				// The owner's Chrome: what the taf reads is planque's own words,
+				// never the extension's; its detail goes to the log, cut short.
+				why = chromeUnknownWhy(err)
+				err = errors.New(cut(err.Error(), 200))
+			}
 			s.log().WarnContext(ctx, "browser step failed", slog.String("grant", g.ID), slog.String("op", p.Op), slog.String("err", err.Error()))
-			res := toolResult(fmt.Sprintf("Step %d failed in the browser (%s): the steps before it ran; what the page did with them isn't known. planque will not run them again; read the page before a new call.", i+1, err.Error()), true)
+			res := toolResult(fmt.Sprintf("Step %d failed in the browser (%s): the steps before it ran; what the page did with them isn't known. planque will not run them again; read the page before a new call.", i+1, why), true)
 			return OpUnknown, res
 		}
 		ran++
