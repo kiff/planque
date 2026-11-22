@@ -5,3 +5,4 @@
 # reviews; removing one stops that build at the next deploy. With no line,
 # the owner's own Chrome isn't offered.
 a5b043ed70d05b7c9d2cbc06a96a2120abe670196492fddf0cdd39998a2e0949 0.1.0
+46b6b348dba4ab3983c7dc7f05448db03729e530eb094e99feba4ee0de8a385b 0.1.0

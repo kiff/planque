@@ -2,6 +2,7 @@ package planque
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/oauth"
+	"github.com/kiff/planque/internal/stepkey"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -643,7 +645,7 @@ func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusNotFound, "no such Chrome")
 		return
 	}
-	_, found, err := s.KV.Delete(r.Context(), tenantPK(sr.tenant), skChrome(id))
+	found, err := s.removeChrome(r.Context(), sr.tenant, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -652,12 +654,93 @@ func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusNotFound, "no such Chrome")
 		return
 	}
-	// A connect from it is told it was unpaired (4410) for a while, and a
-	// live connection ends now: the extension wipes itself.
-	_ = putDoc(r.Context(), s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
-		chromeIndex{Tenant: sr.tenant, Unpaired: true}, store.Cond{})
-	s.closeChrome(r.Context(), sr.tenant, id, closeUnpaired, "this Chrome was unpaired")
 	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": id, "status": "unpaired"})
+}
+
+// removeChrome removes a paired Chrome's key, so nothing it signs is taken
+// again: a connect from it is told it was unpaired (4410) for a while, and a
+// live connection ends now, so the extension wipes itself.
+func (s *Server) removeChrome(ctx context.Context, tenant, id string) (bool, error) {
+	_, found, err := s.KV.Delete(ctx, tenantPK(tenant), skChrome(id))
+	if err != nil || !found {
+		return false, err
+	}
+	_ = putDoc(ctx, s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
+		chromeIndex{Tenant: tenant, Unpaired: true}, store.Cond{})
+	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
+	return true, nil
+}
+
+// labelUnpair is what the extension signs to unpair itself (kiff/tafs
+// chrome/src/crypto.js LABEL.unpair).
+const labelUnpair = "tafs-chrome/unpair/v1"
+
+// chromeUnpairSkew is how far an unpair's signed time (at, in milliseconds)
+// may be from planque's clock: an older one is refused, so a captured
+// request can't unpair the Chrome paired after it under the same id.
+const chromeUnpairSkew = 5 * time.Minute
+
+// extensionUnpair is the extension unpairing itself from its side panel
+// (POST /v1/extension/unpair {chrome_id, at, sig}): the same removal as the
+// phone's, proved by the Chrome's own key over {chrome_id, at}
+// (tafs-chrome/unpair/v1), at most chromeUnpairSkew from now. A Chrome that
+// is unknown, already unpaired, or whose signature isn't its key's, gets the
+// same 404, so nothing tells a stranger which Chromes exist. Done once, it
+// is done: the key is gone, so a replay finds nothing.
+func (s *Server) extensionUnpair(w http.ResponseWriter, r *http.Request) {
+	if s.chromeOff(w) {
+		return
+	}
+	if !s.chromeCounted(r, "unpair#"+chromeAddress(r), chromePostWindow, chromePostsPerAddress) {
+		s.chromeTooMany(w)
+		return
+	}
+	raw, err := readBody(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var m map[string]json.RawMessage
+	var in struct {
+		ChromeID string `json:"chrome_id"`
+		At       int64  `json:"at"`
+		Sig      string `json:"sig"`
+	}
+	if json.Unmarshal(raw, &m) != nil || len(m) != 3 || json.Unmarshal(raw, &in) != nil || !chromeIDRe.MatchString(in.ChromeID) || in.Sig == "" {
+		writeErr(w, http.StatusBadRequest, "send {chrome_id, at, sig}: the Chrome's id, the time in milliseconds, and its key's signature of both")
+		return
+	}
+	at := time.UnixMilli(in.At)
+	if d := s.now().Sub(at); d > chromeUnpairSkew || d < -chromeUnpairSkew {
+		writeErr(w, http.StatusBadRequest, "at is more than five minutes from planque's clock")
+		return
+	}
+	gone := func() { writeErr(w, http.StatusNotFound, "no such Chrome") }
+	var ix chromeIndex
+	// The index names the Chrome's account; its record there is the authority (an unpaired one has none).
+	if _, err := getDoc(r.Context(), s.KV, pkChromeIndex(in.ChromeID), "-", &ix); err != nil || ix.Tenant == "" {
+		gone()
+		return
+	}
+	var c Chrome
+	if _, err := getDoc(r.Context(), s.KV, tenantPK(ix.Tenant), skChrome(in.ChromeID), &c); err != nil {
+		gone()
+		return
+	}
+	if !stepkey.Verify(c.Key, labelUnpair, map[string]json.RawMessage{"chrome_id": m["chrome_id"], "at": m["at"]}, in.Sig) {
+		gone()
+		return
+	}
+	found, err := s.removeChrome(r.Context(), ix.Tenant, in.ChromeID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !found {
+		gone()
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": in.ChromeID, "status": "unpaired"})
 }
 
 // oneLine is s on one line, control characters removed, at most max runes.

@@ -216,8 +216,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/chromes/pairings/{pairing}/confirm", s.signed(s.confirmChromePairing))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes", s.signedSafe(s.listChromes))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
-	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", s.postChromeKey)
-	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", s.collectChromePairing)
+	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
+	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))
+	mux.HandleFunc("POST /v1/extension/unpair", extensionCORS(s.extensionUnpair))
+	// The extension has no host permission for planque, so Chrome asks first
+	// (chrome_cors.go).
+	mux.HandleFunc("OPTIONS /v1/extension/", extensionPreflight)
 	mux.HandleFunc("POST /v1/accounts/{tenant}/halts/confirm", s.confirmHalt)
 	mux.HandleFunc("GET /v1/catalog/{entry}/sign-in", s.signInState)
 	// The catalog kept as data, for its operators (catalog_store.go).
