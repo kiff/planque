@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -13,17 +14,19 @@ import (
 	"github.com/kiff/planque/internal/stepkey"
 )
 
-// webp is a minimal WebP image header (VP8X) width pixels wide, padded to n
-// bytes: enough for planque's checks, which read the size and the width only.
-func webp(width, n int) []byte {
+// webp is a minimal WebP image header (VP8X) width pixels wide and one high,
+// padded to n bytes: enough for planque's checks, which read the size only.
+func webp(width, n int) []byte { return webpTall(width, 1, n) }
+
+func webpTall(width, height, n int) []byte {
 	b := make([]byte, n)
 	copy(b, "RIFF")
 	binary.LittleEndian.PutUint32(b[4:], uint32(n-8))
 	copy(b[8:], "WEBPVP8X")
 	binary.LittleEndian.PutUint32(b[16:], 10)
-	w := width - 1
+	w, h := width-1, height-1
 	b[24], b[25], b[26] = byte(w), byte(w>>8), byte(w>>16)
-	b[27] = 0 // height 1
+	b[27], b[28], b[29] = byte(h), byte(h>>8), byte(h>>16)
 	return b
 }
 
@@ -108,6 +111,9 @@ func TestAnActsImageIsKeptOnceAndReadByTheOwner(t *testing.T) {
 	if st := upload("stp_act3", webp(1281, 4<<10), c.r.ext, "stp_act3"); st != http.StatusUnsupportedMediaType {
 		t.Errorf("1281 px wide: %d", st)
 	}
+	if st := upload("stp_act3", webpTall(800, 8001, 4<<10), c.r.ext, "stp_act3"); st != http.StatusUnsupportedMediaType {
+		t.Errorf("8001 px high: %d", st)
+	}
 	if st := upload("stp_act4", webp(800, 121<<10), c.r.ext, "stp_act4"); st != http.StatusRequestEntityTooLarge {
 		t.Errorf("over 120 KB: %d", st)
 	}
@@ -145,31 +151,75 @@ func TestAnActsImageIsKeptOnceAndReadByTheOwner(t *testing.T) {
 	}
 }
 
-func TestWebPWidthReadsEachKindOfFirstChunk(t *testing.T) {
-	if w, ok := webpWidth(webp(1280, 64)); !ok || w != 1280 {
-		t.Errorf("VP8X: %d %v", w, ok)
+func TestWebPSizeReadsEachKindOfFirstChunk(t *testing.T) {
+	if w, h, ok := webpSize(webpTall(1280, 720, 64)); !ok || w != 1280 || h != 720 {
+		t.Errorf("VP8X: %d×%d %v", w, h, ok)
 	}
 	vp8 := webp(1, 64)
 	copy(vp8[12:], "VP8 ")
 	vp8[23], vp8[24], vp8[25] = 0x9d, 0x01, 0x2a
 	binary.LittleEndian.PutUint16(vp8[26:], 640)
-	if w, ok := webpWidth(vp8); !ok || w != 640 {
-		t.Errorf("VP8: %d %v", w, ok)
+	binary.LittleEndian.PutUint16(vp8[28:], 480)
+	if w, h, ok := webpSize(vp8); !ok || w != 640 || h != 480 {
+		t.Errorf("VP8: %d×%d %v", w, h, ok)
 	}
 	vp8l := webp(1, 64)
 	copy(vp8l[12:], "VP8L")
 	vp8l[20] = 0x2f
-	binary.LittleEndian.PutUint16(vp8l[21:], 1023)
-	if w, ok := webpWidth(vp8l); !ok || w != 1024 {
-		t.Errorf("VP8L: %d %v", w, ok)
+	binary.LittleEndian.PutUint32(vp8l[21:], uint32(1023)|uint32(767)<<14)
+	if w, h, ok := webpSize(vp8l); !ok || w != 1024 || h != 768 {
+		t.Errorf("VP8L: %d×%d %v", w, h, ok)
 	}
 	bad := webp(100, 64)
 	binary.LittleEndian.PutUint32(bad[4:], 1000) // a size that isn't the file's
-	if _, ok := webpWidth(bad); ok {
+	if _, _, ok := webpSize(bad); ok {
 		t.Error("a RIFF size that isn't the file's was read")
 	}
-	if _, ok := webpWidth([]byte("GIF89a")); ok {
+	if _, _, ok := webpSize([]byte("GIF89a")); ok {
 		t.Error("not WebP was read")
+	}
+}
+
+// The kept record is what the store deletes and what only that account and
+// step open: its TTL is 30 days ahead, and its seal opens for nothing else.
+func TestAKeptImageIsSealedToItsAccountAndStepAndExpires(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeScreenshots = true
+	c.r.connect(t, "c1")
+	ctx := context.Background()
+	now := time.Now()
+	c.s.Now = func() time.Time { return now }
+	if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: "stp_seal", ChromeID: c.r.chrome, Run: "run_seal", Grant: "grt_x", Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+		t.Fatal(err)
+	}
+	img := webp(640, 10<<10)
+	sum := sha256.Sum256(img)
+	sig, _ := stepkey.SignBody(ctx, c.r.ext, labelScreenshot, map[string]string{"chrome_id": c.r.chrome, "step": "stp_seal", "sha256": hex.EncodeToString(sum[:])})
+	if st, out := c.do("POST", "/v1/extension/steps/stp_seal/screenshot", map[string]any{"chrome_id": c.r.chrome,
+		"image": base64.RawURLEncoding.EncodeToString(img), "sig": sig}, nil, ""); st != http.StatusNoContent {
+		t.Fatalf("keep: %d %v", st, out)
+	}
+	it, found, err := c.s.KV.Get(ctx, tenantPK(tenant), skChromeShot("stp_seal"))
+	if err != nil || !found {
+		t.Fatalf("the record: %v %v", found, err)
+	}
+	if want := now.Add(chromeShotKept).Unix(); it.TTL < want-60 || it.TTL > want+60 {
+		t.Errorf("the record's TTL is %d, want about %d (30 days ahead)", it.TTL, want)
+	}
+	var shot chromeShot
+	if err := json.Unmarshal(it.Doc, &shot); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.s.Sealer.Open(ctx, shot.Sealed, chromeShotBinding(tenant, "stp_seal")); err != nil || string(got) != string(img) {
+		t.Fatalf("its own account and step: %v", err)
+	}
+	for name, binding := range map[string]map[string]string{
+		"another account": chromeShotBinding("01anotheraccount", "stp_seal"),
+		"another step":    chromeShotBinding(tenant, "stp_other"),
+	} {
+		if _, err := c.s.Sealer.Open(ctx, shot.Sealed, binding); err == nil {
+			t.Errorf("the seal opened for %s", name)
+		}
 	}
 }
 

@@ -25,8 +25,8 @@ import (
 //
 //   - Only an act planque sent to that Chrome may have an image: sending one
 //     records an allowance, and an upload is taken only against it, once.
-//   - It's a WebP image, at most chromeShotMax bytes and chromeShotWidth
-//     pixels wide; anything else is refused and nothing is kept.
+//   - It's a WebP image, at most chromeShotMax bytes, chromeShotWidth
+//     pixels wide and chromeShotHeight high; anything else is refused and nothing is kept.
 //   - It's sealed (planque's Sealer, bound to the account and the step) and
 //     kept with a TTL of 30 days, under the account, so an account's
 //     erasure deletes it with the rest. It's never sent to a model.
@@ -47,6 +47,9 @@ const (
 	chromeShotBody = 200 << 10
 	// chromeShotWidth is the widest image taken, in pixels.
 	chromeShotWidth = 1280
+	// chromeShotHeight is the tallest image taken: a page is captured as the
+	// tab shows it, and a phone never decodes a canvas taller than this.
+	chromeShotHeight = 8000
 	// chromeShotAfter is how long after a step's own expiry its image may
 	// still come: the image is taken before the act, and sent after it.
 	chromeShotAfter = 2 * time.Minute
@@ -97,31 +100,35 @@ func (s *Server) allowChromeShot(ctx context.Context, tenant string, step chrome
 		chromeShotAllowed{Tenant: tenant, Grant: step.Grant, Run: step.Run}, store.Cond{NotExists: true})
 }
 
-// webpWidth is a WebP image's width in pixels, read from its first chunk
-// (VP8, VP8L or VP8X), or false when the bytes aren't a WebP image.
-func webpWidth(b []byte) (int, bool) {
+// webpSize is a WebP image's width and height in pixels, read from its
+// first chunk (VP8, VP8L or VP8X), or false when the bytes aren't a WebP
+// image.
+func webpSize(b []byte) (int, int, bool) {
 	if len(b) < 30 || string(b[0:4]) != "RIFF" || string(b[8:12]) != "WEBP" {
-		return 0, false
+		return 0, 0, false
 	}
 	if int(binary.LittleEndian.Uint32(b[4:8]))+8 != len(b) {
-		return 0, false
+		return 0, 0, false
 	}
 	switch string(b[12:16]) {
 	case "VP8 ":
-		// A key frame's start code, then 14 bits of width.
+		// A key frame's start code, then 14 bits of width and of height.
 		if b[23] != 0x9d || b[24] != 0x01 || b[25] != 0x2a {
-			return 0, false
+			return 0, 0, false
 		}
-		return int(binary.LittleEndian.Uint16(b[26:28]) & 0x3fff), true
+		return int(binary.LittleEndian.Uint16(b[26:28]) & 0x3fff), int(binary.LittleEndian.Uint16(b[28:30]) & 0x3fff), true
 	case "VP8L":
+		// The signature, then 14 bits of width-1 and 14 of height-1.
 		if b[20] != 0x2f {
-			return 0, false
+			return 0, 0, false
 		}
-		return int(binary.LittleEndian.Uint16(b[21:23])&0x3fff) + 1, true
+		v := binary.LittleEndian.Uint32(b[21:25])
+		return int(v&0x3fff) + 1, int(v>>14&0x3fff) + 1, true
 	case "VP8X":
-		return int(b[24]) | int(b[25])<<8 | int(b[26])<<16 + 1, true
+		// The canvas: 24 bits of width-1, then 24 of height-1.
+		return int(b[24]) | int(b[25])<<8 | int(b[26])<<16 + 1, int(b[27]) | int(b[28])<<8 | int(b[29])<<16 + 1, true
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // postChromeShot is POST /v1/extension/steps/{step}/screenshot from the
@@ -170,8 +177,8 @@ func (s *Server) postChromeShot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "the image is over 120 KB: nothing was kept")
 		return
 	}
-	if width, ok := webpWidth(img); !ok || width < 1 || width > chromeShotWidth {
-		writeErr(w, http.StatusUnsupportedMediaType, "the image is a WebP image at most 1280 pixels wide: nothing was kept")
+	if width, height, ok := webpSize(img); !ok || width < 1 || width > chromeShotWidth || height < 1 || height > chromeShotHeight {
+		writeErr(w, http.StatusUnsupportedMediaType, "the image is a WebP image at most 1280 pixels wide and 8000 high: nothing was kept")
 		return
 	}
 	sum := sha256.Sum256(img)

@@ -9,7 +9,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 - **An image of each act in the owner's own Chrome, kept for the record, behind a switch (off).** With `PLANQUE_CHROME_SCREENSHOTS=on`, each `act` step planque sends to a paired Chrome records a one-time allowance. The extension then sends that step's image to `POST /v1/extension/steps/{step}/screenshot` as `{chrome_id, image, sig}`: the WebP bytes in base64url, signed with its own key over `{chrome_id, step, sha256}` (label `tafs-chrome/screenshot/v1`).
   - **Only an act planque sent to that Chrome,** within its lifetime plus two minutes, and once. Never a read or an open. Another key, a signature over another step, or a step never sent is 404, and nothing is kept.
-  - **WebP only,** at most 1280 pixels wide (read from its VP8, VP8L or VP8X chunk) and 120 KB: otherwise 415 or 413.
+  - **WebP only,** at most 1280 pixels wide and 8000 high (read from its VP8, VP8L or VP8X chunk) and 120 KB: otherwise 415 or 413.
   - **Sealed** with planque's sealer, bound to the account and the step, under the account, with a 30-day TTL. A read past 30 days is 404 whether or not the store has deleted it yet, and an account's erasure deletes it with the rest. Never sent to a model.
   - **It goes sooner** with what it belongs to: a Chrome's images when it's unpaired (from the phone or the extension), a connection's when it ends (`revoke`), as the pages a write kept do.
   - **The owner reads it** with their device's signature: `GET /v1/accounts/{tenant}/chromes/screenshots/{step}` answers `{step, run, grant, taken_at, sha256, image}`.
