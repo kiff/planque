@@ -140,6 +140,10 @@ func (r *relayRig) connect(t *testing.T, conn string) {
 	if w["type"] != "welcome" || !stepkey.Verify(r.planque.PublicKey(), labelWelcome, map[string]string{"chrome_id": r.chrome, "nonce_p": ch["nonce_p"].(string), "nonce_e": "ne-123"}, w["sig"].(string)) {
 		t.Fatalf("welcome: %v", w)
 	}
+	// planque's clock, for an extension whose computer's clock is off.
+	if at, ok := w["now"].(float64); !ok || time.Since(time.UnixMilli(int64(at))).Abs() > 5*time.Second {
+		t.Fatalf("the welcome's now: %v", w["now"])
+	}
 }
 
 func closedWith(t *testing.T, r *relayRig, conn string, code float64) {

@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **The owner's Chrome gets planque's time in the relay's welcome** (`now`, milliseconds since 1970). The extension reads a step's expiry against it when its computer's clock is a little off, and moves its own reading by two minutes at most. It isn't signed: the welcome's proof stays over the connection's nonces, and the welcome's other fields are unchanged.
 - **An image of each act in the owner's own Chrome, kept for the record, behind a switch (off).** With `PLANQUE_CHROME_SCREENSHOTS=on`, each `act` step planque sends to a paired Chrome records a one-time allowance. The extension then sends that step's image to `POST /v1/extension/steps/{step}/screenshot` as `{chrome_id, image, sig}`: the WebP bytes in base64url, signed with its own key over `{chrome_id, step, sha256}` (label `tafs-chrome/screenshot/v1`).
   - **Only an act planque sent to that Chrome,** within its lifetime plus two minutes, and once. Never a read or an open. Another key, a signature over another step, or a step never sent is 404, and nothing is kept.
   - **WebP only,** at most 1280 pixels wide and 8000 high (read from its VP8, VP8L or VP8X chunk) and 120 KB: otherwise 415 or 413.
