@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/kiff/planque/internal/stepkey"
@@ -270,4 +272,63 @@ func (s *Server) dropChromeShots(ctx context.Context, tenant string, match func(
 		}
 		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
 	}
+}
+
+// chromeShotsListed is the most images one operation's list names: the
+// newest, as an operation may act many times.
+const chromeShotsListed = 20
+
+// listChromeShots is GET /v1/accounts/{tenant}/chromes/screenshots?op=…,
+// the owner's signed list of one operation's images, for a taf's Activity
+// row by its proposal_id (KIFF's operation, which planque runs a Chrome
+// call as): {shots: [{step, taken_at, sha256}]}, oldest first, the newest
+// chromeShotsListed at most, never the bytes (each comes from
+// readChromeShot, with its checks). Only that operation's own images, kept
+// and within their 30 days; none, or screenshots off, is an empty list, so
+// a row with none just shows no link.
+func (s *Server) listChromeShots(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	ops := r.URL.Query()["op"]
+	if len(ops) != 1 || ops[0] == "" || len(ops[0]) > 512 {
+		writeErr(w, http.StatusBadRequest, "send op, the Activity row's proposal_id, once")
+		return
+	}
+	op := ops[0]
+	type listed struct {
+		Step    string `json:"step"`
+		TakenAt string `json:"taken_at"`
+		SHA256  string `json:"sha256"`
+	}
+	out := []listed{}
+	if !s.ChromeScreenshots {
+		writeJSON(w, http.StatusOK, map[string]any{"shots": out})
+		return
+	}
+	// A step's id is the operation and its number, or a hash of the
+	// operation when that is too long (chromeStepID): both prefixes are
+	// read, and each image is matched by the operation it was kept for.
+	h := sha256.Sum256([]byte(op))
+	var shots []chromeShot
+	for _, prefix := range []string{skChromeShot(op + "."), skChromeShot("op_" + hex.EncodeToString(h[:])[:40] + ".")} {
+		items, err := s.KV.Query(r.Context(), tenantPK(sr.tenant), prefix)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		for _, it := range items {
+			var shot chromeShot
+			if json.Unmarshal(it.Doc, &shot) != nil || shot.Run != op || s.now().Sub(shot.At) > chromeShotKept ||
+				slices.ContainsFunc(shots, func(k chromeShot) bool { return k.Step == shot.Step }) {
+				continue
+			}
+			shots = append(shots, shot)
+		}
+	}
+	slices.SortFunc(shots, func(a, b chromeShot) int { return cmp.Or(a.At.Compare(b.At), cmp.Compare(a.Step, b.Step)) })
+	if len(shots) > chromeShotsListed {
+		shots = shots[len(shots)-chromeShotsListed:]
+	}
+	for _, shot := range shots {
+		out = append(out, listed{Step: shot.Step, TakenAt: shot.At.Format(time.RFC3339), SHA256: shot.SHA256})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shots": out})
 }
