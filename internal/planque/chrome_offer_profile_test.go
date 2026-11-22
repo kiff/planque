@@ -36,17 +36,24 @@ func TestTheOfferSaysItsProfileAndOneTouchToThePhone(t *testing.T) {
 
 	_, lookup := open()
 	key, _ := p256Key(t)
-	if st, out := post(lookup, key, map[string]any{"profile_id": "not-hex"}); st != 400 {
-		t.Fatalf("a malformed profile id: %d %v", st, out)
+	for what, extra := range map[string]map[string]any{
+		"a malformed profile id":     {"profile_id": "not-hex"},
+		"one_touch with no proof":    {"one_touch": true},
+		"a proof with no flag":       {"one_touch_proof": b64(32)},
+		"a proof that isn't an HMAC": {"one_touch": true, "one_touch_proof": b64(8)},
+	} {
+		if st, out := post(lookup, key, extra); st != 400 {
+			t.Fatalf("%s: %d %v", what, st, out)
+		}
 	}
 
 	pairing, lookup := open()
 	key, sum := p256Key(t)
-	if st, out := post(lookup, key, map[string]any{"profile_id": profile, "one_touch": true}); st != 202 {
+	if st, out := post(lookup, key, map[string]any{"profile_id": profile, "one_touch": true, "one_touch_proof": b64(32)}); st != 202 {
 		t.Fatalf("post: %d %v", st, out)
 	}
 	st, out := e.do("GET", acct+"/chromes/pairings/"+pairing, nil, e.phone, "")
-	if st != 200 || out["profile_id"] != profile || out["one_touch"] != true {
+	if st != 200 || out["profile_id"] != profile || out["one_touch"] != true || out["one_touch_proof"] != b64(32) {
 		t.Fatalf("the phone's read: %d %v", st, out)
 	}
 	if st, out := e.do("POST", acct+"/chromes/pairings/"+pairing+"/confirm", map[string]any{"chrome_key_sha256": sum, "name": "Work Mac",
@@ -64,7 +71,7 @@ func TestTheOfferSaysItsProfileAndOneTouchToThePhone(t *testing.T) {
 	if st, out := post(lookup, key, nil); st != 202 {
 		t.Fatalf("an older extension's post: %d %v", st, out)
 	}
-	if _, out := e.do("GET", acct+"/chromes/pairings/"+pairing, nil, e.phone, ""); out["profile_id"] != nil || out["one_touch"] != nil {
+	if _, out := e.do("GET", acct+"/chromes/pairings/"+pairing, nil, e.phone, ""); out["profile_id"] != nil || out["one_touch"] != nil || out["one_touch_proof"] != nil {
 		t.Fatalf("an older extension's read: %v", out)
 	}
 }

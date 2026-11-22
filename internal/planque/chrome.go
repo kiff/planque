@@ -116,6 +116,10 @@ type ChromePairing struct {
 	// fingerprint (5): the phone sends that only then. Both kept as given.
 	ProfileID string `json:"profile_id,omitempty"`
 	OneTouch  bool   `json:"one_touch,omitempty"`
+	// OneTouchProof is the extension's HMAC over the flag (its own label,
+	// under the code's secret, which planque never sees): the phone checks it,
+	// so planque can't add the flag to an offer.
+	OneTouchProof string `json:"one_touch_proof,omitempty"`
 	// Contested: a second Chrome posted on this code. The code is spent:
 	// the phone is told and opens a new one, and no Chrome collects it.
 	Contested bool `json:"contested,omitempty"`
@@ -393,15 +397,16 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Key          string `json:"key"`
-		Version      string `json:"version"`
-		ManifestHash string `json:"manifest_hash"`
-		Browser      string `json:"browser"`
-		OS           string `json:"os"`
-		Proof        string `json:"proof"`
-		KiffOffer    string `json:"kiff_offer"`
-		ProfileID    string `json:"profile_id"`
-		OneTouch     bool   `json:"one_touch"`
+		Key           string `json:"key"`
+		Version       string `json:"version"`
+		ManifestHash  string `json:"manifest_hash"`
+		Browser       string `json:"browser"`
+		OS            string `json:"os"`
+		Proof         string `json:"proof"`
+		KiffOffer     string `json:"kiff_offer"`
+		ProfileID     string `json:"profile_id"`
+		OneTouch      bool   `json:"one_touch"`
+		OneTouchProof string `json:"one_touch_proof"`
 	}
 	if err := decodeStrict(body, &req); err != nil {
 		s.fail(w, r, err)
@@ -418,6 +423,12 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 	if proof, err := base64.RawURLEncoding.DecodeString(req.Proof); err != nil || len(proof) != sha256.Size {
 		writeErr(w, http.StatusBadRequest, "proof must be an HMAC-SHA256 in base64url")
 		return
+	}
+	if req.OneTouch || req.OneTouchProof != "" {
+		if proof, err := base64.RawURLEncoding.DecodeString(req.OneTouchProof); !req.OneTouch || err != nil || len(proof) != sha256.Size {
+			writeErr(w, http.StatusBadRequest, "one_touch comes with one_touch_proof, an HMAC-SHA256 in base64url")
+			return
+		}
 	}
 	if req.ProfileID != "" && !profileIDShape(req.ProfileID) {
 		writeErr(w, http.StatusBadRequest, "profile_id is 32 lower-case hex digits")
@@ -457,7 +468,7 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Key, p.Version, p.ManifestHash, p.Proof, p.KiffOffer = req.Key, req.Version, req.ManifestHash, req.Proof, req.KiffOffer
-	p.ProfileID, p.OneTouch = req.ProfileID, req.OneTouch
+	p.ProfileID, p.OneTouch, p.OneTouchProof = req.ProfileID, req.OneTouch, req.OneTouchProof
 	p.Browser, p.OS = oneLine(req.Browser, 60), oneLine(req.OS, 60)
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: it.PK, SK: it.SK, TTL: p.Expires.Unix()}, p, store.Cond{Ver: &it.Ver}); errors.Is(err, store.ErrCondition) {
 		// Another post won the race: this one is the second.
@@ -492,7 +503,7 @@ func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr si
 			out["profile_id"] = p.ProfileID
 		}
 		if p.OneTouch {
-			out["one_touch"] = true
+			out["one_touch"], out["one_touch_proof"] = true, p.OneTouchProof
 		}
 		if p.KiffOffer != "" {
 			out["kiff_offer"] = p.KiffOffer
