@@ -109,6 +109,9 @@ var errChromeNoAnswer = errors.New("the Chrome didn't answer in time")
 type chromeSitesSigned struct {
 	Sites []string `json:"sites"`
 	Sig   string   `json:"sig"`
+	// Carried: no signature of its own; the extension's pairing carried these
+	// sites for the grant ("Your Chrome" 1) and it checks them against those.
+	Carried bool `json:"carried,omitempty"`
 }
 
 // chromeAct is one act of a step, as the extension runs it.
@@ -164,11 +167,12 @@ func (s *Server) startChrome(ctx context.Context, g *Grant, op, taf string) (*ch
 	} else if err != nil {
 		return nil, CodeRecordUnavailable, "planque could not read the Chrome's pairing"
 	}
-	if g.ChromeSitesSig == "" {
+	carried := g.ChromeSitesSig == "" && g.ChromeSitesCarried != "" && g.ChromeSitesCarried == b.Chrome
+	if g.ChromeSitesSig == "" && !carried {
 		return nil, CodeSitesUnsigned, "the owner's phone hasn't signed this connection's sites, so the Chrome would run nothing"
 	}
 	return &chromeSession{s: s, tenant: g.Tenant, chrome: b.Chrome, grant: g.ID, run: op, taf: taf, sites: b.Sites,
-		signed: chromeSitesSigned{Sites: b.Sites, Sig: g.ChromeSitesSig}, deadline: time.Now().Add(chromeCallBudget)}, "", ""
+		signed: chromeSitesSigned{Sites: b.Sites, Sig: g.ChromeSitesSig, Carried: carried}, deadline: time.Now().Add(chromeCallBudget)}, "", ""
 }
 
 func (c *chromeSession) ID() string { return c.run }
