@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -61,6 +62,7 @@ func TestOneFingerprintConfirmsAChromeBesideKIFFsPairing(t *testing.T) {
 	other := sha256.Sum256([]byte(kiffMsg))
 	with := hex.EncodeToString(other[:])
 
+	var answered string
 	send := func(signer *fakes.Phone, signed, sent []byte) int {
 		t.Helper()
 		req, _ := http.NewRequest("POST", e.url+path, bytes.NewReader(sent))
@@ -69,7 +71,9 @@ func TestOneFingerprintConfirmsAChromeBesideKIFFsPairing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		b, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		answered = string(b)
 		return resp.StatusCode
 	}
 
@@ -105,8 +109,10 @@ func TestOneFingerprintConfirmsAChromeBesideKIFFsPairing(t *testing.T) {
 	if st != 200 || out["phone_key"] != phoneKey || out["name"] != "Work Mac" {
 		t.Fatalf("collect: %d %v", st, out)
 	}
-	// The same signed confirm again: refused, it was used.
-	if st := send(approval, body, body); st == http.StatusOK {
-		t.Fatalf("the combined signature used twice: %d", st)
+	// The same signed confirm again: refused as a replay, before the
+	// pairing's own state is read (qa-kiff: "already confirmed" alone would
+	// hide a missing replay check).
+	if st := send(approval, body, body); st != http.StatusConflict || !strings.Contains(answered, "signature_replayed") {
+		t.Fatalf("the combined signature used twice: %d %s", st, answered)
 	}
 }
