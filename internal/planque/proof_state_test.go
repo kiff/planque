@@ -1,7 +1,9 @@
 package planque
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,5 +187,40 @@ func TestAnExpiredEntryProvesNothing(t *testing.T) {
 	got := s.provedMap(t.Context())
 	if _, ok := got["zendesk"]; ok || len(got) != 1 || got["qonto"].How != "key" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+// The token is read at each ask (planque's one secret): a token that can't be
+// read, or reads empty, sends nothing and proves nothing, and a new one is
+// used as soon as it's there.
+func TestTheStateTokenIsReadAtEachAsk(t *testing.T) {
+	var calls atomic.Int32
+	srv := kiffState(t, map[string]string{"zendesk-key@1": "green"}, &calls)
+	defer srv.Close()
+	token, fail := "state-token", error(nil)
+	p := NewProofStateFrom(srv.URL, func(context.Context) (string, error) { return token, fail })
+	now := time.Now()
+	p.now = func() time.Time { return now }
+	ids := []string{"zendesk-key@1"}
+	if g := p.Greens(t.Context(), ids); len(g) != 1 || calls.Load() != 1 {
+		t.Fatalf("%+v, %d calls", g, calls.Load())
+	}
+	for name, set := range map[string]func(){
+		"unreadable": func() { token, fail = "state-token", errors.New("secret unavailable") },
+		"empty":      func() { token, fail = "  ", nil },
+	} {
+		set()
+		now = now.Add(proofStateTTL + time.Second)
+		if g := p.Greens(t.Context(), ids); len(g) != 0 || calls.Load() != 1 {
+			t.Fatalf("%s: %+v, %d calls", name, g, calls.Load())
+		}
+	}
+	token, fail = "state-token", nil
+	now = now.Add(proofStateFailTTL + time.Second)
+	if g := p.Greens(t.Context(), ids); len(g) != 1 || calls.Load() != 2 {
+		t.Fatalf("back: %+v, %d calls", g, calls.Load())
+	}
+	if NewProofStateFrom(srv.URL, nil) != nil {
+		t.Fatal("a reader with no token")
 	}
 }
