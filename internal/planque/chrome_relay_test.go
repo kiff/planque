@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -308,6 +309,21 @@ func TestTheRelayClosesWhatItCantTrustWithItsCode(t *testing.T) {
 			t.Fatalf("a step after unpairing: %v", err)
 		}
 	})
+}
+
+// A paired Chrome whose account isn't offered it is refused as an unknown
+// one, and no step is sent to it.
+func TestTheRelayRefusesAChromeWhoseAccountIsntOffered(t *testing.T) {
+	r := newRelayRig(t)
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	if st := r.event("$connect", "c1", r.chrome); st != http.StatusOK {
+		t.Fatalf("connect: %d", st)
+	}
+	r.event("$default", "c1", map[string]any{"type": "open"})
+	closedWith(t, r, "c1", 4401)
+	if err := r.e.s.sendChromeStep(context.Background(), tenant, chromeStep{ChromeID: r.chrome}); !errors.Is(err, errChromeOffline) {
+		t.Fatalf("a step for an account not offered: %v", err)
+	}
 }
 
 // With no step key or no WebSocket API, or the Chrome not offered, every

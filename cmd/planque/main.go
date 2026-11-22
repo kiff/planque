@@ -30,6 +30,10 @@
 //	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
 //	                   accounts that may make a managed connection to any app;
 //	                   set at deploy, never kept in the repository
+//	PLANQUE_CHROME_OFFER which accounts the owner's own Chrome is offered to,
+//	                   once a build is listed: on (every one), test (only
+//	                   PLANQUE_CHROME_TENANTS, tenants:<id>[,<id>]), or off;
+//	                   unset, none
 //	PLANQUE_OWN_CLIENT_TENANTS optional tenants:<id>[,<id>]: accounts shown an
 //	                   app's own entry instead of the managed connector's
 //	                   toolkit for it; set at deploy, never kept in the repository
@@ -301,6 +305,12 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds}}
 		chromePoster = wsapi.API{Endpoint: strings.TrimRight(wsEndpoint, "/"), Region: region, Creds: creds}
 	}
+	// Which accounts the owner's Chrome is offered to: every one, a few, or
+	// none (the default), whatever builds are listed.
+	chromeOffer, err := planque.ChromeOfferFrom(os.Getenv("PLANQUE_CHROME_OFFER"), os.Getenv("PLANQUE_CHROME_TENANTS"))
+	if err != nil {
+		return nil, err
+	}
 	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
@@ -324,6 +334,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		LiveIndex:          os.Getenv("PLANQUE_LIVE_GSI") == "on",
 		Browser:            browserWorker,
 		ChromeBuilds:       chromeBuilds,
+		ChromeOffer:        chromeOffer,
 		ChromeSigner:       chromeSigner,
 		ChromePoster:       chromePoster,
 		DoorSink:           doorSink,

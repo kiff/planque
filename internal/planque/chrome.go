@@ -149,15 +149,70 @@ type chromeLookupRef struct {
 	Pairing string `json:"pairing"`
 }
 
-// chromeOn says the owner's Chrome is offered: a released build is listed.
-func (s *Server) chromeOn() bool { return len(s.ChromeBuilds) > 0 }
+// ChromeOffer is which accounts the owner's own Chrome is offered to: every
+// account, or only Tenants. The zero value offers it to none.
+type ChromeOffer struct {
+	All     bool
+	Tenants map[string]bool
+}
+
+// ChromeOfferFrom reads PLANQUE_CHROME_OFFER and PLANQUE_CHROME_TENANTS, as
+// KIFF reads KIFF_APP_SIGNIN and its tenants: "on" offers the owner's Chrome
+// to every account, "test" only to the accounts in tenants
+// ("tenants:<id>[,<id>]", as PLANQUE_MANAGED_TEST_TENANTS), and "" or "off"
+// to none. So a listed build alone turns nothing on, and a setting lost on
+// a rerun turns it off, never on for everyone. Tenants are read only with
+// "test"; "test" with none is a mistake.
+func ChromeOfferFrom(offer, tenants string) (ChromeOffer, error) {
+	switch strings.TrimSpace(offer) {
+	case "", "off":
+		return ChromeOffer{}, nil
+	case "on":
+		return ChromeOffer{All: true}, nil
+	case "test":
+		only, err := ManagedTestTenantsFrom(tenants)
+		if err != nil {
+			return ChromeOffer{}, fmt.Errorf("PLANQUE_CHROME_TENANTS %w", err)
+		}
+		if len(only) == 0 {
+			return ChromeOffer{}, errors.New("PLANQUE_CHROME_OFFER=test needs PLANQUE_CHROME_TENANTS")
+		}
+		return ChromeOffer{Tenants: only}, nil
+	}
+	return ChromeOffer{}, errors.New(`PLANQUE_CHROME_OFFER is "on", "test" or "off"`)
+}
+
+// chromeOn says the owner's Chrome is offered to some account: a released
+// build is listed, and the offer names every account or some.
+func (s *Server) chromeOn() bool {
+	return len(s.ChromeBuilds) > 0 && (s.ChromeOffer.All || len(s.ChromeOffer.Tenants) > 0)
+}
+
+// chromeOnFor says it's offered to tenant's account.
+func (s *Server) chromeOnFor(tenant string) bool {
+	return len(s.ChromeBuilds) > 0 && (s.ChromeOffer.All || s.ChromeOffer.Tenants[tenant])
+}
 
 func (s *Server) chromeOff(w http.ResponseWriter) bool {
 	if s.chromeOn() {
 		return false
 	}
-	writeErr(w, http.StatusNotFound, "a browser in your own Chrome isn't offered here")
+	chromeNotOffered(w)
 	return true
+}
+
+// chromeOffFor is chromeOff for one account: another account is answered
+// as if the Chrome weren't offered at all.
+func (s *Server) chromeOffFor(w http.ResponseWriter, tenant string) bool {
+	if s.chromeOnFor(tenant) {
+		return false
+	}
+	chromeNotOffered(w)
+	return true
+}
+
+func chromeNotOffered(w http.ResponseWriter) {
+	writeErr(w, http.StatusNotFound, "a browser in your own Chrome isn't offered here")
 }
 
 // The extension's two routes carry no signature, so each is limited: per
@@ -261,7 +316,7 @@ func lookupFrom(next func() byte) string {
 
 // openChromePairing is step 1: the owner's phone opens a pairing.
 func (s *Server) openChromePairing(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	if s.chromeOff(w) {
+	if s.chromeOffFor(w, sr.tenant) {
 		return
 	}
 	now := s.now()
@@ -361,6 +416,11 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// A pairing opened for an account the Chrome is no longer offered to
+	// goes no further.
+	if s.chromeOffFor(w, p.Tenant) {
+		return
+	}
 	// A code a Chrome already used is spent by a second post: the phone is
 	// told, and no Chrome collects it. The answer is the unknown code's,
 	// so a sweep can't tell a used code from no code.
@@ -390,7 +450,7 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 
 // readChromePairing is the phone reading a pairing, to check the proof.
 func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	if s.chromeOff(w) {
+	if s.chromeOffFor(w, sr.tenant) {
 		return
 	}
 	var p ChromePairing
@@ -422,7 +482,7 @@ func (s *Server) readChromePairing(w http.ResponseWriter, r *http.Request, sr si
 // confirmChromePairing is step 3: the phone confirms the Chrome whose key
 // it checked, and planque keeps the Chrome for the account.
 func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	if s.chromeOff(w) {
+	if s.chromeOffFor(w, sr.tenant) {
 		return
 	}
 	var req struct {
@@ -524,6 +584,9 @@ func (s *Server) collectChromePairing(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if s.chromeOffFor(w, p.Tenant) {
+		return
+	}
 	if p.Confirmed == nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{"status": "waiting_for_phone"})
 		return
@@ -544,7 +607,7 @@ func (s *Server) collectChromePairing(w http.ResponseWriter, r *http.Request) {
 
 // listChromes is the account's paired Chromes, for the phone.
 func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRequest) {
-	if s.chromeOff(w) {
+	if s.chromeOffFor(w, sr.tenant) {
 		return
 	}
 	items, err := s.KV.Query(r.Context(), tenantPK(sr.tenant), "CHROME#")
@@ -566,6 +629,8 @@ func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRe
 // unpairChrome removes a paired Chrome: its key goes at once, so nothing
 // it signs is taken again.
 func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedRequest) {
+	// Any account may unpair while the Chrome is offered to some: an account
+	// taken off the offer can still remove the Chrome it paired.
 	if s.chromeOff(w) {
 		return
 	}
