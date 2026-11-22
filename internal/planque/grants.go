@@ -3140,6 +3140,11 @@ func accountNote(a string) string {
 // here, whatever the vendor answers. It returns what the vendor did not
 // confirm.
 func (s *Server) revoke(ctx context.Context, g *Grant) []string {
+	if g.Request.Kind == KindBrowser && g.Request.Browser != nil && g.Request.Browser.Driver == DriverExtension {
+		// An ended connection in the owner's Chrome keeps no images of its acts
+		// (chrome_screenshot.go).
+		s.dropChromeShots(ctx, g.Tenant, func(shot chromeShot) bool { return shot.Grant == g.ID })
+	}
 	// A sign-in another taf still uses stays: only this connection ends
 	// (its tools are out of KIFF already). Disconnecting one taf never
 	// signs another out.

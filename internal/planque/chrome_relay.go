@@ -387,6 +387,7 @@ func (s *Server) sendChromeStep(ctx context.Context, tenant string, step chromeS
 	if err := putDoc(ctx, s.KV, pending, pendingStep{Nonce: step.Nonce, Exp: step.Exp}, store.Cond{NotExists: true}); err != nil {
 		return err
 	}
+	s.allowChromeShot(ctx, tenant, step)
 	b, _ := json.Marshal(map[string]any{"type": "step", "step": step, "sig": sig})
 	return s.ChromePoster.Post(ctx, live.Conn, b)
 }

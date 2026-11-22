@@ -34,6 +34,9 @@
 //	                   once a build is listed: on (every one), test (only
 //	                   PLANQUE_CHROME_TENANTS, tenants:<id>[,<id>]), or off;
 //	                   unset, none
+//	PLANQUE_CHROME_SCREENSHOTS on keeps an image of each acting step in the
+//	                   owner's own Chrome, sealed, for 30 days; unset or
+//	                   anything else, off
 //	PLANQUE_NEVER_USE  optional grants:<id>[,<id>]: grants whose sign-ins are
 //	                   never reused or called, by any grant on the same
 //	                   account at the app; set at deploy, never in the repository
@@ -345,6 +348,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		Browser:            browserWorker,
 		ChromeBuilds:       chromeBuilds,
 		ChromeOffer:        chromeOffer,
+		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",
 		ChromeSigner:       chromeSigner,
 		ChromePoster:       chromePoster,
 		DoorSink:           doorSink,
