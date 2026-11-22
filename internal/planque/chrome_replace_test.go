@@ -46,7 +46,7 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 	keep, drop := approved(ask("Wiki titles"), nil), approved(ask("Wiki links"), nil)
 	old := c.r.chrome
 	// Connections a replace must never carry.
-	asked := ask("Only asked")
+	asked := approved(ask("Only asked"), func(g *Grant) { g.Status = StatusPending })
 	ended := approved(ask("Ended"), func(g *Grant) { g.Status = StatusDisconnected })
 	hosted := approved(ask("Hosted"), func(g *Grant) { g.Request.Browser.Driver = "" })
 	elsewhere := approved(ask("Elsewhere"), func(g *Grant) { g.Request.Browser.Chrome = "chr_homelaptop01" })
@@ -63,9 +63,10 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 	if err := putDoc(context.Background(), c.s.KV, store.Item{PK: tenantPK(theirs.Tenant), SK: skChrome(theirs.ID)}, theirs, store.Cond{}); err != nil {
 		t.Fatal(err)
 	}
+	// More than 50, each distinct: refused for the count (400), before any is read.
 	many := []string{}
 	for i := 0; i < chromeCarriedMax+1; i++ {
-		many = append(many, keep)
+		many = append(many, "grt_many"+strings.Repeat("x", i%10)+string(rune('a'+i%26)))
 	}
 
 	acct := "/v1/accounts/" + tenant
@@ -110,7 +111,8 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 		"half the one-touch":      {"tenant": tenant},
 		"another account":         {"tenant": "t_other", "signed_at": "2026-11-22T20:00:00Z", "kiff_request_sha256": strings.Repeat("a", 64)},
 	} {
-		if st, out := confirm(pairing, sum, extra); st != 400 && st != 409 {
+		st, out := confirm(pairing, sum, extra)
+		if what == "more than 50" && st != 400 || st != 400 && st != 409 {
 			t.Errorf("%s: %d %v", what, st, out)
 		}
 	}
