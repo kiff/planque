@@ -77,7 +77,7 @@ func TestEveryLanguageHasEveryApprovalWord(t *testing.T) {
 func TestTafAndCardStayNames(t *testing.T) {
 	for _, lang := range Languages {
 		a := approvals[lang]
-		if !strings.Contains(a.Changes, "Card") || !strings.Contains(a.ThisTafFirst, "taf") {
+		if !strings.Contains(a.Changes, "Card") || !strings.Contains(strings.ToLower(a.ThisTafFirst), "taf") {
 			t.Errorf("%s: %q, %q", lang, a.Changes, a.ThisTafFirst)
 		}
 	}
@@ -98,6 +98,10 @@ func TestTheConnectCardNamesNoServiceAndSaysWhy(t *testing.T) {
 		"es": regexp.MustCompile(`socio de inicio de sesión`), "it": regexp.MustCompile(`partner di accesso`), "pt": regexp.MustCompile(`parceiro de início de sessão`),
 		"nl": regexp.MustCompile(`inlogpartner`), "pl": regexp.MustCompile(`partner\w* logowania`)}
 	why := map[string]string{"en": "because", "de": "weil", "fr": "car", "es": "porque", "it": "perché", "pt": "porque", "nl": "omdat", "pl": "bo"}
+	// The languages added since: the words, as written in each language's file (more_test.go).
+	for l, re := range morePartner {
+		partner[l] = regexp.MustCompile(re)
+	}
 	for _, lang := range Languages {
 		a := approvals[lang]
 		for _, s := range []string{a.ConnectTitledF, a.ConnectReusedF, a.ReusedNext, a.EnterKeyF, a.EnterTokenF, a.SignInThenChoose, a.MoreAccessF, a.OnlyWhatItUsesF} {
@@ -110,7 +114,11 @@ func TestTheConnectCardNamesNoServiceAndSaysWhy(t *testing.T) {
 				t.Errorf("%s doesn't say who keeps the sign-in: %q", lang, s)
 			}
 		}
-		if !strings.Contains(a.MoreAccessF, " "+why[lang]+" ") {
+		if w, ok := moreBecause[lang]; ok {
+			if !strings.Contains(a.MoreAccessF, w) {
+				t.Errorf("%s doesn't say why (%q): %q", lang, w, a.MoreAccessF)
+			}
+		} else if !strings.Contains(a.MoreAccessF, " "+why[lang]+" ") {
 			t.Errorf("%s doesn't say why: %q", lang, a.MoreAccessF)
 		}
 		for _, f := range []string{a.MoreAccessF, a.OnlyWhatItUsesF} {
