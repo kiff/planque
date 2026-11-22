@@ -525,3 +525,29 @@ func TestCallAccountHoldsAStripeCallToTheConnectionsAccount(t *testing.T) {
 		t.Errorf("another tool: %s %q", out, why)
 	}
 }
+
+// A field put at the wrong path is refused with where it goes, so the asker
+// places it instead of dropping it: Coach gave a charge read's id at
+// path.id, was told only "takes no field path.id", and left the read with
+// no way to name its charge (Eval 45056771055, setup run 3).
+func TestARefusedFieldIsToldWhereItGoes(t *testing.T) {
+	refund := func(path string) map[string]any {
+		return map[string]any{"tool": "stripe_api_write", "name": "refund_cd34", "title": "Refund a payment", "amount_argument": "amount",
+			"fixed_arguments": map[string]any{"stripe_api_operation_id": "PostRefunds"},
+			"arguments": map[string]any{"amount": map[string]any{"path": "parameters.amount", "type": "integer"},
+				"charge": map[string]any{"path": path, "type": "string"}}}
+	}
+	for path, want := range map[string]string{
+		// A field the operation lists, one level too deep: its own path.
+		"parameters.body.charge": "charge goes at parameters.charge, the path to give it",
+		// A field it doesn't list: the form every field takes.
+		"parameters.charge_id": "each goes at parameters.<field>, as parameters.amount",
+	} {
+		e := newEnv(t)
+		id := e.detailsGrant()
+		st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/tools", map[string]any{"tools": []any{refund(path)}}, nil, "k_setup")
+		if msg, _ := out["error"].(string); st != 400 || !strings.Contains(msg, want) {
+			t.Errorf("%s: %d %v", path, st, out)
+		}
+	}
+}
