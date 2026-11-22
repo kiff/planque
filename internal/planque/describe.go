@@ -398,3 +398,38 @@ func DecodeDescriberServers(raw []byte) (map[string][]string, error) {
 
 // maxDescriberServers bounds the setting: a few test vendors, not a directory.
 const maxDescriberServers = 10
+
+// pinAccount pins the account a narrowed tool acts in (d.Context's
+// stripe_context) to the grant's own connected account, when the tool
+// leaves it open: left open, the taf looks the account up on every
+// message, and Coach can forget it (Eval 45046714906, setup run 2). It
+// happens before the owner's words and digest are made, so the owner signs
+// the pinned account, and it only ever narrows. It returns what to refuse,
+// or "": a grant that doesn't cover exactly one account has nothing to pin,
+// and a tool that names another account than the grant's is never taken.
+func pinAccount(g *Grant, tools []ToolRequest) string {
+	for i := range tools {
+		d, _, _, ok := narrowedTo(tools[i])
+		if !ok || !slices.Contains(d.Context, stripeContext) {
+			continue
+		}
+		name := cmp.Or(tools[i].Name, tools[i].Tool)
+		if !strings.HasPrefix(g.Account, "acct_") {
+			return name + " acts in one Stripe account, and this connection doesn't cover exactly one: ask the owner to sign in to the one account the taf uses, then add it"
+		}
+		if given, ok := tools[i].Fixed[stripeContext]; ok {
+			var account string
+			if json.Unmarshal(given, &account) != nil || account != g.Account {
+				return name + " names another account than this connection's (" + g.Account + "): leave stripe_context out, and planque pins the connection's own"
+			}
+			continue
+		}
+		fixed := maps.Clone(tools[i].Fixed)
+		if fixed == nil {
+			fixed = map[string]json.RawMessage{}
+		}
+		fixed[stripeContext], _ = json.Marshal(g.Account)
+		tools[i].Fixed = fixed
+	}
+	return ""
+}

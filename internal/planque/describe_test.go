@@ -129,8 +129,9 @@ func TestTheFieldsAreReadInTheNarrowedToolsAccount(t *testing.T) {
 	e := newEnv(t)
 	id := e.detailsGrant()
 	at := "/v1/accounts/" + tenant + "/grants/" + id + "/tools"
+	// Another account than the connection's is refused by planque itself, before the vendor is asked.
 	if st, out := e.do("POST", at, map[string]any{"tools": []any{search("acct_other", false)}}, nil, "k_setup"); st != 400 ||
-		!strings.Contains(out["error"].(string), "No such account: 'acct_other'") {
+		!strings.Contains(out["error"].(string), "search_charges names another account than this connection's (acct_fake123)") {
 		t.Fatalf("another account: %d %v", st, out)
 	}
 	// And in its mode: the test sign-in describes nothing in live mode.
@@ -364,4 +365,67 @@ func TestSetupReadsAloneAreRefused(t *testing.T) {
 	}
 	// A describing tool alone still connects first (detailsGrant).
 	_ = e.detailsGrant()
+}
+
+// A narrowed Stripe tool that leaves its account open gets the connection's
+// own, pinned by planque before the owner reads the addition: left to Coach,
+// it was forgotten once in three runs, and the taf would look the account up
+// on every message (Eval 45046714906, setup run 2). The owner reads the
+// pinned account; nothing else is pinned.
+func TestANarrowedToolLeftOpenActsInTheConnectionsOwnAccount(t *testing.T) {
+	read := map[string]any{"tool": "stripe_api_read", "name": "read_charge", "title": "Read one charge", "read_only": true,
+		"fixed_arguments": map[string]any{"stripe_api_operation_id": "GetChargesCharge", "livemode": false},
+		"arguments":       map[string]any{"id": map[string]any{"path": "parameters.id", "type": "string"}}}
+	e := newEnv(t)
+	id, out := e.addToDetails(read)
+	terms, _ := json.Marshal(out["terms"])
+	if !strings.Contains(string(terms), `stripe_context = \"acct_fake123\"`) {
+		t.Fatalf("the owner doesn't read the pinned account: %s", terms)
+	}
+	e.approveAddition(id, out)
+	_, g := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id, nil, nil, "k_setup")
+	b, _ := json.Marshal(g)
+	if !strings.Contains(string(b), `"stripe_context":"acct_fake123"`) {
+		t.Fatalf("the tool isn't pinned to the connection's account: %s", b)
+	}
+}
+
+// With no single account to pin (none named, or several: planque keeps none
+// then, signedInAccount), a narrowed Stripe tool is refused back to Coach
+// with why, never guessed; one that names another account than the
+// connection's is refused; one that names the connection's own is kept as
+// asked; a tool that isn't a narrowed Stripe one is left alone.
+func TestPinAccountPinsOnlyTheOneAccountTheConnectionCovers(t *testing.T) {
+	tool := func(fixed map[string]string) []ToolRequest {
+		f := map[string]json.RawMessage{"stripe_api_operation_id": json.RawMessage(`"GetChargesCharge"`)}
+		for k, v := range fixed {
+			f[k], _ = json.Marshal(v)
+		}
+		return []ToolRequest{{Tool: "stripe_api_read", Name: "read_charge", Fixed: f}}
+	}
+	for _, account := range []string{"", "not_an_account"} {
+		if msg := pinAccount(&Grant{Account: account}, tool(nil)); !strings.Contains(msg, "this connection doesn't cover exactly one") {
+			t.Errorf("account %q: %q", account, msg)
+		}
+	}
+	g := &Grant{Account: "acct_one"}
+	if msg := pinAccount(g, tool(map[string]string{"stripe_context": "acct_two"})); !strings.Contains(msg, "names another account than this connection's (acct_one)") {
+		t.Errorf("another account: %q", msg)
+	}
+	kept := tool(map[string]string{"stripe_context": "acct_one"})
+	if msg := pinAccount(g, kept); msg != "" || string(kept[0].Fixed["stripe_context"]) != `"acct_one"` {
+		t.Errorf("its own account: %q %s", msg, kept[0].Fixed["stripe_context"])
+	}
+	open := tool(nil)
+	original := maps.Clone(open[0].Fixed)
+	if msg := pinAccount(g, open); msg != "" || string(open[0].Fixed["stripe_context"]) != `"acct_one"` {
+		t.Errorf("left open: %q %s", msg, open[0].Fixed["stripe_context"])
+	}
+	if _, ok := original["stripe_context"]; ok {
+		t.Error("the asker's own map was changed in place")
+	}
+	other := []ToolRequest{{Tool: "list_charges", Name: "list_charges"}, {Tool: "stripe_api_read", Name: "broad"}}
+	if msg := pinAccount(&Grant{}, other); msg != "" || other[0].Fixed != nil || other[1].Fixed != nil {
+		t.Errorf("not a narrowed Stripe tool: %q %+v", msg, other)
+	}
 }

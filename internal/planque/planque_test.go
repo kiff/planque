@@ -976,7 +976,8 @@ func TestNarrowedTool(t *testing.T) {
 	if text := out["text"].(string); !strings.Contains(text, "• Refund a payment: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
 		t.Fatalf("text:\n%s", text)
 	}
-	if terms, _ := out["terms"].([]any); !slices.Contains(terms, any(`stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds"; the taf sets only amount, approval_token, payment_intent)`)) {
+	// The account it acts in is the connection's own, pinned by planque, and the owner reads it (Eval 45046714906).
+	if terms, _ := out["terms"].([]any); !slices.Contains(terms, any(`stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds", stripe_context = "acct_fake123" (the vendor says: "The account to act in, from list_accounts."); the taf sets only amount, approval_token, payment_intent)`)) {
 		t.Fatalf("terms: %v", out["terms"])
 	}
 	e.approveAddition(id, out)
@@ -989,7 +990,7 @@ func TestNarrowedTool(t *testing.T) {
 		t.Fatalf("refund: %+v %v", res, err)
 	}
 	got, _ := json.Marshal(e.vendor.Calls[0])
-	if want := `{"Tool":"stripe_api_write","Args":{"parameters":{"amount":300,"payment_intent":"pi_1"},"stripe_api_operation_id":"PostRefunds"}}`; string(got) != want {
+	if want := `{"Tool":"stripe_api_write","Args":{"parameters":{"amount":300,"payment_intent":"pi_1"},"stripe_api_operation_id":"PostRefunds","stripe_context":"acct_fake123"}}`; string(got) != want {
 		t.Fatalf("vendor received %s\nwant %s", got, want)
 	}
 	if res, _ := e.kiff.Call(ctx, "k_taf", "stripe_refund", map[string]any{"payment_intent": "pi_1", "amount": 900}); res.Decision != "refused" {
