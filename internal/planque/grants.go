@@ -1212,9 +1212,16 @@ type grantView struct {
 	Tools   []string `json:"tools,omitempty"`
 	// Declared says Tools are in KIFF while the grant waits for its key:
 	// a Card can be drafted over them, and none of them is usable yet.
-	Declared bool   `json:"declared,omitempty"`
-	Audience string `json:"audience"`
-	Reason   string `json:"reason,omitempty"`
+	Declared bool `json:"declared,omitempty"`
+	// ChromeSitesSig and ChromeSitesCarried are a connection in the owner's
+	// Chrome's proof of its sites, as kept: the phone's own signature over
+	// {chrome_id, grant, sites}, or the Chrome a re-pairing carried it to. A
+	// phone re-pairing that Chrome checks the sites it carries with its own
+	// key ("Your Chrome" 1), never taking planque's word for them.
+	ChromeSitesSig     string `json:"chrome_sites_sig,omitempty"`
+	ChromeSitesCarried string `json:"chrome_sites_carried,omitempty"`
+	Audience           string `json:"audience"`
+	Reason             string `json:"reason,omitempty"`
 	// SignedOutCause is why a signed-out connection's sign-in ended, as planque's
 	// code (refresh_refused, reused_sign_in_gone, no_refresh_token), so an app
 	// words it from the cause. Empty for a connection that isn't signed out,
@@ -1299,6 +1306,9 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	}
 	if g.Request.Kind == KindBrowser {
 		v.Provider = KindBrowser
+	}
+	if b := g.Request.Browser; b != nil && b.Driver == DriverExtension {
+		v.ChromeSitesSig, v.ChromeSitesCarried = g.ChromeSitesSig, g.ChromeSitesCarried
 	}
 	if isTelegram(g) {
 		// An app knows a Telegram bot by these, not by planque's description

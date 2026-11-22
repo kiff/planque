@@ -226,6 +226,7 @@ func (s *Server) Handler() http.Handler {
 	// One operation's images, listed for a taf's Activity row by its proposal_id.
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/screenshots", s.signedSafe(s.listChromeShots))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
+	mux.HandleFunc("PUT /v1/accounts/{tenant}/grants/{id}/chrome", s.signed(s.switchChrome))
 	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
 	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))
 	mux.HandleFunc("POST /v1/extension/unpair", extensionCORS(s.extensionUnpair))
