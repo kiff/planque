@@ -17,3 +17,25 @@ func TestSignVanilla(t *testing.T) {
 		t.Fatalf("Authorization\n got %s\nwant %s", got, want)
 	}
 }
+
+// SigV4's canonical URI for every service but S3 is the path as sent,
+// URI-encoded once more. The API Gateway management API's path holds "@" and
+// connection ids ending in "=": signed as sent, AWS refused every post to a
+// paired Chrome (22 Nov 2026, "the signature we calculated does not match").
+func TestTheCanonicalPathIsEncodedAsAWSSignsIt(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                  "/",
+		"/":                                 "/",
+		"/v1/@connections/Lx1ZbcMDoAMCJRQ=": "/v1/%40connections/Lx1ZbcMDoAMCJRQ%3D",
+		"/a-b_c.d~e/f":                      "/a-b_c.d~e/f",
+		"/example%20space/":                 "/example%2520space/",
+		"/x+y:z":                            "/x%2By%3Az",
+		// The AWS CLI's own canonical path for GetConnection on that API, read
+		// from its --debug output: the id sent escaped, signed escaped again.
+		"/v1/@connections/Zz9probeNotACo0%3D": "/v1/%40connections/Zz9probeNotACo0%253D",
+	} {
+		if got := canonicalPath(in); got != want {
+			t.Errorf("canonicalPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
