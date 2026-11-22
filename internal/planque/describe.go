@@ -186,13 +186,13 @@ func fieldsCheck(t ToolRequest, d describer, op string, fields map[string]*field
 		for i, part := range parts {
 			f := level[part]
 			if f == nil {
-				return fmt.Sprintf("%s takes no field %s: %s lists %s", op, rest, d.Tool, listFields(fields))
+				return fmt.Sprintf("%s takes no field %s: %s lists %s%s", op, rest, d.Tool, listFields(fields), fieldAt(d, fields, parts))
 			}
 			if len(f.kids) == 0 {
 				// A field inside one whose inner fields aren't listed is the
 				// vendor's to check; inside a plain value there is none.
 				if !f.open && i < len(parts)-1 {
-					return fmt.Sprintf("%s takes no field %s: %s lists %s", op, rest, d.Tool, listFields(fields))
+					return fmt.Sprintf("%s takes no field %s: %s lists %s%s", op, rest, d.Tool, listFields(fields), fieldAt(d, fields, parts))
 				}
 				break
 			}
@@ -200,6 +200,21 @@ func fieldsCheck(t ToolRequest, d describer, op string, fields map[string]*field
 		}
 	}
 	return ""
+}
+
+// fieldAt says where a refused path's field goes, so the asker places it
+// rather than drops it (Eval 45056771055, setup run 3: "path.id" refused,
+// and the read was left with no way to name its charge). A path that ends in
+// a field the operation lists names that field's own path; any other, the
+// form every field takes.
+func fieldAt(d describer, fields map[string]*field, parts []string) string {
+	if last := parts[len(parts)-1]; len(parts) > 1 && fields[last] != nil {
+		return "; " + last + " goes at " + d.Params + "." + last + ", the path to give it"
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "; each goes at " + d.Params + ".<field>, as " + d.Params + "." + slices.Sorted(maps.Keys(fields))[0]
 }
 
 func listFields(fields map[string]*field) string {
