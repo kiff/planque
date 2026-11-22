@@ -433,3 +433,43 @@ func pinAccount(g *Grant, tools []ToolRequest) string {
 	}
 	return ""
 }
+
+// callAccount holds a call to a vendor tool that acts in one account
+// (d.Context's stripe_context) to the connection's own, whatever the grant
+// or the taf put in it: defence in depth for a grant whose first request
+// was asked before the owner signed in, when no account could be pinned
+// (PM, kiff/work#20, 22 Nov 23:14). A missing account is the connection's;
+// another is refused, and so is any call on a connection that doesn't cover
+// exactly one account. It returns the arguments to send, or why not.
+func callAccount(g *Grant, tool string, args json.RawMessage) (json.RawMessage, string) {
+	takes := slices.ContainsFunc(describers, func(d describer) bool {
+		return slices.Contains(d.Context, stripeContext) && (slices.Contains(d.Reads, tool) || slices.Contains(d.Writes, tool))
+	})
+	if !takes {
+		return args, ""
+	}
+	if !strings.HasPrefix(g.Account, "acct_") {
+		return nil, tool + " acts in one Stripe account, and this connection doesn't cover exactly one: the owner signs in again to the one account the taf uses"
+	}
+	var in map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(args))
+	dec.UseNumber()
+	if dec.Decode(&in) != nil || in == nil {
+		return nil, tool + "'s arguments aren't an object"
+	}
+	if given, ok := in[stripeContext]; ok {
+		var account string
+		if json.Unmarshal(given, &account) != nil || account != g.Account {
+			return nil, tool + " names another account than this connection's (" + g.Account + ")"
+		}
+	}
+	// What's sent is always the decoded object, never the bytes as they
+	// came: a key given twice is sent once, as checked, whichever one
+	// another program's parser would have taken.
+	in[stripeContext], _ = json.Marshal(g.Account)
+	out, err := json.Marshal(in)
+	if err != nil {
+		return nil, tool + "'s arguments couldn't be sent"
+	}
+	return out, ""
+}

@@ -456,3 +456,72 @@ func TestAReusedSignInsRequestPinsItsAccount(t *testing.T) {
 		t.Fatalf("the owner doesn't read the pinned account: %s", terms)
 	}
 }
+
+// A Stripe read asked in a fresh sign-in's first request, before planque
+// knew the account, is held to the connection's account at call time: the
+// vendor receives stripe_context, the connection's own, though the grant
+// never pinned it (PM, kiff/work#20, 22 Nov 23:14).
+func TestAFreshSignInsStripeCallActsInTheConnectionsAccount(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	read := chargeRead("charge_lookup")
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"server": e.vendor.MCPURL(), "agent": "agt_taf",
+		"tools": []any{read}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	if terms, _ := json.Marshal(out["terms"]); strings.Contains(string(terms), "stripe_context") {
+		t.Fatalf("a fresh sign-in's account can't be known before it: %s", terms)
+	}
+	if st, out := e.approveAndSignIn(out["id"].(string), out["digest"].(string)); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	e.kiff.Cards["k_taf"] = map[string]int64{"charge_lookup": 0}
+	res, err := e.kiff.Call(context.Background(), "k_taf", "charge_lookup", map[string]any{"charge": "ch_1"})
+	if err != nil || res.Decision != "allowed" {
+		t.Fatalf("call: %+v %v", res, err)
+	}
+	var sent []string
+	for _, c := range e.vendor.Reads {
+		if c.Tool == "stripe_api_read" {
+			got, _ := json.Marshal(c.Args)
+			sent = append(sent, string(got))
+		}
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], `"stripe_context":"acct_fake123"`) {
+		t.Fatalf("the vendor didn't receive the connection's account: %v", sent)
+	}
+}
+
+// At call time, a call to a tool that acts in one Stripe account goes only
+// to the connection's own: missing, it's the connection's; another, or a
+// connection with no single account, is refused; other tools are untouched.
+func TestCallAccountHoldsAStripeCallToTheConnectionsAccount(t *testing.T) {
+	g := &Grant{Account: "acct_one"}
+	if out, why := callAccount(g, "stripe_api_read", json.RawMessage(`{"stripe_api_operation_id":"GetChargesCharge","parameters":{"id":"ch_1"}}`)); why != "" ||
+		!strings.Contains(string(out), `"stripe_context":"acct_one"`) || !strings.Contains(string(out), `"parameters":{"id":"ch_1"}`) {
+		t.Errorf("missing: %s %q", out, why)
+	}
+	if out, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_one","amount":12345678901234567890}`)); why != "" ||
+		string(out) != `{"amount":12345678901234567890,"stripe_context":"acct_one"}` {
+		t.Errorf("its own, sent decoded with the number exact: %s %q", out, why)
+	}
+	// A key given twice goes out once, the connection's account, whichever
+	// one another program's parser would take.
+	out, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_other","stripe_context":"acct_one"}`))
+	if why != "" || strings.Count(string(out), "stripe_context") != 1 || string(out) != `{"stripe_context":"acct_one"}` {
+		t.Errorf("a duplicate key: %s %q", out, why)
+	}
+	if _, why := callAccount(g, "stripe_api_write", json.RawMessage(`{"stripe_context":"acct_two"}`)); !strings.Contains(why, "names another account than this connection's (acct_one)") {
+		t.Errorf("another: %q", why)
+	}
+	if _, why := callAccount(&Grant{}, "stripe_api_read", json.RawMessage(`{}`)); !strings.Contains(why, "doesn't cover exactly one") {
+		t.Errorf("no account: %q", why)
+	}
+	if _, why := callAccount(g, "stripe_api_read", json.RawMessage(`[1]`)); why == "" {
+		t.Error("not an object was sent")
+	}
+	if out, why := callAccount(&Grant{}, "list_charges", json.RawMessage(`{"limit":5}`)); why != "" || string(out) != `{"limit":5}` {
+		t.Errorf("another tool: %s %q", out, why)
+	}
+}
