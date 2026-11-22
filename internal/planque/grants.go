@@ -1683,6 +1683,9 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	// (fieldsHold).
 	if reviewed && stripeRefundsGrant(g) {
 		// checked at first use
+	} else if msg := pinAccount(g, req.Tools); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
 	} else if msg, err := s.operationsCheck(r.Context(), g, has, req.Tools); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
