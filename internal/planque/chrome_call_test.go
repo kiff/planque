@@ -758,3 +758,26 @@ func permitFor(c *chromeRig, g *Grant, tool, approval string) permit.Permit {
 	c.t.Helper()
 	return permit.Permit{Tenant: tenant, Tool: tool, Op: "op_" + randomSuffix(), Subject: g.Request.Agent, Approval: approval, Expires: time.Now().Add(time.Minute)}
 }
+
+// A full read is fenced like an open, and a page the Chrome landed on off the
+// grant's sites (a redirect) is never read to the taf.
+func TestAFullReadIsFencedAndARedirectOffTheSitesIsntRead(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	landing := "https://shop.example/"
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		p := plainPage("rd_1")
+		p["url"], p["text"] = landing, "Secret plans of evil.example"
+		return true, p, ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseRead, map[string]any{"url": "https://shop.example/"})
+	if text, _ := sc["text"].(string); !strings.HasPrefix(text, fenceNote+"\n<<<page-words:") {
+		t.Fatalf("a full read isn't fenced: %v", sc)
+	}
+	landing = "https://evil.example/"
+	out, sc := c.call(g, browseRead, map[string]any{"url": "https://shop.example/"})
+	if code(sc) != browser.CodeSiteNotListed || strings.Contains(out, "Secret plans") {
+		t.Fatalf("a redirect off the sites: %s", out)
+	}
+}
