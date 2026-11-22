@@ -172,3 +172,56 @@ func TestWebPWidthReadsEachKindOfFirstChunk(t *testing.T) {
 		t.Error("not WebP was read")
 	}
 }
+
+// An image goes sooner than its 30 days when what it belongs to ends: a
+// Chrome's when it's unpaired, a connection's when it's disconnected (as the
+// pages a write kept do), and nothing else's.
+func TestImagesGoWithTheirChromeAndTheirConnection(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeScreenshots = true
+	c.r.connect(t, "c1")
+	ctx := context.Background()
+	now := time.Now()
+	c.s.Now = func() time.Time { return now }
+	tick := 0
+	c.phone.Now = func() time.Time { tick++; return now.Add(time.Duration(tick) * time.Second) }
+	keep := func(id, grant string) {
+		t.Helper()
+		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: "run_" + id, Grant: grant, Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+			t.Fatal(err)
+		}
+		img := webp(800, 20<<10)
+		sum := sha256.Sum256(img)
+		sig, _ := stepkey.SignBody(ctx, c.r.ext, labelScreenshot, map[string]string{"chrome_id": c.r.chrome, "step": id, "sha256": hex.EncodeToString(sum[:])})
+		if st, out := c.do("POST", "/v1/extension/steps/"+id+"/screenshot", map[string]any{"chrome_id": c.r.chrome,
+			"image": base64.RawURLEncoding.EncodeToString(img), "sig": sig}, nil, ""); st != http.StatusNoContent {
+			t.Fatalf("keep %s: %d %v", id, st, out)
+		}
+	}
+	kept := func(id string) bool {
+		st, _ := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots/"+id, nil, c.phone, "")
+		return st == 200
+	}
+
+	// A connection's images go when it's disconnected; another's stay.
+	g := c.grant(t, browseOpen, browseAct)
+	keep("stp_mine", g.ID)
+	keep("stp_other", "grt_another")
+	if st, out := c.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, c.phone, ""); st != 200 {
+		t.Fatalf("disconnect: %d %v", st, out)
+	}
+	if kept("stp_mine") {
+		t.Error("the disconnected connection's image is still kept")
+	}
+	if !kept("stp_other") {
+		t.Error("another connection's image went with it")
+	}
+
+	// A Chrome's images go when it's unpaired.
+	if st, out := c.do("DELETE", "/v1/accounts/"+tenant+"/chromes/"+c.r.chrome, nil, c.phone, ""); st != 200 && st != 204 {
+		t.Fatalf("unpair: %d %v", st, out)
+	}
+	if kept("stp_other") {
+		t.Error("the unpaired Chrome's image is still kept")
+	}
+}

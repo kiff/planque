@@ -246,3 +246,21 @@ func (s *Server) readChromeShot(w http.ResponseWriter, r *http.Request, sr signe
 	writeJSON(w, http.StatusOK, map[string]any{"step": shot.Step, "run": shot.Run, "grant": shot.Grant,
 		"taken_at": shot.At.Format(time.RFC3339), "sha256": shot.SHA256, "image": base64.RawURLEncoding.EncodeToString(img)})
 }
+
+// dropChromeShots deletes the account's kept images that match: a
+// connection's when it ends, a Chrome's when it's unpaired. The images go
+// sooner than their 30 days, as the pages a write kept do on a disconnect.
+// A failure leaves the rest to the TTL.
+func (s *Server) dropChromeShots(ctx context.Context, tenant string, match func(chromeShot) bool) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "CHROMESHOT#")
+	if err != nil {
+		return
+	}
+	for _, it := range items {
+		var shot chromeShot
+		if json.Unmarshal(it.Doc, &shot) != nil || !match(shot) {
+			continue
+		}
+		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+	}
+}

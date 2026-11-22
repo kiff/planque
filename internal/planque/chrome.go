@@ -668,6 +668,8 @@ func (s *Server) removeChrome(ctx context.Context, tenant, id string) (bool, err
 	_ = putDoc(ctx, s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
 		chromeIndex{Tenant: tenant, Unpaired: true}, store.Cond{})
 	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
+	// Its acts' images go with it (chrome_screenshot.go).
+	s.dropChromeShots(ctx, tenant, func(shot chromeShot) bool { return shot.Chrome == id })
 	return true, nil
 }
 
