@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kiff/planque/internal/store"
 )
 
 // Re-pairing replaces (kiff/tafs docs/chrome.md, "Your Chrome" 1): the confirm
@@ -26,15 +28,45 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 			t.Fatalf("ask %s: %d %v", name, st, out)
 		}
 		id := out["grant"].(map[string]any)["id"].(string)
+		return id
+	}
+	// approved: the owner's phone signed its sites and it's live, as an approve leaves it.
+	approved := func(id string, edit func(g *Grant)) string {
+		t.Helper()
 		g, _ := c.s.loadGrant(context.Background(), tenant, id)
-		g.ChromeSitesSig = testSitesSig
+		g.ChromeSitesSig, g.Status = testSitesSig, StatusConnected
+		if edit != nil {
+			edit(g)
+		}
 		if err := c.s.saveGrant(context.Background(), g); err != nil {
 			t.Fatal(err)
 		}
 		return id
 	}
-	keep, drop := ask("Wiki titles"), ask("Wiki links")
+	keep, drop := approved(ask("Wiki titles"), nil), approved(ask("Wiki links"), nil)
 	old := c.r.chrome
+	// Connections a replace must never carry.
+	asked := ask("Only asked")
+	ended := approved(ask("Ended"), func(g *Grant) { g.Status = StatusDisconnected })
+	hosted := approved(ask("Hosted"), func(g *Grant) { g.Request.Browser.Driver = "" })
+	elsewhere := approved(ask("Elsewhere"), func(g *Grant) { g.Request.Browser.Chrome = "chr_homelaptop01" })
+	unsigned := approved(ask("Unsigned"), func(g *Grant) { g.ChromeSitesSig = "" })
+	carry := func(ids ...string) []any {
+		out := []any{}
+		for _, id := range ids {
+			out = append(out, map[string]any{"grant": id, "sites": []string{"wikipedia.org"}})
+		}
+		return out
+	}
+	// A Chrome paired to another account, never this one's to replace.
+	theirs := Chrome{ID: "chr_otheraccount1", Tenant: "t_other", Name: "Theirs", Key: "k"}
+	if err := putDoc(context.Background(), c.s.KV, store.Item{PK: tenantPK(theirs.Tenant), SK: skChrome(theirs.ID)}, theirs, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	many := []string{}
+	for i := 0; i < chromeCarriedMax+1; i++ {
+		many = append(many, keep)
+	}
 
 	acct := "/v1/accounts/" + tenant
 	open := func() (string, string) {
@@ -66,6 +98,15 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 		"carried with no replace": {"carried": []any{map[string]any{"grant": keep, "sites": []string{"wikipedia.org"}}}},
 		"other sites":             {"replaces": old, "carried": []any{map[string]any{"grant": keep, "sites": []string{"wikipedia.org", "bank.example"}}}},
 		"not a connection":        {"replaces": old, "carried": []any{map[string]any{"grant": "grt_nope", "sites": []string{"wikipedia.org"}}}},
+		"only asked for":          {"replaces": old, "carried": carry(asked)},
+		"already ended":           {"replaces": old, "carried": carry(ended)},
+		"not the extension's":     {"replaces": old, "carried": carry(hosted)},
+		"on another Chrome":       {"replaces": old, "carried": carry(elsewhere)},
+		"sites never signed":      {"replaces": old, "carried": carry(unsigned)},
+		"the same one twice":      {"replaces": old, "carried": carry(keep, keep)},
+		"more than 50":            {"replaces": old, "carried": carry(many...)},
+		"no such Chrome":          {"replaces": "chr_nosuchchrome0", "carried": carry(keep)},
+		"another account's":       {"replaces": theirs.ID, "carried": carry(keep)},
 		"half the one-touch":      {"tenant": tenant},
 		"another account":         {"tenant": "t_other", "signed_at": "2026-11-22T20:00:00Z", "kiff_request_sha256": strings.Repeat("a", 64)},
 	} {
