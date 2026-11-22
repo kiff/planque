@@ -274,18 +274,42 @@ func TestTheChromeIsOfferedOnlyToTheAccountsNamed(t *testing.T) {
 			t.Fatalf("not named, %s %s: %d %v", c.method, c.path, st, out)
 		}
 	}
+	// A pairing opened before answers as an unknown code, so a sweep can't
+	// tell it from none.
 	extKey, _ := p256Key(t)
-	if st, out := extensionPosts(e, lookup, extKey, releasedManifest); st != 404 {
+	if st, out := extensionPosts(e, lookup, extKey, releasedManifest); st != 404 || out["error"] != "no pairing has that code, or it expired: start again on your phone" {
 		t.Fatalf("not named, the extension's key on a pairing opened before: %d %v", st, out)
-	}
-	if st, out := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+extKey, nil, nil, ""); st != 404 {
-		t.Fatalf("not named, the collect: %d %v", st, out)
 	}
 	if _, out := e.do("GET", acct+"/connections", nil, nil, "k_setup"); out["chromes"] != nil {
 		t.Fatalf("not named: the connections name Chromes: %v", out)
 	}
 	if st, out := e.do("DELETE", acct+"/chromes/chr_workmac0001", nil, e.phone, ""); st == 404 && out["error"] == "a browser in your own Chrome isn't offered here" {
 		t.Fatalf("not named, unpair is refused as not offered: %v", out)
+	}
+}
+
+// A pairing the phone confirmed while its account was offered the Chrome,
+// collected after the account is taken off: the extension gets the answer
+// for a pairing that isn't its own, never the confirmed Chrome.
+func TestAConfirmedPairingIsntCollectedOnceItsAccountIsntOffered(t *testing.T) {
+	acct := "/v1/accounts/" + tenant
+	e := chromeEnv(t)
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{tenant: true}}
+	_, out := e.do("POST", acct+"/chromes/pairings", map[string]any{}, e.phone, "")
+	pairing, lookup := out["pairing"].(string), out["lookup"].(string)
+	extKey, extSum := p256Key(t)
+	if st, out := extensionPosts(e, lookup, extKey, releasedManifest); st != 202 {
+		t.Fatalf("the extension's key: %d %v", st, out)
+	}
+	phoneKey, _ := p256Key(t)
+	if st, out := e.do("POST", acct+"/chromes/pairings/"+pairing+"/confirm", map[string]any{"chrome_key_sha256": extSum, "name": "Work Mac",
+		"phone_key": phoneKey, "phone_proof": b64(32), "phone_sig": b64(64)}, e.phone, ""); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	st, out := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+extKey, nil, nil, "")
+	if st != 404 || out["error"] != "no pairing for this Chrome" || out["chrome_id"] != nil || out["phone_key"] != nil {
+		t.Fatalf("collect once not offered: %d %v", st, out)
 	}
 }
 

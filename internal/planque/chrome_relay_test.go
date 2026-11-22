@@ -321,8 +321,19 @@ func TestTheRelayRefusesAChromeWhoseAccountIsntOffered(t *testing.T) {
 	}
 	r.event("$default", "c1", map[string]any{"type": "open"})
 	closedWith(t, r, "c1", 4401)
-	if err := r.e.s.sendChromeStep(context.Background(), tenant, chromeStep{ChromeID: r.chrome}); !errors.Is(err, errChromeOffline) {
-		t.Fatalf("a step for an account not offered: %v", err)
+}
+
+// A Chrome connected while its account was offered gets no step once the
+// account is taken off, though its connection is still open.
+func TestNoStepGoesToAConnectedChromeOnceItsAccountIsntOffered(t *testing.T) {
+	r := newRelayRig(t)
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{tenant: true}}
+	r.connect(t, "c1")
+	sent := len(r.poster.posts["c1"])
+	r.e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	err := r.e.s.sendChromeStep(context.Background(), tenant, chromeStep{ID: "st_1", ChromeID: r.chrome, Op: "read", URL: "https://shop.example/"})
+	if !errors.Is(err, errChromeOffline) || len(r.poster.posts["c1"]) != sent {
+		t.Fatalf("a step for an account no longer offered: %v, %d posts after %d", err, len(r.poster.posts["c1"]), sent)
 	}
 }
 

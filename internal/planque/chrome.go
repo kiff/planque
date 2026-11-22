@@ -417,8 +417,10 @@ func (s *Server) postChromeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A pairing opened for an account the Chrome is no longer offered to
-	// goes no further.
-	if s.chromeOffFor(w, p.Tenant) {
+	// goes no further, and answers as an unknown code, so a sweep can't
+	// tell it from no pairing.
+	if !s.chromeOnFor(p.Tenant) {
+		writeErr(w, http.StatusNotFound, "no pairing has that code, or it expired: start again on your phone")
 		return
 	}
 	// A code a Chrome already used is spent by a second post: the phone is
@@ -584,7 +586,9 @@ func (s *Server) collectChromePairing(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if s.chromeOffFor(w, p.Tenant) {
+	// The same for its collect: as a pairing that isn't this key's.
+	if !s.chromeOnFor(p.Tenant) {
+		writeErr(w, http.StatusNotFound, "no pairing for this Chrome")
 		return
 	}
 	if p.Confirmed == nil {
