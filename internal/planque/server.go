@@ -132,6 +132,10 @@ type Server struct {
 	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps        map[string]bool
 	ManagedTestTenants map[string]bool
+	// NeverUse are grants whose sign-ins are never reused or called, by any
+	// grant on the same account at the app (PLANQUE_NEVER_USE, NeverUseFrom):
+	// an account no taf is meant to reach.
+	NeverUse map[string]bool
 	// OwnClientTenants are the accounts shown an app's own entry instead of
 	// the managed connector's toolkit (PLANQUE_OWN_CLIENT_TENANTS, ownClientFor).
 	OwnClientTenants       map[string]bool

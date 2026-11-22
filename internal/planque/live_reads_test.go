@@ -96,7 +96,7 @@ func TestTheCatalogAndAHeldSignInReadOnlyLiveGrants(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil)
+		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +135,7 @@ func TestAGrantMovingToFinishedOrBackIsReadAtOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil)
+		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +289,7 @@ func TestAStaleLiveRowIsNeverRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil)
+		h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -497,7 +497,7 @@ func TestAHeldSignInIsCheckedOnItsOwnRecordNotTheIndex(t *testing.T) {
 			}
 			asked := []string{"GMAIL_SEND_EMAIL"}
 			// The account is indexed, and the grant is held as it stands.
-			if h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked); err != nil || h == nil {
+			if h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked, ""); err != nil || h == nil {
 				t.Fatalf("before the change: held %v, %v; want the grant", h, err)
 			}
 			snapshot, err := kv.QueryLive(t.Context(), tenant)
@@ -513,7 +513,7 @@ func TestAHeldSignInIsCheckedOnItsOwnRecordNotTheIndex(t *testing.T) {
 				t.Fatal(err)
 			}
 			s.KV = &staleLive{KV: kv, snapshot: snapshot}
-			h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked)
+			h, err := s.heldSignIn(t.Context(), tenant, "composio", "gmail", asked, "")
 			if err != nil {
 				t.Fatal(err)
 			}

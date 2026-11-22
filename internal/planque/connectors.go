@@ -445,6 +445,10 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// NewSignIn asks for a sign-in of its own even when the account
 		// holds one to this app: another account at the app, say.
 		NewSignIn bool `json:"new_sign_in"`
+		// ReuseGrant, optional, names the grant whose sign-in is reused,
+		// when the account holds sign-ins to two accounts at the app: with
+		// none named, planque never picks between them.
+		ReuseGrant string `json:"reuse_grant"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
@@ -482,7 +486,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	// The new connection is listed with no tools, and gets only those the
 	// owner approves for the new taf, never the other connection's.
 	if !ask.NewSignIn {
-		held, err := s.heldSignIn(r.Context(), tenant, providerID, toolkit, ask.Tools)
+		held, err := s.heldSignIn(r.Context(), tenant, providerID, toolkit, ask.Tools, ask.ReuseGrant)
 		if err != nil {
 			s.fail(w, r, err)
 			return
@@ -1050,6 +1054,12 @@ func (s *Server) callConnector(ctx context.Context, g *Grant, t GrantedTool, arg
 	if err != nil || t.Connector == nil || g.Connector == nil || g.Request.Connector.Account != g.Connector.Account || g.Connector.User != s.connectorIdentity(g).User || g.Connector.Revocation != nil && g.Connector.Revocation.Disabled {
 		return OpNotSent, refusal(CodeConnectionDown, "Not sent: the approved connector definition or account is unavailable.")
 	}
+	// A sign-in marked never to be used isn't called, by any grant on its
+	// account; its state can't be read, so nothing is sent either.
+	never, err := s.neverUsedAccounts(ctx, g.Tenant)
+	if err != nil || s.NeverUse[g.ID] || never[g.Connector.Account] {
+		return OpNotSent, refusal(CodeConnectionDown, "Not sent: this sign-in is marked never to be used. Sign in again with the account meant for this taf.")
+	}
 	// The app was taken off the published list: a connection made while it was on is closed.
 	if s.managedClosed(g) {
 		return OpNotSent, refusal(CodeAppClosed, errAppClosed)
@@ -1286,12 +1296,17 @@ func connectorTextSaid(w words.Approval, q Request, reusedSaid bool) string {
 // The live index only finds the candidates: it's eventually consistent, so
 // a grant just disconnected or narrowed may still read there as it was.
 // Each candidate is read again from its own record, and checked as that.
-func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string) (*Grant, error) {
+func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit string, asked []string, named string) (*Grant, error) {
 	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
+	never, err := s.neverUsedAccounts(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
 	var best *Grant
+	accounts := map[string]bool{}
 	var definitions map[string]connector.Tool
 	for _, it := range items {
 		var g Grant
@@ -1299,6 +1314,10 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 			continue
 		}
 		if c := g.Request.Connector; c == nil || c.Provider != providerID || c.Toolkit != toolkit {
+			continue
+		}
+		// Only the grant named, when one is.
+		if named != "" && g.ID != named {
 			continue
 		}
 		if s.LiveIndex {
@@ -1314,6 +1333,11 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 		c := g.Request.Connector
 		if c == nil || c.Provider != providerID || c.Toolkit != toolkit || g.Status != StatusConnected || !g.SignedIn ||
 			g.Connector == nil || g.Connector.Account == "" {
+			continue
+		}
+		// A sign-in marked never to be used is never reused, by any grant on
+		// its account.
+		if s.NeverUse[g.ID] || never[g.Connector.Account] {
 			continue
 		}
 		if !(c.UsualAccess || len(c.AskedTools) == 0) {
@@ -1346,12 +1370,65 @@ func (s *Server) heldSignIn(ctx context.Context, tenant, providerID, toolkit str
 				continue
 			}
 		}
+		accounts[g.Connector.Account] = true
 		if best == nil || g.Request.CreatedAt > best.Request.CreatedAt {
 			best = &g
 		}
 	}
+	// Sign-ins to two or more accounts at the app, none named: planque
+	// doesn't pick one, since the latest may be an account the taf isn't
+	// meant for. A new sign-in is asked for, where the owner picks the
+	// account at the app itself.
+	if len(accounts) > 1 {
+		s.log().WarnContext(ctx, "held sign-in not reused: sign-ins to more than one account", slog.String("tenant", tenant), slog.String("toolkit", toolkit), slog.Int("accounts", len(accounts)))
+		return nil, nil
+	}
 	return best, nil
 }
+
+// neverUsedAccounts are the accounts at the provider behind tenant's grants
+// marked never to be used (NeverUse): any grant on one of them is refused,
+// not only the grant marked.
+func (s *Server) neverUsedAccounts(ctx context.Context, tenant string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for id := range s.NeverUse {
+		var g Grant
+		if _, err := getDoc(ctx, s.KV, tenantPK(tenant), skGrant(id), &g); errors.Is(err, errNotFound) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		if g.Tenant == tenant && g.Connector != nil && g.Connector.Account != "" {
+			out[g.Connector.Account] = true
+		}
+	}
+	return out, nil
+}
+
+// NeverUseFrom reads PLANQUE_NEVER_USE: "grants:<id>[,<id>]", the grants
+// whose sign-ins are never used, by any grant on the same account at the
+// app (one no taf is meant to reach); empty, none.
+func NeverUseFrom(v string) (map[string]bool, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return map[string]bool{}, nil
+	}
+	list, ok := strings.CutPrefix(v, "grants:")
+	if !ok {
+		return nil, errors.New("PLANQUE_NEVER_USE must be grants:<id>[,<id>]")
+	}
+	out := map[string]bool{}
+	for _, id := range strings.Split(list, ",") {
+		id = strings.TrimSpace(id)
+		if !neverUseGrantRe.MatchString(id) {
+			return nil, fmt.Errorf("PLANQUE_NEVER_USE: %q isn't a grant id", id)
+		}
+		out[id] = true
+	}
+	return out, nil
+}
+
+var neverUseGrantRe = regexp.MustCompile(`^grt_[A-Za-z0-9_-]{16}$`)
 
 // toolDefinitions are the provider's definitions of the app's tools named,
 // by slug, read from its tool list (at most ten pages); one it doesn't list

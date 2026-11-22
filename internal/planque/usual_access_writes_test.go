@@ -59,8 +59,8 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Two more connections: one on the same provider account, one on another.
-	// Both are older than the connection under test, so heldSignIn (newest
-	// first) always takes that one, whatever order the store lists them in.
+	// With sign-ins to two accounts held, planque reuses only a grant named,
+	// so each ask below names the connection under test.
 	twin, other := *held, *held
 	for gid, c := range map[string]*Grant{"grt_same_account": &twin, "grt_other_account": &other} {
 		bound := *held.Connector
@@ -74,7 +74,7 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 		}
 	}
 	entry := "/v1/accounts/" + tenant + "/catalog/connector:composio:desk_demo/grants"
-	st, out := e.do("POST", entry, map[string]any{"agent": "agt_first", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	st, out := e.do("POST", entry, map[string]any{"agent": "agt_first", "tools": []string{"DESK_DEMO_REPLY"}, "reuse_grant": g.ID}, nil, "k_setup")
 	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusListed || v["signed_in"] != true {
 		t.Fatalf("the trusted sign-in isn't reused before the refusal: %d %v", st, out)
 	}
@@ -96,7 +96,7 @@ func TestAVendorRefusalForTooLittleAccessEndsReuseForWrites(t *testing.T) {
 			t.Fatalf("%s: refused %v (%v), want %v", gid, c != nil && c.Connector.ScopesRefused, err, want)
 		}
 	}
-	st, out = e.do("POST", entry, map[string]any{"agent": "agt_second", "tools": []string{"DESK_DEMO_REPLY"}}, nil, "k_setup")
+	st, out = e.do("POST", entry, map[string]any{"agent": "agt_second", "tools": []string{"DESK_DEMO_REPLY"}, "reuse_grant": g.ID}, nil, "k_setup")
 	if v, _ := out["grant"].(map[string]any); st != 201 || v["status"] != StatusPending || v["signed_in"] == true {
 		t.Fatalf("a write on the refused account: %d %v", st, out)
 	}
