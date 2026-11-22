@@ -27,7 +27,8 @@
 # with: both or neither, and the function may read that one secret only.
 # Without them, no event goes to KIFF.
 # PLANQUE_SECRET names planque's one secret, a JSON of composio_api_key,
-# door_secret, kiff_event_secret and apps ({id: {client_id, client_secret}}),
+# door_secret, kiff_event_secret, proof_state_token and apps ({id: {client_id,
+# client_secret}}),
 # read first; a value it lacks is still read from its own secret above, so
 # those go only once it's proven live. It gets its own exact resource too, is
 # kept on a rerun like the rest (kept_settings, resolved once for the checks,

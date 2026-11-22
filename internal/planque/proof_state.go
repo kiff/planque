@@ -34,7 +34,7 @@ const (
 // Nil means KIFF isn't asked: the shipped proved.json stands, as before.
 type ProofState struct {
 	url   string
-	token string
+	token func(context.Context) (string, error)
 	http  *http.Client
 	now   func() time.Time
 
@@ -62,9 +62,20 @@ type proofAnswer struct {
 // an HTTPS one (HTTP only to a local address, for tests), has user info, a
 // query or a fragment. The token is only ever sent to that one address.
 func NewProofState(rawURL, token string) *ProofState {
-	rawURL, token = strings.TrimSpace(rawURL), strings.TrimSpace(token)
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+	return NewProofStateFrom(rawURL, func(context.Context) (string, error) { return token, nil })
+}
+
+// NewProofStateFrom is NewProofState with the token read at each ask
+// (planque's one secret, PLANQUE_SECRET): an ask whose token can't be read,
+// or reads empty, isn't sent and shows no proof.
+func NewProofStateFrom(rawURL string, token func(context.Context) (string, error)) *ProofState {
+	rawURL = strings.TrimSpace(rawURL)
 	u, err := url.Parse(rawURL)
-	if err != nil || rawURL == "" || token == "" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || rawURL == "" || token == nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil
 	}
 	local := u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"
@@ -166,7 +177,11 @@ func (p *ProofState) fetch(ctx context.Context, entry string) (proofAnswer, bool
 	if err != nil {
 		return proofAnswer{}, false
 	}
-	req.Header.Set("Authorization", "Bearer "+p.token)
+	token, err := p.token(ctx)
+	if token = strings.TrimSpace(token); err != nil || token == "" {
+		return proofAnswer{}, false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	res, err := p.http.Do(req)
 	if err != nil {

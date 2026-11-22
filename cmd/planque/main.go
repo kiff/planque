@@ -327,11 +327,13 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		return nil, errors.New("PLANQUE_OWN_CLIENT_TENANTS " + err.Error())
 	}
 	// KIFF's proof monitor, when set, is the only source of proved marks. Half
-	// a setting is a mistake, never a silent fall back to the shipped file.
-	proofURL, proofToken := os.Getenv("PLANQUE_PROOF_STATE_URL"), os.Getenv("PLANQUE_PROOF_STATE_TOKEN")
-	proofState := planque.NewProofState(proofURL, proofToken)
-	if (strings.TrimSpace(proofURL) != "" || strings.TrimSpace(proofToken) != "") && proofState == nil {
-		return nil, errors.New("PLANQUE_PROOF_STATE_URL and PLANQUE_PROOF_STATE_TOKEN must name KIFF's proof state (https) and its read-only token")
+	// a setting is a mistake, never a silent fall back to the shipped file. Its
+	// read-only token is read from planque's one secret (proof_state_token)
+	// first, and from PLANQUE_PROOF_STATE_TOKEN while the secret lacks it, so
+	// moving it there takes nothing away.
+	proofState, err := proofStateFrom(os.Getenv("PLANQUE_PROOF_STATE_URL"), os.Getenv("PLANQUE_PROOF_STATE_TOKEN"), bundle)
+	if err != nil {
+		return nil, err
 	}
 	return &planque.Server{
 		ProofState:         proofState,
@@ -399,4 +401,27 @@ func signInReader(h string) []byte {
 		return nil
 	}
 	return b
+}
+
+// proofStateFrom is the reader for KIFF's proof state at rawURL: its token
+// from bundle's proof_state_token, else token (PLANQUE_PROOF_STATE_TOKEN).
+// No address and no token is no reader; an address with no token anywhere,
+// a token with no address, or an address that isn't KIFF's is refused.
+func proofStateFrom(rawURL, token string, bundle *secretstore.Bundle) (*planque.ProofState, error) {
+	rawURL, token = strings.TrimSpace(rawURL), strings.TrimSpace(token)
+	if rawURL == "" && token == "" {
+		return nil, nil
+	}
+	var fallback func(context.Context) (string, error)
+	if token != "" {
+		fallback = func(context.Context) (string, error) { return token, nil }
+	}
+	var p *planque.ProofState
+	if rawURL != "" && (bundle != nil || fallback != nil) {
+		p = planque.NewProofStateFrom(rawURL, bundle.Or("proof_state_token", fallback))
+	}
+	if p == nil {
+		return nil, errors.New("PLANQUE_PROOF_STATE_URL must name KIFF's proof state (https), with its read-only token in PLANQUE_SECRET (proof_state_token) or PLANQUE_PROOF_STATE_TOKEN")
+	}
+	return p, nil
 }
