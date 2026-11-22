@@ -316,6 +316,27 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Kind == KindBrowser {
 		// The browser's tools and profile are planque's: the request names
 		// which tools, and what the browser is limited to.
+		if req.Browser != nil && req.Browser.Driver == "" && s.Browser == nil && s.relayOn() && s.chromeOnFor(tenant) {
+			// No hosted browser here, and the owner's own Chrome offered: a
+			// browser grant is one in their Chrome. Coach names no driver and
+			// sees the Chromes by name only (tafs a-browser-taf).
+			req.Browser.Driver = DriverExtension
+		}
+		if req.Browser != nil && req.Browser.Driver == DriverExtension && req.Browser.Chrome == "" {
+			// planque names the Chrome: the one paired, or the one whose name
+			// the ask gives. The phone shows it and signs its id with the
+			// sites, so the owner's approval still decides.
+			id, msg, err := s.pickChrome(r.Context(), tenant, req.Browser.ChromeName)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			if msg != "" {
+				writeErr(w, http.StatusBadRequest, msg)
+				return
+			}
+			req.Browser.Chrome = id
+		}
 		if req.Browser != nil && req.Browser.Driver == DriverExtension {
 			// The owner's own Chrome: offered to this account, and paired to it.
 			if !s.relayOn() || !s.chromeOnFor(tenant) {
