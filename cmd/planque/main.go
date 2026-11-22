@@ -34,6 +34,9 @@
 //	                   once a build is listed: on (every one), test (only
 //	                   PLANQUE_CHROME_TENANTS, tenants:<id>[,<id>]), or off;
 //	                   unset, none
+//	PLANQUE_NEVER_USE  optional grants:<id>[,<id>]: grants whose sign-ins are
+//	                   never reused or called, by any grant on the same
+//	                   account at the app; set at deploy, never in the repository
 //	PLANQUE_OWN_CLIENT_TENANTS optional tenants:<id>[,<id>]: accounts shown an
 //	                   app's own entry instead of the managed connector's
 //	                   toolkit for it; set at deploy, never kept in the repository
@@ -311,6 +314,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	neverUse, err := planque.NeverUseFrom(os.Getenv("PLANQUE_NEVER_USE"))
+	if err != nil {
+		return nil, err
+	}
 	testTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_MANAGED_TEST_TENANTS"))
 	if err != nil {
 		return nil, errors.New("PLANQUE_MANAGED_TEST_TENANTS " + err.Error())
@@ -329,6 +336,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	return &planque.Server{
 		ProofState:         proofState,
 		ManagedTestTenants: testTenants,
+		NeverUse:           neverUse,
 		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		LiveIndex:          os.Getenv("PLANQUE_LIVE_GSI") == "on",
