@@ -11,6 +11,7 @@ import (
 
 	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/permit"
 	"github.com/kiff/planque/internal/profile"
 	"github.com/kiff/planque/internal/stepkey"
 )
@@ -651,4 +652,109 @@ func TestAnAnswerWithNoPageIsNeverTakenForOne(t *testing.T) {
 			t.Errorf("%s: %v", raw, err)
 		}
 	}
+}
+
+// Slice 4. A held step the owner approved still runs only on the page it was
+// read from: approving it on the phone never makes a changed page safe.
+func TestAnApprovedActRunsOnlyOnThePageItWasReadFrom(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	title := "Shop"
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		p := plainPage("rd_" + step["id"].(string))
+		p["title"] = title
+		return true, p, ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read := sc["read"].(string)
+	c.mu.Lock()
+	title = "Shop, changed"
+	c.mu.Unlock()
+	before := len(c.sent())
+	_, sc = c.callApproved(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1"}}})
+	if code(sc) != browser.CodePageChanged || sc["sent"] != false {
+		t.Fatalf("approved, page changed: %v", sc)
+	}
+	waitFor(t, func() bool { return len(c.sent()) >= before+2 })
+	for _, s := range c.sent()[before:] {
+		if s["op"] == "act" {
+			t.Fatalf("an act was sent on a changed page: %v", s)
+		}
+	}
+}
+
+// Paying through the owner's Chrome stays off, even with the owner's approval
+// on a permit: nothing reaches the Chrome.
+func TestNoPayGoesThroughTheOwnersChrome(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.online(t)
+	p := permitFor(c, g, browsePay, "exc_1")
+	state, res := c.s.callChrome(context.Background(), g, GrantedTool{ToolRequest: ToolRequest{Tool: browsePay, Name: browsePay}}, p, browserArgs{URL: "https://shop.example/", Ref: "c2"})
+	if _, sc := textOf(res); state != OpNotSent || code(sc) != browser.CodePaymentStep || len(c.sent()) != 0 {
+		t.Fatalf("pay: %s %v %v", state, sc, c.ops())
+	}
+}
+
+// A page dialog blocks a held step: the Chrome never answers it for the
+// owner, and the taf is told it's the owner's, with the dialog's words
+// fenced; nothing ran.
+func TestADialogStopsAnActForTheOwner(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		if step["op"] == "act" {
+			return false, map[string]any{"dialog": map[string]any{"kind": "confirm", "text": "Delete your account?"}}, "dialog_open"
+		}
+		return true, plainPage("rd_" + step["id"].(string)), ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1"}}})
+	out, sc := textOf(res)
+	if state != OpNotSent || code(sc) != "dialog_open" || sc["sent"] != false || !strings.Contains(out, "<<<page-words:") || !strings.Contains(out, "Delete your account?") {
+		t.Fatalf("dialog: %s %s", state, out)
+	}
+}
+
+// A checkout read in the owner's Chrome is a checkout as planque reads one:
+// its total kept for KIFF's count, and with it on the page, no click at all.
+func TestACheckoutReadInTheOwnersChromeIsKeptAndBlocksEveryClick(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		p := plainPage("rd_" + step["id"].(string))
+		p["checkout"] = map[string]any{"lines": []any{map[string]any{"item": "Lamp", "quantity": 1, "price": "12.50"}}, "total": "12.50", "currency": "EUR"}
+		return true, p, ""
+	}
+	c.online(t)
+	g.Request.Browser.Currency = "EUR"
+	_, sc := c.call(g, browseCheckout, map[string]any{"url": "https://shop.example/"})
+	if sc["total"] != "12.50" || sc["currency"] != "EUR" {
+		t.Fatalf("checkout: %v", sc)
+	}
+	var rec checkoutRecord
+	if _, err := getDoc(context.Background(), c.s.KV, tenantPK(tenant), skCheckout(g.ID, "https://shop.example/"), &rec); err != nil || rec.Checkout.Total != "12.50" {
+		t.Fatalf("kept: %v %v", rec, err)
+	}
+	_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	if _, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != browser.CodePaymentStep {
+		t.Fatalf("a click on a checkout: %v", sc)
+	}
+}
+
+// callApproved is call with a permit KIFF minted from the owner's approval.
+func (c *chromeRig) callApproved(g *Grant, tool string, args map[string]any) (string, map[string]any) {
+	c.t.Helper()
+	op := "op_" + strings.ToLower(tool) + "_" + randomSuffix()
+	args[IdempotencyArg] = op
+	raw := mustJSON(args)
+	return textOf(c.s.call(context.Background(), g, tool, raw, c.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: tool, Sub: g.Request.Agent, Op: op, Args: raw, Approval: "exc_" + op})))
+}
+
+// permitFor is a verified permit for tool on g, as callBrowser gets one.
+func permitFor(c *chromeRig, g *Grant, tool, approval string) permit.Permit {
+	c.t.Helper()
+	return permit.Permit{Tenant: tenant, Tool: tool, Op: "op_" + randomSuffix(), Subject: g.Request.Agent, Approval: approval, Expires: time.Now().Add(time.Minute)}
 }
