@@ -75,6 +75,10 @@ type Server struct {
 	// their packed manifest (deploy/chrome-builds.txt): only these pair and
 	// connect. Empty, the owner's own Chrome isn't offered.
 	ChromeBuilds map[string]ChromeBuild
+	// ChromeOffer is which accounts the owner's own Chrome is offered to
+	// once a build is listed (PLANQUE_CHROME_OFFER, ChromeOfferFrom): every
+	// account (All), or only Tenants. Neither, it's offered to none.
+	ChromeOffer ChromeOffer
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's
 	// WebSocket connections. Without both, the relay refuses every connect.
@@ -128,6 +132,10 @@ type Server struct {
 	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps        map[string]bool
 	ManagedTestTenants map[string]bool
+	// NeverUse are grants whose sign-ins are never reused or called, by any
+	// grant on the same account at the app (PLANQUE_NEVER_USE, NeverUseFrom):
+	// an account no taf is meant to reach.
+	NeverUse map[string]bool
 	// OwnClientTenants are the accounts shown an app's own entry instead of
 	// the managed connector's toolkit (PLANQUE_OWN_CLIENT_TENANTS, ownClientFor).
 	OwnClientTenants       map[string]bool

@@ -41,6 +41,7 @@ func chromeEnv(t *testing.T) *env {
 	e := newEnv(t)
 	e.enrol()
 	e.s.ChromeBuilds = map[string]ChromeBuild{releasedManifest: {ManifestSHA256: releasedManifest, Version: "1.0.0"}}
+	e.s.ChromeOffer = ChromeOffer{All: true}
 	return e
 }
 
@@ -206,6 +207,109 @@ func TestChromeBuildsFrom(t *testing.T) {
 	}
 	if _, err := ChromeBuildsFrom(strings.NewReader("ABC 1.0.0\n")); err == nil {
 		t.Fatal("a bad line was taken")
+	}
+}
+
+func TestChromeOfferFrom(t *testing.T) {
+	for _, c := range []struct {
+		offer, tenants string
+		want           ChromeOffer
+	}{
+		{"", "", ChromeOffer{}},
+		{"off", "tenants:tnt_a", ChromeOffer{}},
+		{"on", "", ChromeOffer{All: true}},
+		{"on", "tenants:tnt_a", ChromeOffer{All: true}},
+		{"test", "tenants:tnt_a, tnt_b", ChromeOffer{Tenants: map[string]bool{"tnt_a": true, "tnt_b": true}}},
+	} {
+		got, err := ChromeOfferFrom(c.offer, c.tenants)
+		if err != nil || got.All != c.want.All || len(got.Tenants) != len(c.want.Tenants) {
+			t.Fatalf("%q %q: %+v %v", c.offer, c.tenants, got, err)
+		}
+		for id := range c.want.Tenants {
+			if !got.Tenants[id] {
+				t.Fatalf("%q %q: %s missing from %+v", c.offer, c.tenants, id, got)
+			}
+		}
+	}
+	for _, c := range [][2]string{{"test", ""}, {"test", "tnt_a"}, {"test", "tenants:not a tenant"}, {"yes", ""}, {"ON", ""}} {
+		if _, err := ChromeOfferFrom(c[0], c[1]); err == nil {
+			t.Fatalf("%q %q was taken", c[0], c[1])
+		}
+	}
+}
+
+// Offered to some accounts, the Chrome is the same as off for every other:
+// a listed build alone offers it to none, and an account off the list can't
+// open, read, confirm or list, nor carry on a pairing opened before, nor
+// see its Chromes in the connections. It can still unpair.
+func TestTheChromeIsOfferedOnlyToTheAccountsNamed(t *testing.T) {
+	acct := "/v1/accounts/" + tenant
+	e := chromeEnv(t)
+	e.s.ChromeOffer = ChromeOffer{}
+	// Each signed request is new: the same one twice is refused as replayed.
+	if st, _ := e.do("POST", acct+"/chromes/pairings", map[string]any{"try": 1}, e.phone, ""); st != 404 {
+		t.Fatalf("a listed build with no offer: %d", st)
+	}
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{tenant: true}}
+	st, out := e.do("POST", acct+"/chromes/pairings", map[string]any{}, e.phone, "")
+	if st != 201 {
+		t.Fatalf("named: %d %v", st, out)
+	}
+	pairing, lookup := out["pairing"].(string), out["lookup"].(string)
+	if _, out := e.do("GET", acct+"/connections", nil, nil, "k_setup"); out["chromes"] == nil {
+		t.Fatalf("named: the connections have no Chromes: %v", out)
+	}
+
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{"POST", acct + "/chromes/pairings", map[string]any{"try": 2}},
+		{"GET", acct + "/chromes/pairings/" + pairing, nil},
+		{"POST", acct + "/chromes/pairings/" + pairing + "/confirm", map[string]any{}},
+		{"GET", acct + "/chromes", nil},
+	} {
+		if st, out := e.do(c.method, c.path, c.body, e.phone, ""); st != 404 || out["error"] != "a browser in your own Chrome isn't offered here" {
+			t.Fatalf("not named, %s %s: %d %v", c.method, c.path, st, out)
+		}
+	}
+	// A pairing opened before answers as an unknown code, so a sweep can't
+	// tell it from none.
+	extKey, _ := p256Key(t)
+	if st, out := extensionPosts(e, lookup, extKey, releasedManifest); st != 404 || out["error"] != "no pairing has that code, or it expired: start again on your phone" {
+		t.Fatalf("not named, the extension's key on a pairing opened before: %d %v", st, out)
+	}
+	if _, out := e.do("GET", acct+"/connections", nil, nil, "k_setup"); out["chromes"] != nil {
+		t.Fatalf("not named: the connections name Chromes: %v", out)
+	}
+	if st, out := e.do("DELETE", acct+"/chromes/chr_workmac0001", nil, e.phone, ""); st == 404 && out["error"] == "a browser in your own Chrome isn't offered here" {
+		t.Fatalf("not named, unpair is refused as not offered: %v", out)
+	}
+}
+
+// A pairing the phone confirmed while its account was offered the Chrome,
+// collected after the account is taken off: the extension gets the answer
+// for a pairing that isn't its own, never the confirmed Chrome.
+func TestAConfirmedPairingIsntCollectedOnceItsAccountIsntOffered(t *testing.T) {
+	acct := "/v1/accounts/" + tenant
+	e := chromeEnv(t)
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{tenant: true}}
+	_, out := e.do("POST", acct+"/chromes/pairings", map[string]any{}, e.phone, "")
+	pairing, lookup := out["pairing"].(string), out["lookup"].(string)
+	extKey, extSum := p256Key(t)
+	if st, out := extensionPosts(e, lookup, extKey, releasedManifest); st != 202 {
+		t.Fatalf("the extension's key: %d %v", st, out)
+	}
+	phoneKey, _ := p256Key(t)
+	if st, out := e.do("POST", acct+"/chromes/pairings/"+pairing+"/confirm", map[string]any{"chrome_key_sha256": extSum, "name": "Work Mac",
+		"phone_key": phoneKey, "phone_proof": b64(32), "phone_sig": b64(64)}, e.phone, ""); st != 200 {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	e.s.ChromeOffer = ChromeOffer{Tenants: map[string]bool{"tnt_other": true}}
+	st, out := e.do("GET", "/v1/extension/pairings/"+lookup+"?key="+extKey, nil, nil, "")
+	if st != 404 || out["error"] != "no pairing for this Chrome" || out["chrome_id"] != nil || out["phone_key"] != nil {
+		t.Fatalf("collect once not offered: %d %v", st, out)
 	}
 }
 

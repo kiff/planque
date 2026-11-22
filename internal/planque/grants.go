@@ -3633,8 +3633,9 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 	answer := map[string]any{"connections": out}
 	// While the owner's own Chrome is offered, its paired Chromes by name, so
 	// Coach offers a taf there only when one is paired, and says how to pair
-	// one when none is. Nothing about them while it isn't offered.
-	if s.chromeOn() {
+	// one when none is. Nothing about them while it isn't offered to this
+	// account.
+	if s.chromeOnFor(tenant) {
 		chromes, err := s.KV.Query(r.Context(), tenantPK(tenant), "CHROME#")
 		if err != nil {
 			s.fail(w, r, err)

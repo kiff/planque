@@ -27,7 +27,8 @@
 # with: both or neither, and the function may read that one secret only.
 # Without them, no event goes to KIFF.
 # PLANQUE_SECRET names planque's one secret, a JSON of composio_api_key,
-# door_secret, kiff_event_secret and apps ({id: {client_id, client_secret}}),
+# door_secret, kiff_event_secret, proof_state_token and apps ({id: {client_id,
+# client_secret}}),
 # read first; a value it lacks is still read from its own secret above, so
 # those go only once it's proven live. It gets its own exact resource too, is
 # kept on a rerun like the rest (kept_settings, resolved once for the checks,
@@ -60,6 +61,12 @@
 # the wss:// address the extension connects to. PLANQUE_CHROME_RELAY=off
 # drops both settings (the relay refuses every connect) and keeps the key and
 # the API; unset, a rerun keeps what the function has.
+#
+# Which accounts the owner's Chrome is offered to is its own setting:
+# PLANQUE_CHROME_OFFER=on (every account), test (only the accounts in
+# PLANQUE_CHROME_TENANTS, tenants:<id>[,<id>]) or off. Unset, it's offered to
+# none, whatever deploy/chrome-builds.txt lists. A rerun keeps both as the
+# function has them.
 #
 # FAKEKIFF=1 deploys the KIFF stand-in used by the live check instead,
 # named $PLANQUE_NAME-fakekiff, configured from FAKEKIFF_ENV (JSON).
@@ -315,7 +322,11 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # test accounts may make a managed connection to any app
     # (PLANQUE_MANAGED_TEST_TENANTS, from the deployer, never this repo), which
     # accounts are shown an app's own entry in place of the managed one
-    # (PLANQUE_OWN_CLIENT_TENANTS, the same), the
+    # (PLANQUE_OWN_CLIENT_TENANTS, the same), which accounts the owner's
+    # Chrome is offered to (PLANQUE_CHROME_OFFER: on, test or off, and
+    # PLANQUE_CHROME_TENANTS for test; lost, it's off for every account), the
+    # grants whose sign-ins are never used (PLANQUE_NEVER_USE, from the
+    # deployer, never this repo), the
     # catalog's operators, unless PLANQUE_CATALOG_OPERATORS is given, and
     # the servers that get Stripe's describing read with their sign-in
     # besides Stripe's own (PLANQUE_DESCRIBER_SERVERS): live planque sets
@@ -329,10 +340,10 @@ print(json.dumps({"Variables": v}))' "$1" "$TABLE"
     # setting the code reads is named here.
     { aws lambda get-function-configuration --function-name "$FN" --query Environment.Variables --output json 2>/dev/null || echo '{}'; } |
     python3 -c 'import json,os,sys; v={"PLANQUE_BASE_URL": os.environ.get("PLANQUE_PUBLIC_URL") or sys.argv[1], "PLANQUE_TABLE": sys.argv[2], "PLANQUE_KMS_KEY": sys.argv[3], "PLANQUE_SERVER_APPS_FILE": "/var/task/server-apps.json", "PLANQUE_CATALOG_FILE": "/var/task/catalog.json", "PLANQUE_APPS_FILE": "/var/task/apps.json", "PLANQUE_CHROME_BUILDS_FILE": "/var/task/chrome-builds.txt", "PLANQUE_APP_SECRET_PREFIX": "planque/apps/"}
-for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
+for k in ("KIFF_API","KIFF_GATEWAY","KIFF_ISSUER","KIFF_JWKS_URL","PLANQUE_APP_RETURN","PLANQUE_COMPOSIO_SECRET","PLANQUE_DOOR_URL","PLANQUE_DOOR_SECRET","PLANQUE_EVENT_URL","PLANQUE_KIFF_EVENT_URL","PLANQUE_KIFF_EVENT_SECRET","PLANQUE_SECRET","PLANQUE_SIGNIN_READER_SHA256","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT","PLANQUE_CHROME_OFFER","PLANQUE_CHROME_TENANTS","PLANQUE_NEVER_USE"):
     if os.environ.get(k): v[k]=os.environ[k]
 now=json.load(sys.stdin) or {}
-for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT"):
+for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_STRIPE_REFUNDS","PLANQUE_CATALOG_OPERATORS","PLANQUE_DESCRIBER_SERVERS","PLANQUE_MANAGED_TEST_TENANTS","PLANQUE_OWN_CLIENT_TENANTS","PLANQUE_PROOF_STATE_URL","PLANQUE_PROOF_STATE_TOKEN","PLANQUE_CHROME_STEP_KEY","PLANQUE_CHROME_WS_ENDPOINT","PLANQUE_CHROME_OFFER","PLANQUE_CHROME_TENANTS","PLANQUE_NEVER_USE"):
     if now.get(k) and not v.get(k): v[k]=now[k]
 if os.environ.get("PLANQUE_CHROME_RELAY") == "off":
     v.pop("PLANQUE_CHROME_STEP_KEY", None); v.pop("PLANQUE_CHROME_WS_ENDPOINT", None)
