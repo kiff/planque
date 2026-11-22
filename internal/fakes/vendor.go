@@ -59,8 +59,11 @@ type Vendor struct {
 	// refuses every call.
 	DeskKey string
 
-	mu        sync.Mutex
-	Calls     []VendorCall // this instance's
+	mu    sync.Mutex
+	Calls []VendorCall // this instance's
+	// Reads are the reads this instance answered, with their arguments:
+	// a read changes nothing, so it's never one of Calls.
+	Reads     []VendorCall
 	DeskCalls []VendorCall // this instance's desk writes
 	// BillingCalls are this instance's billing writes (billing.go).
 	BillingCalls []VendorCall
@@ -439,6 +442,9 @@ func (v *Vendor) mcp(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		// A read changes nothing, so it isn't one of the vendor's calls.
 		if out, ok := v.read(r.Context(), req.Params.Name, req.Params.Arguments); ok {
+			v.mu.Lock()
+			v.Reads = append(v.Reads, VendorCall{Tool: req.Params.Name, Args: req.Params.Arguments})
+			v.mu.Unlock()
 			// A vendor's own _meta key, as Stripe's answers carry one.
 			meta := map[string]any{"com.example/session": next("sess")}
 			if e, isErr := out.(vendorError); isErr {

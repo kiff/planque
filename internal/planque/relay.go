@@ -306,6 +306,13 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if why := neverSentCall(tool.Tool, vendorArgs); why != "" {
 		return s.finish(ctx, claim, op, OpNotSent, refusal(CodeToolNotServed, "Not sent: "+why+"."))
 	}
+	// A call that acts in one account goes only to the connection's own,
+	// whatever the grant pinned (callAccount).
+	held, why := callAccount(g, tool.Tool, vendorArgs)
+	if why != "" {
+		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
+	}
+	vendorArgs = held
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
