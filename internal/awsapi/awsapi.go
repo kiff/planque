@@ -139,10 +139,7 @@ func Sign(req *http.Request, body []byte, c Credentials, service, region string,
 		canonHeaders.WriteString(k + ":" + headers[k] + "\n")
 	}
 	signed := strings.Join(names, ";")
-	path := req.URL.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
+	path := canonicalPath(req.URL.EscapedPath())
 	canon := strings.Join([]string{req.Method, path, req.URL.RawQuery, canonHeaders.String(), signed,
 		hex.EncodeToString(payload[:])}, "\n")
 	scope := day + "/" + region + "/" + service + "/aws4_request"
@@ -155,6 +152,28 @@ func Sign(req *http.Request, body []byte, c Credentials, service, region string,
 	sig := hex.EncodeToString(mac(k, toSign))
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+c.AccessKey+"/"+scope+
 		", SignedHeaders="+signed+", Signature="+sig)
+}
+
+// canonicalPath is SigV4's canonical URI for every service but S3: the
+// path as it's sent, URI-encoded once more, every byte but A-Z a-z 0-9
+// - _ . ~ and / as %XX. The API Gateway management API's path holds "@"
+// (/@connections/) and connection ids ending in "=", which a path sends as
+// they are and AWS signs as %40 and %3D: signed as sent, every post to a
+// paired Chrome was refused (403, the signature doesn't match).
+func canonicalPath(escaped string) string {
+	if escaped == "" {
+		return "/"
+	}
+	var b strings.Builder
+	for i := 0; i < len(escaped); i++ {
+		c := escaped[i]
+		if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' || c == '/' {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
 
 func mac(key []byte, s string) []byte {

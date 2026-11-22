@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
@@ -357,4 +358,49 @@ func (s *Server) chromeApprovable(ctx context.Context, g *Grant, sig string) str
 		return "the Chrome this grant names isn't paired to this account any more: nothing was granted"
 	}
 	return ""
+}
+
+// pickChrome is the paired Chrome a browser grant asked with none uses: the
+// only one paired, or with several the one named (as the owner named it when
+// pairing). Never a guess: several and no name, or a name that matches none
+// or more than one, is a message saying which names there are.
+func (s *Server) pickChrome(ctx context.Context, tenant, name string) (string, string, error) {
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "CHROME#")
+	if err != nil {
+		return "", "", err
+	}
+	var all []Chrome
+	for _, it := range items {
+		var c Chrome
+		if json.Unmarshal(it.Doc, &c) == nil && chromeIDRe.MatchString(c.ID) {
+			all = append(all, c)
+		}
+	}
+	if len(all) == 0 {
+		return "", "no Chrome is paired to this account: the owner pairs one on the phone first", nil
+	}
+	names := make([]string, 0, len(all))
+	for _, c := range all {
+		names = append(names, label(c.Name))
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		if len(all) == 1 {
+			return all[0].ID, "", nil
+		}
+		return "", "several Chromes are paired: name the one this taf uses in browser.chrome_name (" + strings.Join(names, ", ") + ")", nil
+	}
+	found := ""
+	for _, c := range all {
+		if strings.EqualFold(label(c.Name), name) {
+			if found != "" {
+				return "", "two paired Chromes have that name: the owner renames one on the phone first", nil
+			}
+			found = c.ID
+		}
+	}
+	if found == "" {
+		return "", "no paired Chrome has that name (" + strings.Join(names, ", ") + ")", nil
+	}
+	return found, "", nil
 }

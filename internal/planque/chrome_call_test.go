@@ -435,7 +435,6 @@ func TestAGrantForTheOwnersChromeIsAskedAndApprovedOnItsOwnTerms(t *testing.T) {
 	for name, b := range map[string]map[string]any{
 		"no sites":         {"driver": DriverExtension, "chrome": c.r.chrome},
 		"another Chrome":   {"driver": DriverExtension, "chrome": "chr_notpaired0001", "sites": []string{"shop.example"}},
-		"no Chrome":        {"driver": DriverExtension, "sites": []string{"shop.example"}},
 		"a Chrome, hosted": {"chrome": c.r.chrome, "sites": []string{"shop.example"}},
 		"another driver":   {"driver": "remote", "sites": []string{"shop.example"}},
 	} {

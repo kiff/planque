@@ -388,11 +388,11 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		s.requestGrantFrom(w, r, &CatalogEntry{ID: QontoEntry, Vendor: qontoVendor, Title: qontoVendor, Server: qontoServer, Tools: []ToolRequest{}})
 		return
 	}
-	if id == BrowserEntry {
-		if s.Browser == nil {
-			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
-			return
-		}
+	if id == BrowserEntry || id == BrowserEntry+"@1" {
+		// "browser@1" is the catalog's own form (<id>@<version>), as Coach's
+		// a-browser-taf asks and the browser's profile records. Whether a
+		// browser is here is the request's to say: the hosted one needs
+		// planque's worker, the owner's own Chrome doesn't.
 		s.requestGrantFrom(w, r, &CatalogEntry{ID: BrowserEntry, Vendor: browserVendor, Title: "Use websites", Kind: KindBrowser})
 		return
 	}
