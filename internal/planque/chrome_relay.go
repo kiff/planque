@@ -430,6 +430,9 @@ type chromeStep struct {
 	// Hand is a hand-over's (op "hand"): the taf's words, and the field or
 	// control to outline, by its ref in the read named.
 	Hand *chromeHandStep `json:"hand,omitempty"`
+	// Release is the owner's phone's release, on a sealed fill's act only,
+	// as the phone made it (chrome_sealed.go): the extension checks it.
+	Release json.RawMessage `json:"release,omitempty"`
 }
 
 type chromeHandStep struct {

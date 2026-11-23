@@ -531,6 +531,9 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if len(a.Steps) > 20 {
 		return OpNotSent, browserRefusal(CodeBadArguments, "at most 20 steps a call", false)
 	}
+	if code, why := s.sealedRefusal(g, tool.Tool, a.Steps); code != "" {
+		return OpNotSent, browserRefusal(code, why, false)
+	}
 	if chromeGrant(g) {
 		return s.callChrome(ctx, g, tool, p, a)
 	}

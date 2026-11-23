@@ -354,7 +354,9 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",
 		// The hand-over's tools, offered to new Chrome connections only: on
 		// unless PLANQUE_CHROME_HAND=off (chromeHandOn).
-		ChromeHand:   chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
+		ChromeHand: chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
+		// A sealed fill in the owner's Chrome, off unless turned on.
+		SealedFill:   os.Getenv("PLANQUE_SEALED_FILL") == "on",
 		ChromeSigner: chromeSigner,
 		ChromePoster: chromePoster,
 		// The wake's VAPID contact: planque's own public address. Its key is planque's own (chrome_vapid.go).
