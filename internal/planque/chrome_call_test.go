@@ -207,6 +207,13 @@ func TestAReadInTheOwnersChromeIsSignedMaskedAgainAndFenced(t *testing.T) {
 	// Fenced: the whole answer sits between two markers with a fresh tag,
 	// and nothing a page wrote (its text, title, labels) can pass for one,
 	// whatever its case or spacing.
+	// The read comes first, on its own line, as planque's own (never a page's
+	// words): what the taf names next, before the fence's tag.
+	read, _ := sc["read"].(string)
+	if read == "" || !strings.HasPrefix(out, readLine(read)+"\n") {
+		t.Fatalf("the read isn't said first: %q", out)
+	}
+	out = strings.TrimPrefix(out, readLine(read)+"\n")
 	if !strings.HasPrefix(out, fenceNote+"\n<<<page-words:") || strings.Count(out, "<<<page-words:") != 1 || strings.Count(out, "<<</page-words:") != 1 {
 		t.Fatalf("not fenced: %q", out)
 	}
@@ -809,7 +816,7 @@ func TestAFullReadIsFencedAndARedirectOffTheSitesIsntRead(t *testing.T) {
 	}
 	c.online(t)
 	out, sc := c.call(g, browseRead, map[string]any{"url": "https://shop.example/"})
-	if !strings.HasPrefix(out, fenceNote+"\n<<<page-words:") || sc["text"] != "Secret plans of evil.example" {
+	if !strings.HasPrefix(out, readLine(sc["read"].(string))+"\n"+fenceNote+"\n<<<page-words:") || sc["text"] != "Secret plans of evil.example" {
 		t.Fatalf("a full read isn't fenced: %s", out)
 	}
 	landing = "https://evil.example/"

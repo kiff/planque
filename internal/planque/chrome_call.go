@@ -354,9 +354,52 @@ func fencedAnswer(v map[string]any, tag string) map[string]any {
 	v = neutral(v).(map[string]any)
 	v["note"] = strings.TrimSpace(dataNotInstructions)
 	text, _ := json.MarshalIndent(v, "", " ")
-	r := toolResult(fence(string(text), tag), false)
+	out := fence(string(text), tag)
+	// The read is planque's own, never a page's words: said first, on its own
+	// line, so the taf names it and never the fence's tag, which a long page
+	// otherwise puts nearer the eye.
+	if read, _ := v["read"].(string); read != "" {
+		out = readLine(read) + "\n" + out
+	}
+	r := toolResult(out, false)
 	r["structuredContent"] = map[string]any{"fenced": true}
 	return r
+}
+
+// readLine is how an answer says the page's read: the value browse_act and
+// browse_hand name, and nothing else.
+func readLine(read string) string {
+	return "Read: " + read + " (name this read, exactly, in the next step on this page)"
+}
+
+// openToolName is the name the taf calls "open a page" by for g's pages: g's
+// own browse_open, else that of a connection sharing g's reads (the
+// hand-over's tools can come on a connection of their own, skChromeRead);
+// "browse_open" when neither is found.
+func (s *Server) openToolName(ctx context.Context, g *Grant) string {
+	named := func(x *Grant) string {
+		for _, t := range x.Tools {
+			if t.Tool == browseOpen {
+				return t.Name
+			}
+		}
+		return ""
+	}
+	if n := named(g); n != "" {
+		return n
+	}
+	if items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#"); err == nil {
+		for _, it := range items {
+			var o Grant
+			if json.Unmarshal(it.Doc, &o) != nil || o.ID == g.ID || o.Status != StatusConnected || !chromeGrant(&o) || skChromeRead(&o) != skChromeRead(g) {
+				continue
+			}
+			if n := named(&o); n != "" {
+				return n
+			}
+		}
+	}
+	return browseOpen
 }
 
 // neutral is v as JSON gives it, with every string rid of marker look-alikes.

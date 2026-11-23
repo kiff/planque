@@ -720,7 +720,7 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			// Refs restart on each new document: after a navigation, or a
 			// change to the page's fields and controls, a ref the taf read can
 			// name another element, so no step runs on a page it didn't read.
-			code, why = browser.CodePageChanged, "the page isn't the read the steps were built from ("+a.Read+"; it's "+got+" now): read it again with browse_open and build the steps from that"
+			code, why = browser.CodePageChanged, "the page isn't the read the steps were built from ("+a.Read+"; it's "+got+" now): read it again with "+s.openToolName(ctx, g)+" and build the steps from that"
 		} else {
 			code, why = browser.Refuse(page, st)
 		}

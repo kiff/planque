@@ -162,9 +162,13 @@ func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, 
 	if why := handWordsRefusal(a.Words); why != "" {
 		return OpNotSent, browserRefusal(CodeBadArguments, why, false)
 	}
-	if a.Read == "" || browser.Read(page) != a.Read && !sameHandTarget(prev, a, page) {
+	if now := browser.Read(page); a.Read == "" || now != a.Read && !sameHandTarget(prev, a, page) {
 		s.noteChromeRefusal(ctx, g, browseHand, browser.CodePageChanged, page.URL)
-		return OpNotSent, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"): read it again with browse_open first", false)
+		// The page as it is now is this connection's latest read (callChrome
+		// kept it): named next time, it's the read the hand-over checks, so
+		// the taf needs no other call to get it.
+		return OpNotSent, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"); it reads as "+now+
+			" now. Hand it over again naming read "+now+" exactly, or open the page again with "+s.openToolName(ctx, g)+" and name the read its answer gives", false)
 	}
 	if a.Ref != "" && !pageHasRef(page, a.Ref) {
 		return OpNotSent, browserRefusal(CodeBadArguments, "ref "+a.Ref+" isn't a field or control of that read", false)

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -219,5 +220,55 @@ func TestAHandOverLandsOnAPageWhoseReadChangedButNotOnAnotherElement(t *testing.
 	news("Even later news", "")
 	if _, sc := c.call(g, browseHand, map[string]any{"url": "https://shop.example/", "read": latest, "words": "Tap Done", "ref": "c9"}); code(sc) == "" {
 		t.Fatalf("a ref on neither read: %v", sc)
+	}
+}
+
+// Invariant: a taf whose hand-over is refused for its read is told the page's read as it is now, and the open tool it actually has, so its next hand-over can land
+// Category: correctness
+// Attack: none (a run that failed for real: the hand-over's tools on a connection of their own, a page whose links change on every load, and a taf that named the fence's tag as the read, five times)
+// Refused: the refusal names the current read and the sibling connection's own open tool; a hand-over naming that read is handed; every Chrome answer says its read first
+func TestAHandOverRefusedForItsReadSaysTheReadToNameAndTheOpenToolTheTafHas(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeHand = true
+	// One taf, one Chrome: its open and act on one connection, its hand-over on another, sharing their reads.
+	opens := c.grantAs(t, "agt_wiki", browseOpen, browseAct)
+	hands := c.grantAs(t, "agt_wiki", browseHand, browseHandResult)
+	openName := ""
+	for _, gt := range opens.Tools {
+		if gt.Tool == browseOpen {
+			openName = gt.Name
+		}
+	}
+	if openName == "" || slicesHas(hands.Tools, browseOpen) {
+		t.Fatalf("the rig's connections: %v / %v", opens.Tools, hands.Tools)
+	}
+	// A page that renders a link differently on every load, as a news site's front page does.
+	n := 0
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		n++
+		return true, shopPage("rd_"+strings.Repeat("a", n), map[string]any{"links": []any{map[string]any{"ref": "l1", "label": fmt.Sprintf("Today %d", n), "url": "https://shop.example/items/lamp"}}}), ""
+	}
+	c.online(t)
+	out, sc := c.call(opens, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read, _ := sc["read"].(string)
+	if read == "" || !strings.HasPrefix(out, readLine(read)+"\n") {
+		t.Fatalf("the open's answer doesn't say its read first: %q", out)
+	}
+	// The taf names the fence's tag, a 24-hex value, as it did.
+	tag := out[strings.Index(out, "<<<page-words:")+len("<<<page-words:") : strings.Index(out, ">>>")]
+	words, sc := c.call(hands, browseHand, map[string]any{"url": "https://shop.example/", "read": tag, "words": "Type your search, then tap Done", "ref": "f1"})
+	if code(sc) != browser.CodePageChanged {
+		t.Fatalf("a hand-over naming the fence's tag: %v", sc)
+	}
+	var latest chromeRead
+	if _, err := getDoc(context.Background(), c.s.KV, tenantPK(tenant), skChromeRead(hands), &latest); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(words, "reads as "+latest.Read+" now") || !strings.Contains(words, "naming read "+latest.Read) || !strings.Contains(words, openName) {
+		t.Fatalf("the refusal doesn't give the read to name (%s) and the open tool the taf has (%s): %s", latest.Read, openName, words)
+	}
+	// Named as told, it lands, though the page loaded differently again.
+	if _, sc := c.call(hands, browseHand, map[string]any{"url": "https://shop.example/", "read": latest.Read, "words": "Type your search, then tap Done", "ref": "f1"}); code(sc) != "" || sc["state"] != "handed" {
+		t.Fatalf("a hand-over naming the read it was told: %v", sc)
 	}
 }
