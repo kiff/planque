@@ -277,3 +277,30 @@ func TestAStepIsNeverBuiltOnAReadShownWithoutItsRefs(t *testing.T) {
 		}
 	}
 }
+
+// An older read shown without its refs is never one a step names, even when the page shows that state again.
+func TestAnOlderReadShownWithoutItsRefsIsNeverNamedBack(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t, browseOpen, browseRead, browseAct)
+	n := 1
+	var ops []string
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		ops = append(ops, fmt.Sprint(step["op"]))
+		return true, pageN(n), ""
+	}
+	c.online(t)
+	c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	n = 2
+	_, read := c.call(g, browseRead, map[string]any{"url": "https://shop.example/"})
+	unshown, _ := read["read"].(string)
+	n = 3
+	c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	// The page goes back to the state only the text read saw.
+	n = 2
+	ops = nil
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": unshown, "steps": []any{map[string]any{"click": "c1"}}})
+	if unshown == "" || code(sc) != browser.CodePageChanged || slices.Contains(ops, "act") {
+		t.Fatalf("an act naming an older read shown without refs: %s (sent %v)", out, ops)
+	}
+	checkRefusedWithPage(t, out, sc, "Search 2")
+}

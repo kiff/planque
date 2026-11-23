@@ -124,9 +124,11 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		switch {
 		case a.Read == "" && latest.Shown == latest.Read && (a.URL == latest.URL || latest.Asked != "" && a.URL == latest.Asked):
 			a.Read = latest.Read
-		case a.Read != "" && a.Read == latest.Read && latest.Read != latest.Shown:
-			// A read that came with no refs (browse_read's, browse_checkout's):
-			// its refs were never shown, so no step is built on it.
+		case a.Read != "" && a.Read != latest.Shown:
+			// Only the read last shown with its refs is one a step is built
+			// on: one that came with no refs (browse_read's, browse_checkout's)
+			// or an older one the page may show again. It's set aside, and the
+			// refusal shows the page as it reads now.
 			a.Read, a.unshown = "", true
 		}
 	}

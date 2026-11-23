@@ -718,7 +718,7 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 	for i, st := range a.Steps {
 		code, why := "", ""
 		if a.Read == "" && a.unshown {
-			code, why = browser.CodePageChanged, "the read named came with the page's text alone, no fields or controls: build the steps from the page as it reads now"
+			code, why = browser.CodePageChanged, "the read named isn't the one last shown with its fields and controls: build the steps from the page as it reads now"
 		} else if a.Read == "" {
 			code, why = browser.CodePageChanged, "browse_act needs the read from browse_open: open the page with browse_open and pass its read with the steps"
 		} else if got := browser.Read(page); got != a.Read {
