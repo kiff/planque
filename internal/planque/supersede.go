@@ -54,4 +54,6 @@ func (s *Server) supersedePending(ctx context.Context, g *Grant) {
 func (s *Server) logEnded(ctx context.Context, g *Grant, from, by string) {
 	s.log().InfoContext(ctx, "grant ended", slog.String("grant", g.ID), slog.String("from", from), slog.String("to", g.Status),
 		slog.String("by", by), slog.String("agent", g.Request.Agent), slog.String("entry", g.Request.CatalogEntry))
+	// Every end passes here: the owner's Chrome it ran in hears its list again.
+	s.tellChromes(ctx, g.Tenant, chromeOf(g))
 }

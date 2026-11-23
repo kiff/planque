@@ -284,7 +284,55 @@ func (s *Server) relayHello(ctx context.Context, connID string, it store.Item, c
 	// expiry against it when its own computer's clock is a little off (it
 	// moves that reading by two minutes at most). It isn't signed: the
 	// welcome's proof is over the connection's nonces.
-	s.relayPost(ctx, connID, map[string]any{"type": "welcome", "sig": welcome, "now": s.now().UnixMilli()})
+	s.relayPost(ctx, connID, map[string]any{"type": "welcome", "sig": welcome, "now": s.now().UnixMilli(),
+		"connections": s.connectionsOn(ctx, conn.Tenant, conn.Chrome)})
+}
+
+// connectionsOn is the Chrome's live connections (chromesConnections, the
+// rule the Chromes list and unpairing use), never null: what the side panel
+// offers to talk to. It is for display only, never authority: what a step may
+// do comes from the signed step and the connection's phone-signed sites alone,
+// and the extension never takes a site from it as allowed. A read that fails
+// gives none; the next welcome carries the list again.
+func (s *Server) connectionsOn(ctx context.Context, tenant, chrome string) []chromeConnection {
+	on, err := s.chromesConnections(ctx, tenant)
+	if err != nil || on[chrome] == nil {
+		return []chromeConnection{}
+	}
+	return on[chrome]
+}
+
+// tellChromes posts each Chrome's live connections to its open relay, once
+// they changed (a connection approved, ended or moved): only to a connection
+// past its welcome (the live item is written then), and best effort, since the
+// next welcome carries the list again. No read per step: only the paths that
+// change a grant's Chrome or state call it.
+func (s *Server) tellChromes(ctx context.Context, tenant string, chromes ...string) {
+	if !s.relayOn() {
+		return
+	}
+	seen := map[string]bool{}
+	for _, chrome := range chromes {
+		if chrome == "" || seen[chrome] {
+			continue
+		}
+		seen[chrome] = true
+		var live struct {
+			Conn string `json:"conn"`
+		}
+		if _, err := getDoc(ctx, s.KV, tenantPK(tenant), skChromeLive(chrome), &live); err != nil || live.Conn == "" {
+			continue
+		}
+		s.relayPost(ctx, live.Conn, map[string]any{"type": "connections", "connections": s.connectionsOn(ctx, tenant, chrome)})
+	}
+}
+
+// chromeOf is the owner's Chrome a grant runs in, or "".
+func chromeOf(g *Grant) string {
+	if b := g.Request.Browser; b != nil && b.Driver == DriverExtension {
+		return b.Chrome
+	}
+	return ""
 }
 
 // relayResult keeps a step's result, once its signature is the Chrome's: a

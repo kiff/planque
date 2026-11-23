@@ -2164,6 +2164,7 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
 		}
+		s.tellChromes(r.Context(), g.Tenant, chromeOf(g))
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}

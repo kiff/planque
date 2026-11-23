@@ -53,7 +53,7 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		s.fail(w, r, err)
 		return
 	}
-	from := b.ChromeName
+	from, was := b.ChromeName, b.Chrome
 	b.Chrome, b.ChromeName = c.ID, label(c.Name)
 	g.ChromeSitesSig = req.ChromeSitesSig
 	g.event(s.now(), "switched to the Chrome \""+c.Name+"\" from \""+from+"\" "+sr.approval.Who()+", with the same sites")
@@ -61,6 +61,8 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		s.fail(w, r, err)
 		return
 	}
+	// Both Chromes hear their lists again: it left one and joined the other.
+	s.tellChromes(r.Context(), g.Tenant, was, c.ID)
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
