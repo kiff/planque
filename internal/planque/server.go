@@ -92,7 +92,13 @@ type Server struct {
 	// Push, when its extension gave planque where (chrome_wake.go). Nil: a
 	// Chrome that isn't connected is offline, as before.
 	ChromeWaker *ChromeWaker
-	Evidence    browser.Evidence
+	// VAPIDSubject is the contact in planque's VAPID tokens (an https URL or
+	// a mailto). Set, with the relay on, planque wakes Chromes with its own
+	// VAPID key (chrome_vapid.go); empty, it doesn't.
+	VAPIDSubject string
+	vapidMu      sync.Mutex
+	vapidWaker   *ChromeWaker
+	Evidence     browser.Evidence
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
@@ -233,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/accounts/{tenant}/grants/{id}/chrome", s.signed(s.switchChrome))
 	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
 	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))
+	mux.HandleFunc("GET /v1/extension/push-key", extensionCORS(s.pushKey))
 	mux.HandleFunc("POST /v1/extension/unpair", extensionCORS(s.extensionUnpair))
 	// The extension has no host permission for planque, so Chrome asks first
 	// (chrome_cors.go).
