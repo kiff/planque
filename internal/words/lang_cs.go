@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Přihlásit se znovu",
 		Remove:           "Odebrat přístup",
 		RemoveUnfinished: "Odebrat nedokončené připojení",
+		UseAnotherChrome: "Použít jiný Chrome",
 		StopsF:           "%s přestane používat %s.",
 		NothingStops:     "Žádný taf ho nepoužívá, takže se nic nezastaví.",
 		WorkingLastF:     "Funguje · naposledy použito %s",

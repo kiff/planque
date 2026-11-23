@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "আবার সাইন ইন করুন",
 		Remove:           "অ্যাক্সেস সরান",
 		RemoveUnfinished: "অসমাপ্ত সংযোগ সরান",
+		UseAnotherChrome: "অন্য একটি Chrome ব্যবহার করুন",
 		StopsF:           "%s আর %s ব্যবহার করবে না।",
 		NothingStops:     "কোনো taf এটি ব্যবহার করে না, তাই কিছুই থামে না।",
 		WorkingLastF:     "কাজ করছে · শেষ ব্যবহার %s",

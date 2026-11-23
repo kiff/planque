@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Logi uuesti sisse",
 		Remove:           "Eemalda juurdepääs",
 		RemoveUnfinished: "Eemalda lõpetamata ühendus",
+		UseAnotherChrome: "Kasuta teist Chrome'i",
 		StopsF:           "%s lõpetab teenuse %s kasutamise.",
 		NothingStops:     "Ükski taf ei kasuta seda, nii et miski ei peatu.",
 		WorkingLastF:     "Töötab · viimati kasutatud %s",

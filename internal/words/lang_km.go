@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "ចូលគណនីម្តងទៀត",
 		Remove:           "ដកការចូលប្រើ",
 		RemoveUnfinished: "ដកការតភ្ជាប់ដែលមិនទាន់ចប់",
+		UseAnotherChrome: "ប្រើ Chrome ផ្សេង",
 		StopsF:           "%s នឹងឈប់ប្រើ %s។",
 		NothingStops:     "គ្មាន taf ណាប្រើវាទេ ដូច្នេះគ្មានអ្វីឈប់ទេ។",
 		WorkingLastF:     "កំពុងដំណើរការ · ប្រើចុងក្រោយ %s",

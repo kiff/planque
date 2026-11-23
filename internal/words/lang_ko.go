@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "다시 로그인",
 		Remove:           "접근 권한 삭제",
 		RemoveUnfinished: "미완료 연결 삭제",
+		UseAnotherChrome: "다른 Chrome 사용",
 		StopsF:           "%s이(가) %s을(를) 더 이상 쓰지 않습니다.",
 		NothingStops:     "이를 쓰는 taf가 없으므로 멈추는 것은 없습니다.",
 		WorkingLastF:     "작동 중 · 마지막 사용 %s",

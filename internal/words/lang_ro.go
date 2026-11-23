@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Conectați-vă din nou",
 		Remove:           "Eliminați accesul",
 		RemoveUnfinished: "Eliminați conexiunea neterminată",
+		UseAnotherChrome: "Folosiți alt Chrome",
 		StopsF:           "%s nu va mai folosi %s.",
 		NothingStops:     "Niciun taf nu o folosește, deci nu se oprește nimic.",
 		WorkingLastF:     "Funcționează · folosită ultima oară %s",

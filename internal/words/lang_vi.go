@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Đăng nhập lại",
 		Remove:           "Gỡ quyền truy cập",
 		RemoveUnfinished: "Gỡ kết nối chưa hoàn tất",
+		UseAnotherChrome: "Dùng Chrome khác",
 		StopsF:           "%s sẽ ngừng dùng %s.",
 		NothingStops:     "Không taf nào dùng nó, nên không có gì dừng lại.",
 		WorkingLastF:     "Đang hoạt động · dùng lần cuối %s",

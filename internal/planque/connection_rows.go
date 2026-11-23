@@ -44,8 +44,11 @@ const (
 // connectionAction is one thing the owner can do with a connection, that
 // works for it now. How is the call it takes, which the apps already make:
 // "approve" (…/approve, signed: a new sign-in on this same connection),
-// "key" (…/key, signed, with the key) or "delete" (DELETE …/grants/{id},
-// signed). Stops, on remove, says what stops, for the app's one more ask.
+// "key" (…/key, signed, with the key), "delete" (DELETE …/grants/{id},
+// signed) or "chrome" (PUT …/grants/{id}/chrome, signed, with the phone's
+// signature over the connection's sites for the Chrome chosen). Stops, on
+// remove, says what stops, for the app's one more ask. An app draws only the
+// ids it knows, so a new one shows nothing on an older app.
 type connectionAction struct {
 	ID    string `json:"id"`
 	Words string `json:"words"`
@@ -58,6 +61,10 @@ const (
 	ActionSignInAgain      = "sign_in_again"
 	ActionRemove           = "remove"
 	ActionRemoveUnfinished = "remove_unfinished"
+	// ActionUseAnotherChrome moves a connection in the owner's own Chrome to
+	// another paired Chrome ("Your Chrome" 2), offered only where the PUT
+	// would accept it (chromeSwitchRefusal).
+	ActionUseAnotherChrome = "use_another_chrome"
 )
 
 // usedDoc is when a connection last did what a taf asked, kept beside the
@@ -132,6 +139,10 @@ type rowContext struct {
 	now   time.Time
 	used  time.Time
 	known bool
+
+	// chromes is the Chromes a connection in the owner's Chrome could move
+	// to (chromeTargets); nil for any other connection.
+	chromes []string
 }
 
 func (rc rowContext) when(t time.Time) string {
@@ -254,10 +265,15 @@ func signInAgainHow(g *Grant) string {
 func actionsOf(g *Grant, rc rowContext, users []string) []connectionAction {
 	c := words.Connection(rc.lang)
 	out := []connectionAction{}
-	switch {
-	case g.Status == StatusDisconnected:
+	if g.Status == StatusDisconnected {
 		return out
-	case g.Status == StatusFailed || !inUse(g):
+	}
+	// Another Chrome, wherever the PUT would take it: an approved connection
+	// not yet in use moves too, as the PUT allows.
+	if canUseAnotherChrome(g, rc.chromes) {
+		out = append(out, connectionAction{ID: ActionUseAnotherChrome, Words: c.UseAnotherChrome, How: "chrome"})
+	}
+	if g.Status == StatusFailed || !inUse(g) {
 		// Unfinished, failed, or on its way: nothing uses it, and removing it
 		// is all that can be done here.
 		return append(out, connectionAction{ID: ActionRemoveUnfinished, Words: c.RemoveUnfinished, How: "delete", Stops: c.NothingStops})
@@ -279,13 +295,18 @@ func actionsOf(g *Grant, rc rowContext, users []string) []connectionAction {
 // fillRow sets v's used_by, health and actions for g, as r's app reads them.
 // used and known are g's last use and whether it was looked up (the list
 // does; a single grant's answer says "Working" with no time).
-func (s *Server) fillRow(r *http.Request, g *Grant, v *grantView, used time.Time, known bool) {
+func (s *Server) fillRow(r *http.Request, g *Grant, v *grantView, used time.Time, known bool, chromes func() []string) {
 	zone, named := ownerZone(r)
 	lang := "en"
 	if r != nil {
 		lang = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	rc := rowContext{lang: lang, zone: zone, named: named, now: s.now(), used: used, known: known}
+	// Only a connection in the owner's own Chrome asks which Chromes it could
+	// move to, so no other row reads them.
+	if b := g.Request.Browser; b != nil && b.Driver == DriverExtension && chromes != nil {
+		rc.chromes = chromes()
+	}
 	v.UsedBy = usedBy(g)
 	h := healthOf(g, rc)
 	v.Health = &h

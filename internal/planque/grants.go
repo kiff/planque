@@ -1331,7 +1331,13 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.Digest, v.DigestV = d, 2
 		}
 	}
-	s.fillRow(r, g, &v, time.Time{}, false)
+	s.fillRow(r, g, &v, time.Time{}, false, func() []string {
+		ctx := context.Background()
+		if r != nil {
+			ctx = r.Context()
+		}
+		return s.chromeTargets(ctx, g.Tenant)
+	})
 	if g.Status == StatusNeedsReconnect && g.Request.Connector != nil {
 		v.Reconnect = "same"
 		if freshOnly(g) {
@@ -3448,6 +3454,16 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	out := []grantView{}
 	uses := s.lastUses(ctx, tenant)
 	seen := map[string]bool{}
+	// The Chromes a connection could move to, read once for the list, and
+	// only if a connection in the owner's Chrome asks.
+	var targets []string
+	looked := false
+	chromes := func() []string {
+		if !looked {
+			targets, looked = s.chromeTargets(ctx, tenant), true
+		}
+		return targets
+	}
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil {
@@ -3468,7 +3484,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
 		v := s.view(r, &g)
-		s.fillRow(r, &g, &v, uses[g.ID], true)
+		s.fillRow(r, &g, &v, uses[g.ID], true, chromes)
 		out = append(out, v)
 	}
 	return out, nil

@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Дахин нэвтрэх",
 		Remove:           "Хандах эрхийг хасах",
 		RemoveUnfinished: "Дуусаагүй холболтыг хасах",
+		UseAnotherChrome: "Өөр Chrome ашиглах",
 		StopsF:           "%s нь %s-ыг ашиглахаа болино.",
 		NothingStops:     "Үүнийг ямар ч taf ашигладаггүй тул юу ч зогсохгүй.",
 		WorkingLastF:     "Ажиллаж байна · сүүлд ашигласан %s",

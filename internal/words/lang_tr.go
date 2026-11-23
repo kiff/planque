@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Tekrar oturum aç",
 		Remove:           "Erişimi kaldır",
 		RemoveUnfinished: "Tamamlanmamış bağlantıyı kaldır",
+		UseAnotherChrome: "Başka bir Chrome kullanın",
 		StopsF:           "%s artık %s hizmetini kullanmayacak.",
 		NothingStops:     "Hiçbir taf onu kullanmıyor, bu yüzden hiçbir şey durmaz.",
 		WorkingLastF:     "Çalışıyor · son kullanım %s",

@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Prisijungti dar kartą",
 		Remove:           "Pašalinti prieigą",
 		RemoveUnfinished: "Pašalinti nebaigtą ryšį",
+		UseAnotherChrome: "Naudoti kitą „Chrome“",
 		StopsF:           "%s nebenaudos %s.",
 		NothingStops:     "Joks taf jos nenaudoja, todėl niekas nesustoja.",
 		WorkingLastF:     "Veikia · paskutinį kartą naudota %s",

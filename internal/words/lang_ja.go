@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "もう一度サインイン",
 		Remove:           "アクセスを削除",
 		RemoveUnfinished: "未完了の接続を削除",
+		UseAnotherChrome: "別のChromeを使う",
 		StopsF:           "%sは%sを使わなくなります。",
 		NothingStops:     "使っているtafはないので、止まるものはありません。",
 		WorkingLastF:     "動作中・最後の使用 %s",

@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Најави се повторно",
 		Remove:           "Отстрани пристап",
 		RemoveUnfinished: "Отстрани незавршена врска",
+		UseAnotherChrome: "Користете друг Chrome",
 		StopsF:           "%s ќе престане да го користи %s.",
 		NothingStops:     "Ниеден taf не ја користи, па ништо не запира.",
 		WorkingLastF:     "Работи · последно користено %s",
