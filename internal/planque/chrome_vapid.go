@@ -32,6 +32,9 @@ type vapidDoc struct {
 	Public string `json:"public"`
 }
 
+// beforeVAPIDKept runs, in tests only, between finding no key and keeping one.
+var beforeVAPIDKept func()
+
 // vapidKey is planque's VAPID key, made and kept the first time it's needed:
 // a conditional write, so two instances making one at once keep one.
 func (s *Server) vapidKey(ctx context.Context) (*ecdsa.PrivateKey, []byte, error) {
@@ -55,6 +58,9 @@ func (s *Server) vapidKey(ctx context.Context) (*ecdsa.PrivateKey, []byte, error
 			return nil, nil, perr
 		}
 		d = vapidDoc{Sealed: sealed, Public: base64.RawURLEncoding.EncodeToString(pub.Bytes())}
+		if beforeVAPIDKept != nil {
+			beforeVAPIDKept()
+		}
 		if putDoc(ctx, s.KV, store.Item{PK: pkVAPID, SK: "-"}, d, store.Cond{NotExists: true}) != nil {
 			// Another instance kept one first: that one is the key.
 			if _, err := getDoc(ctx, s.KV, pkVAPID, "-", &d); err != nil {

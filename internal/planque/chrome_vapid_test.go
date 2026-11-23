@@ -121,3 +121,23 @@ func TestTheWakerAndThePushKeyRouteUsePlanquesOwnKey(t *testing.T) {
 		t.Fatal("the waker was built again")
 	}
 }
+
+// Another instance keeping its key between this one's read and write wins:
+// this one reads that key back rather than writing its own over it.
+func TestAVAPIDKeyKeptMeanwhileByAnotherInstanceWins(t *testing.T) {
+	r := newRelayRig(t)
+	ctx := context.Background()
+	var theirs []byte
+	beforeVAPIDKept = func() {
+		beforeVAPIDKept = nil // the other instance makes and keeps its own, once
+		_, theirs, _ = r.e.s.vapidKey(ctx)
+	}
+	defer func() { beforeVAPIDKept = nil }()
+	_, ours, err := r.e.s.vapidKey(ctx)
+	if err != nil || theirs == nil || !bytes.Equal(ours, theirs) {
+		t.Fatalf("kept its own over another's: %v", err)
+	}
+	if _, again, _ := r.e.s.vapidKey(ctx); !bytes.Equal(again, theirs) {
+		t.Fatal("the key changed after")
+	}
+}
