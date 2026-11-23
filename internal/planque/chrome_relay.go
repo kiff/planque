@@ -425,10 +425,19 @@ func (s *Server) sendChromeStep(ctx context.Context, tenant string, step chromeS
 		Conn string `json:"conn"`
 	}
 	if _, err := getDoc(ctx, s.KV, tenantPK(tenant), skChromeLive(step.ChromeID), &live); err != nil {
-		if errors.Is(err, errNotFound) {
+		if !errors.Is(err, errNotFound) {
+			return err
+		}
+		// Not connected: woken by a push, when it gave planque where (chrome_wake.go);
+		// never for a close, which a Chrome that isn't connected doesn't need.
+		if step.Op == "close" {
 			return errChromeOffline
 		}
-		return err
+		conn, err := s.wakeChrome(ctx, tenant, step.ChromeID)
+		if err != nil {
+			return err
+		}
+		live.Conn = conn
 	}
 	step.Nonce = oauth.Random(16)
 	step.Exp = s.now().Add(chromeStepTTL).UnixMilli()

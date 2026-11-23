@@ -88,7 +88,11 @@ type Server struct {
 	// WebSocket connections. Without both, the relay refuses every connect.
 	ChromeSigner stepkey.Signer
 	ChromePoster wsapi.Poster
-	Evidence     browser.Evidence
+	// ChromeWaker wakes a Chrome that isn't connected for a step, by Web
+	// Push, when its extension gave planque where (chrome_wake.go). Nil: a
+	// Chrome that isn't connected is offline, as before.
+	ChromeWaker *ChromeWaker
+	Evidence    browser.Evidence
 	// Application definitions are reviewed public protocol facts; their
 	// client credentials are resolved separately from an operator store.
 	CatalogEntries map[string]CatalogEntry
