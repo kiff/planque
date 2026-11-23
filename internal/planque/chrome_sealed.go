@@ -259,8 +259,30 @@ func (s *Server) describeSealed(ctx context.Context, g *Grant, p permit.Permit, 
 		// One describe per hold: the page is already open for it.
 		return OpNotSent, browserRefusal(CodeSealedBusy, "this sealed fill was described already, and its page is open for the owner", false)
 	}
+	busy := browserRefusal(CodeSealedBusy, "this Chrome already has as many saved sign-ins waiting for their owner as it may; try again once they're answered", false)
 	if len(kept) >= maxSealedKept {
-		return OpNotSent, browserRefusal(CodeSealedBusy, "this Chrome already has as many saved sign-ins waiting for their owner as it may; try again once they're answered", false)
+		return OpNotSent, busy
+	}
+	// The kept run is claimed before anything reaches the Chrome: a describe
+	// racing this one for the same fill is refused here, and never opens
+	// (and then closes) the run this one keeps. The claim counts toward the
+	// cap at once; counted again, a Chrome over it gives its claim back, so
+	// two racing describes can both be refused but never both kept past it.
+	it := store.Item{PK: tenantPK(g.Tenant), SK: skSealedRun(chrome, g.ID, d.Op), Ver: 1, TTL: s.now().Add(sealedKept + time.Minute).Unix()}
+	claim := sealedRun{Tenant: g.Tenant, Grant: g.ID, Agent: g.Request.Agent, Op: d.Op, Chrome: chrome, Opened: s.now().UTC()}
+	if err := putDoc(ctx, s.KV, it, claim, store.Cond{NotExists: true}); errors.Is(err, store.ErrCondition) {
+		return OpNotSent, browserRefusal(CodeSealedBusy, "this sealed fill is being described already", false)
+	} else if err != nil {
+		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not keep the page open for the owner", false)
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+		}
+	}()
+	if again, err := s.keptSealedRuns(ctx, g, chrome); err != nil || len(again) > maxSealedKept {
+		return OpNotSent, busy
 	}
 	taf := cmpStr(g.Request.AgentName, g.Request.Agent)
 	sess, code, why := s.startChrome(ctx, g, d.Op, taf)
@@ -314,14 +336,17 @@ func (s *Server) describeSealed(ctx context.Context, g *Grant, p permit.Permit, 
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "planque could not sign the fill's description", false)
 	}
-	run := sealedRun{Tenant: g.Tenant, Grant: g.ID, Agent: g.Request.Agent, Op: d.Op, Chrome: chrome, URL: a.URL, Origin: origin,
-		Read: d.Read, ReadID: sess.readID, FieldRef: d.Fill, Sealed: d.Sealed, Opened: s.now().UTC()}
-	it := store.Item{PK: tenantPK(g.Tenant), SK: skSealedRun(chrome, g.ID, d.Op), TTL: s.now().Add(sealedKept + time.Minute).Unix()}
-	if err := putDoc(ctx, s.KV, it, run, store.Cond{NotExists: true}); err != nil {
+	run := claim
+	run.URL, run.Origin, run.Read, run.ReadID, run.FieldRef, run.Sealed = a.URL, origin, d.Read, sess.readID, d.Fill, d.Sealed
+	// Over the claim, and only it: a claim taken meanwhile (a fill that
+	// found it unfinished) leaves nothing to keep, and the run closes.
+	claimed := it.Ver
+	it.Ver++
+	if err := putDoc(ctx, s.KV, it, run, store.Cond{Ver: &claimed}); err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not keep the page open for the owner", false)
 	}
 	// Kept: the run stays open in the owner's Chrome for the allowed call.
-	sess.kept = true
+	keep, sess.kept = true, true
 	s.log().InfoContext(ctx, "sealed fill described", slog.String("grant", g.ID), slog.String("op", d.Op), slog.String("site", b.Site))
 	block, _ := json.Marshal(b)
 	res := toolResult("Described for the owner's card.", false)
@@ -353,7 +378,7 @@ func (s *Server) actSealed(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read the page kept for the owner", false)
 	}
 	var r sealedRun
-	if !took || json.Unmarshal(it.Doc, &r) != nil || s.now().Sub(r.Opened) >= sealedKept {
+	if !took || json.Unmarshal(it.Doc, &r) != nil || r.ReadID == "" || s.now().Sub(r.Opened) >= sealedKept {
 		if took {
 			s.closeSealedRun(ctx, r)
 		}
