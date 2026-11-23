@@ -94,7 +94,7 @@ func TestDescribeGivesEachOperationsArguments(t *testing.T) {
 	}
 }
 
-// Eval 44888646344, run 2: a refund in EUR on a charge with no unit_lookup, beside a list of charges and no read of one,
+// An Eval run: a refund in EUR on a charge with no unit_lookup, beside a list of charges and no read of one,
 // was connected and signed, so KIFF couldn't refuse a refund in another currency. It's refused at the request now,
 // before any approval, saying what to add, and nothing reaches KIFF. With the charge's read named, it goes on.
 func TestARefundNamesTheReadOfItsChargesCurrency(t *testing.T) {
@@ -113,7 +113,7 @@ func TestARefundNamesTheReadOfItsChargesCurrency(t *testing.T) {
 }
 
 // The same guard on the other door: a money tool added to a connection the
-// taf already has (qa-kiff, planque#331) is refused as a new request is, and
+// taf already has (planque#331) is refused as a new request is, and
 // nothing reaches KIFF; the connection stays as it was, nothing pending.
 func TestAMoneyToolAddedWithoutItsCurrencyReadIsRefused(t *testing.T) {
 	e := newEnv(t)

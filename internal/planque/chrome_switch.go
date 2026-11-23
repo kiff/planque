@@ -75,7 +75,7 @@ func chromeSwitchRefusal(g *Grant, to string) string {
 	if b == nil || b.Driver != DriverExtension {
 		return "this connection doesn't use the owner's own Chrome"
 	}
-	// Only a connection the owner approved moves (qa-kiff): never one only
+	// Only a connection the owner approved moves: never one only
 	// asked for, failed or ended.
 	switch g.Status {
 	case StatusApproved, StatusSignedIn, StatusConnected, StatusListed, StatusNeedsReconnect:

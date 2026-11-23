@@ -203,7 +203,7 @@ func fieldsCheck(t ToolRequest, d describer, op string, fields map[string]*field
 }
 
 // fieldAt says where a refused path's field goes, so the asker places it
-// rather than drops it (Eval 45056771055, setup run 3: "path.id" refused,
+// rather than drops it (an Eval run: "path.id" refused,
 // and the read was left with no way to name its charge). A path that ends in
 // a field the operation lists names that field's own path; any other, the
 // form every field takes.
@@ -417,7 +417,7 @@ const maxDescriberServers = 10
 // pinAccount pins the account a narrowed tool acts in (d.Context's
 // stripe_context) to the grant's own connected account, when the tool
 // leaves it open: left open, the taf looks the account up on every
-// message, and Coach can forget it (Eval 45046714906, setup run 2). It
+// message, and Coach can forget it (an Eval run). It
 // happens before the owner's words and digest are made, so the owner signs
 // the pinned account, and it only ever narrows. It returns what to refuse,
 // or "": a grant that doesn't cover exactly one account has nothing to pin,
@@ -452,8 +452,8 @@ func pinAccount(g *Grant, tools []ToolRequest) string {
 // callAccount holds a call to a vendor tool that acts in one account
 // (d.Context's stripe_context) to the connection's own, whatever the grant
 // or the taf put in it: defence in depth for a grant whose first request
-// was asked before the owner signed in, when no account could be pinned
-// (PM, kiff/work#20, 22 Nov 23:14). A missing account is the connection's;
+// was asked before the owner signed in, when no account could be pinned.
+// A missing account is the connection's;
 // another is refused, and so is any call on a connection that doesn't cover
 // exactly one account. It returns the arguments to send, or why not.
 func callAccount(g *Grant, tool string, args json.RawMessage) (json.RawMessage, string) {

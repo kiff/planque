@@ -247,7 +247,7 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 	}
 	if pays && b.Driver == DriverExtension {
 		// Paying through the owner's Chrome stays off until the owner turns it
-		// on (kiff/work#18, "Off by default").
+		// on.
 		return nil, nil, nil, "browse_pay isn't offered with the owner's Chrome yet"
 	}
 	if pays {

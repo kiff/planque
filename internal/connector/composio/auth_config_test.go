@@ -156,7 +156,7 @@ func TestAScopedSignInIsNeverAnAppsUsualOne(t *testing.T) {
 	}
 }
 
-// Only Google's sign-ins are narrowed (the owner, 16 Nov: "flexible but
+// Only Google's sign-ins are narrowed (the owner's rule: "flexible but
 // responsible"): an app whose managed sign-in asks for any other scopes keeps
 // its usual one, with its full access, and nothing is asked or made at the
 // provider beyond reading its ceiling.

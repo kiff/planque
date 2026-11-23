@@ -192,7 +192,7 @@ func TestNoShippedWriteCopiesAnAddressAndNoEntryClaimsProof(t *testing.T) {
 	}
 }
 
-// The three writes kiff-qa found doing more than their titles: Intercom's
+// The three writes a review found doing more than their titles: Intercom's
 // reply as the customer, Freshdesk's reply copying an address, Freshdesk's
 // note made public. Each comes back as a failure here.
 func TestTheReplyAndNoteWritesDoWhatTheirTitlesSay(t *testing.T) {

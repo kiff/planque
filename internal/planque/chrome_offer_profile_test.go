@@ -7,7 +7,7 @@ import (
 )
 
 // tafs#1746's extension sends profile_id: planque took it as an unknown
-// field and refused the pairing (23:12, kiff/work#20).
+// field and refused the pairing.
 // The extension's offer carries its profile id and whether it checks a
 // one-touch phone_sig ("Your Chrome" 1 and 5): planque keeps both as given,
 // the phone reads them, and the paired Chrome lists its profile id, so a

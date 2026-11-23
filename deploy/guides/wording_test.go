@@ -14,7 +14,7 @@ import (
 // contracts/coach-wording.json (at 3a50e11): the words Coach must never use
 // about a connection, a sign-in or a step, which kiff/agents' show tool
 // refuses on a card and the Eval's gate fails. Coach reads these guides and
-// copies their words (Eval 43975057022, 17 Nov: "I'm connecting Google
+// copies their words (an Eval run: "I'm connecting Google
 // Sheets with read-only access to cells", from googlesheets.md), so no guide
 // may use them either. Copy the file again whenever tafs changes it.
 type wording struct {

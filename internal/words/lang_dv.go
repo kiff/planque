@@ -1,4 +1,4 @@
-// First drafts, fixed forward by native readers (the owner's rule of 22 Nov).
+// First drafts, fixed forward by native readers (the owner's rule).
 
 package words
 

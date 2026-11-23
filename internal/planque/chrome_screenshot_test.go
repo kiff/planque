@@ -32,7 +32,7 @@ func webpTall(width, height, n int) []byte {
 	return b
 }
 
-// The owner's decision (22 Nov 2026): an acting step in their own Chrome is
+// The owner's decision: an acting step in their own Chrome is
 // kept as an image, for the record. Only for an act planque sent to that
 // Chrome, signed by that Chrome's key, once; sealed under the account for
 // 30 days; read by the owner's device; never with the switch off.
@@ -279,7 +279,7 @@ func TestImagesGoWithTheirChromeAndTheirConnection(t *testing.T) {
 }
 
 // A taf's Activity row reads its pictures by its proposal_id, KIFF's
-// operation, which planque runs a Chrome call as (PM, 22 Nov 22:12): only
+// operation, which planque runs a Chrome call as: only
 // that operation's images, kept and within 30 days, oldest first, the newest
 // 20 at most, never the bytes; none, or the switch off, an empty list.
 func TestAnOperationsImagesAreListedForItsActivityRow(t *testing.T) {

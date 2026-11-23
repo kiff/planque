@@ -140,7 +140,7 @@ func checkNarrowing(t ToolRequest) *toolRefusal {
 
 // unitLookupMissing is the refusal of a request's tool that moves money in a currency it names, on an item it names,
 // without saying which read gives that item's currency (unit_lookup): KIFF can't refuse a payment in another currency
-// then, and counts it against the agreed limits as if it were this one (Eval 44888646344, run 2: create_refund in EUR
+// then, and counts it against the agreed limits as if it were this one (an Eval run: create_refund in EUR
 // on a charge, with no unit_lookup and no read of one charge, was connected and signed). For a request without a
 // profile: a profile sets a tool's money fields itself (its nominal unit), and the vendor catalog's are reviewed.
 func unitLookupMissing(tools []ToolRequest) *toolRefusal {

@@ -976,7 +976,7 @@ func TestNarrowedTool(t *testing.T) {
 	if text := out["text"].(string); !strings.Contains(text, "• Refund a payment: moves money (amount)") || strings.Contains(text, "stripe_refund") || strings.Contains(text, "PostRefunds") {
 		t.Fatalf("text:\n%s", text)
 	}
-	// The account it acts in is the connection's own, pinned by planque, and the owner reads it (Eval 45046714906).
+	// The account it acts in is the connection's own, pinned by planque, and the owner reads it (an Eval run showed it).
 	if terms, _ := out["terms"].([]any); !slices.Contains(terms, any(`stripe_refund (stripe_api_write with stripe_api_operation_id = "PostRefunds", stripe_context = "acct_fake123" (the vendor says: "The account to act in, from list_accounts."); the taf sets only amount, approval_token, payment_intent)`)) {
 		t.Fatalf("terms: %v", out["terms"])
 	}

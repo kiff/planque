@@ -19,7 +19,7 @@ import (
 )
 
 // A taf's acting steps in the owner's own Chrome are kept as images, for the
-// record (the owner's decision, 22 Nov 2026; tafs docs/chrome.md). The
+// record (the owner's decision; tafs docs/chrome.md). The
 // extension takes one just before each act, with password, card and code
 // fields and anything it filled from Saved sign-ins masked, and never on a
 // blocked or sensitive site or a payment frame. It sends it here, signed with

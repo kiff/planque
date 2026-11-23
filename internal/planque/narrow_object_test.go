@@ -69,7 +69,7 @@ func TestAnObjectArgumentTakesOnlyItsNamedFields(t *testing.T) {
 
 // An object argument's schema names its fields, each a plain value or an
 // array as an array argument's schema is: never open, never another object,
-// never null, a type list or alternatives (kiff-qa's negatives).
+// never null, a type list or alternatives (a review's negatives).
 func TestAnObjectArgumentsSchemaIsChecked(t *testing.T) {
 	for name, c := range map[string]struct {
 		schema string
