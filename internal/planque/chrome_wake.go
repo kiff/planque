@@ -109,7 +109,8 @@ func (w *ChromeWaker) token(ctx context.Context, aud string) (string, error) {
 // connection in time, the Chrome is offline, as before. A subscription the
 // push service says is gone is dropped.
 func (s *Server) wakeChrome(ctx context.Context, tenant, chrome string) (string, error) {
-	if s.ChromeWaker == nil {
+	waker := s.chromeWaker(ctx)
+	if waker == nil {
 		return "", errChromeOffline
 	}
 	var c Chrome
@@ -117,7 +118,7 @@ func (s *Server) wakeChrome(ctx context.Context, tenant, chrome string) (string,
 	if err != nil || c.Push == nil {
 		return "", errChromeOffline
 	}
-	if err := s.ChromeWaker.Wake(ctx, *c.Push); err != nil {
+	if err := waker.Wake(ctx, *c.Push); err != nil {
 		if errors.Is(err, errPushGone) {
 			// On the version read: a subscription sent meanwhile is kept, and an unpairing wins.
 			c.Push = nil

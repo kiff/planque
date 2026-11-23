@@ -351,9 +351,11 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",
 		ChromeSigner:       chromeSigner,
 		ChromePoster:       chromePoster,
-		DoorSink:           doorSink,
-		EventSink:          eventSink,
-		KIFFEventSink:      kiffEventSink,
+		// The wake's VAPID contact: planque's own public address. Its key is planque's own (chrome_vapid.go).
+		VAPIDSubject:  base,
+		DoorSink:      doorSink,
+		EventSink:     eventSink,
+		KIFFEventSink: kiffEventSink,
 		// The reviewed Stripe refunds profile, off unless turned on.
 		StripeRefunds:        os.Getenv("PLANQUE_STRIPE_REFUNDS") == "on",
 		StripeRefundsTenants: refundTenants(os.Getenv("PLANQUE_STRIPE_REFUNDS")),
