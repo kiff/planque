@@ -22,7 +22,7 @@ const (
 	// relayVectorSHA256 is the vendored file's hash, from kiff/tafs at
 	// relayVectorCommit: a copy edited here, not taken again from there, fails.
 	relayVectorSHA256 = "915c4fbac1bc0a1b4639042eaca8f83724a32869679281daf8796b33f1e4548c"
-	relayVectorCommit = "c54c620f0d14345593a41a50cd346c4cfeff1300"
+	relayVectorCommit = "4d1dd5d07208d1564ad0fc40d25326afd1ad7628"
 )
 
 type relayVectorEntry struct {
