@@ -106,6 +106,22 @@ type Step struct {
 	Select string `json:"select,omitempty"`
 	Option string `json:"option,omitempty"`
 	Click  string `json:"click,omitempty"`
+	// Sealed, with Fill and no Value, names a sign-in saved in the owner's
+	// Chrome (a handle from a read's page.sealed): the extension fills it
+	// only with the owner's phone's release, and nobody else sees the value.
+	Sealed string `json:"sealed,omitempty"`
+}
+
+// SealedHandle is a sealed value's handle: one saved sign-in's part, as the
+// tafs extension names it (tafs docs/chrome.md, "Sealed values").
+var SealedHandle = regexp.MustCompile(`^sec_[A-Za-z0-9_-]{1,64}:(password|username)$`)
+
+// SealedPart is which part a sealed handle names: "password" or "username".
+func SealedPart(handle string) string {
+	if m := SealedHandle.FindStringSubmatch(handle); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // Ref is the field or control the step names.
@@ -134,6 +150,10 @@ func (s Step) Check() error {
 		return errors.New("value goes with fill, option with select")
 	case s.Select != "" && s.Option == "":
 		return errors.New("select names the option to pick")
+	case s.Sealed != "" && (s.Fill == "" || s.Value != ""):
+		return errors.New("sealed goes with fill, and no value: the value stays in the owner's Chrome")
+	case s.Sealed != "" && !SealedHandle.MatchString(s.Sealed):
+		return errors.New("sealed is a handle from a read's page.sealed: sec_…:password or sec_…:username")
 	case len(s.Value) > 4096:
 		return errors.New("a value is at most 4,096 characters")
 	}

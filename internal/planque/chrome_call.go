@@ -97,6 +97,20 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		s.noteChromeRefusal(ctx, g, tool.Tool, code, a.URL)
 		return OpNotSent, browserRefusal(code, why, false)
 	}
+	// A sealed fill: the gateway's describe of it, or its allowed act
+	// (chrome_sealed.go). Either goes no further than this.
+	switch sh := sealedHeadersFrom(ctx); {
+	case sh.bad != "":
+		return OpNotSent, browserRefusal(CodeBadArguments, sh.bad, false)
+	case sh.describe != nil && tool.Tool != browseOpen:
+		return OpNotSent, browserRefusal(CodeBadArguments, "only browse_open describes a sealed fill", false)
+	case sh.describe != nil:
+		return s.describeSealed(ctx, g, p, a, sh.describe)
+	case len(a.Steps) == 1 && a.Steps[0].Sealed != "":
+		return s.actSealed(ctx, g, p, a, sh.release)
+	case len(sh.release) > 0:
+		return OpNotSent, browserRefusal(CodeBadArguments, "a release goes only with a sealed fill", false)
+	}
 	// The run's tab group is named for people: the taf's name, as the owner
 	// approved it, else its agent.
 	taf := g.Request.AgentName

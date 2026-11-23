@@ -88,6 +88,11 @@ type Server struct {
 	// connection approved before keeps its tools. On in production unless
 	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
+	// SealedFill takes a sealed fill in the owner's Chrome: the gateway's
+	// describe of it, and its act with the phone's release (chrome_sealed.go).
+	// Off unless PLANQUE_SEALED_FILL=on (cmd/planque); off, every sealed step
+	// is refused before anything reaches the Chrome.
+	SealedFill bool
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's
 	// WebSocket connections. Without both, the relay refuses every connect.

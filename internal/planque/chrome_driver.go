@@ -119,6 +119,8 @@ type chromeAct struct {
 	Kind  string `json:"kind"`
 	Ref   string `json:"ref"`
 	Value string `json:"value,omitempty"`
+	// Sealed is a sealed fill's handle (chrome_sealed.go).
+	Sealed string `json:"sealed,omitempty"`
 }
 
 // chromePage is the page a step's result carries: planque's browser.Page,
