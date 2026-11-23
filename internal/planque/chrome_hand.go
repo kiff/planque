@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -155,12 +156,14 @@ func (s *Server) readHand(ctx context.Context, chrome, hand, grant string) (chro
 // browseHand hands the person one thing to do in the page the call opened:
 // the words checked, the ref (if any) one of that read's fields or controls,
 // then a signed "hand" step. The extension answers it at once as handed; the
-// run stays open for the person, and the taf gets the hand-over's id.
-func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, a browserArgs, page browser.Page) (string, any) {
+// run stays open for the person, and the taf gets the hand-over's id. prev is
+// the grant's latest read before this call opened the page again.
+func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, a browserArgs, page browser.Page, prev *chromeRead) (string, any) {
 	if why := handWordsRefusal(a.Words); why != "" {
 		return OpNotSent, browserRefusal(CodeBadArguments, why, false)
 	}
-	if a.Read == "" || browser.Read(page) != a.Read {
+	if a.Read == "" || browser.Read(page) != a.Read && !sameHandTarget(prev, a, page) {
+		s.noteChromeRefusal(ctx, g, browseHand, browser.CodePageChanged, page.URL)
 		return OpNotSent, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"): read it again with browse_open first", false)
 	}
 	if a.Ref != "" && !pageHasRef(page, a.Ref) {
@@ -180,6 +183,33 @@ func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, 
 	sess.kept = true
 	return OpDone, browserAnswer(map[string]any{"state": "handed", "hand": id,
 		"next": "The person does it in their Chrome; read their answer with " + browseHandResult + " and this hand."})
+}
+
+// sameHandTarget is whether a hand-over still lands where the taf read it on
+// a page whose read changed between loads (a news item, a rotating link): the
+// read named is the grant's latest, the page is at the same address, and the
+// element handed, if any, has the same ref, kind and label as in that read.
+// The person does the step themselves, so only where it's shown has to
+// hold; an act still runs only on the exact read it was built from.
+func sameHandTarget(prev *chromeRead, a browserArgs, page browser.Page) bool {
+	if prev == nil || prev.Read != a.Read || strings.SplitN(prev.URL, "#", 2)[0] != strings.SplitN(page.URL, "#", 2)[0] {
+		return false
+	}
+	if a.Ref == "" {
+		return true
+	}
+	for _, was := range prev.Parts {
+		if was.Ref != a.Ref {
+			continue
+		}
+		for _, now := range readParts(page) {
+			if now.Ref == a.Ref {
+				return now == was
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // browseHandResult is the person's answer to one of this grant's hand-overs.

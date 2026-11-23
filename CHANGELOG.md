@@ -175,6 +175,10 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Fixed
 
+- **A hand-over in the owner's Chrome lands on a page whose read changes between loads.** A page with news or rotating links (an encyclopedia's main page) gave a new `read` every time it was opened, so `browse_hand` was always `page_changed`. It now goes ahead on the grant's latest read when the page is at the same address and the element handed (`ref`) has the same kind and label there. A changed element, another address, or a read that isn't the latest is still refused, and `browse_act` still runs only on the exact read.
+- **A link that redirected opens again by its own address.** Opening a site's language link (`https://en.example.org/`) that lands on `/wiki/Main_Page` kept only the page it landed on, so a later call naming the link was `url_not_read`. The address asked for now opens too, beside the page.
+- **`url_not_read`'s words name no address.** They read "it or it" in an app that takes addresses out of a step's words.
+- **A call refused before reaching the Chrome is logged** (`chrome refused`: the tool, the code, and the address without its query), as metadata only.
 - **In the owner's own Chrome, a listed site's `www.` start page opens.** A grant for `wikipedia.org` opened only `https://wikipedia.org/`, and a taf starting at `https://www.wikipedia.org/` got `url_not_read`. The `www.` start page now counts as a start page too, and the host is compared in lower case (`https://Wikipedia.org/` is the start page). No other name in front counts (`en.`, `m.`, `www.www.`), and nothing after the slash does: a path, a query, a fragment, a port or user info of the taf's own is still refused.
 - **Coach's browser connection in the owner's Chrome is asked and reaches the Chrome.** Three gaps on that path, found on the first real try (22 Nov):
   - **The catalog id:** `browser@1`, the catalog's own `<id>@<version>` form that Coach's `a-browser-taf` asks for and the browser's profile records, is the browser entry, as `browser` is. Before, it was "no such catalog entry".

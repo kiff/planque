@@ -865,3 +865,31 @@ func TestAResultFiledJustBeforeTheDropWins(t *testing.T) {
 		t.Fatalf("the result filed before the drop: %v %v", page, err)
 	}
 }
+
+// A link that redirects (a site's "/" to its own start page) opens again by
+// the address the taf asked for, as well as by the page it landed on; the
+// refusal names no address of its own.
+func TestALinkThatRedirectedOpensAgainByItsOwnAddress(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		u, _ := step["url"].(string)
+		if u == "https://shop.example/items/lamp" {
+			return true, shopPage("rd_"+step["id"].(string), map[string]any{"url": "https://shop.example/items/lamp-2", "links": []any{}}), ""
+		}
+		return true, shopPage("rd_"+step["id"].(string), nil), ""
+	}
+	c.online(t)
+	for _, u := range []string{"https://shop.example/", "https://shop.example/items/lamp", "https://shop.example/items/lamp", "https://shop.example/items/lamp-2"} {
+		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) != "" {
+			t.Fatalf("%s: %v", u, sc)
+		}
+	}
+	out, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/items/desk"})
+	if code(sc) != CodeURLNotRead {
+		t.Fatalf("an address no read gave: %v", sc)
+	}
+	if strings.Contains(out, "https://") || strings.Contains(out, "<site>") {
+		t.Fatalf("the refusal names an address: %s", out)
+	}
+}
