@@ -84,8 +84,9 @@ type Server struct {
 	// chrome_screenshot.go). Off, the routes answer 404 and nothing is kept.
 	ChromeScreenshots bool
 	// ChromeHand offers the hand-over's two tools (browse_hand,
-	// browse_hand_result) on the owner's Chrome's new approvals and
-	// additions. Off until KIFF takes their names.
+	// browse_hand_result) on the owner's Chrome's new connections only: a
+	// connection approved before keeps its tools. Off until KIFF takes their
+	// names.
 	ChromeHand bool
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's

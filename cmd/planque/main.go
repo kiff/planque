@@ -349,8 +349,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ChromeBuilds:       chromeBuilds,
 		ChromeOffer:        chromeOffer,
 		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",
-		ChromeSigner:       chromeSigner,
-		ChromePoster:       chromePoster,
+		// The hand-over's tools, offered to new Chrome connections only, off until turned on.
+		ChromeHand:   strings.TrimSpace(os.Getenv("PLANQUE_CHROME_HAND")) == "on",
+		ChromeSigner: chromeSigner,
+		ChromePoster: chromePoster,
 		// The wake's VAPID contact: planque's own public address. Its key is planque's own (chrome_vapid.go).
 		VAPIDSubject:  base,
 		DoorSink:      doorSink,
