@@ -85,8 +85,8 @@ type Server struct {
 	ChromeScreenshots bool
 	// ChromeHand offers the hand-over's two tools (browse_hand,
 	// browse_hand_result) on the owner's Chrome's new connections only: a
-	// connection approved before keeps its tools. Off until KIFF takes their
-	// names.
+	// connection approved before keeps its tools. On in production unless
+	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's

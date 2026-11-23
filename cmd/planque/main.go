@@ -37,6 +37,9 @@
 //	PLANQUE_CHROME_SCREENSHOTS on keeps an image of each acting step in the
 //	                   owner's own Chrome, sealed, for 30 days; unset or
 //	                   anything else, off
+//	PLANQUE_CHROME_HAND off stops offering the hand-over's two tools
+//	                   (browse_hand, browse_hand_result) to new connections
+//	                   in the owner's Chrome; unset or anything else, on
 //	PLANQUE_NEVER_USE  optional grants:<id>[,<id>]: grants whose sign-ins are
 //	                   never reused or called, by any grant on the same
 //	                   account at the app; set at deploy, never in the repository
@@ -349,8 +352,9 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ChromeBuilds:       chromeBuilds,
 		ChromeOffer:        chromeOffer,
 		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",
-		// The hand-over's tools, offered to new Chrome connections only, off until turned on.
-		ChromeHand:   strings.TrimSpace(os.Getenv("PLANQUE_CHROME_HAND")) == "on",
+		// The hand-over's tools, offered to new Chrome connections only: on
+		// unless PLANQUE_CHROME_HAND=off (chromeHandOn).
+		ChromeHand:   chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
 		ChromeSigner: chromeSigner,
 		ChromePoster: chromePoster,
 		// The wake's VAPID contact: planque's own public address. Its key is planque's own (chrome_vapid.go).
@@ -387,6 +391,14 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 
 // refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
 // accounts offered the Stripe refunds profile. Anything else lists none.
+// chromeHandOn reads PLANQUE_CHROME_HAND: the hand-over is on by default,
+// now that KIFF's Coach names its tools for the person's own step (kiff/agents
+// browse_hand words, tafs a-browser-taf@3). Only "off" turns it off, so a
+// typo never turns it off by accident and the env can still stop it at once.
+func chromeHandOn(v string) bool {
+	return strings.TrimSpace(v) != "off"
+}
+
 func refundTenants(v string) map[string]bool {
 	list, ok := strings.CutPrefix(strings.TrimSpace(v), "tenants:")
 	if !ok {
