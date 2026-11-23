@@ -1004,6 +1004,7 @@ func profileIDShape(v string) bool {
 // Chromes list says it: its grant, the taf's name and the sites it reaches.
 type chromeConnection struct {
 	Grant string   `json:"grant"`
+	Agent string   `json:"agent"`
 	Name  string   `json:"name"`
 	Sites []string `json:"sites"`
 }
@@ -1027,7 +1028,7 @@ func (s *Server) chromesConnections(ctx context.Context, tenant string) (map[str
 			if name == "" {
 				name = g.Request.Agent
 			}
-			on[b.Chrome] = append(on[b.Chrome], chromeConnection{Grant: g.ID, Name: name, Sites: b.Sites})
+			on[b.Chrome] = append(on[b.Chrome], chromeConnection{Grant: g.ID, Agent: g.Request.Agent, Name: name, Sites: b.Sites})
 		}
 	}
 	return on, nil
