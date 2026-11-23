@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Νέα σύνδεση",
 		Remove:           "Αφαίρεση πρόσβασης",
 		RemoveUnfinished: "Αφαίρεση ημιτελούς σύνδεσης",
+		UseAnotherChrome: "Χρήση άλλου Chrome",
 		StopsF:           "Το %s θα σταματήσει να χρησιμοποιεί το %s.",
 		NothingStops:     "Κανένα taf δεν το χρησιμοποιεί, οπότε δεν σταματά τίποτα.",
 		WorkingLastF:     "Λειτουργεί · τελευταία χρήση %s",

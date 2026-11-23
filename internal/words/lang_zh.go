@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "重新登入",
 		Remove:           "移除存取權限",
 		RemoveUnfinished: "移除未完成的連線",
+		UseAnotherChrome: "使用另一個 Chrome",
 		StopsF:           "%s 將停止使用 %s。",
 		NothingStops:     "沒有 taf 使用它，所以不會有任何東西停止。",
 		WorkingLastF:     "運作中 · 上次使用 %s",

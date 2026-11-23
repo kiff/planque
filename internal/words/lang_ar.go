@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "تسجيل الدخول مجددًا",
 		Remove:           "إزالة الوصول",
 		RemoveUnfinished: "إزالة الاتصال غير المكتمل",
+		UseAnotherChrome: "استخدام Chrome آخر",
 		StopsF:           "سيتوقف %s عن استخدام %s.",
 		NothingStops:     "لا يستخدمه أي taf، لذا لا يتوقف شيء.",
 		WorkingLastF:     "يعمل · آخر استخدام %s",

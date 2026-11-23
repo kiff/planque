@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Torna a iniciar la sessió",
 		Remove:           "Treu l'accés",
 		RemoveUnfinished: "Treu la connexió sense acabar",
+		UseAnotherChrome: "Fes servir un altre Chrome",
 		StopsF:           "%s deixarà de fer servir %s.",
 		NothingStops:     "Cap taf no la fa servir, així que no s'atura res.",
 		WorkingLastF:     "Funciona · últim ús %s",

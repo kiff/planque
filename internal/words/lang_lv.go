@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Pierakstīties vēlreiz",
 		Remove:           "Noņemt piekļuvi",
 		RemoveUnfinished: "Noņemt nepabeigto savienojumu",
+		UseAnotherChrome: "Izmantot citu Chrome",
 		StopsF:           "%s vairs neizmantos %s.",
 		NothingStops:     "Neviens taf to neizmanto, tāpēc nekas neapstājas.",
 		WorkingLastF:     "Darbojas · pēdējoreiz izmantots %s",

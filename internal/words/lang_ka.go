@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "ხელახლა შესვლა",
 		Remove:           "წვდომის მოხსნა",
 		RemoveUnfinished: "დაუსრულებელი კავშირის მოხსნა",
+		UseAnotherChrome: "გამოიყენეთ სხვა Chrome",
 		StopsF:           "%s აღარ გამოიყენებს %s-ს.",
 		NothingStops:     "მას არც ერთი taf არ იყენებს, ამიტომ არაფერი ჩერდება.",
 		WorkingLastF:     "მუშაობს · ბოლოს გამოყენებულია %s",

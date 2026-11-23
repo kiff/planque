@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Prijavite se ponovo",
 		Remove:           "Ukloni pristup",
 		RemoveUnfinished: "Ukloni nedovršenu vezu",
+		UseAnotherChrome: "Koristite drugi Chrome",
 		StopsF:           "%s će prestati da koristi %s.",
 		NothingStops:     "Nijedan taf je ne koristi, pa se ništa ne zaustavlja.",
 		WorkingLastF:     "Radi · poslednje korišćenje %s",

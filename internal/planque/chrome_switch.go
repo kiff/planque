@@ -1,6 +1,8 @@
 package planque
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 )
@@ -34,23 +36,11 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		s.fail(w, r, err)
 		return
 	}
+	if why := chromeSwitchRefusal(g, req.ChromeID); why != "" {
+		writeErr(w, http.StatusConflict, why)
+		return
+	}
 	b := g.Request.Browser
-	if b == nil || b.Driver != DriverExtension {
-		writeErr(w, http.StatusConflict, "this connection doesn't use the owner's own Chrome")
-		return
-	}
-	// Only a connection the owner approved moves (qa-kiff): never one only
-	// asked for, failed or ended.
-	switch g.Status {
-	case StatusApproved, StatusSignedIn, StatusConnected, StatusListed, StatusNeedsReconnect:
-	default:
-		writeErr(w, http.StatusConflict, "only a connection the owner approved, and that hasn't ended, can use another Chrome")
-		return
-	}
-	if b.Chrome == req.ChromeID {
-		writeErr(w, http.StatusConflict, "this connection already uses that Chrome")
-		return
-	}
 	if !s.relayOn() || !s.chromeOnFor(g.Tenant) {
 		writeErr(w, http.StatusConflict, "the owner's own Chrome isn't offered to this account now")
 		return
@@ -72,4 +62,58 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(r, g))
+}
+
+// chromeSwitchRefusal is why g can't move to the Chrome to, as far as the
+// grant goes, in words for the asking app; "" when it can. The PUT above and
+// the connection's use_another_chrome action both ask it, so the action is
+// offered exactly where the move is accepted, and no app keeps the rule.
+func chromeSwitchRefusal(g *Grant, to string) string {
+	b := g.Request.Browser
+	if b == nil || b.Driver != DriverExtension {
+		return "this connection doesn't use the owner's own Chrome"
+	}
+	// Only a connection the owner approved moves (qa-kiff): never one only
+	// asked for, failed or ended.
+	switch g.Status {
+	case StatusApproved, StatusSignedIn, StatusConnected, StatusListed, StatusNeedsReconnect:
+	default:
+		return "only a connection the owner approved, and that hasn't ended, can use another Chrome"
+	}
+	if b.Chrome == to {
+		return "this connection already uses that Chrome"
+	}
+	return ""
+}
+
+// chromeTargets is the ids of the Chromes tenant's connections could move
+// to: its paired Chromes, while the owner's Chrome is offered to it (as the
+// PUT checks); none otherwise, or when they can't be read.
+func (s *Server) chromeTargets(ctx context.Context, tenant string) []string {
+	if !s.relayOn() || !s.chromeOnFor(tenant) {
+		return nil
+	}
+	items, err := s.KV.Query(ctx, tenantPK(tenant), "CHROME#")
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, it := range items {
+		var c Chrome
+		if json.Unmarshal(it.Doc, &c) == nil && c.ID != "" && skChrome(c.ID) == it.SK {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
+// canUseAnotherChrome says g could move to one of chromes: the PUT would
+// accept it for that one.
+func canUseAnotherChrome(g *Grant, chromes []string) bool {
+	for _, id := range chromes {
+		if chromeSwitchRefusal(g, id) == "" {
+			return true
+		}
+	}
+	return false
 }

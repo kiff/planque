@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Hyni përsëri",
 		Remove:           "Hiq qasjen",
 		RemoveUnfinished: "Hiq lidhjen e papërfunduar",
+		UseAnotherChrome: "Përdorni një tjetër Chrome",
 		StopsF:           "%s do të pushojë së përdoruri %s.",
 		NothingStops:     "Asnjë taf nuk e përdor, ndaj nuk ndalet asgjë.",
 		WorkingLastF:     "Funksionon · përdorur së fundi %s",

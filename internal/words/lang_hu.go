@@ -122,6 +122,7 @@ func init() {
 		SignInAgain:      "Bejelentkezés újra",
 		Remove:           "Hozzáférés eltávolítása",
 		RemoveUnfinished: "Befejezetlen kapcsolat eltávolítása",
+		UseAnotherChrome: "Másik Chrome használata",
 		StopsF:           "%s nem fogja többé használni: %s.",
 		NothingStops:     "Egyetlen taf sem használja, így semmi nem áll le.",
 		WorkingLastF:     "Működik · utoljára használva: %s",

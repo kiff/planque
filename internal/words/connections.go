@@ -14,6 +14,7 @@ type Connections struct {
 	SignInAgain      string
 	Remove           string
 	RemoveUnfinished string
+	UseAnotherChrome string // a connection in the owner's own Chrome, moved to another paired Chrome
 	StopsF           string // the taf, the app: what stops when access is removed
 	NothingStops     string
 
@@ -39,7 +40,7 @@ type Connections struct {
 
 var connections = map[string]Connections{
 	"en": {
-		SignInAgain: "Sign in again", Remove: "Remove access", RemoveUnfinished: "Remove unfinished connection",
+		SignInAgain: "Sign in again", Remove: "Remove access", RemoveUnfinished: "Remove unfinished connection", UseAnotherChrome: "Use another Chrome",
 		StopsF: "%s will stop using %s.", NothingStops: "No taf uses it, so nothing stops.",
 		WorkingLastF: "Working · last used %s", WorkingNotYet: "Working · not used yet", Working: "Working",
 		ExpiredOnF: "%s's sign-in expired on %s", ExpiredF: "%s's sign-in has expired",
@@ -52,7 +53,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s can't sign in again on this connection: remove access, then connect %s again.",
 	},
 	"de": {
-		SignInAgain: "Erneut anmelden", Remove: "Zugriff entfernen", RemoveUnfinished: "Unvollständige Verbindung entfernen",
+		SignInAgain: "Erneut anmelden", Remove: "Zugriff entfernen", RemoveUnfinished: "Unvollständige Verbindung entfernen", UseAnotherChrome: "Anderes Chrome verwenden",
 		StopsF: "%s nutzt %s dann nicht mehr.", NothingStops: "Kein taf nutzt sie, also hört nichts auf.",
 		WorkingLastF: "Funktioniert · zuletzt genutzt %s", WorkingNotYet: "Funktioniert · noch nicht genutzt", Working: "Funktioniert",
 		ExpiredOnF: "Die Anmeldung bei %s ist am %s abgelaufen", ExpiredF: "Die Anmeldung bei %s ist abgelaufen",
@@ -65,7 +66,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s kann sich bei dieser Verbindung nicht erneut anmelden: Entferne den Zugriff und verbinde %s dann neu.",
 	},
 	"fr": {
-		SignInAgain: "Se reconnecter", Remove: "Retirer l'accès", RemoveUnfinished: "Retirer la connexion inachevée",
+		SignInAgain: "Se reconnecter", Remove: "Retirer l'accès", RemoveUnfinished: "Retirer la connexion inachevée", UseAnotherChrome: "Utiliser un autre Chrome",
 		StopsF: "%s n'utilisera plus %s.", NothingStops: "Aucun taf ne l'utilise, donc rien ne s'arrête.",
 		WorkingLastF: "Fonctionne · dernière utilisation : %s", WorkingNotYet: "Fonctionne · pas encore utilisée", Working: "Fonctionne",
 		ExpiredOnF: "La connexion à %s a expiré le %s", ExpiredF: "La connexion à %s a expiré",
@@ -78,7 +79,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s ne peut pas se reconnecter sur cette connexion : retirez l'accès, puis connectez %s à nouveau.",
 	},
 	"es": {
-		SignInAgain: "Volver a iniciar sesión", Remove: "Quitar el acceso", RemoveUnfinished: "Quitar la conexión sin terminar",
+		SignInAgain: "Volver a iniciar sesión", Remove: "Quitar el acceso", RemoveUnfinished: "Quitar la conexión sin terminar", UseAnotherChrome: "Usar otro Chrome",
 		StopsF: "%s dejará de usar %s.", NothingStops: "Ningún taf la usa, así que nada se detiene.",
 		WorkingLastF: "Funciona · último uso: %s", WorkingNotYet: "Funciona · aún sin usar", Working: "Funciona",
 		ExpiredOnF: "La sesión de %s caducó el %s", ExpiredF: "La sesión de %s ha caducado",
@@ -91,7 +92,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s no puede volver a iniciar sesión en esta conexión: quita el acceso y vuelve a conectar %s.",
 	},
 	"it": {
-		SignInAgain: "Accedi di nuovo", Remove: "Rimuovi l'accesso", RemoveUnfinished: "Rimuovi la connessione incompleta",
+		SignInAgain: "Accedi di nuovo", Remove: "Rimuovi l'accesso", RemoveUnfinished: "Rimuovi la connessione incompleta", UseAnotherChrome: "Usa un altro Chrome",
 		StopsF: "%s smetterà di usare %s.", NothingStops: "Nessun taf la usa, quindi non si ferma nulla.",
 		WorkingLastF: "Funziona · ultimo uso: %s", WorkingNotYet: "Funziona · non ancora usata", Working: "Funziona",
 		ExpiredOnF: "L'accesso a %s è scaduto il %s", ExpiredF: "L'accesso a %s è scaduto",
@@ -104,7 +105,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s non può accedere di nuovo su questa connessione: rimuovi l'accesso, poi collega di nuovo %s.",
 	},
 	"pt": {
-		SignInAgain: "Iniciar sessão novamente", Remove: "Remover o acesso", RemoveUnfinished: "Remover a ligação por concluir",
+		SignInAgain: "Iniciar sessão novamente", Remove: "Remover o acesso", RemoveUnfinished: "Remover a ligação por concluir", UseAnotherChrome: "Usar outro Chrome",
 		StopsF: "%s deixará de usar %s.", NothingStops: "Nenhum taf a usa, por isso nada para.",
 		WorkingLastF: "A funcionar · última utilização: %s", WorkingNotYet: "A funcionar · ainda não utilizada", Working: "A funcionar",
 		ExpiredOnF: "A sessão em %s expirou a %s", ExpiredF: "A sessão em %s expirou",
@@ -117,7 +118,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s não pode iniciar sessão novamente nesta ligação: remova o acesso e volte a ligar %s.",
 	},
 	"nl": {
-		SignInAgain: "Opnieuw inloggen", Remove: "Toegang intrekken", RemoveUnfinished: "Onvoltooide koppeling verwijderen",
+		SignInAgain: "Opnieuw inloggen", Remove: "Toegang intrekken", RemoveUnfinished: "Onvoltooide koppeling verwijderen", UseAnotherChrome: "Een andere Chrome gebruiken",
 		StopsF: "%s gebruikt %s dan niet meer.", NothingStops: "Geen taf gebruikt deze koppeling, dus er stopt niets.",
 		WorkingLastF: "Werkt · laatst gebruikt %s", WorkingNotYet: "Werkt · nog niet gebruikt", Working: "Werkt",
 		ExpiredOnF: "De inlog bij %s is verlopen op %s", ExpiredF: "De inlog bij %s is verlopen",
@@ -130,7 +131,7 @@ var connections = map[string]Connections{
 		CantSignInAgainF: "%s kan op deze koppeling niet opnieuw inloggen: trek de toegang in en koppel %s daarna opnieuw.",
 	},
 	"pl": {
-		SignInAgain: "Zaloguj się ponownie", Remove: "Usuń dostęp", RemoveUnfinished: "Usuń niedokończone połączenie",
+		SignInAgain: "Zaloguj się ponownie", Remove: "Usuń dostęp", RemoveUnfinished: "Usuń niedokończone połączenie", UseAnotherChrome: "Użyj innej przeglądarki Chrome",
 		StopsF: "%s przestanie korzystać z: %s.", NothingStops: "Żaden taf go nie używa, więc nic się nie zatrzyma.",
 		WorkingLastF: "Działa · ostatnio użyte: %s", WorkingNotYet: "Działa · jeszcze nieużyte", Working: "Działa",
 		ExpiredOnF: "Logowanie w %s wygasło %s", ExpiredF: "Logowanie w %s wygasło",
