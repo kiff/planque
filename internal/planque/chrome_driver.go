@@ -259,7 +259,11 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 	}
 	c.n++
 	st = c.base(st)
-	if err := c.s.sendChromeStep(ctx, c.tenant, st); err != nil {
+	// A wake's wait for the connection stays inside the call's own budget.
+	sendCtx, cancel := context.WithDeadline(ctx, c.deadline)
+	err := c.s.sendChromeStep(sendCtx, c.tenant, st)
+	cancel()
+	if err != nil {
 		return chromePage{}, err
 	}
 	c.sent = true
