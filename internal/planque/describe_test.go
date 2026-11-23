@@ -370,7 +370,7 @@ func TestSetupReadsAloneAreRefused(t *testing.T) {
 // A narrowed Stripe tool that leaves its account open gets the connection's
 // own, pinned by planque before the owner reads the addition: left to Coach,
 // it was forgotten once in three runs, and the taf would look the account up
-// on every message (Eval 45046714906, setup run 2). The owner reads the
+// on every message (an Eval run). The owner reads the
 // pinned account; nothing else is pinned.
 func TestANarrowedToolLeftOpenActsInTheConnectionsOwnAccount(t *testing.T) {
 	read := map[string]any{"tool": "stripe_api_read", "name": "read_charge", "title": "Read one charge", "read_only": true,
@@ -460,7 +460,7 @@ func TestAReusedSignInsRequestPinsItsAccount(t *testing.T) {
 // A Stripe read asked in a fresh sign-in's first request, before planque
 // knew the account, is held to the connection's account at call time: the
 // vendor receives stripe_context, the connection's own, though the grant
-// never pinned it (PM, kiff/work#20, 22 Nov 23:14).
+// never pinned it.
 func TestAFreshSignInsStripeCallActsInTheConnectionsAccount(t *testing.T) {
 	e := newEnv(t)
 	e.enrol()
@@ -529,7 +529,7 @@ func TestCallAccountHoldsAStripeCallToTheConnectionsAccount(t *testing.T) {
 // A field put at the wrong path is refused with where it goes, so the asker
 // places it instead of dropping it: Coach gave a charge read's id at
 // path.id, was told only "takes no field path.id", and left the read with
-// no way to name its charge (Eval 45056771055, setup run 3).
+// no way to name its charge (an Eval run).
 func TestARefusedFieldIsToldWhereItGoes(t *testing.T) {
 	refund := func(path string) map[string]any {
 		return map[string]any{"tool": "stripe_api_write", "name": "refund_cd34", "title": "Refund a payment", "amount_argument": "amount",

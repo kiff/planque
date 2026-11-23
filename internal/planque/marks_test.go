@@ -330,7 +330,7 @@ func TestMarksSignedByAnOperatorNoLongerEnrolledStopCounting(t *testing.T) {
 	}
 }
 
-// kiff-qa's reproduction: rotating an operator out also drops the withdrawals
+// A reproduction: rotating an operator out also drops the withdrawals
 // they signed, and a seeded vendor must not become managed again. A row that
 // exists but no longer counts reads off, never the seed.
 func TestRotatingOutAWithdrawingOperatorDoesNotBringTheSeedBack(t *testing.T) {

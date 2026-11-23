@@ -56,7 +56,7 @@ func (p *liveProvider) Execute(_ context.Context, _ connector.Identity, _ string
 // reused, and was refused at its first call), with the app's own "who am I" only. A refused sign-in (401) isn't reused,
 // and every connection on it reads signed out; a live one, or another refusal, goes on as before. A sign-in that doesn't
 // cover "who am I" (Calendar on events alone) is never read at all: never the owner's content, even through a read its
-// connection has (dev-android on #330).
+// connection has (a review on #330).
 func TestAReusedSignInIsReadAtItsVendorFirst(t *testing.T) {
 	const events, calendar = "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar"
 	list := connector.Tool{Slug: "GOOGLECALENDAR_EVENTS_LIST", Toolkit: "googlecalendar", Version: "20300101_00", Name: "List events", ReadOnly: true,
@@ -99,7 +99,7 @@ func TestAReusedSignInIsReadAtItsVendorFirst(t *testing.T) {
 	}
 }
 
-// qa-kiff on #330: the check is wired into the reuse request, an error or a timeout signs no one out, and a 401 signs
+// A review on #330: the check is wired into the reuse request, an error or a timeout signs no one out, and a 401 signs
 // out every connection on that sign-in, the one that reused it too.
 func TestAReuseRequestOfARefusedSignInIsRefusedAndSignsItOut(t *testing.T) {
 	const calendar = "https://www.googleapis.com/auth/calendar"

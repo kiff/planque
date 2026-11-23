@@ -134,7 +134,7 @@ func TestTheAppsThatShareAVendorAccountAreOneFamily(t *testing.T) {
 // it: connections of one tenant, of the same provider and family of apps, on
 // one account or one that names none; never another tenant's, another
 // family's, a different named account's, or a disconnected or failed one
-// (qa-kiff's review).
+// (a review).
 func TestWhoStillUsesAVendorAccountIsReadForTheTenantAndTheFamily(t *testing.T) {
 	e := newInProcessEnv(t)
 	ctx := context.Background()
@@ -188,7 +188,7 @@ func TestWhoStillUsesAVendorAccountIsReadForTheTenantAndTheFamily(t *testing.T) 
 
 // A removed connection whose sign-in is kept for another connection serves
 // no call at all: the call is refused before anything reaches the provider,
-// even with a valid permit, and its relay credential is gone (legal-i18n's
+// even with a valid permit, and its relay credential is gone (a
 // question on the retention text: the kept sign-in is "unused").
 // Category: authority
 // Attack: a removed taf's connection, its sign-in kept for another's, still sends with the owner's account

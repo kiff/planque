@@ -498,7 +498,7 @@ func (c *Client) Scope(ctx context.Context, app connector.App, tools []string, b
 	// Narrowed only where the provider's rules require it: Google's scopes,
 	// whose consent screen and review weigh each one. Any other app keeps its
 	// usual sign-in, with its full access, and the taf's Card decides what it
-	// may do with it (the owner, 16 Nov: "flexible but responsible").
+	// may do with it (the owner's rule: "flexible but responsible").
 	if !slices.ContainsFunc(ceiling, googleScope) {
 		return connector.Scoped{}, connector.ErrUnscoped
 	}

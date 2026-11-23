@@ -8,8 +8,8 @@ import (
 )
 
 // A signed-out connection says why, from the cause planque kept, never as
-// "expired" unless the sign-in really ran out (kiff/work#17, 21 Nov 2026: a
-// Drive sign-in revoked by another connection's removal read "expired").
+// "expired" unless the sign-in really ran out (a Drive sign-in revoked by
+// another connection's removal read "expired").
 //
 // Category: honesty
 // Attack: a revoke worded as an expiry, and a removed shared sign-in worded as the vendor's doing

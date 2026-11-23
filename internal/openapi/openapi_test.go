@@ -377,7 +377,7 @@ func TestAFixedHeaderIsSentForTheOperationsThatNeedIt(t *testing.T) {
 }
 
 // An account's address stays on the vendor's own server: each variable one
-// label, https only (the PM on planque#160).
+// label, https only (planque#160).
 func TestAnAccountsAddressStaysOnTheVendorsServer(t *testing.T) {
 	accounts := []string{"https://{subdomain}.zendesk.com/api/v2"}
 	for _, ok := range []string{"https://acme.zendesk.com/api/v2", "https://acme-eu.zendesk.com/api/v2/", "https://a1.zendesk.com/api/v2"} {

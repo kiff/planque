@@ -110,7 +110,7 @@ func TestOneFingerprintConfirmsAChromeBesideKIFFsPairing(t *testing.T) {
 		t.Fatalf("collect: %d %v", st, out)
 	}
 	// The same signed confirm again: refused as a replay, before the
-	// pairing's own state is read (qa-kiff: "already confirmed" alone would
+	// pairing's own state is read ("already confirmed" alone would
 	// hide a missing replay check).
 	if st := send(approval, body, body); st != http.StatusConflict || !strings.Contains(answered, "signature_replayed") {
 		t.Fatalf("the combined signature used twice: %d %s", st, answered)

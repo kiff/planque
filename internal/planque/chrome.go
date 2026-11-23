@@ -618,7 +618,7 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 			g, err := s.loadGrant(r.Context(), sr.tenant, m.Grant)
 			// Only a connection the owner approved for the old Chrome moves: its
 			// sites signed for it (or carried to it by an earlier replace), and
-			// live, never one only asked for, failed or ended (qa-kiff).
+			// live, never one only asked for, failed or ended.
 			if errors.Is(err, errNotFound) || err == nil && (seen[m.Grant] || g.Status == StatusDisconnected || g.Status == StatusPending ||
 				g.Status == StatusFailed || g.Request.Browser == nil || g.Request.Browser.Driver != DriverExtension ||
 				g.Request.Browser.Chrome != old.ID || g.ChromeSitesSig == "" && g.ChromeSitesCarried != old.ID ||

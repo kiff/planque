@@ -39,7 +39,7 @@ func TestAWildcardOnAPublicSuffixIsRefused(t *testing.T) {
 			refused(t, "*.s3."+suffix)
 		})
 	}
-	// The case kiff-qa named.
+	// The case a review named.
 	refused(t, "*.s3.amazonaws.com")
 }
 

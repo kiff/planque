@@ -1734,7 +1734,7 @@ func errAttrs(err error) []any {
 // account can read active while the vendor has ended its token (21 Nov: Google Calendar's 18 Nov sign-in read
 // "Connected", was reused at 10:24 and refused at its first call). One read, planque's own, never shown and never
 // counted against a Card: the app's "who am I" (whoAmI), and only when the sign-in covers it. It names the account and
-// reads no content (dev-android on #330: a content read, outside any Card, on another taf's approval, is a wider
+// reads no content (a review on #330: a content read, outside any Card, on another taf's approval, is a wider
 // precedent). The vendor refusing the sign-in (401), or the provider calling the account inactive, signs every
 // connection on it out (signInRefused) and is errSignInRefused. Anything else lets the reuse go on, as it did: no such
 // read (Calendar on events alone; its first call's 401 marks it then), a slow or unreachable vendor, another refusal.

@@ -16,7 +16,7 @@ import (
 // approval KIFF checks names the key's request by its hash beside the
 // Card's, so planque sends that request's own message with it. Without it,
 // KIFF can't read what was approved, issues no Card, and Setup's first read
-// is refused while planque counts it connected (Eval 43519074848).
+// is refused while planque counts it connected (an Eval run).
 func TestSetupReadsOfAKeyGivenTogetherWithItsCard(t *testing.T) {
 	e := newEnv(t)
 	v := newRESTVendor(t)

@@ -166,7 +166,7 @@ func TestTheOneTimeCleanUpDropsOldAnswersAndKeepsOutcomes(t *testing.T) {
 }
 
 // racingKV bumps a record's version between the clean-up's Scan and its
-// save, as a write landing in between would (kiff-qa's review of #219).
+// save, as a write landing in between would (a review of #219).
 type racingKV struct {
 	store.KV
 	bump func()

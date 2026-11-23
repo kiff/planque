@@ -205,7 +205,7 @@ func TestTheSignInIsNamedAtConfirmAndNotBefore(t *testing.T) {
 
 // A who-am-I that never answers is cut at its own short deadline and reads as
 // any failure: no name, and the sign-in's confirm is not held for it
-// (mac-local's review of the account-name change).
+// (a review of the account-name change).
 func TestAWhoAmIThatNeverAnswersIsCutShort(t *testing.T) {
 	old := whoAmITimeout
 	whoAmITimeout = 50 * time.Millisecond
@@ -263,7 +263,7 @@ func TestASignInAgainToTheSameAccountInAnotherCaseReconnects(t *testing.T) {
 // carries nothing that changes how it reads: direction marks (U+202E would
 // make "moc.ffik@aniloarc" look like "carolina@kiff.dev"), zero-width and
 // other format characters, control characters and line breaks are dropped,
-// and it is at most 120 characters (qa-kiff's review of the account name).
+// and it is at most 120 characters (a review of the account name).
 func TestAnAccountLineCarriesNothingThatChangesHowItReads(t *testing.T) {
 	const rlo, lri, pdi, lrm, alm, zwsp, bom = "\u202e", "\u2066", "\u2069", "\u200e", "\u061c", "\u200b", "\ufeff"
 	for _, c := range []struct{ name, in, want string }{
