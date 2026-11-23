@@ -47,6 +47,10 @@ func (w *ChromeWaker) Wake(ctx context.Context, sub ChromePush) error {
 	if code := sub.pushRefusal(); code != "" {
 		return fmt.Errorf("chrome wake: %s", code)
 	}
+	// RFC 8292: the push service may refuse a token with no contact.
+	if w.Subject == "" {
+		return errors.New("chrome wake: no VAPID subject")
+	}
 	u, _ := url.Parse(sub.Endpoint)
 	jwt, err := w.token(ctx, u.Scheme+"://"+u.Host)
 	if err != nil {
@@ -59,10 +63,15 @@ func (w *ChromeWaker) Wake(ctx context.Context, sub ChromePush) error {
 	req.Header.Set("TTL", "30")
 	req.Header.Set("Urgency", "high")
 	req.Header.Set("Authorization", "vapid t="+jwt+", k="+base64.RawURLEncoding.EncodeToString(w.Public))
-	client := w.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second}
+	// Never followed: a redirect would re-send the push to an address nobody
+	// checked, and its answer would read as the push service's. A 3xx is an
+	// error like any other refusal.
+	client := &http.Client{Timeout: 5 * time.Second}
+	if w.HTTP != nil {
+		c := *w.HTTP
+		client = &c
 	}
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

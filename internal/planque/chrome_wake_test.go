@@ -196,3 +196,46 @@ func TestASubscriptionThePushServiceSaysIsGoneIsDropped(t *testing.T) {
 		t.Fatal("a 429 dropped the subscription")
 	}
 }
+
+// A redirect from the push service is refused, never followed: nothing is
+// posted to where it points, and the Chrome isn't taken as woken.
+func TestAPushServiceRedirectIsRefusedAndNeverFollowed(t *testing.T) {
+	var mu sync.Mutex
+	var hosts []string
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		mu.Lock()
+		hosts = append(hosts, r.URL.Host)
+		mu.Unlock()
+		if r.URL.Host == "fcm.googleapis.com" {
+			h := http.Header{}
+			h.Set("Location", "https://evil.example/x")
+			return &http.Response{StatusCode: http.StatusTemporaryRedirect, Body: io.NopCloser(strings.NewReader("")), Header: h, Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}, Request: r}, nil
+	})
+	w, _ := newWaker(t, &pushService{})
+	w.HTTP = &http.Client{Transport: rt}
+	var sub ChromePush
+	sub.Endpoint = fcm
+	raw := browserSubscription(t, fcm)["keys"].(map[string]any)
+	sub.Keys.P256DH, sub.Keys.Auth = raw["p256dh"].(string), raw["auth"].(string)
+	if err := w.Wake(context.Background(), sub); err == nil || !strings.Contains(err.Error(), "307") {
+		t.Fatalf("a 307 was taken as woken: %v", err)
+	}
+	if len(hosts) != 1 || hosts[0] != "fcm.googleapis.com" {
+		t.Fatalf("followed the redirect: %v", hosts)
+	}
+	// The waker's own client is never changed by it.
+	if w.HTTP.CheckRedirect != nil {
+		t.Fatal("the waker's client was changed")
+	}
+	// No contact, no push.
+	w.Subject = ""
+	if err := w.Wake(context.Background(), sub); err == nil || len(hosts) != 1 {
+		t.Fatalf("pushed with no subject: %v %v", err, hosts)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
