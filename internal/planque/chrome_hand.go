@@ -148,3 +148,71 @@ func (s *Server) readHand(ctx context.Context, chrome, hand, grant string) (chro
 		return h, nil
 	}
 }
+
+// browseHand hands the person one thing to do in the page the call opened:
+// the words checked, the ref (if any) one of that read's fields or controls,
+// then a signed "hand" step. The extension answers it at once as handed; the
+// run stays open for the person, and the taf gets the hand-over's id.
+func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, a browserArgs, page browser.Page) (string, any) {
+	if why := handWordsRefusal(a.Words); why != "" {
+		return OpNotSent, browserRefusal(CodeBadArguments, why, false)
+	}
+	if a.Read == "" || browser.Read(page) != a.Read {
+		return OpNotSent, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"): read it again with browse_open first", false)
+	}
+	if a.Ref != "" && !pageHasRef(page, a.Ref) {
+		return OpNotSent, browserRefusal(CodeBadArguments, "ref "+a.Ref+" isn't a field or control of that read", false)
+	}
+	st := chromeStep{Op: "hand", ReadID: sess.readID, Hand: &chromeHandStep{Words: a.Words, Ref: a.Ref}}
+	// The id the step goes out with is the hand-over's: kept before it is sent,
+	// so an answer can never come for a hand-over planque doesn't know.
+	id := chromeStepID(sess.run, sess.n+1)
+	if err := s.keepHand(ctx, sess.chrome, id, chromeHand{Tenant: g.Tenant, Grant: g.ID, Run: sess.run, Words: a.Words, Ref: a.Ref, Opened: s.now()}); err != nil {
+		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not keep the hand-over", false)
+	}
+	if _, err := sess.stepPage(ctx, st); err != nil {
+		_, _, _ = s.KV.Delete(ctx, pkChromeHand(sess.chrome, id), "-")
+		return OpNotSent, chromeFailed(err, 0)
+	}
+	sess.kept = true
+	return OpDone, map[string]any{"state": "handed", "hand": id,
+		"next": "The person does it in their Chrome; read their answer with " + browseHandResult + " and this hand."}
+}
+
+// browseHandResult is the person's answer to one of this grant's hand-overs.
+func (s *Server) browseHandResult(ctx context.Context, g *Grant, a browserArgs) (string, any) {
+	if !chromeGrant(g) {
+		return OpNotSent, browserRefusal(CodeBadArguments, browseHandResult+" is the owner's Chrome's only", false)
+	}
+	if a.Hand == "" || a.URL != "" || a.Read != "" || a.Words != "" || len(a.Steps) > 0 || a.Ref != "" || a.Offset != 0 {
+		return OpNotSent, browserRefusal(CodeBadArguments, browseHandResult+" takes hand, the id browse_hand answered, and nothing else", false)
+	}
+	h, err := s.readHand(ctx, g.Request.Browser.Chrome, a.Hand, g.ID)
+	if errors.Is(err, errHandUnknown) {
+		return OpNotSent, browserRefusal(CodeBadArguments, "no hand-over "+a.Hand+" of this connection (or its answer was read already)", false)
+	} else if err != nil {
+		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read the hand-over", false)
+	}
+	out := map[string]any{"hand": a.Hand, "state": h.Outcome}
+	if h.Page != nil {
+		tag := fenceTag()
+		out["site"], out["read"], out["page"] = browser.Site(h.Page.URL), browser.Read(*h.Page), browser.Mask(*h.Page, maxPageText)
+		return OpDone, fencedAnswer(out, tag)
+	}
+	return OpDone, out
+}
+
+// pageHasRef says ref is one of the page's fields or controls.
+func pageHasRef(p browser.Page, ref string) bool {
+	for _, f := range p.Fields {
+		if f.Ref == ref {
+			return true
+		}
+	}
+	for _, c := range p.Controls {
+		if c.Ref == ref {
+			return true
+		}
+	}
+	return false
+}

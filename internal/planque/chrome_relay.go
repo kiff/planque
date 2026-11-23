@@ -411,6 +411,14 @@ type chromeStep struct {
 	Offset int             `json:"offset,omitempty"`
 	ReadID string          `json:"read_id,omitempty"`
 	Act    json.RawMessage `json:"act,omitempty"`
+	// Hand is a hand-over's (op "hand"): the taf's words, and the field or
+	// control to outline, by its ref in the read named.
+	Hand *chromeHandStep `json:"hand,omitempty"`
+}
+
+type chromeHandStep struct {
+	Words string `json:"words"`
+	Ref   string `json:"ref,omitempty"`
 }
 
 // errChromeOffline: no proven connection from that Chrome now.
