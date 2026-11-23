@@ -1528,6 +1528,10 @@ func serverToolsCheck(g *Grant, listed []mcpTool, tools []ToolRequest) *toolRefu
 // setTools is the asking agent choosing, from the catalog, the tools a
 // listed grant gives the taf. The request, its text and its digest change,
 // and the owner approves them on the phone; the sign-in is already held.
+// askedAtOnce is the refusal of more tools on a grant asked for with its
+// tools at once (no catalog to add from): how to go on in one approval.
+const askedAtOnce = "this grant was asked for with its tools at once, so it takes no more: ask one new request naming every tool the job needs, its writes too, with the taf's Card drafted in the same approval, never a request for one tool alone"
+
 func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
 	me, err := s.agentKey(r, tenant)
@@ -1576,6 +1580,13 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	// keeps one connection per vendor, and the owner approves the addition
 	// once, with no second sign-in (kiff/tafs#138, the owner's retest).
 	adding := g.Status == StatusConnected || (g.Status == StatusPending && g.Connected != nil)
+	// A browser's tools are asked for at once, with no sign-in or catalog of
+	// their own, so it never takes more, whatever its state: say that, not
+	// that a connected grant isn't one (the hand-over test's red line).
+	if g.Request.Browser != nil {
+		writeErr(w, http.StatusConflict, askedAtOnce)
+		return
+	}
 	if !g.SignedIn || (g.Status != StatusListed && g.Status != StatusPending && g.Status != StatusConnected) {
 		writeErr(w, http.StatusConflict, "only a listed or connected grant takes tools; this one is "+g.Status)
 		return
@@ -1616,7 +1627,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		// every tool the job needs and the taf's Card drafted, so the owner
 		// approves once: never a request for the write alone (the Eval's
 		// four approvals for one sheet).
-		writeErr(w, http.StatusConflict, "this grant was asked for with its tools at once, so it takes no more: ask one new request naming every tool the job needs, its writes too, with the taf's Card drafted in the same approval, never a request for one tool alone")
+		writeErr(w, http.StatusConflict, askedAtOnce)
 		return
 	}
 	// What it has: on a connected grant, its tools; while an addition waits,

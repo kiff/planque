@@ -893,3 +893,19 @@ func TestALinkThatRedirectedOpensAgainByItsOwnAddress(t *testing.T) {
 		t.Fatalf("the refusal names an address: %s", out)
 	}
 }
+
+// A connected grant in the owner's Chrome takes no more tools, and says so as
+// a grant asked for with its tools at once: one new request with every tool,
+// never "only a connected grant takes tools; this one is connected".
+func TestAChromeGrantTakesNoMoreToolsAndSaysAskOnce(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	st, out := c.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/tools", map[string]any{"tools": []any{map[string]any{"tool": browseHand}}}, nil, "k_setup")
+	msg, _ := out["error"].(string)
+	if st != 409 || msg != askedAtOnce {
+		t.Fatalf("%d %v", st, out)
+	}
+	if after, _ := c.s.loadGrant(context.Background(), tenant, g.ID); after.Status != StatusConnected || len(after.Request.Tools) != len(g.Request.Tools) {
+		t.Fatalf("the grant changed: %v", after)
+	}
+}
