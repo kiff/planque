@@ -175,11 +175,20 @@ func TestTheUseAnotherChromeActionShowsExactlyWhereTheMoveIsAccepted(t *testing.
 		status string
 		move   bool
 	}{
-		{StatusConnected, true}, {StatusApproved, true}, {StatusSignedIn, true}, {StatusListed, true}, {StatusNeedsReconnect, true},
-		{StatusPending, false}, {StatusFailed, false}, {StatusDisconnected, false},
+		// signed_in isn't here: one with no sign-in time is expired as it's
+		// read, so both say no (they agree; its expiry is tested on its own).
+		{StatusConnected, true}, {StatusApproved, true}, {StatusListed, true}, {StatusNeedsReconnect, true},
+		{StatusPending, false}, {StatusFailed, false},
 	} {
 		set(func(g *Grant) { g.Status = tc.status })
 		check(tc.status, tc.move)
+	}
+	// An ended connection isn't in the owner's list at all, so it offers
+	// nothing; the PUT refuses it.
+	set(func(g *Grant) { g.Status = StatusDisconnected })
+	n++
+	if st, out := c.do("PUT", path, map[string]any{"chrome_id": home.ID, "chrome_sites_sig": testSitesSig[:len(testSitesSig)-1] + string(rune('a'+n))}, c.phone, ""); st != 409 {
+		t.Errorf("ended: PUT %d %v, want 409", st, out)
 	}
 	set(func(g *Grant) { g.Request.Browser.Driver = "" })
 	check("not the owner's own Chrome", false)
