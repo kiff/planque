@@ -172,6 +172,9 @@ type Chrome struct {
 	// ProfileID is the extension's id for its Chrome profile, as it paired
 	// (a hint for the phone's re-pairing pick, "Your Chrome" 1).
 	ProfileID string `json:"profile_id,omitempty"`
+	// PairedWith is the re-pairing that carried connections here, as the
+	// phone signed it: what vouches for those connections' sites.
+	PairedWith *ChromePairedWith `json:"paired_with,omitempty"`
 }
 
 func skChromePairing(id string) string { return "CHROMEPAIRING#" + id }
@@ -623,6 +626,13 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 				s.fail(w, r, err)
 				return
 			}
+			// One an earlier re-pairing carried here has no signature of its own:
+			// it moves again only if that pairing, as this phone signed it, carried
+			// it with these sites. Otherwise it ends with the old Chrome, as before.
+			if g.ChromeSitesSig == "" && !old.PairedWith.vouches(&old, req.PhoneKey, g) {
+				writeErr(w, http.StatusConflict, "carried names "+m.Grant+", which an earlier re-pairing carried, and that pairing doesn't vouch for its sites as this phone signed them: leave it out, and it ends with the old Chrome")
+				return
+			}
 			seen[m.Grant] = true
 			carried = append(carried, g)
 		}
@@ -660,6 +670,17 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 	}
 	c := Chrome{ID: "chr_" + oauth.Random(12), Tenant: sr.tenant, Name: name, Key: p.Key, KeySHA256: sum,
 		Version: p.Version, ManifestHash: p.ManifestHash, Browser: p.Browser, OS: p.OS, PairedAt: s.now().UTC(), ProfileID: p.ProfileID}
+	// What vouches for the connections it carries, kept as the phone signed it
+	// for the extension, so a later re-pairing can carry them again. One whose
+	// signature doesn't hold is never kept: the extension refuses that pairing.
+	if len(req.Carried) > 0 {
+		pw := &ChromePairedWith{Body: chromePairBody{Pairing: r.PathValue("pairing"), ChromeKeySHA256: sum, Name: name, PhoneKey: req.PhoneKey,
+			PhoneProof: req.PhoneProof, Carried: req.Carried}, PhoneSig: req.PhoneSig,
+			Tenant: req.Tenant, SignedAt: req.SignedAt, KiffRequestSHA256: req.KiffRequestSHA256}
+		if pw.holds() {
+			c.PairedWith = pw
+		}
+	}
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(c.Tenant), SK: skChrome(c.ID)}, c, store.Cond{NotExists: true}); err != nil {
 		s.fail(w, r, err)
 		return
@@ -795,6 +816,9 @@ func (s *Server) listChromes(w http.ResponseWriter, r *http.Request, sr signedRe
 		row := map[string]any{"chrome_id": c.ID, "name": c.Name, "browser": c.Browser, "os": c.OS, "version": c.Version, "paired_at": c.PairedAt}
 		if c.ProfileID != "" {
 			row["profile_id"] = c.ProfileID
+		}
+		if c.PairedWith != nil {
+			row["paired_with"] = c.PairedWith
 		}
 		row["connections"] = on[c.ID]
 		if on[c.ID] == nil {
