@@ -218,6 +218,8 @@ func (s *Server) relayMessage(ctx context.Context, connID string, body []byte) {
 		s.relayResult(ctx, conn, m)
 	case kind == "push" && conn.Ready:
 		s.relayPush(ctx, connID, conn, m)
+	case kind == "hand_result" && conn.Ready:
+		s.relayHandResult(ctx, connID, conn, body, m)
 	default:
 		// Anything else, or anything before the proofs, ends it.
 		s.relayClose(ctx, connID, closeUnknownChrome, "unexpected message")

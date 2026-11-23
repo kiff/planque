@@ -2,12 +2,15 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/kiff/planque/internal/browser"
+	"github.com/kiff/planque/internal/stepkey"
 	"github.com/kiff/planque/internal/store"
 )
 
@@ -215,4 +218,68 @@ func pageHasRef(p browser.Page, ref string) bool {
 		}
 	}
 	return false
+}
+
+// labelHand is what the extension signs a hand-over's answer under (kiff/tafs
+// chrome/src/crypto.js LABEL.hand): never a step's result.
+const labelHand = "tafs-chrome/hand/v1"
+
+// maxHandResult bounds a hand_result message, page and all: the relay's own cap.
+const maxHandResult = 120 << 10
+
+// relayHandResult keeps the person's answer to a hand-over, from the Chrome it
+// was handed to, signed by that Chrome's key; any ready connection of it, after
+// any reconnect. The first answer is kept; a resend is answered as kept.
+func (s *Server) relayHandResult(ctx context.Context, connID string, conn chromeConn, body []byte, m map[string]json.RawMessage) {
+	var hand string
+	_ = json.Unmarshal(m["hand"], &hand)
+	refuse := func(code string) {
+		s.relayPost(ctx, connID, map[string]any{"type": "hand_refused", "hand": hand, "code": code})
+	}
+	if len(body) > maxHandResult {
+		refuse("too_large")
+		return
+	}
+	var sig string
+	var signed struct {
+		Hand    string          `json:"hand"`
+		Outcome string          `json:"outcome"`
+		Page    json.RawMessage `json:"page,omitempty"`
+	}
+	signed.Hand = hand
+	_ = json.Unmarshal(m["outcome"], &signed.Outcome)
+	signed.Page = m["page"]
+	if json.Unmarshal(m["sig"], &sig) != nil || hand == "" {
+		refuse("unsigned")
+		return
+	}
+	var c Chrome
+	if _, err := getDoc(ctx, s.KV, tenantPK(conn.Tenant), skChrome(conn.Chrome), &c); err != nil {
+		s.relayClose(ctx, connID, closeUnpaired, "this Chrome was unpaired")
+		return
+	}
+	if !stepkey.Verify(c.Key, labelHand, signed, sig) {
+		refuse("unsigned")
+		return
+	}
+	var page *browser.Page
+	if len(signed.Page) > 0 && string(signed.Page) != "null" {
+		var p browser.Page
+		if json.Unmarshal(signed.Page, &p) != nil {
+			refuse("unsigned")
+			return
+		}
+		page = &p
+	}
+	switch err := s.answerHand(ctx, conn.Chrome, hand, signed.Outcome, page); {
+	case err == nil, errors.Is(err, errHandAnswered):
+		s.relayPost(ctx, connID, map[string]any{"type": "hand_kept", "hand": hand})
+	case errors.Is(err, errHandExpired):
+		refuse("expired")
+	case errors.Is(err, errHandUnknown):
+		refuse("unknown_hand")
+	default:
+		s.log().WarnContext(ctx, "chrome hand: not kept", slog.String("err", err.Error()))
+		refuse("not_kept")
+	}
 }
