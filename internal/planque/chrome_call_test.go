@@ -116,11 +116,17 @@ func (c *chromeRig) ops() []string {
 // phone with the phone's signature over its sites.
 func (c *chromeRig) grant(t *testing.T, tools ...string) *Grant {
 	t.Helper()
+	return c.grantAs(t, "agt_taf", tools...)
+}
+
+// grantAs is grant for the taf agent.
+func (c *chromeRig) grantAs(t *testing.T, agent string, tools ...string) *Grant {
+	t.Helper()
 	asked := []any{}
 	for _, name := range tools {
 		asked = append(asked, map[string]any{"tool": name})
 	}
-	st, out := c.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": KindBrowser, "agent": "agt_taf", "agent_name": "Shop runs",
+	st, out := c.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": KindBrowser, "agent": agent, "agent_name": "Shop runs",
 		"tools": asked, "browser": map[string]any{"driver": DriverExtension, "chrome": c.r.chrome, "sites": []string{"shop.example"}}}, nil, "k_setup")
 	if st != 201 {
 		t.Fatalf("ask: %d %v", st, out)
@@ -907,5 +913,75 @@ func TestAChromeGrantTakesNoMoreToolsAndSaysAskOnce(t *testing.T) {
 	}
 	if after, _ := c.s.loadGrant(context.Background(), tenant, g.ID); after.Status != StatusConnected || len(after.Request.Tools) != len(g.Request.Tools) {
 		t.Fatalf("the grant changed: %v", after)
+	}
+}
+
+// toolOf is the name g gives tool (a later grant's tools are named apart).
+func toolOf(g *Grant, tool string) string {
+	for _, gt := range g.Tools {
+		if gt.Tool == tool {
+			return gt.Name
+		}
+	}
+	return tool
+}
+
+// A taf whose hand-over tools came on a later connection to the same Chrome
+// hands over on the page its first connection read: the latest read is the
+// taf's in that Chrome, shared by its connections there. Another taf's read
+// on the same Chrome is never its.
+func TestATafsConnectionsOnOneChromeShareItsLatestRead(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeHand = true
+	reads := c.grant(t, browseOpen, browseRead)
+	hands := c.grant(t, browseHand, browseHandResult)
+	other := c.grantAs(t, "agt_other", browseHand, browseHandResult)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		u, _ := step["url"].(string)
+		if u == "" {
+			u = "https://shop.example/"
+		}
+		return true, shopPage("rd_"+step["id"].(string), map[string]any{"url": u}), ""
+	}
+	c.online(t)
+	if _, sc := c.call(reads, toolOf(reads, browseOpen), map[string]any{"url": "https://shop.example/"}); code(sc) != "" {
+		t.Fatalf("start page: %v", sc)
+	}
+	_, sc := c.call(reads, toolOf(reads, browseOpen), map[string]any{"url": "https://shop.example/items/lamp"})
+	read, _ := sc["read"].(string)
+	if read == "" {
+		t.Fatalf("the lamp: %v", sc)
+	}
+	// Another taf on the same Chrome never reads this taf's page.
+	if _, sc := c.call(other, toolOf(other, browseHand), map[string]any{"url": "https://shop.example/items/lamp", "read": read, "words": "Tap Done"}); code(sc) != CodeURLNotRead {
+		t.Fatalf("another taf's read: %v", sc)
+	}
+	// This taf's hand-over connection hands over on its read.
+	if _, sc := c.call(hands, toolOf(hands, browseHand), map[string]any{"url": "https://shop.example/items/lamp", "read": read, "words": "Tap Done"}); sc["state"] != "handed" {
+		t.Fatalf("the taf's own read, on its other connection: %v", sc)
+	}
+}
+
+// The shared read's key names who asked, the taf and the Chrome: a grant one
+// taf asked "for" another (the owner approves the name the asker gave) never
+// shares that taf's read, and a grant with no taf or no asker keeps its own.
+func TestALatestReadIsSharedOnlyByOneAskersGrantsForOneTafAndChrome(t *testing.T) {
+	grant := func(id, asked, agent, chrome string) *Grant {
+		return &Grant{ID: id, Request: Request{AskedBy: asked, Agent: agent, Browser: &BrowserRequest{Chrome: chrome}}}
+	}
+	a, b := skChromeRead(grant("g1", "setup", "taf", "chr_1")), skChromeRead(grant("g2", "setup", "taf", "chr_1"))
+	if a != b {
+		t.Fatalf("one asker's grants for one taf on one Chrome: %s, %s", a, b)
+	}
+	for name, g := range map[string]*Grant{
+		"another asker":  grant("g3", "agt_other", "taf", "chr_1"),
+		"another taf":    grant("g4", "setup", "taf2", "chr_1"),
+		"another Chrome": grant("g5", "setup", "taf", "chr_2"),
+		"no taf":         grant("g6", "setup", "", "chr_1"),
+		"no asker":       grant("g7", "", "taf", "chr_1"),
+	} {
+		if skChromeRead(g) == a {
+			t.Errorf("%s shares the taf's read", name)
+		}
 	}
 }
