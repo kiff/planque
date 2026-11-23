@@ -180,7 +180,11 @@ func TestABadHandOverIsNeverSent(t *testing.T) {
 // address, or a read that isn't the latest is still refused.
 func TestAHandOverLandsOnAPageWhoseReadChangedButNotOnAnotherElement(t *testing.T) {
 	c, g, read := handRig(t)
+	// The rig reads its answer under c.mu while the last call's close is still
+	// being answered: swap it under the same lock.
 	news := func(label string, fieldLabel string) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.answer = func(step map[string]any) (bool, map[string]any, string) {
 			p := shopPage("rd_"+step["id"].(string), map[string]any{
 				"links": []any{map[string]any{"ref": "l1", "label": "Lamp", "url": "https://shop.example/items/lamp"},
