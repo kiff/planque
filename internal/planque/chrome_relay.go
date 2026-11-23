@@ -353,6 +353,11 @@ func (s *Server) relayResult(ctx context.Context, conn chromeConn, m map[string]
 		}
 		body[k] = v
 	}
+	// A hand step's answer says it was handed (protocol.js result), signed
+	// with the rest: verified and filed only as the Chrome signed it.
+	if v, ok := m["handed"]; ok {
+		body["handed"] = v
+	}
 	var id, nonce, chromeID, sig string
 	if json.Unmarshal(m["id"], &id) != nil || id == "" || len(id) > 64 || json.Unmarshal(m["sig"], &sig) != nil ||
 		json.Unmarshal(m["nonce"], &nonce) != nil || json.Unmarshal(m["chrome_id"], &chromeID) != nil || chromeID != conn.Chrome {
