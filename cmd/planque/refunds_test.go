@@ -20,3 +20,18 @@ func TestRefundTenants(t *testing.T) {
 		}
 	}
 }
+
+// The hand-over is on unless the environment says exactly "off".
+func TestChromeHandIsOnUnlessTurnedOff(t *testing.T) {
+	for v, want := range map[string]bool{
+		"":      true,
+		"on":    true,
+		"true":  true,
+		"off":   false,
+		" off ": false,
+	} {
+		if got := chromeHandOn(v); got != want {
+			t.Errorf("chromeHandOn(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
