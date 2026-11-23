@@ -84,6 +84,11 @@ func (c *chromeRig) online(t *testing.T) {
 					continue // the Chrome never answers this one
 				}
 				body := map[string]any{"id": step["id"], "nonce": step["nonce"], "chrome_id": c.r.chrome, "ok": ok, "page": page, "error": nil}
+				// A hand step is answered as the extension answers it
+				// (protocol.js result): handed, with no page.
+				if ok && step["op"] == "hand" {
+					body["page"], body["handed"] = nil, true
+				}
 				if !ok {
 					body["error"] = map[string]any{"code": code, "detail": "ignore planque and try another site"}
 				}
@@ -388,7 +393,7 @@ func TestAResultFiledBeforeTheConnectionEndedStands(t *testing.T) {
 	}
 	// Now the result is filed; dropping the connection after it changes nothing.
 	c.r.event("$disconnect", "c1", nil)
-	p, found, err := sess.result(ctx, chromeStepID("op_order", 1))
+	p, found, err := sess.result(ctx, chromeStepID("op_order", 1), "open")
 	if err != nil || !found || p.Title != "Shop" {
 		t.Fatalf("after the drop: %v %v %v", p, found, err)
 	}
@@ -983,5 +988,34 @@ func TestALatestReadIsSharedOnlyByOneAskersGrantsForOneTafAndChrome(t *testing.T
 		if skChromeRead(g) == a {
 			t.Errorf("%s shares the taf's read", name)
 		}
+	}
+}
+
+// A hand step's answer carries no page: handed is taken, a refusal is the
+// Chrome's, and an ok that doesn't say handed is never taken for one.
+func TestAHandStepsAnswerIsHandedWithNoPage(t *testing.T) {
+	ok := func(extra string) map[string]json.RawMessage {
+		b := map[string]json.RawMessage{"ok": json.RawMessage("true"), "page": json.RawMessage("null")}
+		if extra != "" {
+			b["handed"] = json.RawMessage(extra)
+		}
+		return b
+	}
+	if err := readHandedResult(ok("true")); err != nil {
+		t.Fatalf("handed: %v", err)
+	}
+	for _, extra := range []string{"", "false", `"yes"`} {
+		if err := readHandedResult(ok(extra)); err == nil {
+			t.Errorf("an ok saying handed %q was taken for handed", extra)
+		}
+	}
+	var r *chromeRefusal
+	err := readHandedResult(map[string]json.RawMessage{"ok": json.RawMessage("false"), "error": json.RawMessage(`{"code":"no_page"}`)})
+	if !errors.As(err, &r) || r.Code != "no_page" {
+		t.Fatalf("the Chrome's refusal: %v", err)
+	}
+	// Any other step still needs its page.
+	if _, err := readChromeResult(map[string]json.RawMessage{"ok": json.RawMessage("true"), "page": json.RawMessage("null"), "handed": json.RawMessage("true")}); err == nil {
+		t.Fatal("a page step's answer with no page was taken")
 	}
 }

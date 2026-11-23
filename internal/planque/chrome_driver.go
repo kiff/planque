@@ -274,7 +274,7 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 	for {
 		// The result first: one the Chrome signed for this step and filed
 		// before its connection ended still stands.
-		if p, found, err := c.result(ctx, st.ID); found || err != nil {
+		if p, found, err := c.result(ctx, st.ID, st.Op); found || err != nil {
 			return p, err
 		}
 		if afterResultCheck != nil {
@@ -284,7 +284,7 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 		// stops now rather than at its timeout. A result filed just before
 		// it ended still wins.
 		if live, err := c.s.chromeLive(ctx, c.tenant, c.chrome); err == nil && !live {
-			if p, found, err := c.result(ctx, st.ID); found || err != nil {
+			if p, found, err := c.result(ctx, st.ID, st.Op); found || err != nil {
 				return p, err
 			}
 			return chromePage{}, errChromeDropped
@@ -300,17 +300,39 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 	}
 }
 
-// result is step id's signed result, once the Chrome filed one.
-func (c *chromeSession) result(ctx context.Context, id string) (chromePage, bool, error) {
+// result is step id's signed result, once the Chrome filed one. A hand
+// step's answer carries no page: it is "handed", and the run's read stays
+// the one it was handed on.
+func (c *chromeSession) result(ctx context.Context, id, op string) (chromePage, bool, error) {
 	body, found, err := c.s.chromeResult(ctx, c.chrome, id)
 	if err != nil || !found {
 		return chromePage{}, false, err
+	}
+	if op == "hand" {
+		return chromePage{}, true, readHandedResult(body)
 	}
 	p, err := readChromeResult(body)
 	if err == nil {
 		c.readID = p.ReadID
 	}
 	return p, true, err
+}
+
+// readHandedResult is a hand step's signed result: nil when the Chrome says
+// it handed the step to the person (ok, handed), its refusal when it didn't,
+// and a failure for an ok that doesn't say handed, since what the step did
+// isn't known.
+func readHandedResult(body map[string]json.RawMessage) error {
+	var ok, handed bool
+	_ = json.Unmarshal(body["ok"], &ok)
+	if !ok {
+		_, err := readChromeResult(body)
+		return err
+	}
+	if json.Unmarshal(body["handed"], &handed) != nil || !handed {
+		return &chromeRefusal{Code: browser.CodeBrowserDown, Detail: "the Chrome's answer to a hand-over didn't say it was handed"}
+	}
+	return nil
 }
 
 // readChromeResult is a signed result's page, or its refusal.
