@@ -34,7 +34,18 @@ const maxReadOffset = 2_000_000
 // errChromeDropped: the Chrome's connection ended while a step waited.
 var errChromeDropped = errors.New("the Chrome's connection ended while the step waited")
 
-func skChromeRead(grant string) string { return "CHROMEREAD#" + grant }
+// skChromeRead is where a taf's latest read in one Chrome is kept: by the taf
+// and the Chrome, so its connections on that Chrome share it (a taf whose
+// hand-over tools came on a later connection hands over on the page its first
+// one read). Each call is still checked against its own grant's sites first
+// (callBrowser), so a shared read never opens a site a grant doesn't list. A
+// grant with no taf named keeps its own.
+func skChromeRead(g *Grant) string {
+	if g.Request.Agent != "" && g.Request.Browser != nil && g.Request.Browser.Chrome != "" {
+		return "CHROMEREAD#" + g.Request.Agent + "#" + g.Request.Browser.Chrome
+	}
+	return "CHROMEREAD#" + g.ID
+}
 
 // chromeRead is a grant's latest read in the owner's Chrome: the page, its
 // read as planque fingerprints it, and the links it gave. The taf's next
@@ -182,7 +193,7 @@ func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 
 func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, error) {
 	var r chromeRead
-	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skChromeRead(g.ID), &r); errors.Is(err, errNotFound) {
+	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skChromeRead(g), &r); errors.Is(err, errNotFound) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -204,7 +215,7 @@ func (s *Server) keepChromeRead(ctx context.Context, g *Grant, page browser.Page
 		}
 	}
 	r.Parts = readParts(page)
-	it := store.Item{PK: tenantPK(g.Tenant), SK: skChromeRead(g.ID), TTL: s.now().Add(latestReadKept).Unix()}
+	it := store.Item{PK: tenantPK(g.Tenant), SK: skChromeRead(g), TTL: s.now().Add(latestReadKept).Unix()}
 	if err := putDoc(ctx, s.KV, it, r, store.Cond{}); err != nil {
 		s.log().WarnContext(ctx, "chrome read not kept", slog.String("grant", g.ID), slog.String("err", err.Error()))
 	}
