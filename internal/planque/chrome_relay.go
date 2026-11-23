@@ -343,20 +343,9 @@ func chromeOf(g *Grant) string {
 // relayResult keeps a step's result, once its signature is the Chrome's: a
 // result is never taken on planque's word or the network's.
 func (s *Server) relayResult(ctx context.Context, conn chromeConn, m map[string]json.RawMessage) {
-	// Signed over the step's own nonce and this Chrome's id too, so a result
-	// is filed only against the step planque sent to this Chrome.
-	body := map[string]json.RawMessage{}
-	for _, k := range []string{"id", "nonce", "chrome_id", "ok", "page", "error"} {
-		v, ok := m[k]
-		if !ok {
-			return
-		}
-		body[k] = v
-	}
-	// A hand step's answer says it was handed (protocol.js result), signed
-	// with the rest: verified and filed only as the Chrome signed it.
-	if v, ok := m["handed"]; ok {
-		body["handed"] = v
+	body, ok := resultBody(m)
+	if !ok {
+		return
 	}
 	var id, nonce, chromeID, sig string
 	if json.Unmarshal(m["id"], &id) != nil || id == "" || len(id) > 64 || json.Unmarshal(m["sig"], &sig) != nil ||
@@ -379,6 +368,26 @@ func (s *Server) relayResult(ctx context.Context, conn chromeConn, m map[string]
 	it := store.Item{PK: pkChromeResult(conn.Chrome, id), SK: "-", TTL: s.now().Add(chromeResultKept).Unix()}
 	// The first result for a step stands: a second can't replace it.
 	_ = putDoc(ctx, s.KV, it, body, store.Cond{NotExists: true})
+}
+
+// resultBody is what the Chrome signed in a result message m: the six fields
+// every result carries, over the step's own nonce and this Chrome's id too, so
+// a result is filed only against the step planque sent to this Chrome; and a
+// hand step's "handed" (protocol.js result), signed with the rest. False when
+// one of the six is missing.
+func resultBody(m map[string]json.RawMessage) (map[string]json.RawMessage, bool) {
+	body := map[string]json.RawMessage{}
+	for _, k := range []string{"id", "nonce", "chrome_id", "ok", "page", "error"} {
+		v, ok := m[k]
+		if !ok {
+			return nil, false
+		}
+		body[k] = v
+	}
+	if v, ok := m["handed"]; ok {
+		body["handed"] = v
+	}
+	return body, true
 }
 
 func (s *Server) relayPost(ctx context.Context, connID string, msg any) {

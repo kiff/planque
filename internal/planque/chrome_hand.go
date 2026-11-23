@@ -257,6 +257,28 @@ const labelHand = "tafs-chrome/hand/v1"
 // maxHandResult bounds a hand_result message, page and all: the relay's own cap.
 const maxHandResult = 120 << 10
 
+// handSignedBody is what the Chrome signs in a hand_result: the hand-over's
+// id, the person's outcome, and the page when one came back.
+type handSignedBody struct {
+	Hand    string          `json:"hand"`
+	Outcome string          `json:"outcome"`
+	Page    json.RawMessage `json:"page,omitempty"`
+}
+
+// handSigned reads a hand_result message m: what its Chrome signed, and the
+// signature. False when it names no hand-over or carries no signature.
+func handSigned(m map[string]json.RawMessage) (handSignedBody, string, bool) {
+	var signed handSignedBody
+	var sig string
+	_ = json.Unmarshal(m["hand"], &signed.Hand)
+	_ = json.Unmarshal(m["outcome"], &signed.Outcome)
+	signed.Page = m["page"]
+	if json.Unmarshal(m["sig"], &sig) != nil || signed.Hand == "" {
+		return signed, "", false
+	}
+	return signed, sig, true
+}
+
 // relayHandResult keeps the person's answer to a hand-over, from the Chrome it
 // was handed to, signed by that Chrome's key; any ready connection of it, after
 // any reconnect. The first answer is kept; a resend is answered as kept.
@@ -270,16 +292,8 @@ func (s *Server) relayHandResult(ctx context.Context, connID string, conn chrome
 		refuse("too_large")
 		return
 	}
-	var sig string
-	var signed struct {
-		Hand    string          `json:"hand"`
-		Outcome string          `json:"outcome"`
-		Page    json.RawMessage `json:"page,omitempty"`
-	}
-	signed.Hand = hand
-	_ = json.Unmarshal(m["outcome"], &signed.Outcome)
-	signed.Page = m["page"]
-	if json.Unmarshal(m["sig"], &sig) != nil || hand == "" {
+	signed, sig, ok := handSigned(m)
+	if !ok {
 		refuse("unsigned")
 		return
 	}
