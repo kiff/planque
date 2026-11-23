@@ -18,7 +18,7 @@ import (
 // base64url while deploy/chrome-builds.txt keeps hex, so no build could pair:
 // both sides' tests used a placeholder hash. This test takes each of the
 // extension's real manifests (testdata/chrome-manifest-<version>.json, kiff/tafs
-// chrome/manifest.json byte for byte: 0.1.0 at 78c86cb4, 0.2.0 at e08e5d4),
+// chrome/manifest.json byte for byte: 0.1.0 at 78c86cb4, 0.2.0 at c2e80d1),
 // hashes it as the extension's manifestHashOf does (chrome/src/crypto.js),
 // finds it in the shipped allowlist, and sends it through the real route. A
 // release that changes the manifest adds its file here and its line to the
