@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,22 +16,33 @@ import (
 // SHA-256 of the packed manifest.json, as 64 lower-case hex characters, in the
 // pairing's key post and the relay's hello. On 22 Nov 2026 the extension sent
 // base64url while deploy/chrome-builds.txt keeps hex, so no build could pair:
-// both sides' tests used a placeholder hash. This test takes the extension's
-// real manifest (testdata/chrome-manifest-0.1.0.json, kiff/tafs
-// chrome/manifest.json at 78c86cb4, byte for byte), hashes it as the
-// extension's manifestHashOf does (chrome/src/crypto.js), finds it in the
-// shipped allowlist, and sends it through the real route. A release that
-// changes the manifest updates both files here in the same PR.
+// both sides' tests used a placeholder hash. This test takes each of the
+// extension's real manifests (testdata/chrome-manifest-<version>.json, kiff/tafs
+// chrome/manifest.json byte for byte: 0.1.0 at 78c86cb4, 0.2.0 at c2e80d1),
+// hashes it as the extension's manifestHashOf does (chrome/src/crypto.js),
+// finds it in the shipped allowlist, and sends it through the real route. A
+// release that changes the manifest adds its file here and its line to the
+// allowlist in the same PR.
 func TestTheExtensionsRealManifestHashIsInTheShippedAllowlist(t *testing.T) {
-	manifest, err := os.ReadFile("testdata/chrome-manifest-0.1.0.json")
+	files, err := filepath.Glob("testdata/chrome-manifest-*.json")
+	if err != nil || len(files) < 2 {
+		t.Fatalf("the extension's manifests: %v %v", files, err)
+	}
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) { manifestPairs(t, file) })
+	}
+}
+
+func manifestPairs(t *testing.T, file string) {
+	manifest, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var m struct {
 		Version string `json:"version"`
 	}
-	if err := json.Unmarshal(manifest, &m); err != nil || m.Version == "" {
-		t.Fatalf("the manifest's version: %q %v", m.Version, err)
+	if err := json.Unmarshal(manifest, &m); err != nil || m.Version == "" || filepath.Base(file) != "chrome-manifest-"+m.Version+".json" {
+		t.Fatalf("the manifest's version: %q %v (in %s)", m.Version, err, file)
 	}
 	f, err := os.Open("../../deploy/chrome-builds.txt")
 	if err != nil {
