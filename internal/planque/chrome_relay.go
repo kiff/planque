@@ -178,7 +178,8 @@ func (s *Server) relayDisconnect(ctx context.Context, connID string) {
 	}
 }
 
-// relayMessage takes one message: open, hello, ping, or a step's result.
+// relayMessage takes one message: open, hello, ping, a step's result, or the
+// extension's push subscription.
 func (s *Server) relayMessage(ctx context.Context, connID string, body []byte) {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(body, &m) != nil {
@@ -215,6 +216,8 @@ func (s *Server) relayMessage(ctx context.Context, connID string, body []byte) {
 	case kind == "pong" && conn.Ready:
 	case kind == "result" && conn.Ready:
 		s.relayResult(ctx, conn, m)
+	case kind == "push" && conn.Ready:
+		s.relayPush(ctx, connID, conn, m)
 	default:
 		// Anything else, or anything before the proofs, ends it.
 		s.relayClose(ctx, connID, closeUnknownChrome, "unexpected message")

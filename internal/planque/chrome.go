@@ -175,6 +175,9 @@ type Chrome struct {
 	// PairedWith is the re-pairing that carried connections here, as the
 	// phone signed it: what vouches for those connections' sites.
 	PairedWith *ChromePairedWith `json:"paired_with,omitempty"`
+	// Push is where planque wakes this Chrome's extension for a step while it
+	// isn't connected (chrome_push.go). Never listed.
+	Push *ChromePush `json:"push,omitempty"`
 }
 
 func skChromePairing(id string) string { return "CHROMEPAIRING#" + id }
