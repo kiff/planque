@@ -128,6 +128,9 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	case browseCheckout:
 		state, res := s.browseCheckout(ctx, g, a.URL, site, page)
 		return state, fenceResult(res, tag)
+	case browseHand:
+		state, res := s.browseHand(ctx, g, sess, a, page)
+		return state, fenceResult(res, tag)
 	case browseAct:
 		state, res := s.browseAct(ctx, g, p, sess, a, page)
 		if after, ok := answerPage(res); ok {

@@ -148,6 +148,9 @@ type chromeSession struct {
 	n        int
 	readID   string
 	sent     bool
+	// kept: a hand-over left the run open for the person, so the call's end
+	// doesn't close it (chrome_hand.go).
+	kept bool
 }
 
 // startChrome is a grant's session in its paired Chrome, for the operation
@@ -218,7 +221,7 @@ func (c *chromeSession) Frame(context.Context) ([]byte, error) {
 // Close ends the run's tab group, without waiting: closing only takes power
 // away. Nothing is kept for planque to seal: the sign-ins are the Chrome's.
 func (c *chromeSession) Close(ctx context.Context) ([]byte, error) {
-	if c.sent {
+	if c.sent && !c.kept {
 		c.n++
 		_ = c.s.sendChromeStep(ctx, c.tenant, c.base(chromeStep{Op: "close"}))
 	}

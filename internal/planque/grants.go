@@ -364,7 +364,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			writeErr(w, http.StatusBadRequest, "a browser grant takes agent, tools and browser {sites, currency}: its profile is planque's")
 			return
 		}
-		b, tools, raw, msg := browserAsk(req.Browser, *req.Tools)
+		b, tools, raw, msg := browserAsk(req.Browser, *req.Tools, s.ChromeHand)
 		if msg != "" {
 			writeErr(w, http.StatusBadRequest, msg)
 			return

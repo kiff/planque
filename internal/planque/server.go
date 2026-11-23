@@ -83,6 +83,11 @@ type Server struct {
 	// own Chrome, for the taf's Activity (PLANQUE_CHROME_SCREENSHOTS=on,
 	// chrome_screenshot.go). Off, the routes answer 404 and nothing is kept.
 	ChromeScreenshots bool
+	// ChromeHand offers the hand-over's two tools (browse_hand,
+	// browse_hand_result) on the owner's Chrome's new connections only: a
+	// connection approved before keeps its tools. Off until KIFF takes their
+	// names.
+	ChromeHand bool
 	// ChromeSigner signs the relay's welcome and steps with planque's step
 	// key (KMS in production), and ChromePoster reaches the extension's
 	// WebSocket connections. Without both, the relay refuses every connect.
