@@ -38,12 +38,25 @@ func skChromeRead(grant string) string { return "CHROMEREAD#" + grant }
 
 // chromeRead is a grant's latest read in the owner's Chrome: the page, its
 // read as planque fingerprints it, and the links it gave. The taf's next
-// call may open only that page, one of those links, or a start page.
+// call may open only that page, one of those links, or a start page. Asked
+// is the address the call opened when the page redirected from it (a
+// site's "/" to its own start page): it opens again, to the same page.
+// Parts are the page's fields and controls, by ref, kind and label (never a
+// value), so a hand-over can check its element on a page whose read changed.
 type chromeRead struct {
-	URL    string   `json:"url"`
-	Read   string   `json:"read"`
-	ReadID string   `json:"read_id"`
-	Links  []string `json:"links,omitempty"`
+	URL    string       `json:"url"`
+	Asked  string       `json:"asked,omitempty"`
+	Read   string       `json:"read"`
+	ReadID string       `json:"read_id"`
+	Links  []string     `json:"links,omitempty"`
+	Parts  []chromePart `json:"parts,omitempty"`
+}
+
+// chromePart is one field or control of a read: what a ref named on it.
+type chromePart struct {
+	Ref   string `json:"ref"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
 }
 
 // chromeGrant says g's browser is the owner's own Chrome.
@@ -68,6 +81,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this connection's latest read", false)
 	}
 	if code, why := chromeURLRead(g, a.URL, latest); code != "" {
+		s.noteChromeRefusal(ctx, g, tool.Tool, code, a.URL)
 		return OpNotSent, browserRefusal(code, why, false)
 	}
 	// The run's tab group is named for people: the taf's name, as the owner
@@ -112,7 +126,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		}
 		page, more, next = cp.Page, cp.More, cp.NextOffset
 	}
-	s.keepChromeRead(ctx, g, page, sess.readID)
+	s.keepChromeRead(ctx, g, page, sess.readID, a.URL)
 	s.noteChromeRead(ctx, g, p.Op, page)
 	site := browser.Site(page.URL)
 	tag := fenceTag()
@@ -129,12 +143,12 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		state, res := s.browseCheckout(ctx, g, a.URL, site, page)
 		return state, fenceResult(res, tag)
 	case browseHand:
-		state, res := s.browseHand(ctx, g, sess, a, page)
+		state, res := s.browseHand(ctx, g, sess, a, page, latest)
 		return state, fenceResult(res, tag)
 	case browseAct:
 		state, res := s.browseAct(ctx, g, p, sess, a, page)
 		if after, ok := answerPage(res); ok {
-			s.keepChromeRead(ctx, g, after, sess.readID)
+			s.keepChromeRead(ctx, g, after, sess.readID, "")
 		}
 		return state, fenceResult(res, tag)
 	}
@@ -144,9 +158,11 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 // chromeURLRead says why u isn't an address the taf may open in the owner's
 // Chrome, or "": a listed site's start page (its own, or its www. one's, as
 // many sites start there; the host in any case, nothing after the slash),
-// or the latest read's page or one of its links,
-// as they were read. A URL the model put together, with a query or a path
-// of its own, is never sent.
+// or the latest read's page, the address that page was opened as, or one of
+// its links, as they were read. A URL the model put together, with a query
+// or a path of its own, is never sent. The words name no address of their
+// own: the taf knows the one it sent, and an app shows a step's words with
+// addresses taken out.
 func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 	if start, err := url.Parse(u); err == nil && start.Scheme == "https" && start.User == nil && start.Port() == "" &&
 		(start.Path == "" || start.Path == "/") && start.RawQuery == "" && !start.ForceQuery && start.Fragment == "" && start.Opaque == "" {
@@ -158,10 +174,10 @@ func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 			}
 		}
 	}
-	if latest != nil && (u == latest.URL || slices.Contains(latest.Links, u)) {
+	if latest != nil && (u == latest.URL || latest.Asked != "" && u == latest.Asked || slices.Contains(latest.Links, u)) {
 		return "", ""
 	}
-	return CodeURLNotRead, "in the owner's Chrome a taf opens a listed site's start page (https://<site>/ or https://www.<site>/), or the page or a link from its latest read, as it was read; " + u + " is neither"
+	return CodeURLNotRead, "in the owner's Chrome a taf opens only a listed site's start page, or the page or one of the links its latest read gave, exactly as given; this address is neither. Open the site's start page, or the page as the latest read named it"
 }
 
 func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, error) {
@@ -175,18 +191,44 @@ func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, e
 }
 
 // keepChromeRead makes page the grant's latest read: the next call's links
-// come from it, and only from it.
-func (s *Server) keepChromeRead(ctx context.Context, g *Grant, page browser.Page, readID string) {
+// come from it, and only from it. asked is the address the call opened, kept
+// when the page redirected from it; "" when the page came from an act.
+func (s *Server) keepChromeRead(ctx context.Context, g *Grant, page browser.Page, readID, asked string) {
 	r := chromeRead{URL: page.URL, Read: browser.Read(page), ReadID: readID}
+	if asked != "" && asked != page.URL {
+		r.Asked = asked
+	}
 	for _, l := range page.Links {
 		if l.URL != "" {
 			r.Links = append(r.Links, l.URL)
 		}
 	}
+	r.Parts = readParts(page)
 	it := store.Item{PK: tenantPK(g.Tenant), SK: skChromeRead(g.ID), TTL: s.now().Add(latestReadKept).Unix()}
 	if err := putDoc(ctx, s.KV, it, r, store.Cond{}); err != nil {
 		s.log().WarnContext(ctx, "chrome read not kept", slog.String("grant", g.ID), slog.String("err", err.Error()))
 	}
+}
+
+// readParts are page's fields and controls by ref, kind and label: a
+// control's kind is "control", so it never matches a field of that ref.
+func readParts(page browser.Page) []chromePart {
+	parts := make([]chromePart, 0, len(page.Fields)+len(page.Controls))
+	for _, f := range page.Fields {
+		parts = append(parts, chromePart{Ref: f.Ref, Kind: f.Kind, Label: f.Label})
+	}
+	for _, c := range page.Controls {
+		parts = append(parts, chromePart{Ref: c.Ref, Kind: "control", Label: c.Label})
+	}
+	return parts
+}
+
+// noteChromeRefusal records a call planque refused before anything reached
+// the Chrome, as metadata: the tool, the code, and the address without its
+// query or fragment.
+func (s *Server) noteChromeRefusal(ctx context.Context, g *Grant, tool, code, u string) {
+	u = strings.SplitN(strings.SplitN(u, "#", 2)[0], "?", 2)[0]
+	s.log().InfoContext(ctx, "chrome refused", slog.String("grant", g.ID), slog.String("tool", tool), slog.String("code", code), slog.String("url", u))
 }
 
 // noteChromeRead records a read as metadata only: the site, the URL without

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/stepkey"
 )
 
@@ -170,5 +171,49 @@ func TestABadHandOverIsNeverSent(t *testing.T) {
 	}
 	if _, sc := c.call(g, browseHandResult, map[string]any{"hand": hand}); sc["state"] != handWaiting {
 		t.Fatalf("the grant's own read: %v", sc)
+	}
+}
+
+// A page whose read changes between loads (a news item, a rotating link)
+// still takes a hand-over on the latest read: the same address, and the
+// element handed unchanged by ref, kind and label. A changed element, another
+// address, or a read that isn't the latest is still refused.
+func TestAHandOverLandsOnAPageWhoseReadChangedButNotOnAnotherElement(t *testing.T) {
+	c, g, read := handRig(t)
+	news := func(label string, fieldLabel string) {
+		c.answer = func(step map[string]any) (bool, map[string]any, string) {
+			p := shopPage("rd_"+step["id"].(string), map[string]any{
+				"links": []any{map[string]any{"ref": "l1", "label": "Lamp", "url": "https://shop.example/items/lamp"},
+					map[string]any{"ref": "l2", "label": label, "url": "https://shop.example/news/today"}}})
+			if fieldLabel != "" {
+				p["fields"] = []any{map[string]any{"ref": "f1", "label": fieldLabel, "kind": "password"}, map[string]any{"ref": "f2", "label": "Search", "kind": "search"}}
+			}
+			return true, p, ""
+		}
+	}
+	news("Today's news", "")
+	_, sc := c.call(g, browseHand, map[string]any{"url": "https://shop.example/", "read": read, "words": "Type your password, then tap Done", "ref": "f1"})
+	if sc["state"] != "handed" {
+		t.Fatalf("a page whose links changed: %v", sc)
+	}
+	// The latest read is now the page just opened: the first read is no
+	// longer it, so it's refused, and the one this call gave is taken.
+	news("Tomorrow's news", "")
+	if _, sc := c.call(g, browseHand, map[string]any{"url": "https://shop.example/", "read": read, "words": "Tap Done", "ref": "f1"}); code(sc) != browser.CodePageChanged {
+		t.Fatalf("a read that isn't the latest: %v", sc)
+	}
+	_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	latest, _ := sc["read"].(string)
+	// The element handed changed: refused, whatever else holds.
+	news("Later news", "Card number")
+	if _, sc := c.call(g, browseHand, map[string]any{"url": "https://shop.example/", "read": latest, "words": "Type it, then tap Done", "ref": "f1"}); code(sc) != browser.CodePageChanged {
+		t.Fatalf("another element under the same ref: %v", sc)
+	}
+	_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	latest, _ = sc["read"].(string)
+	// A control is never taken for a field of the same ref.
+	news("Even later news", "")
+	if _, sc := c.call(g, browseHand, map[string]any{"url": "https://shop.example/", "read": latest, "words": "Tap Done", "ref": "c9"}); code(sc) == "" {
+		t.Fatalf("a ref on neither read: %v", sc)
 	}
 }
