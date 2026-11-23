@@ -373,3 +373,35 @@ func TestARefusedDescribeKeepsNothing(t *testing.T) {
 	// Its room is free for the next (an operation is answered once, so a new one).
 	c.describe(t, g, "op_k2", read)
 }
+
+// claimRaceKV puts a competing claim for the same fill just before the first
+// claim of a kept run: two describes that both found the fill unclaimed.
+type claimRaceKV struct {
+	store.KV
+	raced bool
+}
+
+func (k *claimRaceKV) Put(ctx context.Context, it store.Item, c store.Cond) error {
+	if !k.raced && strings.HasPrefix(it.SK, "SEALEDRUN#") && c.NotExists {
+		k.raced = true
+		if err := k.KV.Put(ctx, it, store.Cond{NotExists: true}); err != nil {
+			return err
+		}
+	}
+	return k.KV.Put(ctx, it, c)
+}
+
+// Two describes of one fill, both past the "described already" read: only the
+// first claim holds, and the second never asks the Chrome.
+func TestTwoDescribesRacingForOneFillClaimItOnce(t *testing.T) {
+	c, g, read := sealedRig(t)
+	c.s.KV = &claimRaceKV{KV: c.s.KV}
+	before := len(c.sent())
+	if _, sc := c.callSealed(g, browseOpen, "op_fill:open", map[string]any{"url": "https://shop.example/"}, describeHeader("op_fill", read, "f1", "sec_a1:password")); code(sc) != CodeSealedBusy {
+		t.Fatalf("the describe that lost the race: %v", sc)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if len(c.sent()) != before {
+		t.Fatalf("the losing describe reached the Chrome: %v", c.ops()[before:])
+	}
+}
