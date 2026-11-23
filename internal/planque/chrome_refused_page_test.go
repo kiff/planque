@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,5 +233,47 @@ func TestAHandOverAndItsWaitingAnswerTellTheTafToEndItsTurn(t *testing.T) {
 	out, sc = c.call(hands, browseHandResult, map[string]any{"hand": sc["hand"]})
 	if sc["state"] != handWaiting || !strings.Contains(fmt.Sprint(sc["next"]), "don't ask again until they write that they're done") {
 		t.Fatalf("a result read before the person answered: %s", out)
+	}
+}
+
+// Invariant: a step is built only on a read the taf was shown with its refs; browse_read and browse_checkout give a read and no refs, so neither is a step's default or a read a step may name
+func TestAStepIsNeverBuiltOnAReadShownWithoutItsRefs(t *testing.T) {
+	for _, reader := range []string{browseRead, browseCheckout} {
+		for _, named := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/named=%v", reader, named), func(t *testing.T) {
+				c := newChromeRig(t)
+				g := c.grant(t, browseOpen, browseRead, browseCheckout, browseAct)
+				n := 1
+				var ops []string
+				c.answer = func(step map[string]any) (bool, map[string]any, string) {
+					ops = append(ops, fmt.Sprint(step["op"]))
+					return true, pageN(n), ""
+				}
+				c.online(t)
+				c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+				// The page re-renders: c1 is another control now, and only a read without refs sees it.
+				n = 2
+				c.call(g, reader, map[string]any{"url": "https://shop.example/"})
+				latest := latestOf(t, c, g)
+				if latest.Shown == latest.Read {
+					t.Fatalf("%s made its read the one shown with refs", reader)
+				}
+				args := map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}
+				if named {
+					args["read"] = latest.Read
+				}
+				ops = nil
+				out, sc := c.call(g, browseAct, args)
+				if code(sc) != browser.CodePageChanged || slices.Contains(ops, "act") {
+					t.Fatalf("%s then an act: %s (sent %v)", reader, out, ops)
+				}
+				checkRefusedWithPage(t, out, sc, "Search 2")
+				// Shown with its refs by that refusal, the read now holds.
+				ops = nil
+				if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != "" || !slices.Contains(ops, "act") {
+					t.Fatalf("an act on the page the refusal showed: %s", out)
+				}
+			})
+		}
 	}
 }

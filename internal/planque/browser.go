@@ -494,6 +494,9 @@ type browserArgs struct {
 	// which hand-over browse_hand_result reads.
 	Words string `json:"words"`
 	Hand  string `json:"hand"`
+	// unshown: the read named came with no refs (browse_read's), so planque
+	// set it aside; never an argument.
+	unshown bool
 }
 
 // callBrowser is one call of a browser grant's tool, after the permit,
@@ -714,7 +717,9 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 	before, ran := page, 0
 	for i, st := range a.Steps {
 		code, why := "", ""
-		if a.Read == "" {
+		if a.Read == "" && a.unshown {
+			code, why = browser.CodePageChanged, "the read named came with the page's text alone, no fields or controls: build the steps from the page as it reads now"
+		} else if a.Read == "" {
 			code, why = browser.CodePageChanged, "browse_act needs the read from browse_open: open the page with browse_open and pass its read with the steps"
 		} else if got := browser.Read(page); got != a.Read {
 			// Refs restart on each new document: after a navigation, or a
