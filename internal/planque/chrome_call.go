@@ -34,15 +34,17 @@ const maxReadOffset = 2_000_000
 // errChromeDropped: the Chrome's connection ended while a step waited.
 var errChromeDropped = errors.New("the Chrome's connection ended while the step waited")
 
-// skChromeRead is where a taf's latest read in one Chrome is kept: by the taf
-// and the Chrome, so its connections on that Chrome share it (a taf whose
-// hand-over tools came on a later connection hands over on the page its first
-// one read). Each call is still checked against its own grant's sites first
+// skChromeRead is where a taf's latest read in one Chrome is kept: by who
+// asked, the taf and the Chrome, so its connections on that Chrome share it
+// (a taf whose hand-over tools came on a later connection hands over on the
+// page its first one read). Who asked is in the key because the taf is named
+// by the asker: a grant one taf asked "for" another never shares that taf's
+// read. Each call is still checked against its own grant's sites first
 // (callBrowser), so a shared read never opens a site a grant doesn't list. A
 // grant with no taf named keeps its own.
 func skChromeRead(g *Grant) string {
-	if g.Request.Agent != "" && g.Request.Browser != nil && g.Request.Browser.Chrome != "" {
-		return "CHROMEREAD#" + g.Request.Agent + "#" + g.Request.Browser.Chrome
+	if g.Request.Agent != "" && g.Request.AskedBy != "" && g.Request.Browser != nil && g.Request.Browser.Chrome != "" {
+		return "CHROMEREAD#" + g.Request.AskedBy + "#" + g.Request.Agent + "#" + g.Request.Browser.Chrome
 	}
 	return "CHROMEREAD#" + g.ID
 }

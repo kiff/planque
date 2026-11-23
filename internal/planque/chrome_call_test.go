@@ -961,3 +961,27 @@ func TestATafsConnectionsOnOneChromeShareItsLatestRead(t *testing.T) {
 		t.Fatalf("the taf's own read, on its other connection: %v", sc)
 	}
 }
+
+// The shared read's key names who asked, the taf and the Chrome: a grant one
+// taf asked "for" another (the owner approves the name the asker gave) never
+// shares that taf's read, and a grant with no taf or no asker keeps its own.
+func TestALatestReadIsSharedOnlyByOneAskersGrantsForOneTafAndChrome(t *testing.T) {
+	grant := func(id, asked, agent, chrome string) *Grant {
+		return &Grant{ID: id, Request: Request{AskedBy: asked, Agent: agent, Browser: &BrowserRequest{Chrome: chrome}}}
+	}
+	a, b := skChromeRead(grant("g1", "setup", "taf", "chr_1")), skChromeRead(grant("g2", "setup", "taf", "chr_1"))
+	if a != b {
+		t.Fatalf("one asker's grants for one taf on one Chrome: %s, %s", a, b)
+	}
+	for name, g := range map[string]*Grant{
+		"another asker":  grant("g3", "agt_other", "taf", "chr_1"),
+		"another taf":    grant("g4", "setup", "taf2", "chr_1"),
+		"another Chrome": grant("g5", "setup", "taf", "chr_2"),
+		"no taf":         grant("g6", "setup", "", "chr_1"),
+		"no asker":       grant("g7", "", "taf", "chr_1"),
+	} {
+		if skChromeRead(g) == a {
+			t.Errorf("%s shares the taf's read", name)
+		}
+	}
+}
