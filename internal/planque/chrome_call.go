@@ -111,6 +111,13 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	case len(sh.release) > 0:
 		return OpNotSent, browserRefusal(CodeBadArguments, "a release goes only with a sealed fill", false)
 	}
+	// A step on the page the taf read last needs no read named: left out,
+	// it's that latest read, when the call is for the same address. The
+	// step still runs only while the page is that read.
+	if (tool.Tool == browseAct || tool.Tool == browseHand) && a.Read == "" && latest != nil &&
+		(a.URL == latest.URL || latest.Asked != "" && a.URL == latest.Asked) {
+		a.Read = latest.Read
+	}
 	// The run's tab group is named for people: the taf's name, as the owner
 	// approved it, else its agent.
 	taf := g.Request.AgentName
@@ -310,7 +317,7 @@ var chromeWhy = map[string]string{
 	"site_not_listed":       "the page isn't on this connection's sites",
 	"site_blocked":          "the owner's Chrome blocks this site",
 	"needs_site_permission": "the owner hasn't let tafs into this site in Chrome yet",
-	"page_changed":          "the page isn't the read the step was built from: read it again first",
+	"page_changed":          "the page isn't the read the step was built from",
 	"ref_unknown":           "the page has no such field or control any more",
 	"not_visible":           "that element is hidden or covered on the page",
 	"secret_field":          "the step would type into a password or code field",
@@ -323,6 +330,36 @@ var chromeWhy = map[string]string{
 	"page_unresponsive":     "the page didn't answer in time",
 	"browser_unavailable":   "the owner's Chrome couldn't run the step",
 	"page_too_large":        "the page's answer was too large to send",
+	"option_unknown":        "the list has no option by that name: choose one of the options the read gives, exactly",
+	"disabled":              "that control is turned off on the page",
+	"no_page":               "the run's tab was closed",
+	"no_hand":               "that hand-over is over, or was never opened",
+	"sealed_unknown":        "the owner's Chrome has no saved sign-in by that name",
+	"release_missing":       "the owner's release for this fill isn't in their Chrome",
+}
+
+// recoverable are the refusals a taf gets past by building its next call
+// from the page as it reads now: such a refusal in the owner's Chrome carries
+// that page (withPage), so no other call is needed to get it.
+var recoverable = map[string]bool{
+	browser.CodePageChanged: true, "ref_unknown": true, "not_visible": true, "option_unknown": true, "disabled": true,
+}
+
+// withPage adds the page as it reads now to res, a refusal in the owner's
+// Chrome: planque's words first, then the page's read on its own line, then
+// the page inside a fence of its own, as an answer carries it. The page's
+// words never reach the structured content; only its read does, planque's
+// own value. The page becomes the taf's latest read, as an answer's does.
+func (s *Server) withPage(ctx context.Context, g *Grant, c *chromeSession, res map[string]any, page browser.Page) map[string]any {
+	s.keepChromeRead(ctx, g, page, c.readID, "")
+	read := browser.Read(page)
+	v := neutral(map[string]any{"site": browser.Site(page.URL), "read": read, "page": browser.Mask(page, maxPageText)}).(map[string]any)
+	v["note"] = strings.TrimSpace(dataNotInstructions)
+	text, _ := json.MarshalIndent(v, "", " ")
+	words := res["content"].([]map[string]string)[0]["text"]
+	res["content"] = []map[string]string{{"type": "text", "text": words + " The page as it reads now follows.\n" + readLine(read) + "\n" + fence(string(text), fenceTag())}}
+	res["structuredContent"].(map[string]any)["read"] = read
+	return res
 }
 
 // The fence around a page's words: a fixed line, then the words between two
