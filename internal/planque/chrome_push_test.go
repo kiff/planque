@@ -143,3 +143,20 @@ func TestAPushBeforeTheWelcomeEndsTheConnection(t *testing.T) {
 		t.Fatalf("kept before the welcome: %+v", p)
 	}
 }
+
+// A Chrome unpaired while its subscription was being kept stays unpaired: the
+// write is on the version read, and the answer says it wasn't kept.
+func TestAPushSubscriptionNeverRecreatesAChromeUnpairedMeanwhile(t *testing.T) {
+	r := newRelayRig(t)
+	r.connect(t, "c1")
+	beforePushKept = func() {
+		_, _, _ = r.e.s.KV.Delete(context.Background(), tenantPK(tenant), skChrome(r.chrome))
+	}
+	defer func() { beforePushKept = nil }()
+	if m := r.push(t, "c1", r.ext, browserSubscription(t, fcm)); m["type"] != "push_refused" || m["code"] != codePushNotKept {
+		t.Fatalf("kept over an unpairing: %v", m)
+	}
+	if _, ok, _ := r.e.s.KV.Get(context.Background(), tenantPK(tenant), skChrome(r.chrome)); ok {
+		t.Fatal("the unpaired Chrome came back")
+	}
+}

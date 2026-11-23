@@ -97,6 +97,9 @@ func (s *Server) relayPush(ctx context.Context, connID string, conn chromeConn, 
 		return
 	}
 	if c.Push == nil || !samePush(*c.Push, sub) {
+		if beforePushKept != nil {
+			beforePushKept()
+		}
 		c.Push = &sub
 		// On the version read: an unpairing in between wins, and nothing re-creates the Chrome.
 		if putDoc(ctx, s.KV, store.Item{PK: it.PK, SK: it.SK, Ver: it.Ver + 1, TTL: it.TTL}, c, store.Cond{Ver: &it.Ver}) != nil {
@@ -106,6 +109,10 @@ func (s *Server) relayPush(ctx context.Context, connID string, conn chromeConn, 
 	}
 	s.relayPost(ctx, connID, map[string]any{"type": "push_kept"})
 }
+
+// beforePushKept runs, in tests only, between reading the Chrome and keeping
+// its subscription.
+var beforePushKept func()
 
 func samePush(a, b ChromePush) bool {
 	x, _ := json.Marshal(a)
