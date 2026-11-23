@@ -178,8 +178,8 @@ func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, 
 		return OpNotSent, chromeFailed(err, 0)
 	}
 	sess.kept = true
-	return OpDone, map[string]any{"state": "handed", "hand": id,
-		"next": "The person does it in their Chrome; read their answer with " + browseHandResult + " and this hand."}
+	return OpDone, browserAnswer(map[string]any{"state": "handed", "hand": id,
+		"next": "The person does it in their Chrome; read their answer with " + browseHandResult + " and this hand."})
 }
 
 // browseHandResult is the person's answer to one of this grant's hand-overs.
@@ -202,7 +202,7 @@ func (s *Server) browseHandResult(ctx context.Context, g *Grant, a browserArgs) 
 		out["site"], out["read"], out["page"] = browser.Site(h.Page.URL), browser.Read(*h.Page), browser.Mask(*h.Page, maxPageText)
 		return OpDone, fencedAnswer(out, tag)
 	}
-	return OpDone, out
+	return OpDone, browserAnswer(out)
 }
 
 // pageHasRef says ref is one of the page's fields or controls.
