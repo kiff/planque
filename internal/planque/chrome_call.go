@@ -142,16 +142,20 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	if code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
 	}
-	defer func() { _, _ = sess.Close(ctx) }()
 	if !p.Live(s.now()) {
 		return OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true)
 	}
+	// The grant's run, when its calls follow one another (chrome_run.go): one
+	// tab and one group for the taf's turn.
+	s.claimRun(ctx, g, sess)
+	defer func() { _, _ = sess.Close(ctx) }()
 	var page browser.Page
 	var more bool
 	var next int
-	// Each call is a run of its own, so every call opens its page first; a
-	// paged read then reads its window of that page.
-	cp, err := sess.stepPage(ctx, chromeStep{Op: "open", URL: a.URL})
+	// Every call reads its page first; a paged read then reads its window of
+	// that page. The run's tab already on that address is read where it is,
+	// never reloaded; any other address opens in it.
+	cp, err := sess.firstPage(ctx, a.URL, p.Op)
 	if err != nil {
 		return OpNotSent, chromeFailed(err, 0)
 	}

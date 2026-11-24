@@ -62,8 +62,9 @@ func sealedRig(t *testing.T) (*chromeRig, *Grant, string) {
 	if read == "" {
 		t.Fatalf("the taf's read: %v", sc)
 	}
-	// Its run closes after the call: counted before a test counts its own.
-	waitFor(t, func() bool { return strings.Join(c.ops(), ",") == "open,close" })
+	// The grant's run stays open for its next call: counted before a test
+	// counts its own.
+	waitFor(t, func() bool { return strings.Join(c.ops(), ",") == "open" })
 	return c, g, read
 }
 
