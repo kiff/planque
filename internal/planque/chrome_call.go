@@ -84,7 +84,14 @@ func chromeGrant(g *Grant) bool {
 
 // callChrome is callBrowser for a grant whose browser is the owner's Chrome,
 // once the arguments, the URL against the sites, and the steps are checked.
-func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p permit.Permit, a browserArgs) (string, any) {
+func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p permit.Permit, a browserArgs) (state string, res any) {
+	// A refusal that says the run is paused names it, for the taf's runtime to wait on (chrome_run_state.go).
+	var run *chromeSession
+	defer func() {
+		if run != nil {
+			res = withPausedRun(res, run.run, g.ID)
+		}
+	}()
 	if tool.Tool == browsePay {
 		return OpNotSent, browserRefusal(browser.CodePaymentStep, "paying through the owner's Chrome isn't turned on", false)
 	}
@@ -148,6 +155,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	// The grant's run, when its calls follow one another (chrome_run.go): one
 	// tab and one group for the taf's turn.
 	s.claimRun(ctx, g, sess)
+	run = sess
 	defer func() { _, _ = sess.Close(ctx) }()
 	var page browser.Page
 	var more bool

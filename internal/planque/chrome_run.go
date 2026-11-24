@@ -89,12 +89,15 @@ func (s *Server) claimRun(ctx context.Context, g *Grant, c *chromeSession) {
 	if found && it.Lease >= now.UnixMilli() {
 		return
 	}
-	next := store.Item{PK: pk, SK: sk, Ver: it.Ver + 1, Lease: now.Add(chromeRunLease).UnixMilli(), TTL: now.Add(chromeRunIdle + chromeRunLease).Unix()}
+	next := store.Item{PK: pk, SK: sk, Ver: it.Ver + 1, Lease: now.Add(chromeRunLease).UnixMilli(), TTL: now.Add(chromeRunPausedFor + chromeRunLease).Unix()}
 	cond := store.Cond{NotExists: true}
 	if found {
 		cond = store.Cond{Ver: &it.Ver, LeaseFreeAt: now.UnixMilli()}
 	}
-	if found && doc.Run != "" && doc.Chrome == c.chrome && doc.Sites == c.sitesKey() && now.Sub(doc.At) < chromeRunIdle {
+	// A run the person paused stays the grant's past its idle time
+	// (chromeRunPausedFor), so the step sent again on Resume goes on in its tab.
+	if found && doc.Run != "" && doc.Chrome == c.chrome && doc.Sites == c.sitesKey() &&
+		(now.Sub(doc.At) < chromeRunIdle || s.runPaused(ctx, g.Tenant, doc.Chrome, doc.Run, now)) {
 		if putDoc(ctx, s.KV, next, doc, cond) != nil {
 			return
 		}
@@ -106,6 +109,7 @@ func (s *Server) claimRun(ctx context.Context, g *Grant, c *chromeSession) {
 		return
 	}
 	c.held = &heldRun{ver: next.Ver}
+	s.noteRun(ctx, c)
 	// The run before, idle or under other sites, ends: its group greys and
 	// its tab is the person's again.
 	if found && doc.Run != "" && doc.Run != c.run && doc.Chrome == c.chrome {
@@ -135,7 +139,7 @@ func (s *Server) releaseRun(ctx context.Context, c *chromeSession) {
 	if c.ended {
 		doc = chromeRunDoc{Sites: doc.Sites, Chrome: c.chrome, At: now}
 	}
-	it := store.Item{PK: tenantPK(c.tenant), SK: skChromeRun(&Grant{ID: c.grant}), Ver: c.held.ver + 1, TTL: now.Add(chromeRunIdle + chromeRunLease).Unix()}
+	it := store.Item{PK: tenantPK(c.tenant), SK: skChromeRun(&Grant{ID: c.grant}), Ver: c.held.ver + 1, TTL: now.Add(chromeRunPausedFor + chromeRunLease).Unix()}
 	ver := c.held.ver
 	if err := putDoc(ctx, s.KV, it, doc, store.Cond{Ver: &ver}); err != nil {
 		s.log().WarnContext(ctx, "chrome run not kept", slog.String("grant", c.grant), slog.String("err", err.Error()))
@@ -163,6 +167,7 @@ func (c *chromeSession) firstPage(ctx context.Context, u, id string) (chromePage
 		}
 		if err != nil {
 			c.restart(id)
+			c.s.noteRun(ctx, c)
 		}
 	}
 	return c.stepPage(ctx, chromeStep{Op: "open", URL: u})
