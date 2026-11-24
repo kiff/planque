@@ -118,8 +118,10 @@ type chromeSitesSigned struct {
 // chromeAct is one act of a step, as the extension runs it.
 type chromeAct struct {
 	Kind  string `json:"kind"`
-	Ref   string `json:"ref"`
+	Ref   string `json:"ref,omitempty"`
 	Value string `json:"value,omitempty"`
+	// Keys types a fill's value one key at a time.
+	Keys bool `json:"keys,omitempty"`
 	// Sealed is a sealed fill's handle (chrome_sealed.go).
 	Sealed string `json:"sealed,omitempty"`
 }
@@ -193,11 +195,21 @@ func (c *chromeSession) Do(ctx context.Context, st browser.Step) (browser.Page, 
 	act := chromeAct{}
 	switch {
 	case st.Fill != "":
-		act = chromeAct{Kind: "fill", Ref: st.Fill, Value: st.Value}
+		act = chromeAct{Kind: "fill", Ref: st.Fill, Value: st.Value, Keys: st.Keys}
 	case st.Select != "":
 		act = chromeAct{Kind: "select", Ref: st.Select, Value: st.Option}
 	case st.Click != "":
 		act = chromeAct{Kind: "click", Ref: st.Click}
+	case st.Tick != "":
+		act = chromeAct{Kind: "check", Ref: st.Tick}
+	case st.Press != "":
+		act = chromeAct{Kind: "press", Ref: st.Press, Value: st.Key}
+	case st.Scroll != "" && browser.ScrollPage(st.Scroll):
+		act = chromeAct{Kind: "scroll", Value: st.Scroll}
+	case st.Scroll != "":
+		act = chromeAct{Kind: "scroll", Ref: st.Scroll}
+	case st.Back:
+		act = chromeAct{Kind: "back"}
 	default:
 		return browser.Page{}, &chromeRefusal{Code: CodeBadArguments, Detail: "a step names nothing to do"}
 	}

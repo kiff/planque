@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/kiff/planque/internal/egress"
@@ -35,6 +36,10 @@ type Page struct {
 	// Checkout is what the worker reads on a checkout page: the lines, the
 	// total and its currency. Nil when the page isn't one it can read.
 	Checkout *Checkout `json:"checkout,omitempty"`
+	// Truncated is what the owner's Chrome cut to send a page too large
+	// whole: "text", "options" (a select's past its tenth) or "links" (past
+	// the fiftieth). Mask keeps only those words.
+	Truncated []string `json:"truncated,omitempty"`
 }
 
 // Field is a form field, with a stable ref the agent names it by.
@@ -106,6 +111,17 @@ type Step struct {
 	Select string `json:"select,omitempty"`
 	Option string `json:"option,omitempty"`
 	Click  string `json:"click,omitempty"`
+	// The owner's Chrome only (ChromeOnly): Tick (check) ticks a checkbox or picks a
+	// radio; Press sends one key (Key, one of PressKeys) to a field, control or
+	// link; Scroll brings a ref into view, or scrolls the page "up" or "down";
+	// Back goes back where the tab was; Keys, with Fill, types the value one
+	// key at a time, for a field that offers a list as it's typed into.
+	Tick   string `json:"check,omitempty"`
+	Press  string `json:"press,omitempty"`
+	Key    string `json:"key,omitempty"`
+	Scroll string `json:"scroll,omitempty"`
+	Back   bool   `json:"back,omitempty"`
+	Keys   bool   `json:"keys,omitempty"`
 	// Sealed, with Fill and no Value, names a sign-in saved in the owner's
 	// Chrome (a handle from a read's page.sealed): the extension fills it
 	// only with the owner's phone's release, and nobody else sees the value.
@@ -124,30 +140,59 @@ func SealedPart(handle string) string {
 	return ""
 }
 
-// Ref is the field or control the step names.
+// PressKeys are the keys a step may press: no Tab, no shortcuts.
+var PressKeys = []string{"Enter", "Escape", "ArrowDown", "ArrowUp"}
+
+// ScrollPage is a scroll of the page itself, not to a ref.
+func ScrollPage(s string) bool { return s == "up" || s == "down" }
+
+// Ref is the field, control or link the step names; "" for back and a
+// scroll of the page.
 func (s Step) Ref() string {
 	switch {
 	case s.Fill != "":
 		return s.Fill
 	case s.Select != "":
 		return s.Select
+	case s.Tick != "":
+		return s.Tick
+	case s.Press != "":
+		return s.Press
+	case s.Scroll != "" && !ScrollPage(s.Scroll):
+		return s.Scroll
 	}
 	return s.Click
 }
 
-// Check says the step is well formed: one of fill, select or click.
+// ChromeOnly says only the owner's Chrome runs the step: the hosted
+// browser has fill, select and click.
+func (s Step) ChromeOnly() bool {
+	return s.Tick != "" || s.Press != "" || s.Scroll != "" || s.Back || s.Keys
+}
+
+// Check says the step is well formed: one of fill, select, click, check,
+// press, scroll or back.
 func (s Step) Check() error {
 	n := 0
-	for _, r := range []string{s.Fill, s.Select, s.Click} {
+	for _, r := range []string{s.Fill, s.Select, s.Click, s.Tick, s.Press, s.Scroll} {
 		if r != "" {
 			n++
 		}
 	}
+	if s.Back {
+		n++
+	}
 	switch {
 	case n != 1:
-		return errors.New("a step is one of {fill, value}, {select, option} or {click}")
+		return errors.New("a step is one of {fill, value, keys?}, {select, option}, {click}, {check}, {press, key}, {scroll} or {back: true}")
 	case s.Fill == "" && s.Value != "", s.Select == "" && s.Option != "":
 		return errors.New("value goes with fill, option with select")
+	case s.Keys && s.Fill == "":
+		return errors.New("keys goes with fill")
+	case s.Press == "" && s.Key != "":
+		return errors.New("key goes with press")
+	case s.Press != "" && !slices.Contains(PressKeys, s.Key):
+		return errors.New("press names its key: Enter, Escape, ArrowDown or ArrowUp")
 	case s.Select != "" && s.Option == "":
 		return errors.New("select names the option to pick")
 	case s.Sealed != "" && (s.Fill == "" || s.Value != ""):
@@ -327,6 +372,12 @@ func Mask(p Page, maxText int) Page {
 	if maxText > 0 && len(out.Text) > maxText {
 		out.Text = out.Text[:maxText] + "\n(cut)"
 	}
+	out.Truncated = nil
+	for _, t := range p.Truncated {
+		if (t == "text" || t == "options" || t == "links") && !slices.Contains(out.Truncated, t) {
+			out.Truncated = append(out.Truncated, t)
+		}
+	}
 	return out
 }
 
@@ -428,6 +479,41 @@ func Payment(p Page) bool {
 // say pay, or it stays on a checkout or payment page.
 func Refuse(p Page, step Step) (code, why string) {
 	ref := step.Ref()
+	switch {
+	case step.Back, step.Scroll != "" && ScrollPage(step.Scroll):
+		// Nothing on the page is named: where back lands is checked as any
+		// page reached is (Allowed).
+		return "", ""
+	case step.Scroll != "":
+		if hasRef(p, ref) {
+			return "", ""
+		}
+		return CodeRefUnknown, "the page has no field, control or link " + ref
+	case step.Press != "":
+		// A key on a field is typing: never into a secret, card or code field.
+		// Enter submits: on a checkout or payment page nothing is, and Enter on
+		// a control or link is a click on it.
+		for _, f := range p.Fields {
+			if f.Ref == ref {
+				switch {
+				case f.Kind == "card":
+					return CodePaymentStep, "a key on " + quote(f.Label) + " would enter card details; the taf never types those"
+				case Secret(f):
+					return CodeSecretField, "a key on " + quote(f.Label) + " would enter a password or a code; the taf never types those"
+				case step.Key == "Enter" && (p.Checkout != nil || Payment(p)):
+					return CodePaymentStep, "Enter on a checkout or payment page may place the order; only browse_pay may, held for the owner"
+				}
+				return "", ""
+			}
+		}
+		if step.Key == "Enter" {
+			return Refuse(p, Step{Click: ref})
+		}
+		if hasRef(p, ref) {
+			return "", ""
+		}
+		return CodeRefUnknown, "the page has no field, control or link " + ref
+	}
 	if step.Click != "" {
 		for _, c := range p.Controls {
 			if c.Ref != ref {
@@ -473,6 +559,26 @@ func Refuse(p Page, step Step) (code, why string) {
 		return "", ""
 	}
 	return CodeRefUnknown, "the page has no field " + ref
+}
+
+// hasRef says ref is one of the page's fields, controls or links.
+func hasRef(p Page, ref string) bool {
+	for _, f := range p.Fields {
+		if f.Ref == ref {
+			return true
+		}
+	}
+	for _, c := range p.Controls {
+		if c.Ref == ref {
+			return true
+		}
+	}
+	for _, l := range p.Links {
+		if l.Ref == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func quote(s string) string {
