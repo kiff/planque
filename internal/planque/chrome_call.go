@@ -180,7 +180,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	tag := fenceTag()
 	switch tool.Tool {
 	case browseOpen:
-		return OpDone, fencedAnswer(map[string]any{"site": site, "read": browser.Read(page), "page": browser.Mask(page, maxPageText)}, tag)
+		return OpDone, withLine(fencedAnswer(map[string]any{"site": site, "read": browser.Read(page), "page": browser.Mask(page, maxPageText)}, tag), s.signInLine(ctx, g, page))
 	case browseRead:
 		v := map[string]any{"site": site, "url": page.URL, "title": page.Title, "read": browser.Read(page), "text": browser.Mask(page, maxReadText).Text}
 		if more {
@@ -195,10 +195,15 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		return state, fenceResult(res, tag)
 	case browseAct:
 		state, res := s.browseAct(ctx, g, p, sess, a, page)
-		if after, ok := answerPage(res); ok {
+		after, ok := answerPage(res)
+		if ok {
 			s.keepChromeRead(ctx, g, after, sess.readID, "", true, nil)
 		}
-		return state, fenceResult(res, tag)
+		out := fenceResult(res, tag)
+		if ok {
+			out = withLine(out, s.signInLine(ctx, g, after))
+		}
+		return state, out
 	}
 	return OpNotSent, browserRefusal(CodeNotGranted, "this grant has no browser tool "+tool.Tool, false)
 }
@@ -435,9 +440,19 @@ func readLine(read string) string {
 // hand-over's tools can come on a connection of their own, skChromeRead);
 // "browse_open" when neither is found.
 func (s *Server) openToolName(ctx context.Context, g *Grant) string {
+	if n := s.sharedToolName(ctx, g, browseOpen); n != "" {
+		return n
+	}
+	return browseOpen
+}
+
+// sharedToolName is the name the taf calls tool by for g's pages: g's own,
+// else that of a connected Chrome grant sharing g's reads; "" when neither
+// has it.
+func (s *Server) sharedToolName(ctx context.Context, g *Grant, tool string) string {
 	named := func(x *Grant) string {
 		for _, t := range x.Tools {
-			if t.Tool == browseOpen {
+			if t.Tool == tool {
 				return t.Name
 			}
 		}
@@ -457,7 +472,61 @@ func (s *Server) openToolName(ctx context.Context, g *Grant) string {
 			}
 		}
 	}
-	return browseOpen
+	return ""
+}
+
+// asksSecret says page has a field a taf never types: a password, a card
+// number or a code (a sign-in, a payment, a check).
+func asksSecret(page browser.Page) bool {
+	for _, f := range page.Fields {
+		if browser.Secret(f) {
+			return true
+		}
+	}
+	return false
+}
+
+// handOverWords is how the taf gets past a field it never types: the person
+// does that step in their own tab, and the taf goes on from their answer.
+// It names the hand-over tool the taf has, when it has one.
+func (s *Server) handOverWords(ctx context.Context, g *Grant) string {
+	if hand := s.sharedToolName(ctx, g, browseHand); hand != "" && s.ChromeHand {
+		return "Hand that step to the person with " + hand + " (in your words, such as: sign in here, then tap Done), end your turn, and go on from their Done."
+	}
+	return "Ask the person to do that step themselves in this tab (such as: sign in here, then tell me), end your turn, and go on once they say they have."
+}
+
+// signInLine is planque's line for an answer whose page asks for a
+// password, a card number or a code: said after the read, outside the
+// fence, as planque's own words.
+func (s *Server) signInLine(ctx context.Context, g *Grant, page browser.Page) string {
+	if !asksSecret(page) {
+		return ""
+	}
+	return "Sign-in: this page asks for a password, a card number or a code, which a taf never types. " + s.handOverWords(ctx, g)
+}
+
+// withLine puts line in res's text after its read line (or first, when it has
+// none): planque's own words, never inside the fence.
+func withLine(res any, line string) any {
+	r, ok := res.(map[string]any)
+	if !ok || line == "" {
+		return res
+	}
+	content, ok := r["content"].([]map[string]string)
+	if !ok || len(content) == 0 {
+		return res
+	}
+	text := content[0]["text"]
+	if strings.HasPrefix(text, "Read: ") {
+		if i := strings.IndexByte(text, '\n'); i >= 0 {
+			text = text[:i+1] + line + "\n" + text[i+1:]
+		}
+	} else {
+		text = line + "\n" + text
+	}
+	r["content"] = []map[string]string{{"type": "text", "text": text}}
+	return r
 }
 
 // neutral is v as JSON gives it, with every string rid of marker look-alikes.

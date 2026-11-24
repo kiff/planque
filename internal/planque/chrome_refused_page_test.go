@@ -304,3 +304,55 @@ func TestAnOlderReadShownWithoutItsRefsIsNeverNamedBack(t *testing.T) {
 	}
 	checkRefusedWithPage(t, out, sc, "Search 2")
 }
+
+// A page with a sign-in field. n changes nothing in it but its read.
+func signInPage(n int) map[string]any {
+	return shopPage(fmt.Sprintf("rd_s%d", n), map[string]any{"url": "https://shop.example/", "title": "Sign in",
+		"fields":   []any{map[string]any{"ref": "f1", "label": "Email", "kind": "email"}, map[string]any{"ref": "f2", "label": "Password", "kind": "password"}},
+		"controls": []any{map[string]any{"ref": "c1", "label": fmt.Sprintf("Sign in %d", n)}}})
+}
+
+// Invariant: at a page that asks for a password, a card number or a code, the taf is told in planque's own words to hand that step to the person, never to type it; and a step that would type one is refused with the same way out
+func TestASignInPageIsHandedToThePersonNeverTyped(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeHand = true
+	opens := c.grantAs(t, "agt_shop", browseOpen, browseAct)
+	hands := c.grantAs(t, "agt_shop", browseHand, browseHandResult)
+	handName := grantToolName(hands, browseHand)
+	signIn := true
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		if signIn {
+			return true, signInPage(1), ""
+		}
+		return true, shopPage("rd_plain", map[string]any{"fields": []any{map[string]any{"ref": "f1", "label": "Search", "kind": "search"}}}), ""
+	}
+	c.online(t)
+	out, sc := c.call(opens, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read, _ := sc["read"].(string)
+	lines := strings.SplitN(out, "\n", 3)
+	if len(lines) < 3 || lines[0] != readLine(read) || !strings.HasPrefix(lines[1], "Sign-in: ") || !strings.Contains(lines[1], "Hand that step to the person with "+handName) {
+		t.Fatalf("a sign-in page's answer doesn't say, after its read and outside the fence, to hand the sign-in over: %q", out)
+	}
+	// Typing the password is refused, and the refusal says the same way out.
+	out, sc = c.call(opens, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"fill": "f2", "value": "hunter2"}}})
+	if code(sc) != browser.CodeSecretField || !strings.Contains(out, "Hand that step to the person with "+handName) {
+		t.Fatalf("typing a password: %s", out)
+	}
+	// A page with no such field says nothing of it.
+	signIn = false
+	if out, _ := c.call(opens, browseOpen, map[string]any{"url": "https://shop.example/"}); strings.Contains(out, "Sign-in: ") {
+		t.Fatalf("a page with no sign-in field: %s", out)
+	}
+}
+
+// With no hand-over tool, the way out is to ask the person in words.
+func TestASignInPageWithNoHandOverToolAsksThePersonInWords(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t, browseOpen, browseAct)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, signInPage(1), "" }
+	c.online(t)
+	out, _ := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	if !strings.Contains(out, "Sign-in: ") || !strings.Contains(out, "Ask the person to do that step themselves in this tab") || strings.Contains(out, "browse_hand") {
+		t.Fatalf("no hand-over tool: %s", out)
+	}
+}
