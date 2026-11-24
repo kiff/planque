@@ -304,3 +304,79 @@ func TestReadCoversASelectsOptions(t *testing.T) {
 		t.Fatal("a picked value moved the read")
 	}
 }
+
+// The owner's Chrome's other steps: each well formed only as itself, and refused as the extension's guard refuses it,
+// so planque refuses first.
+func TestTheChromesOtherStepsAreCheckedAndRefusedAsAClickOrAFillIs(t *testing.T) {
+	for _, c := range []struct {
+		step Step
+		ok   bool
+	}{
+		{Step{Tick: "f1"}, true},
+		{Step{Press: "f1", Key: "Enter"}, true},
+		{Step{Press: "f1", Key: "Tab"}, false},
+		{Step{Press: "f1"}, false},
+		{Step{Fill: "f1", Key: "Enter"}, false},
+		{Step{Scroll: "down"}, true},
+		{Step{Scroll: "l1"}, true},
+		{Step{Back: true}, true},
+		{Step{Back: true, Click: "c1"}, false},
+		{Step{Fill: "f1", Value: "Pari", Keys: true}, true},
+		{Step{Click: "c1", Keys: true}, false},
+	} {
+		if err := c.step.Check(); (err == nil) != c.ok {
+			t.Errorf("%+v: %v", c.step, err)
+		}
+		if c.ok && c.step.Fill == "" && !c.step.ChromeOnly() {
+			t.Errorf("%+v isn't the owner's Chrome's only", c.step)
+		}
+	}
+	p := checkoutPage()
+	// No card field and no paying control, so it isn't a payment page; its link "Buy now" still pays.
+	plain := Page{URL: "https://shop.example/", Title: "Shop",
+		Fields:   []Field{{Ref: "f1", Label: "Search", Kind: "search"}, {Ref: "f2", Label: "Password", Kind: "password"}},
+		Controls: []Control{{Ref: "c1", Label: "Search"}},
+		Links:    []Link{{Ref: "l1", Label: "Lamp", URL: "https://shop.example/lamp"}, {Ref: "l2", Label: "Buy now", URL: "https://shop.example/buy"}}}
+	paying := Page{URL: "https://shop.example/lamp", Title: "Lamp",
+		Fields:   []Field{{Ref: "f3", Label: "Card", Kind: "card"}},
+		Controls: []Control{{Ref: "c2", Label: "Buy now"}}}
+	for _, c := range []struct {
+		name string
+		page Page
+		step Step
+		code string
+	}{
+		{"Enter on a search field", plain, Step{Press: "f1", Key: "Enter"}, ""},
+		{"ArrowDown on a search field", plain, Step{Press: "f1", Key: "ArrowDown"}, ""},
+		{"a key on a password", plain, Step{Press: "f2", Key: "Escape"}, CodeSecretField},
+		{"a key on a card field", paying, Step{Press: "f3", Key: "ArrowUp"}, CodePaymentStep},
+		{"Enter on a control that pays", paying, Step{Press: "c2", Key: "Enter"}, CodePaymentStep},
+		{"Enter on a link whose words pay", plain, Step{Press: "l2", Key: "Enter"}, CodePaymentStep},
+		{"Enter on a plain link", plain, Step{Press: "l1", Key: "Enter"}, ""},
+		{"Escape on a control that pays", paying, Step{Press: "c2", Key: "Escape"}, ""},
+		{"Enter on a field of a checkout", p, Step{Press: "f1", Key: "Enter"}, CodePaymentStep},
+		{"Enter on any control of a checkout", p, Step{Press: "c3", Key: "Enter"}, CodePaymentStep},
+		{"a key on a ref that isn't there", plain, Step{Press: "f9", Key: "Escape"}, CodeRefUnknown},
+		{"ticking a box", plain, Step{Tick: "f1"}, ""},
+		{"ticking a password", plain, Step{Tick: "f2"}, CodeSecretField},
+		{"ticking what isn't there", plain, Step{Tick: "f9"}, CodeRefUnknown},
+		{"scrolling to a link", plain, Step{Scroll: "l1"}, ""},
+		{"scrolling to what isn't there", plain, Step{Scroll: "x9"}, CodeRefUnknown},
+		{"scrolling the page", p, Step{Scroll: "up"}, ""},
+		{"back", p, Step{Back: true}, ""},
+		{"keys into a card field", paying, Step{Fill: "f3", Value: "4", Keys: true}, CodePaymentStep},
+		{"keys into a password", plain, Step{Fill: "f2", Value: "x", Keys: true}, CodeSecretField},
+	} {
+		if code, why := Refuse(c.page, c.step); code != c.code {
+			t.Errorf("%s: %q (%s), want %q", c.name, code, why, c.code)
+		}
+	}
+}
+
+// Only what the Chrome may say it cut is kept, each once.
+func TestMaskKeepsOnlyKnownCuts(t *testing.T) {
+	got := Mask(Page{Truncated: []string{"links", "text", "links", "<<<page-words:x>>>", "options"}}, 0).Truncated
+	if strings.Join(got, ",") != "links,text,options" {
+		t.Fatalf("truncated: %v", got)
+	}
+}

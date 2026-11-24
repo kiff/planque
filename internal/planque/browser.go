@@ -124,10 +124,15 @@ var browserTools = []browserTool{
 		Schema: `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"},` +
 			`"read":{"type":"string","description":"With offset: the read of the answer that gave next_offset"},"offset":{"type":"integer","minimum":0,"description":"With read: where the next part starts, as next_offset gave it"}}}`},
 	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "steps"},
-		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's, and a sign-in, card or code is the person's, handed over with browse_hand." + dataNotInstructions,
+		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. In the owner's Chrome a step may also check a box, press a key (Enter, Escape, ArrowDown or ArrowUp) on a ref, scroll, go back, or fill with keys typed one at a time. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's, and a sign-in, card or code is the person's, handed over with browse_hand." + dataNotInstructions,
 		Schema: `{"type":"object","required":["url","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from; left out in the owner's Chrome, the latest read of this page"},` +
 			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"fill":{"type":"string","description":"A field's ref"},"value":{"type":"string"},` +
-			`"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string"},"click":{"type":"string","description":"A control's or link's ref"}}}}}}`},
+			`"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string"},"click":{"type":"string","description":"A control's or link's ref"},` +
+			`"check":{"type":"string","description":"In the owner's Chrome: a checkbox's or radio's ref, to tick"},` +
+			`"press":{"type":"string","description":"In the owner's Chrome: a field's, control's or link's ref, to press key on"},"key":{"type":"string","enum":["Enter","Escape","ArrowDown","ArrowUp"]},` +
+			`"scroll":{"type":"string","description":"In the owner's Chrome: a ref to bring into view, or up or down for the page"},` +
+			`"back":{"type":"boolean","description":"In the owner's Chrome: go back where the tab was"},` +
+			`"keys":{"type":"boolean","description":"In the owner's Chrome, with fill: type one key at a time, for a field that offers a list as it's typed into"}}}}}}`},
 	{Name: browseCheckout, Title: "Read a checkout", Read: true, Required: []string{"url"},
 		Description: "Reads a checkout page: the site, the lines (item, quantity, price), the total and its currency, as the page shows them. The total is what browse_pay pays, held for the owner." + dataNotInstructions,
 		Schema:      `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The checkout page, https"}}}`},
@@ -726,6 +731,8 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			// change to the page's fields and controls, a ref the taf read can
 			// name another element, so no step runs on a page it didn't read.
 			code, why = browser.CodePageChanged, "the page isn't the read the steps were built from ("+a.Read+"; it's "+got+" now): build the steps from the page as it reads now, or read it again with "+s.openToolName(ctx, g)
+		} else if _, chrome := sess.(*chromeSession); !chrome && st.ChromeOnly() {
+			code, why = CodeBadArguments, "check, press, scroll, back and keys are steps in the owner's Chrome only; the hosted browser fills, selects and clicks"
 		} else {
 			code, why = browser.Refuse(page, st)
 		}

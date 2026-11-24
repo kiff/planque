@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kiff/planque/internal/browser"
+	"github.com/kiff/planque/internal/fakes"
 )
 
 // A page whose Search control is labelled by n: its read changes with n.
@@ -354,5 +356,68 @@ func TestASignInPageWithNoHandOverToolAsksThePersonInWords(t *testing.T) {
 	out, _ := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 	if !strings.Contains(out, "Sign-in: ") || !strings.Contains(out, "If your task needs that step, ask the person to do that step themselves in this tab") || strings.Contains(out, "browse_hand") {
 		t.Fatalf("no hand-over tool: %s", out)
+	}
+}
+
+// Invariant: the owner's Chrome's other steps go to the extension as its acts, one each, and the hosted browser refuses them before anything runs
+func TestTheChromesOtherStepsGoAsItsActsAndTheHostedBrowserRefusesThem(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t, browseOpen, browseAct)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		return true, shopPage("rd_1", map[string]any{"fields": []any{map[string]any{"ref": "f1", "label": "City", "kind": "search"}},
+			"controls": []any{map[string]any{"ref": "c1", "label": "Search"}}}), ""
+	}
+	c.online(t)
+	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+	read, _ := sc["read"].(string)
+	for _, s := range []struct {
+		step map[string]any
+		act  string
+	}{
+		{map[string]any{"fill": "f1", "value": "Par", "keys": true}, `{"kind":"fill","ref":"f1","value":"Par","keys":true}`},
+		{map[string]any{"check": "f1"}, `{"kind":"check","ref":"f1"}`},
+		{map[string]any{"press": "f1", "key": "ArrowDown"}, `{"kind":"press","ref":"f1","value":"ArrowDown"}`},
+		{map[string]any{"scroll": "c1"}, `{"kind":"scroll","ref":"c1"}`},
+		{map[string]any{"scroll": "down"}, `{"kind":"scroll","value":"down"}`},
+		{map[string]any{"back": true}, `{"kind":"back"}`},
+	} {
+		before := len(c.sent())
+		if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{s.step}}); code(sc) != "" {
+			t.Fatalf("%v: %s", s.step, out)
+		}
+		var acts []string
+		for _, st := range c.sent()[before:] {
+			if st["op"] == "act" {
+				raw, _ := json.Marshal(st["act"])
+				acts = append(acts, string(raw))
+			}
+		}
+		var want map[string]any
+		_ = json.Unmarshal([]byte(s.act), &want)
+		norm, _ := json.Marshal(want)
+		if len(acts) != 1 || acts[0] != string(norm) {
+			t.Fatalf("%v went as %v, want %s", s.step, acts, s.act)
+		}
+		_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
+		read, _ = sc["read"].(string)
+	}
+	// A key on a password field is refused by planque, before the Chrome is asked.
+	before := len(c.sent())
+	if _, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"press": "f2", "key": "Enter"}}}); code(sc) != browser.CodeRefUnknown && code(sc) != browser.CodeSecretField {
+		t.Fatalf("a key on a field that isn't a plain one: %v", sc)
+	}
+	for _, st := range c.sent()[before:] {
+		if st["op"] == "act" {
+			t.Fatalf("an act was sent: %v", st)
+		}
+	}
+
+	e := newBrowserEnv(t)
+	hosted := e.connect()
+	for _, st := range []map[string]any{{"check": "qty"}, {"press": "qty", "key": "Enter"}, {"scroll": "down"}, {"back": true}, {"fill": "qty", "value": "2", "keys": true}} {
+		sent := e.b.Sent()
+		if out, sc := e.call(hosted, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{st}}); code(sc) != CodeBadArguments || e.b.Sent() != sent {
+			t.Fatalf("the hosted browser ran %v: %s", st, out)
+		}
 	}
 }
