@@ -241,3 +241,33 @@ func TestNewSignedSitesStartANewRun(t *testing.T) {
 		t.Fatalf("new sites: runs %v, closed %v", runs, closed)
 	}
 }
+
+// Invariant: a page is read in place only while the run's tab still shows the address asked for: a tab the person took elsewhere opens that address again
+func TestATabThePersonTookElsewhereOpensTheAskedPageAgain(t *testing.T) {
+	c, g := tabRig(t)
+	if _, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"}); code(sc) != "" {
+		t.Fatalf("%v", sc)
+	}
+	first, _ := c.runs()
+	// The person followed a link in the run's tab: a read now reads that page.
+	answer := c.answer
+	c.mu.Lock()
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		if step["op"] == "read" {
+			return true, shopPage("rd_elsewhere", map[string]any{"url": "https://shop.example/items/lamp"}), ""
+		}
+		return answer(step)
+	}
+	c.mu.Unlock()
+	_, sc := c.call(g, browseRead, map[string]any{"url": "https://shop.example/"})
+	if code(sc) != "" || sc["url"] != "https://shop.example/" {
+		t.Fatalf("the asked page: %v", sc)
+	}
+	if ops := strings.Join(c.ops(), ","); ops != "open,read,open" {
+		t.Fatalf("the steps: %s", ops)
+	}
+	// Still the one run, in the same tab.
+	if runs, closed := c.runs(); len(runs) != 1 || runs[0] != first[0] || len(closed) != 0 {
+		t.Fatalf("runs %v, closed %v", runs, closed)
+	}
+}

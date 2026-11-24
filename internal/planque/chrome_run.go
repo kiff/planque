@@ -148,16 +148,22 @@ func (s *Server) releaseRun(ctx context.Context, c *chromeSession) {
 
 // firstPage is a call's first step: the page at u. A run that took over a tab
 // already on u reads it where it is; otherwise u opens, in the run's tab. A
-// run whose tab is gone in the Chrome (no_page) goes on as a new run, under
-// id, and u opens there.
+// tab the person took elsewhere meanwhile (the read comes back on another
+// address) opens u again, in the same tab. A run whose tab is gone in the
+// Chrome (no_page) goes on as a new run, under id, and u opens there.
 func (c *chromeSession) firstPage(ctx context.Context, u, id string) (chromePage, error) {
 	if c.held != nil && c.held.reused && c.held.url != "" && c.held.url == u {
 		p, err := c.read(ctx, 0)
+		if err == nil && p.URL == u {
+			return p, nil
+		}
 		var r *chromeRefusal
-		if !errors.As(err, &r) || r.Code != "no_page" {
+		if err != nil && (!errors.As(err, &r) || r.Code != "no_page") {
 			return p, err
 		}
-		c.restart(id)
+		if err != nil {
+			c.restart(id)
+		}
 	}
 	return c.stepPage(ctx, chromeStep{Op: "open", URL: u})
 }
