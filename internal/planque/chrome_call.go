@@ -223,8 +223,9 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 // chromeURLRead says why u isn't an address the taf may open in the owner's
 // Chrome, or "": a listed site's start page (its own, or its www. one's, as
 // many sites start there; the host in any case, nothing after the slash),
-// or the latest read's page, the address that page was opened as, or one of
-// its links, as they were read. A URL the model put together, with a query
+// the latest read's page, the address that page was opened as, or one of
+// its links, as they were read, or, for a grant on wikipedia.org, one
+// article opened directly (wikipediaArticle). A URL the model put together, with a query
 // or a path of its own, is never sent. The words name no address of their
 // own: the taf knows the one it sent, and an app shows a step's words with
 // addresses taken out.
@@ -242,7 +243,46 @@ func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 	if latest != nil && (u == latest.URL || latest.Asked != "" && u == latest.Asked || slices.Contains(latest.Links, u)) {
 		return "", ""
 	}
+	if wikipediaArticle(g, u) {
+		return "", ""
+	}
 	return CodeURLNotRead, "in the owner's Chrome a taf opens only a listed site's start page, or the page or one of the links its latest read gave, exactly as given; this address is neither. Open the site's start page, or the page as the latest read named it"
+}
+
+// wikipediaHost is one language's Wikipedia, or its mobile host:
+// fr.wikipedia.org, en.m.wikipedia.org, zh-min-nan.wikipedia.org, simple.wikipedia.org.
+var wikipediaHost = regexp.MustCompile(`^(?:[a-z]{2,3}(?:-[a-z]{2,12})*|simple)(?:\.m)?\.wikipedia\.org$`)
+
+// wikipediaArticle says u is one Wikipedia article, opened directly, for a
+// grant that lists wikipedia.org: https://<language>.wikipedia.org/wiki/<Title>
+// (or its m. host), with nothing else in the address: no query, fragment,
+// port or user, and never a special page (Special:, the alias every language
+// takes). A taf whose Card reads "Open a Wikipedia page" is given an article's
+// title, not a link a read gave, and the start page of wikipedia.org is a
+// portal: without this it could open no article it was asked for. Nothing
+// wider: only that host form, only /wiki/, only for a grant on wikipedia.org.
+func wikipediaArticle(g *Grant, raw string) bool {
+	if g.Request.Browser == nil || !slices.Contains(g.Request.Browser.Sites, "wikipedia.org") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" || u.Opaque != "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.HasSuffix(raw, "#") {
+		return false
+	}
+	// The host in any case, as a browser reads it.
+	if host := strings.ToLower(u.Host); !wikipediaHost.MatchString(host) || strings.HasPrefix(host, "www.") {
+		return false
+	}
+	title, ok := strings.CutPrefix(u.EscapedPath(), "/wiki/")
+	if !ok || title == "" || strings.HasPrefix(title, "/") || strings.Contains(title, "..") || strings.Contains(title, "//") {
+		return false
+	}
+	// A special page by its canonical name, in any case, written or escaped.
+	if name, err := url.PathUnescape(title); err != nil || strings.HasPrefix(strings.ToLower(name), "special:") {
+		return false
+	}
+	return true
 }
 
 func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, error) {
