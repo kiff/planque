@@ -330,7 +330,7 @@ func TestASignInPageIsHandedToThePersonNeverTyped(t *testing.T) {
 	out, sc := c.call(opens, browseOpen, map[string]any{"url": "https://shop.example/"})
 	read, _ := sc["read"].(string)
 	lines := strings.SplitN(out, "\n", 3)
-	if len(lines) < 3 || lines[0] != readLine(read) || !strings.HasPrefix(lines[1], "Sign-in: ") || !strings.Contains(lines[1], "Hand that step to the person with "+handName) {
+	if len(lines) < 3 || lines[0] != readLine(read) || !strings.HasPrefix(lines[1], "Sign-in: ") || !strings.Contains(lines[1], "If your task needs that step, hand that step to the person with "+handName) {
 		t.Fatalf("a sign-in page's answer doesn't say, after its read and outside the fence, to hand the sign-in over: %q", out)
 	}
 	// Typing the password is refused, and the refusal says the same way out.
@@ -352,7 +352,7 @@ func TestASignInPageWithNoHandOverToolAsksThePersonInWords(t *testing.T) {
 	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, signInPage(1), "" }
 	c.online(t)
 	out, _ := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-	if !strings.Contains(out, "Sign-in: ") || !strings.Contains(out, "Ask the person to do that step themselves in this tab") || strings.Contains(out, "browse_hand") {
+	if !strings.Contains(out, "Sign-in: ") || !strings.Contains(out, "If your task needs that step, ask the person to do that step themselves in this tab") || strings.Contains(out, "browse_hand") {
 		t.Fatalf("no hand-over tool: %s", out)
 	}
 }

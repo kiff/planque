@@ -503,7 +503,10 @@ func (s *Server) signInLine(ctx context.Context, g *Grant, page browser.Page) st
 	if !asksSecret(page) {
 		return ""
 	}
-	return "Sign-in: this page asks for a password, a card number or a code, which a taf never types. " + s.handOverWords(ctx, g)
+	// Many pages carry a sign-in box beside what the taf came for: the step is
+	// handed over only when the task needs it.
+	words := s.handOverWords(ctx, g)
+	return "Sign-in: this page has a password, card number or code field, which a taf never types. If your task needs that step, " + strings.ToLower(words[:1]) + words[1:]
 }
 
 // withLine puts line in res's text after its read line (or first, when it has
