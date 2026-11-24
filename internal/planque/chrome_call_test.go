@@ -327,6 +327,18 @@ func TestTheOwnersChromeOpensAWikipediaArticleDirectly(t *testing.T) {
 		"https://www.wikipedia.org/wiki/Lyon", "https://commons.wikipedia.org/wiki/Lyon", "https://fr.wikipedia.org:443/wiki/Lyon",
 		"https://u@fr.wikipedia.org/wiki/Lyon", "http://fr.wikipedia.org/wiki/Lyon", "https://fr.wikipedia.org.evil.example/wiki/Lyon",
 		"https://fr.wikimedia.org/wiki/Lyon", "https://fr.wikipedia.org/wiki//Lyon",
+		// Out of /wiki/ by an escape a browser resolves.
+		"https://fr.wikipedia.org/wiki/%2E%2E/w/index.php", "https://fr.wikipedia.org/wiki/%2e%2e%2Fw%2Fapi.php", "https://fr.wikipedia.org/wiki/.%2E/w/api.php",
+		"https://fr.wikipedia.org/wiki/Lyon/%2E", "https://fr.wikipedia.org/wiki/%2FLyon", "https://fr.wikipedia.org/wiki/Lyon%2F%2Fx",
+		"https://fr.wikipedia.org/wiki/%252E%252E/w", "https://fr.wikipedia.org/wiki/Lyon%5C..%5Cw", "https://fr.wikipedia.org/wiki/Lyon%23top",
+		"https://fr.wikipedia.org/wiki/Lyon%0A",
+		// Another namespace, however MediaWiki would still read it.
+		"https://fr.wikipedia.org/wiki/_Special:Search", "https://fr.wikipedia.org/wiki/%20Special:Search", "https://fr.wikipedia.org/wiki/%5FSpecial:Search",
+		"https://fr.wikipedia.org/wiki/Special_:Search", "https://fr.wikipedia.org/wiki/:Special:Search", "https://fr.wikipedia.org/wiki/SPECIAL:Search",
+		"https://fr.wikipedia.org/wiki/Sp%C3%A9cial:Connexion", "https://de.wikipedia.org/wiki/Spezial:Suche", "https://fr.wikipedia.org/wiki/User:Someone",
+		"https://fr.wikipedia.org/wiki/User_talk:Someone", "https://fr.wikipedia.org/wiki/user__talk:Someone", "https://fr.wikipedia.org/wiki/File:Lyon.jpg",
+		"https://fr.wikipedia.org/wiki/Talk:Lyon", "https://fr.wikipedia.org/wiki/MediaWiki:Common.js", "https://fr.wikipedia.org/wiki/Template:Infobox",
+		"https://fr.wikipedia.org/wiki/WP:About", "https://fr.wikipedia.org/wiki/Media:Lyon.jpg",
 	} {
 		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) == "" {
 			t.Errorf("%s opened", u)

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/kiff/planque/internal/browser"
@@ -253,11 +254,29 @@ func chromeURLRead(g *Grant, u string, latest *chromeRead) (string, string) {
 // fr.wikipedia.org, en.m.wikipedia.org, zh-min-nan.wikipedia.org, simple.wikipedia.org.
 var wikipediaHost = regexp.MustCompile(`^(?:[a-z]{2,3}(?:-[a-z]{2,12})*|simple)(?:\.m)?\.wikipedia\.org$`)
 
+// wikipediaNamespaces are the names, lower case, of the namespaces a taf
+// never opens directly: every one but the main (articles), with their talk
+// pages and common aliases, and Special: as Wikipedia's larger languages
+// write it. A title such as "Star Wars: Episode IV" names none, and opens.
+var wikipediaNamespaces = func() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range []string{
+		"special", "media", "talk", "user", "user talk", "wikipedia", "wikipedia talk", "project", "project talk", "wp", "wt",
+		"file", "file talk", "image", "image talk", "mediawiki", "mediawiki talk", "template", "template talk", "help", "help talk",
+		"category", "category talk", "portal", "portal talk", "draft", "draft talk", "module", "module talk", "timedtext", "timedtext talk",
+		"gadget", "gadget talk", "gadget definition", "gadget definition talk", "topic", "event", "event talk", "user group", "user group talk",
+		"spécial", "spezial", "especial", "speciale", "specjalna", "speciaal", "служебная", "特別", "特殊", "ویژه", "خاص",
+	} {
+		m[n] = true
+	}
+	return m
+}()
+
 // wikipediaArticle says u is one Wikipedia article, opened directly, for a
 // grant that lists wikipedia.org: https://<language>.wikipedia.org/wiki/<Title>
 // (or its m. host), with nothing else in the address: no query, fragment,
-// port or user, and never a special page (Special:, the alias every language
-// takes). A taf whose Card reads "Open a Wikipedia page" is given an article's
+// port or user, never out of /wiki/ however it's escaped, and only the main
+// namespace: never Special:, User:, File: or another (wikipediaNamespaces). A taf whose Card reads "Open a Wikipedia page" is given an article's
 // title, not a link a read gave, and the start page of wikipedia.org is a
 // portal: without this it could open no article it was asked for. Nothing
 // wider: only that host form, only /wiki/, only for a grant on wikipedia.org.
@@ -274,13 +293,35 @@ func wikipediaArticle(g *Grant, raw string) bool {
 	if host := strings.ToLower(u.Host); !wikipediaHost.MatchString(host) || strings.HasPrefix(host, "www.") {
 		return false
 	}
-	title, ok := strings.CutPrefix(u.EscapedPath(), "/wiki/")
-	if !ok || title == "" || strings.HasPrefix(title, "/") || strings.Contains(title, "..") || strings.Contains(title, "//") {
+	escaped, ok := strings.CutPrefix(u.EscapedPath(), "/wiki/")
+	if !ok {
 		return false
 	}
-	// A special page by its canonical name, in any case, written or escaped.
-	if name, err := url.PathUnescape(title); err != nil || strings.HasPrefix(strings.ToLower(name), "special:") {
+	// The title as MediaWiki reads it: unescaped once. A % left after that is
+	// a second escape, which no title holds; a character no title holds
+	// (a backslash, #, <, >, [, ], {, }, | or a control) is refused too.
+	title, err := url.PathUnescape(escaped)
+	if err != nil || title == "" || strings.ContainsAny(title, "%\\#<>[]{}|") || strings.IndexFunc(title, unicode.IsControl) >= 0 {
 		return false
+	}
+	// Never out of /wiki/: no segment a browser resolves (. or ..), no empty
+	// one (a leading / or a //), however it was escaped.
+	for _, seg := range strings.Split(title, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.Contains(seg, "..") {
+			return false
+		}
+	}
+	// Only the main namespace: MediaWiki drops leading and trailing spaces and
+	// underscores around a namespace's name and reads it in any case, so a
+	// title whose first part names one (Special:, User:, File:… and their
+	// common aliases, Special: in Wikipedia's larger languages) is refused.
+	// A leading colon is dropped too ("/wiki/:Special:Search").
+	if before, _, found := strings.Cut(strings.TrimLeft(title, ": _"), ":"); found {
+		name := strings.ToLower(strings.Trim(strings.ReplaceAll(before, "_", " "), " "))
+		name = strings.Join(strings.Fields(name), " ")
+		if wikipediaNamespaces[name] {
+			return false
+		}
 	}
 	return true
 }
