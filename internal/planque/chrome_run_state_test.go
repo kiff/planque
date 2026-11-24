@@ -46,8 +46,13 @@ func TestAPausedRunSaysSoAndItsChromeSaysWhenItGoesOn(t *testing.T) {
 	}
 	runs, _ := c.runs()
 	run := runs[0]
-	if st, out := c.readRun(g, "k_taf"); st != 200 || out["run"] != run || out["state"] != runWorking {
-		t.Fatalf("a working run: %d %v", st, out)
+	// Its Chrome hasn't said a state yet (an extension from before run_state): unreported, never working,
+	// so the runtime doesn't take a pause it can't follow for a Resume.
+	if st, out := c.readRun(g, "k_taf"); st != 200 || out["run"] != run || out["state"] != runUnreported {
+		t.Fatalf("a run with no state said: %d %v", st, out)
+	}
+	if m := c.sendRunState(c.r.ext, run, runUnreported, c.s.now()); m["type"] != "run_state_refused" || m["code"] != "bad_state" {
+		t.Fatalf("unreported sent by a Chrome: %v", m)
 	}
 
 	// The person pauses: the next step is answered paused_by_owner, which names the run.

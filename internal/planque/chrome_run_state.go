@@ -31,6 +31,10 @@ const (
 	runStopped = "stopped"
 	// runEnded is the read's answer for a grant with no run: never sent by a Chrome.
 	runEnded = "ended"
+	// runUnreported is the read's answer for a run whose Chrome never said its
+	// state (an extension from before run_state): never sent by a Chrome. The
+	// runtime doesn't wait on it, as it can't know when the person resumes.
+	runUnreported = "unreported"
 )
 
 // chromeRunPausedFor is how long a paused run stays the grant's run with no
@@ -173,7 +177,8 @@ func (s *Server) relayRunState(ctx context.Context, connID string, conn chromeCo
 
 // readChromeRun answers a taf's runtime, with the taf's own KIFF key, its
 // grant's run in the owner's Chrome and that run's newest state: working,
-// paused, stopped, or ended when the grant has no run. Only the grant's own
+// paused, stopped, unreported when its Chrome never said one, or ended when
+// the grant has no run. Only the grant's own
 // taf reads it, and nothing else of the run.
 func (s *Server) readChromeRun(w http.ResponseWriter, r *http.Request) {
 	tenant, id := r.PathValue("tenant"), r.PathValue("id")
@@ -199,10 +204,13 @@ func (s *Server) readChromeRun(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	state := runWorking
+	state := runUnreported
 	var st chromeRunState
 	if _, err := getDoc(r.Context(), s.KV, tenantPK(tenant), skChromeRunState(doc.Chrome, doc.Run), &st); err == nil && st.State != "" {
 		state = st.State
+	} else if err != nil && !errors.Is(err, errNotFound) {
+		s.fail(w, r, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"run": doc.Run, "state": state})
 }
