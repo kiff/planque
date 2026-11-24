@@ -127,12 +127,18 @@ func (c *chromeRig) grant(t *testing.T, tools ...string) *Grant {
 // grantAs is grant for the taf agent.
 func (c *chromeRig) grantAs(t *testing.T, agent string, tools ...string) *Grant {
 	t.Helper()
+	return c.grantOn(t, agent, []string{"shop.example"}, tools...)
+}
+
+// grantOn is grantAs on other sites.
+func (c *chromeRig) grantOn(t *testing.T, agent string, sites []string, tools ...string) *Grant {
+	t.Helper()
 	asked := []any{}
 	for _, name := range tools {
 		asked = append(asked, map[string]any{"tool": name})
 	}
 	st, out := c.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"kind": KindBrowser, "agent": agent, "agent_name": "Shop runs",
-		"tools": asked, "browser": map[string]any{"driver": DriverExtension, "chrome": c.r.chrome, "sites": []string{"shop.example"}}}, nil, "k_setup")
+		"tools": asked, "browser": map[string]any{"driver": DriverExtension, "chrome": c.r.chrome, "sites": sites}}, nil, "k_setup")
 	if st != 201 {
 		t.Fatalf("ask: %d %v", st, out)
 	}
@@ -290,6 +296,75 @@ func TestTheOwnersChromeOpensOnlyStartPagesAndWhatWasRead(t *testing.T) {
 	// that the latest read doesn't give is refused.
 	if _, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/search?q=anything"}); code(sc) != CodeURLNotRead {
 		t.Fatalf("a URL no read gave: %v", sc)
+	}
+}
+
+// A grant on wikipedia.org opens an article in any language directly, as a
+// Card that reads "Open a Wikipedia page" asks: only /wiki/<Title> on a
+// language's host, with nothing else in the address. Anything wider is
+// refused as before, and nothing goes to the Chrome for it.
+func TestTheOwnersChromeOpensAWikipediaArticleDirectly(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grantOn(t, "agt_taf", []string{"wikipedia.org"})
+	c.answer = func(step map[string]any) (bool, map[string]any, string) {
+		u, _ := step["url"].(string)
+		return true, shopPage("rd_"+step["id"].(string), map[string]any{"url": u}), ""
+	}
+	c.online(t)
+	opens := []string{"https://fr.wikipedia.org/wiki/Lyon", "https://en.wikipedia.org/wiki/Paris", "https://de.m.wikipedia.org/wiki/K%C3%B6ln",
+		"https://zh-min-nan.wikipedia.org/wiki/Lyon", "https://simple.wikipedia.org/wiki/AC/DC", "https://FR.Wikipedia.org/wiki/Star_Wars:_Episode_IV"}
+	for _, u := range opens {
+		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) != "" {
+			t.Fatalf("%s: %v", u, sc)
+		}
+	}
+	waitFor(t, func() bool { return len(c.sent()) == len(opens) })
+	sent := len(c.sent())
+	for _, u := range []string{
+		"https://fr.wikipedia.org/wiki/Lyon?action=edit", "https://fr.wikipedia.org/wiki/Lyon#Histoire", "https://fr.wikipedia.org/wiki/Lyon?",
+		"https://fr.wikipedia.org/w/index.php?title=Lyon", "https://fr.wikipedia.org/wiki/", "https://fr.wikipedia.org/wiki/Special:UserLogout",
+		"https://fr.wikipedia.org/wiki/special:Search", "https://fr.wikipedia.org/wiki/Sp%65cial:Random", "https://fr.wikipedia.org/wiki/../w/api.php",
+		"https://www.wikipedia.org/wiki/Lyon", "https://commons.wikipedia.org/wiki/Lyon", "https://fr.wikipedia.org:443/wiki/Lyon",
+		"https://u@fr.wikipedia.org/wiki/Lyon", "http://fr.wikipedia.org/wiki/Lyon", "https://fr.wikipedia.org.evil.example/wiki/Lyon",
+		"https://fr.wikimedia.org/wiki/Lyon", "https://fr.wikipedia.org/wiki//Lyon",
+		// Out of /wiki/ by an escape a browser resolves.
+		"https://fr.wikipedia.org/wiki/%2E%2E/w/index.php", "https://fr.wikipedia.org/wiki/%2e%2e%2Fw%2Fapi.php", "https://fr.wikipedia.org/wiki/.%2E/w/api.php",
+		"https://fr.wikipedia.org/wiki/Lyon/%2E", "https://fr.wikipedia.org/wiki/%2FLyon", "https://fr.wikipedia.org/wiki/Lyon%2F%2Fx",
+		"https://fr.wikipedia.org/wiki/%252E%252E/w", "https://fr.wikipedia.org/wiki/Lyon%5C..%5Cw", "https://fr.wikipedia.org/wiki/Lyon%23top",
+		"https://fr.wikipedia.org/wiki/Lyon%0A",
+		// Another namespace, however MediaWiki would still read it.
+		"https://fr.wikipedia.org/wiki/_Special:Search", "https://fr.wikipedia.org/wiki/%20Special:Search", "https://fr.wikipedia.org/wiki/%5FSpecial:Search",
+		"https://fr.wikipedia.org/wiki/Special_:Search", "https://fr.wikipedia.org/wiki/:Special:Search", "https://fr.wikipedia.org/wiki/SPECIAL:Search",
+		"https://fr.wikipedia.org/wiki/Sp%C3%A9cial:Connexion", "https://de.wikipedia.org/wiki/Spezial:Suche", "https://fr.wikipedia.org/wiki/User:Someone",
+		"https://fr.wikipedia.org/wiki/User_talk:Someone", "https://fr.wikipedia.org/wiki/user__talk:Someone", "https://fr.wikipedia.org/wiki/File:Lyon.jpg",
+		"https://fr.wikipedia.org/wiki/Talk:Lyon", "https://fr.wikipedia.org/wiki/MediaWiki:Common.js", "https://fr.wikipedia.org/wiki/Template:Infobox",
+		"https://fr.wikipedia.org/wiki/WP:About", "https://fr.wikipedia.org/wiki/Media:Lyon.jpg",
+	} {
+		if _, sc := c.call(g, browseOpen, map[string]any{"url": u}); code(sc) == "" {
+			t.Errorf("%s opened", u)
+		}
+	}
+	if len(c.sent()) != sent {
+		t.Fatalf("a step was sent for an address that isn't one article: %v", c.ops())
+	}
+}
+
+// An article opens directly only for a grant that lists wikipedia.org: on a
+// grant for another site, or one that lists a single language's host, it is
+// refused as any address the taf wrote.
+func TestAWikipediaArticleOpensDirectlyOnlyForAGrantOnWikipedia(t *testing.T) {
+	on := func(sites ...string) *Grant { return &Grant{Request: Request{Browser: &BrowserRequest{Sites: sites}}} }
+	const lyon = "https://fr.wikipedia.org/wiki/Lyon"
+	if !wikipediaArticle(on("wikipedia.org"), lyon) || !wikipediaArticle(on("shop.example", "wikipedia.org"), lyon) {
+		t.Fatal("a grant on wikipedia.org can't open an article")
+	}
+	for _, g := range []*Grant{on("shop.example"), on("fr.wikipedia.org"), on("wikimedia.org"), on(), {Request: Request{}}} {
+		if wikipediaArticle(g, lyon) {
+			t.Errorf("%+v opened an article", g.Request.Browser)
+		}
+		if code, _ := chromeURLRead(g, lyon, nil); g.Request.Browser != nil && code != CodeURLNotRead {
+			t.Errorf("%+v: %q", g.Request.Browser, code)
+		}
 	}
 }
 
