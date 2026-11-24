@@ -247,6 +247,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/screenshots", s.signedSafe(s.listChromeShots))
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/chromes/{chrome}", s.signedSafe(s.unpairChrome))
 	mux.HandleFunc("PUT /v1/accounts/{tenant}/grants/{id}/chrome", s.signed(s.switchChrome))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/chrome/run", s.readChromeRun)
 	mux.HandleFunc("POST /v1/extension/pairings/{lookup}", extensionCORS(s.postChromeKey))
 	mux.HandleFunc("GET /v1/extension/pairings/{lookup}", extensionCORS(s.collectChromePairing))
 	mux.HandleFunc("GET /v1/extension/push-key", extensionCORS(s.pushKey))
