@@ -7,6 +7,18 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Screenshots of a taf's acts in the owner's Chrome stop being readable the moment what they belong to ends, and their deletion is finished even when it fails at first.**
+  - **What ends them:**
+    - unpairing the Chrome;
+    - a re-pairing that replaces it. Its carried connections' images go too, since they were taken in the old Chrome;
+    - disconnecting the connection.
+  - **Reads are checked:** `GET …/chromes/screenshots/{step}` and the list answer an image only while its Chrome is still paired and its connection is still there and not disconnected. So access ends at once, whether or not the images are deleted yet, and an image a restore from a backup brings back is never read.
+  - **A deletion that fails is said and finished:**
+    - the unpair answers `images: "deleted"` or `"deleting"`;
+    - a disconnect lists it among its problems;
+    - the hourly sweep deletes what's left (`CHROMESHOTCLEAN` items), and an account's erasure takes every image.
+  - **Who turns screenshots on:** `PLANQUE_CHROME_SCREENSHOTS` is one switch for every account, with no per-account choice. It stays off in production and goes on only on the owner's yes.
+  - **At 10,000 users:** each read or list of an image reads its Chrome and its connection, one item each. A failed cleanup is one item, retried hourly until it's done.
 - **A run the person paused in their Chrome waits for them.** The floating bar's Pause no longer ends the taf's turn.
   - **The extension says each change:** on Pause, Resume or Stop, it sends `{type: "run_state", run, state: "paused"|"working"|"stopped", at, sig}` on the relay, signed by that Chrome's key over `tafs-chrome/run_state/v1` and `{run, state, at}`.
     - planque keeps the newest state for a run it started for that Chrome, and answers `run_state_kept`; an older or repeated one is also `run_state_kept`, and changes nothing.

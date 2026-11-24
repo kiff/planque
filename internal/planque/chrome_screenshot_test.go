@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"github.com/kiff/planque/internal/store"
 	"net/http"
 	"slices"
 	"strings"
@@ -40,6 +42,8 @@ func TestAnActsImageIsKeptOnceAndReadByTheOwner(t *testing.T) {
 	c := newChromeRig(t)
 	c.s.ChromeScreenshots = true
 	c.r.connect(t, "c1")
+	// An image is read only while its connection is there (shotReadable).
+	g := c.grant(t, browseOpen, browseAct)
 	ctx := context.Background()
 	now := time.Now()
 	c.s.Now = func() time.Time { return now }
@@ -48,7 +52,7 @@ func TestAnActsImageIsKeptOnceAndReadByTheOwner(t *testing.T) {
 	c.phone.Now = func() time.Time { tick++; return now.Add(time.Duration(tick) * time.Second) }
 	send := func(id, op string) {
 		t.Helper()
-		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: "run_" + id, Grant: "grt_x", Sites: []string{"shop.example"}, Op: op}); err != nil {
+		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: "run_" + id, Grant: g.ID, Sites: []string{"shop.example"}, Op: op}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -257,8 +261,9 @@ func TestImagesGoWithTheirChromeAndTheirConnection(t *testing.T) {
 
 	// A connection's images go when it's disconnected; another's stay.
 	g := c.grant(t, browseOpen, browseAct)
+	other := c.grantAs(t, "agt_other", browseOpen, browseAct)
 	keep("stp_mine", g.ID)
-	keep("stp_other", "grt_another")
+	keep("stp_other", other.ID)
 	if st, out := c.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, c.phone, ""); st != 200 {
 		t.Fatalf("disconnect: %d %v", st, out)
 	}
@@ -286,6 +291,8 @@ func TestAnOperationsImagesAreListedForItsActivityRow(t *testing.T) {
 	c := newChromeRig(t)
 	c.s.ChromeScreenshots = true
 	c.r.connect(t, "c1")
+	// An image is read only while its connection is there (shotReadable).
+	g := c.grant(t, browseOpen, browseAct)
 	ctx := context.Background()
 	now := time.Now()
 	c.s.Now = func() time.Time { return now }
@@ -295,7 +302,7 @@ func TestAnOperationsImagesAreListedForItsActivityRow(t *testing.T) {
 	keep := func(op string, n int) string {
 		t.Helper()
 		id := chromeStepID(op, n)
-		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: op, Grant: "grt_x", Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: op, Grant: g.ID, Sites: []string{"shop.example"}, Op: "act"}); err != nil {
 			t.Fatal(err)
 		}
 		sum := sha256.Sum256(img)
@@ -384,5 +391,165 @@ func TestAnOperationsImagesAreListedForItsActivityRow(t *testing.T) {
 	c.s.ChromeScreenshots = false
 	if st, shots := list("?op=" + many); st != 200 || len(shots) != 0 {
 		t.Errorf("off: %d %v", st, shots)
+	}
+}
+
+// failShotDeletesKV fails each delete of a kept image while left lasts, as a
+// store that's throttled or down does.
+type failShotDeletesKV struct {
+	store.KV
+	left int
+}
+
+func (k *failShotDeletesKV) Delete(ctx context.Context, pk, sk string) (store.Item, bool, error) {
+	if strings.HasPrefix(sk, "CHROMESHOT#") && k.left > 0 {
+		k.left--
+		return store.Item{}, false, errors.New("store unavailable")
+	}
+	return k.KV.Delete(ctx, pk, sk)
+}
+
+// What ends a Chrome or a connection cuts access to its images at once, even
+// when deleting them fails: the unpair says the images are still being
+// deleted, the hourly sweep finishes, and an image that comes back (a restore
+// from a backup) is never read. A re-pairing that carried a connection away
+// takes the images it took in the old Chrome with it, and an account's
+// erasure takes every image.
+func TestAnEndedChromesImagesAreUnreadAtOnceAndACleanupThatFailsFinishesAtTheSweep(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeScreenshots = true
+	c.r.connect(t, "c1")
+	ctx := context.Background()
+	// The phone signs a second apart, so no read is a replay.
+	now, tick := time.Now(), 0
+	c.s.Now = func() time.Time { return now }
+	c.phone.Now = func() time.Time { tick++; return now.Add(time.Duration(tick) * time.Second) }
+	keep := func(id, grant string) {
+		t.Helper()
+		if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: id, ChromeID: c.r.chrome, Run: strings.Split(id, ".")[0], Grant: grant, Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+			t.Fatal(err)
+		}
+		img := webp(800, 20<<10)
+		sum := sha256.Sum256(img)
+		sig, _ := stepkey.SignBody(ctx, c.r.ext, labelScreenshot, map[string]string{"chrome_id": c.r.chrome, "step": id, "sha256": hex.EncodeToString(sum[:])})
+		if st, out := c.do("POST", "/v1/extension/steps/"+id+"/screenshot", map[string]any{"chrome_id": c.r.chrome,
+			"image": base64.RawURLEncoding.EncodeToString(img), "sig": sig}, nil, ""); st != http.StatusNoContent {
+			t.Fatalf("keep %s: %d %v", id, st, out)
+		}
+	}
+	readable := func(id string) bool {
+		st, _ := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots/"+id, nil, c.phone, "")
+		return st == 200
+	}
+	listed := func(id string) bool {
+		_, out := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots?op="+strings.Split(id, ".")[0], nil, c.phone, "")
+		shots, _ := out["shots"].([]any)
+		return len(shots) > 0
+	}
+	stored := func(id string) bool {
+		_, ok, _ := c.s.KV.Get(ctx, tenantPK(tenant), skChromeShot(id))
+		return ok
+	}
+
+	g := c.grant(t, browseOpen, browseAct)
+	carried := c.grantAs(t, "agt_carried", browseOpen, browseAct)
+	keep("op_a.1", g.ID)
+	keep("op_c.1", carried.ID)
+	if !readable("op_a.1") || !listed("op_a.1") || !readable("op_c.1") {
+		t.Fatal("kept images read before anything ends")
+	}
+	saved, _, _ := c.s.KV.Get(ctx, tenantPK(tenant), skChromeShot("op_a.1"))
+
+	// A re-pairing carried one connection to another Chrome: its images were taken in the old one, and go with it.
+	carried.Request.Browser.Chrome = "chr_new"
+	if err := c.s.saveGrant(ctx, carried); err != nil {
+		t.Fatal(err)
+	}
+
+	// The store fails every delete of an image: the unpair still ends the Chrome, says so, and nothing reads.
+	working := c.s.KV
+	c.s.KV = &failShotDeletesKV{KV: working, left: 100}
+	st, out := c.do("DELETE", "/v1/accounts/"+tenant+"/chromes/"+c.r.chrome, nil, c.phone, "")
+	if st != 200 || out["status"] != "unpaired" || out["images"] != "deleting" {
+		t.Fatalf("unpair with deletes failing: %d %v", st, out)
+	}
+	if !stored("op_a.1") || !stored("op_c.1") {
+		t.Fatal("the images were deleted although the store failed")
+	}
+	if readable("op_a.1") || listed("op_a.1") || readable("op_c.1") {
+		t.Fatal("an unpaired Chrome's images are still read")
+	}
+	// The Chrome's, and the connection the unpair ended with it.
+	if items, _ := working.Query(ctx, pkChromeShotClean, ""); len(items) != 2 {
+		t.Fatalf("the cleanups left for the sweep: %d", len(items))
+	}
+
+	// The sweep, with the store back: deleted, and the cleanup's done.
+	c.s.KV = working
+	if n, err := c.s.sweepChromeShots(ctx); err != nil || n != 2 {
+		t.Fatalf("sweep: %d %v", n, err)
+	}
+	if stored("op_a.1") || stored("op_c.1") {
+		t.Fatal("the sweep left an image")
+	}
+	if items, _ := working.Query(ctx, pkChromeShotClean, ""); len(items) != 0 {
+		t.Fatalf("the cleanup is still listed: %v", items)
+	}
+
+	// A restore from a backup brings an image back: its Chrome is gone, so it's never read.
+	if err := working.Put(ctx, store.Item{PK: saved.PK, SK: saved.SK, Doc: saved.Doc, TTL: saved.TTL}, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	if readable("op_a.1") || listed("op_a.1") {
+		t.Fatal("an image a restore brought back was read")
+	}
+
+	// An account's erasure takes every image, and every cleanup left for the sweep.
+	var enrolment Enrolment
+	_, _ = getDoc(ctx, working, tenantPK(tenant), skEnrolment, &enrolment)
+	if _, _, err := c.s.eraseAll(ctx, tenant, enrolment, "test-device"); err != nil {
+		t.Fatal(err)
+	}
+	if stored("op_a.1") {
+		t.Fatal("an image outlived the account's erasure")
+	}
+}
+
+// A disconnect whose image deletes fail still ends the connection, says so, and cuts access at once.
+func TestADisconnectWhoseImagesCantBeDeletedSaysSoAndNothingReadsThem(t *testing.T) {
+	c := newChromeRig(t)
+	c.s.ChromeScreenshots = true
+	c.r.connect(t, "c1")
+	ctx := context.Background()
+	// The phone signs a second apart, so no read is a replay.
+	now, tick := time.Now(), 0
+	c.s.Now = func() time.Time { return now }
+	c.phone.Now = func() time.Time { tick++; return now.Add(time.Duration(tick) * time.Second) }
+	g := c.grant(t, browseOpen, browseAct)
+	if err := c.s.sendChromeStep(ctx, tenant, chromeStep{ID: "stp_d", ChromeID: c.r.chrome, Run: "op_d", Grant: g.ID, Sites: []string{"shop.example"}, Op: "act"}); err != nil {
+		t.Fatal(err)
+	}
+	img := webp(800, 20<<10)
+	sum := sha256.Sum256(img)
+	sig, _ := stepkey.SignBody(ctx, c.r.ext, labelScreenshot, map[string]string{"chrome_id": c.r.chrome, "step": "stp_d", "sha256": hex.EncodeToString(sum[:])})
+	if st, _ := c.do("POST", "/v1/extension/steps/stp_d/screenshot", map[string]any{"chrome_id": c.r.chrome,
+		"image": base64.RawURLEncoding.EncodeToString(img), "sig": sig}, nil, ""); st != http.StatusNoContent {
+		t.Fatal("keep")
+	}
+	working := c.s.KV
+	c.s.KV = &failShotDeletesKV{KV: working, left: 100}
+	st, out := c.do("DELETE", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, c.phone, "")
+	if st != 200 || !strings.Contains(mustJSONString(out), "could not be deleted yet") {
+		t.Fatalf("disconnect with deletes failing: %d %v", st, out)
+	}
+	c.s.KV = working
+	if st, _ := c.do("GET", "/v1/accounts/"+tenant+"/chromes/screenshots/stp_d", nil, c.phone, ""); st == 200 {
+		t.Fatal("a disconnected connection's image was read")
+	}
+	if n, err := c.s.sweepChromeShots(ctx); err != nil || n != 1 {
+		t.Fatalf("sweep: %d %v", n, err)
+	}
+	if _, ok, _ := working.Get(ctx, tenantPK(tenant), skChromeShot("stp_d")); ok {
+		t.Fatal("the sweep left the image")
 	}
 }
