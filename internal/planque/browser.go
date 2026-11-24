@@ -123,9 +123,9 @@ var browserTools = []browserTool{
 		Description: "Reads a page's full text, for reading rather than acting. In the owner's Chrome a long page comes in parts: the answer says more and gives next_offset, and the next part is read with offset and that answer's read." + dataNotInstructions,
 		Schema: `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The page, https"},` +
 			`"read":{"type":"string","description":"With offset: the read of the answer that gave next_offset"},"offset":{"type":"integer","minimum":0,"description":"With read: where the next part starts, as next_offset gave it"}}}`},
-	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "read", "steps"},
+	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "steps"},
 		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's." + dataNotInstructions,
-		Schema: `{"type":"object","required":["url","read","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from"},` +
+		Schema: `{"type":"object","required":["url","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from; left out in the owner's Chrome, the latest read of this page"},` +
 			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"fill":{"type":"string","description":"A field's ref"},"value":{"type":"string"},` +
 			`"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string"},"click":{"type":"string","description":"A control's or link's ref"}}}}}}`},
 	{Name: browseCheckout, Title: "Read a checkout", Read: true, Required: []string{"url"},
@@ -134,12 +134,12 @@ var browserTools = []browserTool{
 	{Name: browsePay, Title: "Pay a checkout", Effect: profile.EffectMovesMoney, Required: []string{"url", "ref"},
 		Description: "Completes a checkout read with browse_checkout by clicking the control that places the order, once, after the owner approves the total read there. Sends nothing if the checkout changed since it was read.",
 		Schema:      `{"type":"object","required":["url","ref"],"properties":{"url":{"type":"string","description":"The checkout page read with browse_checkout"},"ref":{"type":"string","description":"The ref of the control that places the order"}}}`},
-	{Name: browseHand, Title: "Hand you a step in the page", Read: true, Required: []string{"url", "read", "words"},
+	{Name: browseHand, Title: "Hand you a step in the page", Read: true, Required: []string{"url", "words"},
 		Description: "Hands the person one thing to do themselves in the page, such as typing a card number or solving a check: the page stays open in their Chrome with the words shown, and the optional field or control (by its ref from browse_open, naming that answer's read) outlined. Nothing is typed or clicked for them. Answers at once with the hand-over's id: read the person's answer with browse_hand_result. Words are plain text, 1 to 280 characters.",
-		Schema: `{"type":"object","required":["url","read","words"],"properties":{"url":{"type":"string","description":"The page, https, from the latest read"},"read":{"type":"string","description":"The read of the latest browse_open answer, which the ref comes from"},` +
+		Schema: `{"type":"object","required":["url","words"],"properties":{"url":{"type":"string","description":"The page, https, from the latest read"},"read":{"type":"string","description":"The read of the latest browse_open answer, which the ref comes from; left out, that latest read"},` +
 			`"ref":{"type":"string","description":"The field or control the person is shown"},"words":{"type":"string","maxLength":280,"description":"What the person is asked to do, in your words"}}}`},
 	{Name: browseHandResult, Title: "Read your answer to a handed step", Read: true, Required: []string{"hand"},
-		Description: "Reads the person's answer to a hand-over: waiting, done (with the page after, its field values left out), declined, or expired after 30 minutes. The answer is read once.",
+		Description: "Reads the person's answer to a hand-over: waiting, done (with the page after, its field values left out), declined, or expired after 30 minutes. The answer is read once. Read it once the person says they're done, never right after handing over.",
 		Schema:      `{"type":"object","required":["hand"],"properties":{"hand":{"type":"string","description":"The id browse_hand answered"}}}`},
 }
 
@@ -494,6 +494,9 @@ type browserArgs struct {
 	// which hand-over browse_hand_result reads.
 	Words string `json:"words"`
 	Hand  string `json:"hand"`
+	// unshown: the read named came with no refs (browse_read's), so planque
+	// set it aside; never an argument.
+	unshown bool
 }
 
 // callBrowser is one call of a browser grant's tool, after the permit,
@@ -714,13 +717,15 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 	before, ran := page, 0
 	for i, st := range a.Steps {
 		code, why := "", ""
-		if a.Read == "" {
+		if a.Read == "" && a.unshown {
+			code, why = browser.CodePageChanged, "the read named isn't the one last shown with its fields and controls: build the steps from the page as it reads now"
+		} else if a.Read == "" {
 			code, why = browser.CodePageChanged, "browse_act needs the read from browse_open: open the page with browse_open and pass its read with the steps"
 		} else if got := browser.Read(page); got != a.Read {
 			// Refs restart on each new document: after a navigation, or a
 			// change to the page's fields and controls, a ref the taf read can
 			// name another element, so no step runs on a page it didn't read.
-			code, why = browser.CodePageChanged, "the page isn't the read the steps were built from ("+a.Read+"; it's "+got+" now): read it again with "+s.openToolName(ctx, g)+" and build the steps from that"
+			code, why = browser.CodePageChanged, "the page isn't the read the steps were built from ("+a.Read+"; it's "+got+" now): build the steps from the page as it reads now, or read it again with "+s.openToolName(ctx, g)
 		} else {
 			code, why = browser.Refuse(page, st)
 		}
@@ -733,6 +738,9 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			res["structuredContent"].(map[string]any)["steps_run"] = ran
 			if ran > 0 {
 				res["structuredContent"].(map[string]any)["evidence"] = s.keepEvidence(ctx, g, p.Op, sess, before, page)
+			}
+			if c, ok := sess.(*chromeSession); ok && recoverable[code] {
+				res = s.withPage(ctx, g, c, res, page)
 			}
 			return state, res
 		}
@@ -748,6 +756,13 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			res["structuredContent"].(map[string]any)["steps_run"] = ran
 			if ran > 0 {
 				res["structuredContent"].(map[string]any)["evidence"] = s.keepEvidence(ctx, g, p.Op, sess, before, page)
+			}
+			if c, ok := sess.(*chromeSession); ok && cr != nil && recoverable[cr.Code] {
+				// The Chrome refused before doing anything: the page is read
+				// again (a read changes nothing), so the taf gets it with the why.
+				if now, err := c.read(ctx, 0); err == nil {
+					res = s.withPage(ctx, g, c, res, now.Page)
+				}
 			}
 			return state, res
 		}

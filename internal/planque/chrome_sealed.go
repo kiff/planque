@@ -434,7 +434,7 @@ func (s *Server) actSealed(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return OpUnknown, toolResult("The fill failed in the owner's Chrome ("+chromeUnknownWhy(err)+"): what the page did isn't known. planque will not fill it again; read the page before a new call.", true)
 	}
 	page := cp.Page
-	s.keepChromeRead(ctx, g, page, sess.readID, "")
+	s.keepChromeRead(ctx, g, page, sess.readID, "", true, nil)
 	return OpDone, fencedAnswer(map[string]any{"site": browser.Site(page.URL), "steps_run": 1, "read": browser.Read(page), "page": browser.Mask(page, maxPageText)}, fenceTag())
 }
 

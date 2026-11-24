@@ -57,12 +57,17 @@ func skChromeRead(g *Grant) string {
 // Parts are the page's fields and controls, by ref, kind and label (never a
 // value), so a hand-over can check its element on a page whose read changed.
 type chromeRead struct {
-	URL    string       `json:"url"`
-	Asked  string       `json:"asked,omitempty"`
-	Read   string       `json:"read"`
-	ReadID string       `json:"read_id"`
-	Links  []string     `json:"links,omitempty"`
-	Parts  []chromePart `json:"parts,omitempty"`
+	URL    string `json:"url"`
+	Asked  string `json:"asked,omitempty"`
+	Read   string `json:"read"`
+	ReadID string `json:"read_id"`
+	// Shown is the read the taf was last shown with its refs: browse_open's
+	// answer, an act's answer, or a refusal's page. browse_read and
+	// browse_checkout give a read and no refs, so they never change it. A
+	// step left without its read takes the latest only while it is this.
+	Shown string       `json:"shown,omitempty"`
+	Links []string     `json:"links,omitempty"`
+	Parts []chromePart `json:"parts,omitempty"`
 }
 
 // chromePart is one field or control of a read: what a ref named on it.
@@ -111,6 +116,22 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	case len(sh.release) > 0:
 		return OpNotSent, browserRefusal(CodeBadArguments, "a release goes only with a sealed fill", false)
 	}
+	// A step on the page the taf read last needs no read named: left out,
+	// it's that latest read, when the call is for the same address and the
+	// taf was shown that read with its refs. The step still runs only while
+	// the page is that read.
+	if (tool.Tool == browseAct || tool.Tool == browseHand) && latest != nil && latest.Shown != "" {
+		switch {
+		case a.Read == "" && latest.Shown == latest.Read && (a.URL == latest.URL || latest.Asked != "" && a.URL == latest.Asked):
+			a.Read = latest.Read
+		case a.Read != "" && a.Read != latest.Shown:
+			// Only the read last shown with its refs is one a step is built
+			// on: one that came with no refs (browse_read's, browse_checkout's)
+			// or an older one the page may show again. It's set aside, and the
+			// refusal shows the page as it reads now.
+			a.Read, a.unshown = "", true
+		}
+	}
 	// The run's tab group is named for people: the taf's name, as the owner
 	// approved it, else its agent.
 	taf := g.Request.AgentName
@@ -153,7 +174,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 		}
 		page, more, next = cp.Page, cp.More, cp.NextOffset
 	}
-	s.keepChromeRead(ctx, g, page, sess.readID, a.URL)
+	s.keepChromeRead(ctx, g, page, sess.readID, a.URL, tool.Tool == browseOpen, latest)
 	s.noteChromeRead(ctx, g, p.Op, page)
 	site := browser.Site(page.URL)
 	tag := fenceTag()
@@ -175,7 +196,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	case browseAct:
 		state, res := s.browseAct(ctx, g, p, sess, a, page)
 		if after, ok := answerPage(res); ok {
-			s.keepChromeRead(ctx, g, after, sess.readID, "")
+			s.keepChromeRead(ctx, g, after, sess.readID, "", true, nil)
 		}
 		return state, fenceResult(res, tag)
 	}
@@ -219,9 +240,16 @@ func (s *Server) latestChromeRead(ctx context.Context, g *Grant) (*chromeRead, e
 
 // keepChromeRead makes page the grant's latest read: the next call's links
 // come from it, and only from it. asked is the address the call opened, kept
-// when the page redirected from it; "" when the page came from an act.
-func (s *Server) keepChromeRead(ctx context.Context, g *Grant, page browser.Page, readID, asked string) {
+// when the page redirected from it; "" when the page came from an act. shown
+// says the taf is shown this page with its refs; otherwise the read shown
+// stays prev's.
+func (s *Server) keepChromeRead(ctx context.Context, g *Grant, page browser.Page, readID, asked string, shown bool, prev *chromeRead) {
 	r := chromeRead{URL: page.URL, Read: browser.Read(page), ReadID: readID}
+	if shown {
+		r.Shown = r.Read
+	} else if prev != nil {
+		r.Shown = prev.Shown
+	}
 	if asked != "" && asked != page.URL {
 		r.Asked = asked
 	}
@@ -310,7 +338,7 @@ var chromeWhy = map[string]string{
 	"site_not_listed":       "the page isn't on this connection's sites",
 	"site_blocked":          "the owner's Chrome blocks this site",
 	"needs_site_permission": "the owner hasn't let tafs into this site in Chrome yet",
-	"page_changed":          "the page isn't the read the step was built from: read it again first",
+	"page_changed":          "the page isn't the read the step was built from",
 	"ref_unknown":           "the page has no such field or control any more",
 	"not_visible":           "that element is hidden or covered on the page",
 	"secret_field":          "the step would type into a password or code field",
@@ -323,6 +351,36 @@ var chromeWhy = map[string]string{
 	"page_unresponsive":     "the page didn't answer in time",
 	"browser_unavailable":   "the owner's Chrome couldn't run the step",
 	"page_too_large":        "the page's answer was too large to send",
+	"option_unknown":        "the list has no option by that name: choose one of the options the read gives, exactly",
+	"disabled":              "that control is turned off on the page",
+	"no_page":               "the run's tab was closed",
+	"no_hand":               "that hand-over is over, or was never opened",
+	"sealed_unknown":        "the owner's Chrome has no saved sign-in by that name",
+	"release_missing":       "the owner's release for this fill isn't in their Chrome",
+}
+
+// recoverable are the refusals a taf gets past by building its next call
+// from the page as it reads now: such a refusal in the owner's Chrome carries
+// that page (withPage), so no other call is needed to get it.
+var recoverable = map[string]bool{
+	browser.CodePageChanged: true, "ref_unknown": true, "not_visible": true, "option_unknown": true, "disabled": true,
+}
+
+// withPage adds the page as it reads now to res, a refusal in the owner's
+// Chrome: planque's words first, then the page's read on its own line, then
+// the page inside a fence of its own, as an answer carries it. The page's
+// words never reach the structured content; only its read does, planque's
+// own value. The page becomes the taf's latest read, as an answer's does.
+func (s *Server) withPage(ctx context.Context, g *Grant, c *chromeSession, res map[string]any, page browser.Page) map[string]any {
+	s.keepChromeRead(ctx, g, page, c.readID, "", true, nil)
+	read := browser.Read(page)
+	v := neutral(map[string]any{"site": browser.Site(page.URL), "read": read, "page": browser.Mask(page, maxPageText)}).(map[string]any)
+	v["note"] = strings.TrimSpace(dataNotInstructions)
+	text, _ := json.MarshalIndent(v, "", " ")
+	words := res["content"].([]map[string]string)[0]["text"]
+	res["content"] = []map[string]string{{"type": "text", "text": words + " The page as it reads now follows.\n" + readLine(read) + "\n" + fence(string(text), fenceTag())}}
+	res["structuredContent"].(map[string]any)["read"] = read
+	return res
 }
 
 // The fence around a page's words: a fixed line, then the words between two

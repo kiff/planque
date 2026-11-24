@@ -167,11 +167,11 @@ func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, 
 		// The page as it is now is this connection's latest read (callChrome
 		// kept it): named next time, it's the read the hand-over checks, so
 		// the taf needs no other call to get it.
-		return OpNotSent, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"); it reads as "+now+
-			" now. Hand it over again naming read "+now+" exactly, or open the page again with "+s.openToolName(ctx, g)+" and name the read its answer gives", false)
+		return OpNotSent, s.withPage(ctx, g, sess, browserRefusal(browser.CodePageChanged, "the page isn't the read named ("+a.Read+"); it reads as "+now+
+			" now. Hand it over again naming read "+now+" exactly, or open the page again with "+s.openToolName(ctx, g)+" and name the read its answer gives", false), page)
 	}
 	if a.Ref != "" && !pageHasRef(page, a.Ref) {
-		return OpNotSent, browserRefusal(CodeBadArguments, "ref "+a.Ref+" isn't a field or control of that read", false)
+		return OpNotSent, s.withPage(ctx, g, sess, browserRefusal(CodeBadArguments, "ref "+a.Ref+" isn't a field or control of that read", false), page)
 	}
 	st := chromeStep{Op: "hand", ReadID: sess.readID, Hand: &chromeHandStep{Words: a.Words, Ref: a.Ref}}
 	// The id the step goes out with is the hand-over's: kept before it is sent,
@@ -186,7 +186,7 @@ func (s *Server) browseHand(ctx context.Context, g *Grant, sess *chromeSession, 
 	}
 	sess.kept = true
 	return OpDone, browserAnswer(map[string]any{"state": "handed", "hand": id,
-		"next": "The person does it in their Chrome; read their answer with " + browseHandResult + " and this hand."})
+		"next": "The person does it in their Chrome, in their own time. End your turn now and tell them you're waiting for them; once they write that they're done, read their answer with " + grantToolName(g, browseHandResult) + " and this hand."})
 }
 
 // sameHandTarget is whether a hand-over still lands where the taf read it on
@@ -231,12 +231,28 @@ func (s *Server) browseHandResult(ctx context.Context, g *Grant, a browserArgs) 
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read the hand-over", false)
 	}
 	out := map[string]any{"hand": a.Hand, "state": h.Outcome}
+	if h.Outcome == handWaiting {
+		// Asked again at once, the answer is the same: a taf that polls keeps the
+		// owner's Chrome busy and the person waiting on it.
+		out["next"] = "The person hasn't answered yet. End your turn now and tell them you're waiting; don't ask again until they write that they're done."
+	}
 	if h.Page != nil {
 		tag := fenceTag()
 		out["site"], out["read"], out["page"] = browser.Site(h.Page.URL), browser.Read(*h.Page), browser.Mask(*h.Page, maxPageText)
 		return OpDone, fencedAnswer(out, tag)
 	}
 	return OpDone, browserAnswer(out)
+}
+
+// grantToolName is the name g gives tool, as the taf calls it; the tool's own
+// name when g has none by it.
+func grantToolName(g *Grant, tool string) string {
+	for _, t := range g.Tools {
+		if t.Tool == tool && t.Name != "" {
+			return t.Name
+		}
+	}
+	return tool
 }
 
 // pageHasRef says ref is one of the page's fields or controls.
