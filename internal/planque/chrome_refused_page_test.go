@@ -127,7 +127,8 @@ func TestAStepTheChromeRefusedComesBackWithThePageReadAgain(t *testing.T) {
 				t.Fatalf("the refusal isn't in planque's words: %s", out)
 			}
 			checkRefusedWithPage(t, out, sc, "Search 1")
-			if strings.Join(ops, ",") != "open,act,read" {
+			// The run's tab is already on the page: read where it is, the act, then the page read again.
+			if strings.Join(ops, ",") != "read,act,read" {
 				t.Fatalf("the steps sent: %v", ops)
 			}
 		})

@@ -137,9 +137,10 @@ type chromePage struct {
 	NextOffset int  `json:"next_offset,omitempty"`
 }
 
-// chromeSession is one call's run in the owner's Chrome: its own tab group,
-// opened by the first step and closed with the call, as the hosted worker's
-// session is one call's browser.
+// chromeSession is a call's run in the owner's Chrome: its own tab group,
+// opened by the first step. It's the grant's run, shared by the calls that
+// follow one another (chrome_run.go, held), or, when another call holds that
+// one, the call's own, closed with it.
 type chromeSession struct {
 	s        *Server
 	tenant   string
@@ -156,6 +157,13 @@ type chromeSession struct {
 	// kept: a hand-over left the run open for the person, so the call's end
 	// doesn't close it (chrome_hand.go).
 	kept bool
+	// held: the grant's run this call holds (chrome_run.go); nil for a run of
+	// the call's own. url is the address the run's tab shows after the call's
+	// last step, and ended says the run can't go on (stopped, dropped, or
+	// with no answer).
+	held  *heldRun
+	url   string
+	ended bool
 }
 
 // startChrome is a grant's session in its paired Chrome, for the operation
@@ -234,8 +242,13 @@ func (c *chromeSession) Frame(context.Context) ([]byte, error) {
 }
 
 // Close ends the run's tab group, without waiting: closing only takes power
-// away. Nothing is kept for planque to seal: the sign-ins are the Chrome's.
+// away. Nothing is kept for planque to seal: the sign-ins are the Chrome's. The
+// grant's run isn't closed: it's handed back for the next call (releaseRun).
 func (c *chromeSession) Close(ctx context.Context) ([]byte, error) {
+	if c.held != nil {
+		c.s.releaseRun(ctx, c)
+		return nil, nil
+	}
 	if c.sent && !c.kept {
 		c.n++
 		_ = c.s.sendChromeStep(ctx, c.tenant, c.base(chromeStep{Op: "close"}))
@@ -282,6 +295,7 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 	err := c.s.sendChromeStep(sendCtx, c.tenant, st)
 	cancel()
 	if err != nil {
+		c.ended = true
 		return chromePage{}, err
 	}
 	c.sent = true
@@ -290,6 +304,7 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 		// The result first: one the Chrome signed for this step and filed
 		// before its connection ended still stands.
 		if p, found, err := c.result(ctx, st.ID, st.Op); found || err != nil {
+			c.after(p, err)
 			return p, err
 		}
 		if afterResultCheck != nil {
@@ -300,18 +315,34 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 		// it ended still wins.
 		if live, err := c.s.chromeLive(ctx, c.tenant, c.chrome); err == nil && !live {
 			if p, found, err := c.result(ctx, st.ID, st.Op); found || err != nil {
+				c.after(p, err)
 				return p, err
 			}
+			c.ended = true
 			return chromePage{}, errChromeDropped
 		}
 		if time.Now().After(until) {
+			c.ended = true
 			return chromePage{}, errChromeNoAnswer
 		}
 		select {
 		case <-ctx.Done():
+			c.ended = true
 			return chromePage{}, errChromeNoAnswer
 		case <-time.After(chromePoll):
 		}
+	}
+}
+
+// after keeps what a step's answer says of the run: the address its tab shows,
+// or that the run ended (the person stopped it).
+func (c *chromeSession) after(p chromePage, err error) {
+	var r *chromeRefusal
+	switch {
+	case err == nil && p.URL != "":
+		c.url = p.URL
+	case errors.As(err, &r) && r.Code == "stopped":
+		c.ended = true
 	}
 }
 

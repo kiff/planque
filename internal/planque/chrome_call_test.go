@@ -235,7 +235,8 @@ func TestAReadInTheOwnersChromeIsSignedMaskedAgainAndFenced(t *testing.T) {
 	if strings.Contains(out2, tag) {
 		t.Error("the fence's tag was used twice")
 	}
-	waitFor(t, func() bool { return strings.Contains(strings.Join(c.ops(), ","), "open,close,open,close") })
+	// One run for both calls: the second reads the run's tab where it is, and no call closes it.
+	waitFor(t, func() bool { return strings.Join(c.ops(), ",") == "open,read" })
 }
 
 // The taf opens a listed site's start page, or a page or link from its
@@ -267,7 +268,7 @@ func TestTheOwnersChromeOpensOnlyStartPagesAndWhatWasRead(t *testing.T) {
 			t.Fatalf("start page %s: %v", u, sc)
 		}
 	}
-	waitFor(t, func() bool { return len(c.sent()) == 10 }) // each start page: open, then close
+	waitFor(t, func() bool { return len(c.sent()) == 5 }) // each start page opens in the run's one tab; no call closes it
 	sent := len(c.sent())
 	for _, u := range []string{"https://m.shop.example/", "https://www.www.shop.example/", "https://www.shop.example/items/lamp?x=1", "http://www.shop.example/", "https://wwwshop.example/",
 		"https://en.shop.example/", "https://shop.example/?", "https://shop.example/#top", "https://shop.example:443/", "https://u@shop.example/", "https://shop.example./"} {
@@ -444,21 +445,22 @@ func TestAPagedReadIsBoundToItsRead(t *testing.T) {
 	if !strings.Contains(sc["text"].(string), "part two") {
 		t.Fatalf("second part: %v", sc)
 	}
-	// That call's run: open, then the read at the offset, then close.
-	var got []map[string]any
+	// That call, on the run's tab already on its page: the page read where it
+	// is, then its window at the offset. Every call is the one run's, and none
+	// closes it.
+	var steps []map[string]any
 	waitFor(t, func() bool {
-		got = nil
-		steps := c.sent()
-		last := steps[len(steps)-1]["run"]
-		for _, s := range steps {
-			if s["run"] == last {
-				got = append(got, s)
-			}
-		}
-		return len(got) == 3
+		steps = c.sent()
+		return len(steps) >= 2 && steps[len(steps)-1]["offset"] == float64(20000)
 	})
-	if got[0]["op"] != "open" || got[1]["op"] != "read" || got[1]["offset"] != float64(20000) || got[1]["url"] != nil || got[2]["op"] != "close" {
+	got := steps[len(steps)-2:]
+	if got[0]["op"] != "read" || got[0]["url"] != nil || got[1]["op"] != "read" || got[1]["url"] != nil {
 		t.Fatalf("a paged read's steps: %v", got)
+	}
+	for _, st := range steps {
+		if st["op"] == "close" || st["run"] != steps[0]["run"] {
+			t.Fatalf("the calls' steps: %v", steps)
+		}
 	}
 }
 
@@ -583,7 +585,7 @@ func TestActsInTheOwnersChromeRunOnTheirReadAndTheGuardComesFirst(t *testing.T) 
 		if code(sc) != browser.CodePaymentStep && code(sc) != browser.CodeSecretField {
 			t.Errorf("%s: %v", name, sc)
 		}
-		waitFor(t, func() bool { return len(c.sent()) >= before+2 })
+		waitFor(t, func() bool { return len(c.sent()) >= before+1 })
 		for _, s := range c.sent()[before:] {
 			if s["op"] == "act" {
 				t.Errorf("%s: an act was sent: %v", name, s)
@@ -725,7 +727,7 @@ func TestAnApprovedActRunsOnlyOnThePageItWasReadFrom(t *testing.T) {
 	if code(sc) != browser.CodePageChanged || sc["sent"] != false {
 		t.Fatalf("approved, page changed: %v", sc)
 	}
-	waitFor(t, func() bool { return len(c.sent()) >= before+2 })
+	waitFor(t, func() bool { return len(c.sent()) >= before+1 })
 	for _, s := range c.sent()[before:] {
 		if s["op"] == "act" {
 			t.Fatalf("an act was sent on a changed page: %v", s)

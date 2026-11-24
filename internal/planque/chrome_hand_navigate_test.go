@@ -27,16 +27,17 @@ func navRig(t *testing.T) (*chromeRig, *Grant) {
 			"links": []any{map[string]any{"ref": "l1", "label": fmt.Sprintf("Today %d", loads), "url": "https://shop.example/"}},
 		})
 	}
+	// The run's one tab: a read reads it as it is; anything else loads a page.
+	var shown map[string]any
 	c.answer = func(step map[string]any) (bool, map[string]any, string) {
 		switch {
-		case step["op"] == "act":
-			return true, lamp(), ""
-		case step["url"] == "https://shop.example/items/lamp":
-			return true, lamp(), ""
-		case step["op"] == "hand":
-			return true, lamp(), ""
+		case step["op"] == "read" && shown != nil:
+		case step["op"] == "act", step["url"] == "https://shop.example/items/lamp", step["op"] == "hand":
+			shown = lamp()
+		default:
+			shown = shopPage("rd_start", map[string]any{"controls": searchOnly})
 		}
-		return true, shopPage("rd_start", map[string]any{"controls": searchOnly}), ""
+		return true, shown, ""
 	}
 	c.online(t)
 	return c, g
