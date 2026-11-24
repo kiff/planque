@@ -237,6 +237,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	} else if revoked > 0 {
 		s.log().InfoContext(r.Context(), "sweep revoked kept sign-ins", slog.Int("revoked", revoked))
 	}
+	// Screenshots an unpair, a re-pairing or a disconnect couldn't delete.
+	if done, err := s.sweepChromeShots(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: chrome screenshots not all deleted yet", slog.String("err", err.Error()))
+	} else if done > 0 {
+		s.log().InfoContext(r.Context(), "sweep deleted chrome screenshots left", slog.Int("cleanups", done))
+	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))

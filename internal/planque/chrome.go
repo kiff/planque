@@ -845,7 +845,7 @@ func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusNotFound, "no such Chrome")
 		return
 	}
-	found, err := s.removeChrome(r.Context(), sr.tenant, id)
+	found, shots, err := s.removeChromeShots(r.Context(), sr.tenant, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -854,27 +854,42 @@ func (s *Server) unpairChrome(w http.ResponseWriter, r *http.Request, sr signedR
 		writeErr(w, http.StatusNotFound, "no such Chrome")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": id, "status": "unpaired"})
+	// images: "deleted", or "deleting" when some are left to the hourly sweep
+	// (none of them can be read meanwhile).
+	images := "deleted"
+	if shots != nil {
+		images = "deleting"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chrome_id": id, "status": "unpaired", "images": images})
 }
 
 // removeChrome removes a paired Chrome's key, so nothing it signs is taken
 // again: a connect from it is told it was unpaired (4410) for a while, and a
 // live connection ends now, so the extension wipes itself.
 func (s *Server) removeChrome(ctx context.Context, tenant, id string) (bool, error) {
+	found, _, err := s.removeChromeShots(ctx, tenant, id)
+	return found, err
+}
+
+// removeChromeShots is removeChrome, saying too whether its images are all
+// deleted (errShotsLeft when the sweep finishes them).
+func (s *Server) removeChromeShots(ctx context.Context, tenant, id string) (bool, error, error) {
 	_, found, err := s.KV.Delete(ctx, tenantPK(tenant), skChrome(id))
 	if err != nil || !found {
-		return false, err
+		return false, nil, err
 	}
 	_ = putDoc(ctx, s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
 		chromeIndex{Tenant: tenant, Unpaired: true}, store.Cond{})
 	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
-	// Its acts' images go with it (chrome_screenshot.go).
-	s.dropChromeShots(ctx, tenant, func(shot chromeShot) bool { return shot.Chrome == id })
+	// Its acts' images go with it (chrome_screenshot.go), its carried
+	// connections' too when a re-pairing replaced it: they were taken in this
+	// Chrome. None can be read from now on; one not deleted is left to the sweep.
+	shots := s.dropChromeShots(ctx, tenant, shotsOf{Chrome: id})
 	// Its connections end with it, so none is left on a Chrome that's gone
 	// (kiff/tafs docs/chrome.md, "Your Chrome" 3). They come back only by
 	// connecting again.
 	s.endChromesGrants(ctx, tenant, id)
-	return true, nil
+	return true, shots, nil
 }
 
 // endChromesGrants disconnects every connection of the account that runs in

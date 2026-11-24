@@ -7,6 +7,19 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Screenshots of a taf's acts in the owner's Chrome stop being readable the moment what they belong to ends, and their deletion is finished even when it fails at first.**
+  - **What ends them:**
+    - unpairing the Chrome;
+    - a re-pairing that replaces it. Its carried connections' images go too, since they were taken in the old Chrome;
+    - disconnecting the connection.
+  - **Reads are checked:** `GET …/chromes/screenshots/{step}` and the list answer an image only while its Chrome is still paired and its connection is still there and not disconnected. So access ends at once, whether or not the images are deleted yet, and an image a restore from a backup brings back is never read.
+  - **A deletion that fails is said and finished:**
+    - the unpair answers `images: "deleted"` or `"deleting"`;
+    - a disconnect lists it among its problems;
+    - the hourly sweep deletes what's left (`CHROMESHOTCLEAN` items), and an account's erasure takes every image.
+  - **Who turns screenshots on:** `PLANQUE_CHROME_SCREENSHOTS` is one switch for every account, with no per-account choice. It stays off in production and goes on only on the owner's yes.
+  - **At 10,000 users:** each read or list of an image reads its Chrome and its connection, one item each. A failed cleanup is one item, retried hourly until it's done.
+
 - **In the owner's Chrome, `browse_act` takes more kinds of step:** `check` (tick a box or pick a radio), `press` with `key` (Enter, Escape, ArrowDown or ArrowUp on a field, control or link), `scroll` (a ref into view, or `up`/`down` for the page), `back`, and `keys: true` on a fill (typed one key at a time, for a field that offers a list as it's typed into). planque refuses them first, as the extension's guard does: a key on a password, card or code field is refused, Enter on a control or link is checked as a click on it (a paying one is `payment_step`), and Enter anywhere on a checkout or payment page is `payment_step`. The hosted browser refuses them (`bad_arguments`); it fills, selects and clicks.
 - **A page the owner's Chrome cut to fit says so:** `page.truncated` lists what was cut (`text`, `options`, `links`), and the taf reads it with the page. Only those three words are kept.
 - **A sealed fill in the owner's Chrome, behind a switch (off).** With `PLANQUE_SEALED_FILL=on`, a `browse_act` whose one step is `{fill, sealed}` fills a sign-in saved in the owner's Chrome. The `sealed` handle is `sec_…:password` or `sec_…:username`, and the step takes no value. Off, or anywhere else (the hosted browser, another tool, beside other steps), a sealed step is refused before the Chrome is asked (`sealed_fill_off`, `bad_arguments`).

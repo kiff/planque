@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"time"
@@ -35,7 +36,8 @@ import (
 //   - The owner reads it with their device's signature, by the step's id.
 //
 // Off unless PLANQUE_CHROME_SCREENSHOTS=on: both routes answer 404 and no
-// allowance is recorded.
+// allowance is recorded. It's one switch for every account (no per-account
+// choice), and it goes on in production only on the owner's yes.
 
 const (
 	labelScreenshot = "tafs-chrome/screenshot/v1"
@@ -247,6 +249,13 @@ func (s *Server) readChromeShot(w http.ResponseWriter, r *http.Request, sr signe
 		writeErr(w, http.StatusNotFound, "no image for that step")
 		return
 	}
+	if ok, err := s.shotReadable(r.Context(), sr.tenant, shot); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if !ok {
+		writeErr(w, http.StatusNotFound, "no image for that step")
+		return
+	}
 	img, err := s.Sealer.Open(r.Context(), shot.Sealed, chromeShotBinding(sr.tenant, step))
 	if err != nil {
 		s.fail(w, r, err)
@@ -256,22 +265,123 @@ func (s *Server) readChromeShot(w http.ResponseWriter, r *http.Request, sr signe
 		"taken_at": shot.At.Format(time.RFC3339), "sha256": shot.SHA256, "image": base64.RawURLEncoding.EncodeToString(img)})
 }
 
-// dropChromeShots deletes the account's kept images that match: a
-// connection's when it ends, a Chrome's when it's unpaired. The images go
-// sooner than their 30 days, as the pages a write kept do on a disconnect.
-// A failure leaves the rest to the TTL.
-func (s *Server) dropChromeShots(ctx context.Context, tenant string, match func(chromeShot) bool) {
+// shotsOf names whose images a cleanup deletes: a Chrome's (unpaired, or
+// replaced by a re-pairing, its carried connections' images with it), or a
+// connection's (disconnected).
+type shotsOf struct {
+	Chrome string `json:"chrome,omitempty"`
+	Grant  string `json:"grant,omitempty"`
+}
+
+func (o shotsOf) match(shot chromeShot) bool {
+	return o.Chrome != "" && shot.Chrome == o.Chrome || o.Grant != "" && shot.Grant == o.Grant
+}
+
+// pkChromeShotClean holds the cleanups that didn't finish, one item each, for
+// the hourly sweep to finish (sweepChromeShots).
+const pkChromeShotClean = "CHROMESHOTCLEAN"
+
+// chromeShotClean is a cleanup left for the sweep: the account and whose images.
+type chromeShotClean struct {
+	Tenant string    `json:"tenant"`
+	Of     shotsOf   `json:"of"`
+	At     time.Time `json:"at"`
+}
+
+func skChromeShotClean(tenant string, of shotsOf) string {
+	return tenant + "#" + of.Chrome + "#" + of.Grant
+}
+
+// errShotsLeft says a cleanup left images it couldn't delete: none can be read
+// meanwhile (shotReadable), and the sweep tries again.
+var errShotsLeft = errors.New("some images could not be deleted yet")
+
+// dropChromeShots deletes the account's kept images that are of what ended,
+// sooner than their 30 days, as the pages a write kept go on a disconnect.
+// A read of the images, or a delete, that fails leaves the cleanup for the
+// hourly sweep, and says so (errShotsLeft). They can't be read meanwhile:
+// their Chrome or connection is gone, which shotReadable checks.
+func (s *Server) dropChromeShots(ctx context.Context, tenant string, of shotsOf) error {
+	err := s.deleteChromeShots(ctx, tenant, of)
+	if err == nil {
+		return nil
+	}
+	s.log().WarnContext(ctx, "chrome screenshots not all deleted", slog.String("tenant", tenant), slog.String("err", err.Error()))
+	now := s.now()
+	it := store.Item{PK: pkChromeShotClean, SK: skChromeShotClean(tenant, of), TTL: now.Add(chromeShotKept + 24*time.Hour).Unix()}
+	if perr := putDoc(ctx, s.KV, it, chromeShotClean{Tenant: tenant, Of: of, At: now}, store.Cond{}); perr != nil {
+		s.log().ErrorContext(ctx, "chrome screenshots cleanup not recorded for the sweep", slog.String("tenant", tenant), slog.String("err", perr.Error()))
+	}
+	return errShotsLeft
+}
+
+// deleteChromeShots deletes them once, and says whether any read or delete failed.
+func (s *Server) deleteChromeShots(ctx context.Context, tenant string, of shotsOf) error {
 	items, err := s.KV.Query(ctx, tenantPK(tenant), "CHROMESHOT#")
 	if err != nil {
-		return
+		return err
 	}
+	var first error
 	for _, it := range items {
 		var shot chromeShot
-		if json.Unmarshal(it.Doc, &shot) != nil || !match(shot) {
+		if json.Unmarshal(it.Doc, &shot) != nil || !of.match(shot) {
 			continue
 		}
-		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil && first == nil {
+			first = err
+		}
 	}
+	return first
+}
+
+// sweepChromeShots finishes the cleanups that didn't: each is tried again, and
+// goes once its images are deleted. It returns how many finished.
+func (s *Server) sweepChromeShots(ctx context.Context) (int, error) {
+	items, err := s.KV.Query(ctx, pkChromeShotClean, "")
+	if err != nil {
+		return 0, err
+	}
+	done := 0
+	var first error
+	for _, it := range items {
+		var c chromeShotClean
+		if json.Unmarshal(it.Doc, &c) != nil || c.Tenant == "" {
+			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+			continue
+		}
+		if err := s.deleteChromeShots(ctx, c.Tenant, c.Of); err != nil {
+			first = cmpErr(first, err)
+			continue
+		}
+		if _, _, err := s.KV.Delete(ctx, it.PK, it.SK); err != nil {
+			first = cmpErr(first, err)
+			continue
+		}
+		done++
+	}
+	return done, first
+}
+
+// shotReadable says whether a kept image may still be read: its Chrome is
+// still paired to the account, and its connection is still there and not
+// disconnected. So an unpair, a re-pairing that replaced the Chrome, or a
+// disconnect cuts access at once, whether or not its images are deleted yet,
+// and an image a restore from backup brings back stays unread.
+func (s *Server) shotReadable(ctx context.Context, tenant string, shot chromeShot) (bool, error) {
+	var c Chrome
+	if _, err := getDoc(ctx, s.KV, tenantPK(tenant), skChrome(shot.Chrome), &c); errors.Is(err, errNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	g, err := s.loadGrant(ctx, tenant, shot.Grant)
+	if errors.Is(err, errNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return g.Status != StatusDisconnected, nil
 }
 
 // chromeShotsListed is the most images one operation's list names: the
@@ -318,6 +428,12 @@ func (s *Server) listChromeShots(w http.ResponseWriter, r *http.Request, sr sign
 			var shot chromeShot
 			if json.Unmarshal(it.Doc, &shot) != nil || shot.Run != op || s.now().Sub(shot.At) > chromeShotKept ||
 				slices.ContainsFunc(shots, func(k chromeShot) bool { return k.Step == shot.Step }) {
+				continue
+			}
+			if ok, err := s.shotReadable(r.Context(), sr.tenant, shot); err != nil {
+				s.fail(w, r, err)
+				return
+			} else if !ok {
 				continue
 			}
 			shots = append(shots, shot)
