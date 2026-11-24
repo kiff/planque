@@ -214,6 +214,11 @@ func TestAReadInTheOwnersChromeIsSignedMaskedAgainAndFenced(t *testing.T) {
 		t.Fatalf("the read isn't said first: %q", out)
 	}
 	out = strings.TrimPrefix(out, readLine(read)+"\n")
+	// The page asks for a password: planque's sign-in line follows the read, outside the fence.
+	if !strings.HasPrefix(out, "Sign-in: ") {
+		t.Fatalf("a page with a password field has no sign-in line: %q", out)
+	}
+	out = out[strings.IndexByte(out, '\n')+1:]
 	if !strings.HasPrefix(out, fenceNote+"\n<<<page-words:") || strings.Count(out, "<<<page-words:") != 1 || strings.Count(out, "<<</page-words:") != 1 {
 		t.Fatalf("not fenced: %q", out)
 	}
