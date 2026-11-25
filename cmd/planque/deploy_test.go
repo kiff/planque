@@ -485,3 +485,28 @@ func TestEveryBundleHoldsTheFilesTheSettingsName(t *testing.T) {
 		}
 	}
 }
+
+// Only main's newest commit deploys: the merge deploy checks main's head
+// before it touches the function, and leaves it to the newer run when this
+// commit is behind it. The deploy concurrency group serialises deploys but
+// doesn't order them: on 25 Nov 2026, #417's run deployed after #418's, and
+// 0.2.13's allow line went missing until it was rerun.
+func TestOnlyMainsNewestCommitDeploys(t *testing.T) {
+	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(ci)
+	guard := strings.Index(s, `git merge-base --is-ancestor "$GITHUB_SHA" "$head"`)
+	fetch := strings.Index(s, "git fetch --quiet --depth=200 origin main")
+	update := strings.Index(s, "update-function-code")
+	previous := strings.Index(s, "previous.zip")
+	switch {
+	case guard < 0 || fetch < 0:
+		t.Fatal("ci.yml's deploy doesn't check that its commit is still main's newest")
+	case update < 0 || previous < 0:
+		t.Fatal("ci.yml's deploy step changed: read it again")
+	case !(fetch < guard && guard < previous && guard < update):
+		t.Fatal("the newest-commit check must come before the deploy touches the function")
+	}
+}
