@@ -239,6 +239,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/pairings/{pairing}", s.signedSafe(s.readChromePairing))
 	mux.HandleFunc("POST /v1/accounts/{tenant}/chromes/pairings/{pairing}/confirm", s.signed(s.confirmChromePairing))
 	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes", s.signedSafe(s.listChromes))
+	mux.HandleFunc("GET /v1/accounts/{tenant}/chromes/self/runs", s.chromeOwnRuns)
 	// An acting step's image in the owner's own Chrome: the extension sends
 	// it, the owner reads it (chrome_screenshot.go; off unless switched on).
 	mux.HandleFunc("POST /v1/extension/steps/{step}/screenshot", extensionCORS(s.postChromeShot))

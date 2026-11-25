@@ -37,6 +37,11 @@ type Me struct {
 	Roles         []string `json:"roles"`
 	Capabilities  []string `json:"capabilities"`
 	DeviceSession bool     `json:"device_session"`
+	// DeviceID and DevicePlatform are the device a session signed in from,
+	// from KIFF's own session record: "chrome" for the tafs extension's
+	// view-only device. Empty for a key.
+	DeviceID       string `json:"device_id,omitempty"`
+	DevicePlatform string `json:"device_platform,omitempty"`
 }
 
 // ErrUnauthorized: KIFF refused the key.
@@ -141,6 +146,26 @@ func (c *Client) VerifyDevice(ctx context.Context, connectorKey, deviceID string
 		v.Key = KeyDevice
 	}
 	return v, nil
+}
+
+// ChromeDevice asks KIFF which of the account's devices is the tafs
+// extension's view-only device holding pub, the key that extension offered
+// in its pairing (POST /v1/devices/by-key). "" when none is: KIFF answers
+// a device of another account, a removed one and none alike.
+func (c *Client) ChromeDevice(ctx context.Context, connectorKey, pub string) (string, error) {
+	var out struct {
+		DeviceID string `json:"device_id"`
+	}
+	status, err := c.do(ctx, http.MethodPost, c.API+"/v1/devices/by-key", connectorKey, map[string]string{"pub": pub}, &out)
+	switch {
+	case status == http.StatusNotFound:
+		return "", nil
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return "", ErrUnauthorized
+	case err != nil:
+		return "", err
+	}
+	return out.DeviceID, nil
 }
 
 // DeletionAccepted asks KIFF whether it accepted the account's deletion by
