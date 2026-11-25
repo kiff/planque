@@ -38,7 +38,7 @@ func TestSetupsListingSaysEachConnectionsKind(t *testing.T) {
 		if g["kind"] != KindVendorSignIn || g["server"] != e.vendor.MCPURL() {
 			t.Fatalf("kind and server: %v", g)
 		}
-		for _, k := range []string{"entry", "api", "mode", "mode_words"} {
+		for _, k := range []string{"entry", "api", "mode", "mode_words", "sites"} {
 			if _, ok := g[k]; ok {
 				t.Fatalf("a vendor's own sign-in has no %s: %v", k, g)
 			}

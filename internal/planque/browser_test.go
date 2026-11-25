@@ -826,3 +826,25 @@ func TestBrowserActWithoutAReadSaysWhereItComesFrom(t *testing.T) {
 		t.Fatalf("no read: %s", out)
 	}
 }
+
+// The account's connections say a browser connection's signed sites, so tafs
+// cloud gives a taf the page the person sends with a message only from one of
+// them (a connection of any other kind says none:
+// TestSetupsListingSaysEachConnectionsKind).
+func TestTheConnectionsSayABrowserConnectionsSignedSites(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("connections: %d %v", st, out)
+	}
+	byKind := map[string]map[string]any{}
+	for _, c := range out["connections"].([]any) {
+		v := c.(map[string]any)
+		byKind[v["kind"].(string)] = v
+	}
+	sites, _ := byKind[KindBrowser]["sites"].([]any)
+	if len(sites) != 1 || sites[0] != "shop.example" {
+		t.Fatalf("the browser connection (%s): %v", g.ID, byKind[KindBrowser])
+	}
+}

@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **The account's connections say a browser connection's signed sites.** `GET /v1/accounts/{tenant}/connections` (and Setup's listing) carries `sites` on a `browser` connection, as the owner signed them. tafs cloud gives a taf the page the person sends with a message from Chrome's side panel only when the page's host is one of that taf's sites. Other kinds, and a browser connection signed for any public site, carry none. It adds no read: the sites are in the grant record the listing already reads.
 - **Each step planque sends the owner's Chrome names the run that made it.** `agent_run` is the kiff/agents run in the call's KIFF permit (claim `run`), inside the fields planque signs, so the extension works in the person's own tab only for the run they started from its panel. A permit that names no run sends steps with none, and those never join a tab.
 - **Connect apps shows each reviewed app's line in the person's language.** A catalogue entry can carry `titles` by language tag, and `GET …/catalog` answers in its `lang` parameter's language (else `Accept-Language`'s), falling back to English. The 15 reviewed entries and "Use websites" are titled in the 43 other languages tafs speaks.
 - **Screenshots of a taf's acts in the owner's Chrome stop being readable the moment what they belong to ends, and their deletion is finished even when it fails at first.**

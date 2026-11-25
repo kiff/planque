@@ -3664,6 +3664,11 @@ type connection struct {
 	Status    string    `json:"status"`
 	Mode      string    `json:"mode,omitempty"`
 	ModeWords string    `json:"mode_words,omitempty"`
+	// Sites are a browser connection's signed sites (BrowserRequest.Sites):
+	// tafs cloud gives a taf the page the person sends with a message only
+	// when its host is one of them. Absent for any other kind, and for a
+	// browser connection signed for any public site.
+	Sites []string `json:"sites,omitempty"`
 }
 
 func connectionOf(g *Grant) connection {
@@ -3681,6 +3686,10 @@ func connectionOf(g *Grant) connection {
 	case KindKey:
 		if a := g.Request.API; a != nil {
 			c.API = &grantAPI{URL: a.URL, Base: a.Base, Auth: a.Auth}
+		}
+	case KindBrowser:
+		if b := g.Request.Browser; b != nil {
+			c.Sites = slices.Clone(b.Sites)
 		}
 	}
 	return c
