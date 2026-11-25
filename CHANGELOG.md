@@ -7,6 +7,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Connect apps shows each reviewed app's line in the person's language.** A catalogue entry can carry `titles` by language tag, and `GET …/catalog` answers in its `lang` parameter's language (else `Accept-Language`'s), falling back to English. The 15 reviewed entries and "Use websites" are titled in the 43 other languages tafs speaks.
 - **Screenshots of a taf's acts in the owner's Chrome stop being readable the moment what they belong to ends, and their deletion is finished even when it fails at first.**
   - **What ends them:**
     - unpairing the Chrome;

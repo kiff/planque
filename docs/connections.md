@@ -612,6 +612,14 @@ as a grant request), and `description_sha256`: the SHA-256 of the reviewed
 OpenAPI source bytes. A changed source is refused before a grant is created.
 The full snapshot is still frozen and signed with the grant.
 
+An entry's `titles` holds its `title` in other languages, by language tag
+(`"de"`, `"pt-br"`), each starting with the vendor as the English one does.
+`GET /v1/accounts/{tenant}/catalog` shows each title in the asker's language:
+its `lang` parameter, else the first language its `Accept-Language` names; a
+tag's own title, then its language's, else the English. planque's own
+browser entry, "Use websites", is titled in the same languages. The titles
+are words only: they never change what an entry offers or what a grant signs.
+
 A key entry's address is one of three things:
 
 - **Fixed:** `"base": "https://api.example.com/v1"`.

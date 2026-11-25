@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -194,5 +195,102 @@ func TestCatalogConfigurationMustMatchItsReviewedProfile(t *testing.T) {
 	}
 	if _, err := DecodeCatalog([]byte(`{"desk@1":{"unknown":true}}`), nil); err == nil {
 		t.Fatal("unknown config accepted")
+	}
+}
+
+// A catalog read shows each entry's title in the asker's language: its lang
+// parameter's tag, then its language, else English; Accept-Language when it
+// sends no lang. A search finds the entry by its words in that language too.
+func TestCatalogTitlesInTheAskersLanguage(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	e.s.Applications = map[string]appconfig.Application{"desk": deskApplication()}
+	entry := deskCatalogEntry()
+	entry.Title = "Support desk: replies"
+	entry.Titles = map[string]string{"de": "Support desk: Antworten", "pt": "Support desk: respostas", "pt-br": "Support desk: respostas no Brasil"}
+	raw, _ := json.Marshal(map[string]CatalogEntry{entry.ID: entry})
+	var err error
+	if e.s.CatalogEntries, err = DecodeCatalog(raw, e.s.Applications); err != nil {
+		t.Fatal(err)
+	}
+	path := "/v1/accounts/" + tenant + "/catalog"
+	titleOf := func(query, acceptLanguage string) string {
+		t.Helper()
+		e.lang = acceptLanguage
+		defer func() { e.lang = "" }()
+		st, out := e.do("GET", path+query, nil, nil, "k_setup")
+		list, _ := out["entries"].([]any)
+		for _, v := range list {
+			if m := v.(map[string]any); st == 200 && m["entry"] == entry.ID {
+				return m["title"].(string)
+			}
+		}
+		t.Fatalf("%s: %d %v", query, st, out)
+		return ""
+	}
+	for query, want := range map[string]string{
+		"":                     "Support desk: replies",
+		"?lang=de":             "Support desk: Antworten",
+		"?lang=de-CH":          "Support desk: Antworten",
+		"?lang=pt-BR":          "Support desk: respostas no Brasil",
+		"?lang=pt_PT":          "Support desk: respostas",
+		"?lang=ja":             "Support desk: replies",
+		"?q=antworten&lang=de": "Support desk: Antworten",
+	} {
+		if got := titleOf(query, ""); got != want {
+			t.Errorf("%q: %q, want %q", query, got, want)
+		}
+	}
+	if got := titleOf("", "de-DE,en;q=0.5"); got != "Support desk: Antworten" {
+		t.Errorf("Accept-Language: %q", got)
+	}
+	if got := titleOf("?lang=en", "de"); got != "Support desk: replies" {
+		t.Errorf("lang over Accept-Language: %q", got)
+	}
+}
+
+// A title in another language is a label under a language tag, and starts
+// with the vendor when the English one does, so the row still splits.
+func TestCatalogTitlesAreCheckedBeforeServing(t *testing.T) {
+	apps := map[string]appconfig.Application{"desk": deskApplication()}
+	for _, titles := range []map[string]string{
+		{"de": "Antworten"},
+		{"German": "Support desk: Antworten"},
+		{"DE": "Support desk: Antworten"},
+		{"de": ""},
+		{"de": "Support desk: " + strings.Repeat("a", MaxLabel)},
+	} {
+		entry := deskCatalogEntry()
+		entry.Title, entry.Titles = "Support desk: replies", titles
+		raw, _ := json.Marshal(map[string]CatalogEntry{entry.ID: entry})
+		if _, err := DecodeCatalog(raw, apps); err == nil {
+			t.Errorf("accepted titles %v", titles)
+		}
+	}
+}
+
+// The shipped catalog titles every reviewed entry in the same languages, and
+// planque's own browser entry in those languages too.
+func TestShippedCatalogTitlesCoverTheSameLanguages(t *testing.T) {
+	raw, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries map[string]CatalogEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		t.Fatal(err)
+	}
+	for id, e := range entries {
+		if len(e.Titles) != len(useWebsites) {
+			t.Errorf("%s: %d languages, the browser entry %d", id, len(e.Titles), len(useWebsites))
+		}
+		for tag, title := range e.Titles {
+			if _, ok := useWebsites[tag]; !ok {
+				t.Errorf("%s: %s has no browser title", id, tag)
+			}
+			if !titleLang.MatchString(tag) || !strings.HasPrefix(title, e.Vendor) {
+				t.Errorf("%s: %s title %q", id, tag, title)
+			}
+		}
 	}
 }
