@@ -25,21 +25,62 @@ import (
 // It holds public protocol facts, never credentials. Revisions are immutable:
 // changing operations or access requires a new id and owner approval.
 type CatalogEntry struct {
-	ID                string          `json:"-"`
-	Vendor            string          `json:"vendor"`
-	Title             string          `json:"title"`
-	Icon              string          `json:"icon,omitempty"`
-	Kind              string          `json:"kind,omitempty"`
-	Server            string          `json:"server,omitempty"`
-	Application       string          `json:"application,omitempty"`
-	API               *apiAsk         `json:"api,omitempty"`
-	VersionHeader     string          `json:"version_header,omitempty"`
-	DescriptionSHA256 string          `json:"description_sha256,omitempty"`
-	Tools             []ToolRequest   `json:"tools"`
-	Profile           json.RawMessage `json:"profile"`
+	ID     string `json:"-"`
+	Vendor string `json:"vendor"`
+	Title  string `json:"title"`
+	// Titles is Title in other languages, by language tag ("de", "pt-br"):
+	// what Connect apps shows a person who asks in that language. English
+	// stays in Title, and a language with none reads Title (TitleIn).
+	Titles            map[string]string `json:"titles,omitempty"`
+	Icon              string            `json:"icon,omitempty"`
+	Kind              string            `json:"kind,omitempty"`
+	Server            string            `json:"server,omitempty"`
+	Application       string            `json:"application,omitempty"`
+	API               *apiAsk           `json:"api,omitempty"`
+	VersionHeader     string            `json:"version_header,omitempty"`
+	DescriptionSHA256 string            `json:"description_sha256,omitempty"`
+	Tools             []ToolRequest     `json:"tools"`
+	Profile           json.RawMessage   `json:"profile"`
 }
 
 var catalogID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}@[1-9][0-9]{0,8}$`)
+
+// titleLang is a Titles key: a language, with a region or script after a
+// hyphen when that language is written two ways ("pt-br").
+var titleLang = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})?$`)
+
+// TitleIn is the entry's title in lang, a language tag as an app sends it
+// ("pt-BR", "de-CH", "zh_Hant"): that tag's own title, else its language's,
+// else Title (English).
+func (e CatalogEntry) TitleIn(lang string) string {
+	return inLanguage(e.Titles, lang, e.Title)
+}
+
+// inLanguage is titles' line for lang (its tag, then its language), else
+// fallback.
+func inLanguage(titles map[string]string, lang, fallback string) string {
+	tag := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(lang)), "_", "-")
+	if t, ok := titles[tag]; ok && tag != "" {
+		return t
+	}
+	if base, _, _ := strings.Cut(tag, "-"); base != "" {
+		if t, ok := titles[base]; ok {
+			return t
+		}
+	}
+	return fallback
+}
+
+// catalogLang is the language a catalog read is shown in: its lang
+// parameter, else the first language its Accept-Language names.
+func catalogLang(r *http.Request) string {
+	if lang := strings.TrimSpace(r.URL.Query().Get("lang")); lang != "" {
+		return lang
+	}
+	first, _, _ := strings.Cut(r.Header.Get("Accept-Language"), ",")
+	tag, _, _ := strings.Cut(first, ";")
+	return strings.TrimSpace(tag)
+}
 
 // maxCatalogEntries is how many apps one catalog read lists.
 const maxCatalogEntries = 300
@@ -85,6 +126,16 @@ func catalogHTTPS(raw string) bool {
 func (e CatalogEntry) validate(apps map[string]appconfig.Application) error {
 	if !catalogID.MatchString(e.ID) || label(e.Vendor) != e.Vendor || e.Vendor == "" || label(e.Title) != e.Title || e.Title == "" {
 		return errors.New("a catalog entry needs a versioned id, vendor and title")
+	}
+	for tag, t := range e.Titles {
+		if !titleLang.MatchString(tag) || label(t) != t || t == "" {
+			return errors.New("a catalog entry's titles are by language tag (\"de\", \"pt-br\"), each a label")
+		}
+		// Connect apps shows the vendor as the row's name and the rest of the
+		// title under it, which works only when the title starts with it.
+		if strings.HasPrefix(e.Title, e.Vendor) && !strings.HasPrefix(t, e.Vendor) {
+			return fmt.Errorf("a catalog entry's %s title must start with its vendor, as its English one does", tag)
+		}
 	}
 	if e.Icon != "" && !catalogHTTPS(e.Icon) {
 		return errors.New("a catalog icon must be a fixed HTTPS URL")
@@ -223,11 +274,13 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := []catalogEntryView{}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	lang := catalogLang(r)
 	for id, e := range newestRevisions(s.catalogEntries()) {
-		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title), q) {
+		title := e.TitleIn(lang)
+		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title+" "+title), q) {
 			continue
 		}
-		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: e.Title, Icon: e.Icon, How: reviewedHow(e), State: "available"}
+		v := catalogEntryView{Entry: id, Vendor: e.Vendor, Title: title, Icon: e.Icon, How: reviewedHow(e), State: "available"}
 		v.Managed = s.entryManaged(e)
 		if e.API != nil {
 			if accountTemplate(e.API.Base) {
@@ -243,8 +296,9 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	// The browser (kiff/planque#86): planque's own entry, asked for with
 	// POST …/catalog/browser/grants, or POST …/grants with kind browser.
-	if s.Browser != nil && (q == "" || strings.Contains(strings.ToLower(browserVendor+" use websites"), q)) {
-		v := catalogEntryView{Entry: BrowserEntry, Vendor: browserVendor, Title: "Use websites", How: KindBrowser, State: "available"}
+	browserTitle := inLanguage(useWebsites, lang, "Use websites")
+	if s.Browser != nil && (q == "" || strings.Contains(strings.ToLower(browserVendor+" use websites "+browserTitle), q)) {
+		v := catalogEntryView{Entry: BrowserEntry, Vendor: browserVendor, Title: browserTitle, How: KindBrowser, State: "available"}
 		if state, ok := states[BrowserEntry]; ok {
 			v.State, v.Grant = state.State, state.Grant
 		}
