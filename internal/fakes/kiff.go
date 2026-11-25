@@ -37,6 +37,11 @@ type KIFF struct {
 	// Devices: the devices people approve with, by KIFF's id,
 	// checked at /v1/devices/verify.
 	Devices map[string]Device
+	// ChromeDevices: the tafs extension's view-only devices, by account
+	// and the key it offered ("<tenant> <pub>"), found at /v1/devices/by-key.
+	// ChromeDevicesAsked counts those asks.
+	ChromeDevices      map[string]string
+	ChromeDevicesAsked int
 	// Windows: the approval windows open at KIFF, by id, with the device
 	// each is open for (kiff/tafs#494); one not here, or of another
 	// device, answers open false. WindowsAsked is the window each verify
@@ -100,7 +105,7 @@ type Connection struct {
 // NewKIFF makes a fake KIFF with a fresh signing key.
 func NewKIFF() *KIFF {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}, Windows: map[string]string{}}
+	return &KIFF{Key: priv, KID: "test-1", Keys: map[string]kiff.Me{}, Cards: map[string]map[string]int64{}, Devices: map[string]Device{}, ChromeDevices: map[string]string{}, Windows: map[string]string{}}
 }
 
 // halt is an agent's halt, or its account's.
@@ -245,6 +250,7 @@ func (k *KIFF) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/me", k.me)
 	mux.HandleFunc("POST /v1/devices/verify", k.verifyDevice)
+	mux.HandleFunc("POST /v1/devices/by-key", k.chromeDevice)
 	mux.HandleFunc("POST /v1/account-deletions/status", k.deletionStatus)
 	mux.HandleFunc("GET /.well-known/kiff-permit-keys.json", k.jwks)
 	mux.HandleFunc("POST /v1/me/setup-reads", k.setupReads)
@@ -277,6 +283,36 @@ func (k *KIFF) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, me)
+}
+
+// chromeDevice answers as KIFF's /v1/devices/by-key: a connector key finds
+// its own account's Chrome device by its key; anything else is one 404.
+func (k *KIFF) chromeDevice(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if !me.APIKey || me.AgentID != "" || !slices.Contains(me.Roles, "connector") {
+		writeJSON(w, 403, map[string]string{"error": "connector_key_required"})
+		return
+	}
+	var req struct {
+		Pub string `json:"pub"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Pub == "" {
+		writeJSON(w, 400, map[string]string{"error": "invalid_request"})
+		return
+	}
+	k.mu.Lock()
+	k.ChromeDevicesAsked++
+	id, found := k.ChromeDevices[me.TenantID+" "+req.Pub]
+	k.mu.Unlock()
+	if !found {
+		writeJSON(w, 404, map[string]string{"error": "not_found"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"device_id": id})
 }
 
 // verifyDevice answers as KIFF's /v1/devices/verify: a connector key asks about a device of its own account.

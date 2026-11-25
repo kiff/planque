@@ -173,6 +173,10 @@ type chromeSession struct {
 	held  *heldRun
 	url   string
 	ended bool
+	// worked: this call's run is marked as worked in this Chrome
+	// (chrome_runs.go), once, under the grant's taf (its KIFF agent).
+	worked bool
+	agent  string
 }
 
 // startChrome is a grant's session in its paired Chrome, for the operation
@@ -196,7 +200,7 @@ func (s *Server) startChrome(ctx context.Context, g *Grant, op, taf, agentRun st
 	if g.ChromeSitesSig == "" && !carried {
 		return nil, CodeSitesUnsigned, "the owner's phone hasn't signed this connection's sites, so the Chrome would run nothing"
 	}
-	return &chromeSession{s: s, tenant: g.Tenant, chrome: b.Chrome, grant: g.ID, run: op, taf: taf, sites: b.Sites, agentRun: agentRun,
+	return &chromeSession{s: s, tenant: g.Tenant, chrome: b.Chrome, grant: g.ID, run: op, taf: taf, sites: b.Sites, agentRun: agentRun, agent: g.Request.Agent,
 		signed: chromeSitesSigned{Sites: b.Sites, Sig: g.ChromeSitesSig, Carried: carried}, deadline: time.Now().Add(chromeCallBudget)}, "", ""
 }
 
@@ -308,6 +312,10 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 		return chromePage{}, err
 	}
 	c.sent = true
+	if !c.worked {
+		c.worked = true
+		c.s.markChromeWorked(ctx, c.tenant, c.chrome, c.agentRun, c.agent, c.grant)
+	}
 	until := time.Now().Add(min(chromeWaitFor, time.Until(c.deadline)))
 	for {
 		// The result first: one the Chrome signed for this step and filed

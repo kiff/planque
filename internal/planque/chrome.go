@@ -178,6 +178,14 @@ type Chrome struct {
 	// Push is where planque wakes this Chrome's extension for a step while it
 	// isn't connected (chrome_push.go). Never listed.
 	Push *ChromePush `json:"push,omitempty"`
+	// KiffPub is the key the extension offered for its view-only KIFF device
+	// (kiff.pair.v1's pub), taken at the confirm from the offer planque
+	// relayed, never from a request. KiffDevice is the device KIFF named for
+	// it, once it did, and KiffAsked when KIFF was last asked while it named
+	// none (chrome_runs.go). Never listed.
+	KiffPub    string     `json:"kiff_pub,omitempty"`
+	KiffDevice string     `json:"kiff_device,omitempty"`
+	KiffAsked  *time.Time `json:"kiff_asked,omitempty"`
 }
 
 func skChromePairing(id string) string { return "CHROMEPAIRING#" + id }
@@ -672,7 +680,8 @@ func (s *Server) confirmChromePairing(w http.ResponseWriter, r *http.Request, sr
 		return
 	}
 	c := Chrome{ID: "chr_" + oauth.Random(12), Tenant: sr.tenant, Name: name, Key: p.Key, KeySHA256: sum,
-		Version: p.Version, ManifestHash: p.ManifestHash, Browser: p.Browser, OS: p.OS, PairedAt: s.now().UTC(), ProfileID: p.ProfileID}
+		Version: p.Version, ManifestHash: p.ManifestHash, Browser: p.Browser, OS: p.OS, PairedAt: s.now().UTC(), ProfileID: p.ProfileID,
+		KiffPub: kiffOfferPub(p.KiffOffer)}
 	// What vouches for the connections it carries, kept as the phone signed it
 	// for the extension, so a later re-pairing can carry them again. One whose
 	// signature doesn't hold is never kept: the extension refuses that pairing.
@@ -881,6 +890,8 @@ func (s *Server) removeChromeShots(ctx context.Context, tenant, id string) (bool
 	_ = putDoc(ctx, s.KV, store.Item{PK: pkChromeIndex(id), SK: "-", TTL: s.now().Add(chromeUnpairedKept).Unix()},
 		chromeIndex{Tenant: tenant, Unpaired: true}, store.Cond{})
 	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
+	// The runs it worked on leave its side panel with it (chrome_runs.go).
+	s.dropChromeWorked(ctx, tenant, id, "")
 	// Its acts' images go with it (chrome_screenshot.go), its carried
 	// connections' too when a re-pairing replaced it: they were taken in this
 	// Chrome. None can be read from now on; one not deleted is left to the sweep.
