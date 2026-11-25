@@ -143,7 +143,7 @@ func TestRePairingMovesTheCarriedConnectionsAndEndsTheRest(t *testing.T) {
 		t.Fatalf("collect: %d %v", st, out)
 	}
 	// A step of the carried connection says the pairing vouches for its sites.
-	sess, code, msg := c.s.startChrome(context.Background(), moved, "op_1", "agt_taf")
+	sess, code, msg := c.s.startChrome(context.Background(), moved, "op_1", "agt_taf", "")
 	if sess == nil || !sess.signed.Carried || sess.signed.Sig != "" {
 		t.Fatalf("the carried connection's session: %v %s %s", sess, code, msg)
 	}

@@ -285,7 +285,7 @@ func (s *Server) describeSealed(ctx context.Context, g *Grant, p permit.Permit, 
 		return OpNotSent, busy
 	}
 	taf := cmpStr(g.Request.AgentName, g.Request.Agent)
-	sess, code, why := s.startChrome(ctx, g, d.Op, taf)
+	sess, code, why := s.startChrome(ctx, g, d.Op, taf, p.Run)
 	if code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
 	}
@@ -408,7 +408,7 @@ func (s *Server) actSealed(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return stale("the release expired")
 	}
 	taf := cmpStr(g.Request.AgentName, g.Request.Agent)
-	sess, code, why := s.startChrome(ctx, g, r.Op, taf)
+	sess, code, why := s.startChrome(ctx, g, r.Op, taf, p.Run)
 	if code != "" {
 		s.closeSealedRun(ctx, r)
 		return OpNotSent, browserRefusal(code, why, false)

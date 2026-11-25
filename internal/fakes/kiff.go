@@ -534,6 +534,9 @@ type Permit struct {
 	// Approval is the owner's approval the permit was minted from, as KIFF
 	// names it; "" for a call a Card's room allowed.
 	Approval string
+	// Run is the kiff/agents run the call was made in (claim "run"), as
+	// KIFF signs it from the caller's KIFF-Run header; "" for none.
+	Run      string
 	Args     json.RawMessage
 	IssuedAt time.Time
 	Lifetime time.Duration
@@ -572,6 +575,9 @@ func (k *KIFF) Mint(p Permit) string {
 			"tool": p.Tool, "args_sha256": sum, "op": p.Op, "card": "crd_test", "decision": "dec_" + randHex(6)}}}
 	if p.Approval != "" {
 		claims["authorization_details"].([]map[string]string)[0]["approval"] = p.Approval
+	}
+	if p.Run != "" {
+		claims["authorization_details"].([]map[string]string)[0]["run"] = p.Run
 	}
 	h, _ := json.Marshal(map[string]string{"alg": "Ed25519", "typ": "kiff-permit+jwt", "kid": k.KID})
 	c, _ := json.Marshal(claims)

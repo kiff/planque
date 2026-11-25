@@ -146,7 +146,7 @@ func (s *Server) callChrome(ctx context.Context, g *Grant, tool GrantedTool, p p
 	if taf == "" {
 		taf = g.Request.Agent
 	}
-	sess, code, why := s.startChrome(ctx, g, p.Op, taf)
+	sess, code, why := s.startChrome(ctx, g, p.Op, taf, p.Run)
 	if code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
 	}

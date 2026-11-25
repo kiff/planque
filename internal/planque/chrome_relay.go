@@ -423,7 +423,13 @@ type chromeStep struct {
 	// without it.
 	SitesSigned *chromeSitesSigned `json:"sites_signed,omitempty"`
 	Op          string             `json:"op"`
-	URL         string             `json:"url,omitempty"`
+	// AgentRun is the kiff/agents run whose call sent this step, from the
+	// call's KIFF permit (claim "run"), signed with the step: the extension
+	// works in the person's own tab only for the run they started there, and
+	// only once it checked this step's signature and exp. Absent when the
+	// permit names no run; such a step never joins a tab.
+	AgentRun string `json:"agent_run,omitempty"`
+	URL      string `json:"url,omitempty"`
 	// Offset is where a paged read starts in the page's text, bound to the
 	// read it came from (ReadID).
 	Offset int             `json:"offset,omitempty"`

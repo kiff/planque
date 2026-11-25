@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -471,7 +472,7 @@ func TestAResultFiledBeforeTheConnectionEndedStands(t *testing.T) {
 	c.answer = func(map[string]any) (bool, map[string]any, string) { return true, shopPage("rd_1", nil), "" }
 	c.online(t)
 	ctx := context.Background()
-	sess, code_, why := c.s.startChrome(ctx, g, "op_order", "Shop runs")
+	sess, code_, why := c.s.startChrome(ctx, g, "op_order", "Shop runs", "")
 	if code_ != "" {
 		t.Fatal(why)
 	}
@@ -870,6 +871,73 @@ func TestACheckoutReadInTheOwnersChromeIsKeptAndBlocksEveryClick(t *testing.T) {
 	}
 }
 
+// callInRun is call with a permit KIFF minted for a call made in run.
+func (c *chromeRig) callInRun(g *Grant, tool, run string, args map[string]any) (string, map[string]any) {
+	c.t.Helper()
+	op := "op_" + strings.ToLower(tool) + "_" + randomSuffix()
+	args[IdempotencyArg] = op
+	raw := mustJSON(args)
+	return textOf(c.s.call(context.Background(), g, tool, raw, c.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: tool, Sub: g.Request.Agent, Op: op, Args: raw, Run: run})))
+}
+
+// Each step a call sends carries the run its KIFF permit names (agent_run),
+// inside what planque signs, so the extension can tell the run the person
+// started from its panel; a permit that names no run sends steps with none,
+// which never join the person's tab.
+func TestEachStepCarriesThePermitsRunSigned(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, plainPage("rd_1"), "" }
+	c.online(t)
+	if _, sc := c.callInRun(g, browseOpen, "run_ana_1", map[string]any{"url": "https://shop.example/"}); sc == nil {
+		t.Fatal("no answer")
+	}
+	c.mu.Lock()
+	sent := append([]map[string]any(nil), c.steps...)
+	c.mu.Unlock()
+	if len(sent) == 0 {
+		t.Fatal("no step was sent")
+	}
+	for _, st := range sent {
+		if st["agent_run"] != "run_ana_1" {
+			t.Fatalf("a step without its run: %v", st)
+		}
+	}
+	// The run is inside the signed step: the step verifies as sent, and the
+	// same step with another run doesn't.
+	c.r.poster.mu.Lock()
+	var signed map[string]any
+	var sig string
+	for _, m := range c.r.poster.posts["c1"] {
+		if m["type"] == "step" {
+			signed, sig = m["step"].(map[string]any), m["sig"].(string)
+			break
+		}
+	}
+	c.r.poster.mu.Unlock()
+	if signed == nil || !stepkey.Verify(c.r.planque.PublicKey(), labelStep, signed, sig) {
+		t.Fatal("the step as sent doesn't verify")
+	}
+	forged := maps.Clone(signed)
+	forged["agent_run"] = "run_other"
+	if stepkey.Verify(c.r.planque.PublicKey(), labelStep, forged, sig) {
+		t.Fatal("a step whose run was changed still verifies")
+	}
+	c.mu.Lock()
+	c.steps = nil
+	c.mu.Unlock()
+	if _, sc := c.callInRun(g, browseOpen, "", map[string]any{"url": "https://shop.example/"}); sc == nil {
+		t.Fatal("no answer")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, st := range c.steps {
+		if _, has := st["agent_run"]; has {
+			t.Fatalf("a permit with no run sent a step with one: %v", st)
+		}
+	}
+}
+
 // callApproved is call with a permit KIFF minted from the owner's approval.
 func (c *chromeRig) callApproved(g *Grant, tool string, args map[string]any) (string, map[string]any) {
 	c.t.Helper()
@@ -936,7 +1004,7 @@ func TestAResultFiledJustBeforeTheDropWins(t *testing.T) {
 	g := c.grant(t)
 	c.online(t)
 	ctx := context.Background()
-	sess, code_, why := c.s.startChrome(ctx, g, "op_race", "Shop runs")
+	sess, code_, why := c.s.startChrome(ctx, g, "op_race", "Shop runs", "")
 	if code_ != "" {
 		t.Fatal(why)
 	}
