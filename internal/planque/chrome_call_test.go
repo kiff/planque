@@ -938,6 +938,51 @@ func TestEachStepCarriesThePermitsRunSigned(t *testing.T) {
 	}
 }
 
+// A grant's held run in the Chrome is taken over only by the same kiff/agents
+// run's next call: a call from another agent run within chromeRunIdle (a
+// schedule right after the person's panel run) gets a run, and a tab, of its
+// own, and the same agent run's next call shares its own.
+func TestAHeldRunIsTakenOverOnlyByTheSameAgentRun(t *testing.T) {
+	c := newChromeRig(t)
+	g := c.grant(t)
+	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, plainPage("rd_1"), "" }
+	c.online(t)
+	runsOf := func(agentRun string) map[string]bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		out := map[string]bool{}
+		for _, st := range c.steps {
+			if st["op"] != "close" && (st["agent_run"] == agentRun || agentRun == "" && st["agent_run"] == nil) {
+				out[st["run"].(string)] = true
+			}
+		}
+		return out
+	}
+	// The panel run's two calls, one after the other, share one extension run.
+	c.callInRun(g, browseOpen, "run_panel", map[string]any{"url": "https://shop.example/"})
+	c.callInRun(g, browseOpen, "run_panel", map[string]any{"url": "https://shop.example/"})
+	if panel := runsOf("run_panel"); len(panel) != 1 {
+		t.Fatalf("the panel run's second call didn't share its run: %v", panel)
+	}
+	// Within the idle time, a schedule's call and then a call with no agent run each get their own.
+	c.callInRun(g, browseOpen, "run_schedule", map[string]any{"url": "https://shop.example/"})
+	c.callInRun(g, browseOpen, "", map[string]any{"url": "https://shop.example/"})
+	panel, schedule, none := runsOf("run_panel"), runsOf("run_schedule"), runsOf("")
+	if len(panel) != 1 || len(schedule) != 1 || len(none) != 1 {
+		t.Fatalf("runs: panel %v, schedule %v, none %v", panel, schedule, none)
+	}
+	for r := range schedule {
+		if panel[r] || none[r] {
+			t.Fatalf("the schedule's call took another agent run's extension run %q", r)
+		}
+	}
+	for r := range none {
+		if panel[r] {
+			t.Fatalf("a call with no agent run took the panel run's extension run %q", r)
+		}
+	}
+}
+
 // callApproved is call with a permit KIFF minted from the owner's approval.
 func (c *chromeRig) callApproved(g *Grant, tool string, args map[string]any) (string, map[string]any) {
 	c.t.Helper()
