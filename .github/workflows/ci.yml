@@ -83,6 +83,16 @@ jobs:
       - name: Deploy, check it live, and put the old code back if it doesn't answer
         run: |
           set -euo pipefail
+          # Only main's newest commit deploys. The concurrency group runs deploys one at a time but not in
+          # order, so an older run finishing after a newer one would put the older code back live (25 Nov:
+          # #417's run deployed after #418's, and 0.2.13's allow line went missing). A newer main has its
+          # own run, which deploys this commit's changes too.
+          git fetch --quiet --depth=200 origin main
+          head=$(git rev-parse FETCH_HEAD)
+          if [ "$head" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$head" 2>/dev/null; then
+            echo "::notice::not deployed: main is at ${head:0:7}, newer than ${GITHUB_SHA:0:7}; its own run deploys it"
+            exit 0
+          fi
           # The code the function runs now, kept to put back.
           curl -sfL "$(aws lambda get-function --function-name "$FN" --query Code.Location --output text)" -o previous.zip
           deploy() { # deploy <zip>
