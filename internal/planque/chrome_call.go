@@ -426,7 +426,7 @@ func chromeFailed(err error, ran int) map[string]any {
 const notAnotherWay = "Don't try to reach the same result another way: the owner decides it."
 
 // dontRoute are the refusals the owner made, or their Chrome made for them.
-var dontRoute = map[string]bool{"paused_by_owner": true, "stopped": true, "site_blocked": true, "needs_site_permission": true, "paused_failures": true, "paused_no_progress": true}
+var dontRoute = map[string]bool{"paused_by_owner": true, "stopped": true, "site_blocked": true, "needs_site_permission": true, "paused_failures": true, "paused_no_progress": true, "given_back": true}
 
 // chromeWhy is planque's words for each code the extension answers with.
 var chromeWhy = map[string]string{
@@ -451,10 +451,15 @@ var chromeWhy = map[string]string{
 	"page_too_large":        "the page's answer was too large to send",
 	"option_unknown":        "the list has no option by that name: choose one of the options the read gives, exactly",
 	"disabled":              "that control is turned off on the page",
-	"no_page":               "the run's tab was closed",
-	"no_hand":               "that hand-over is over, or was never opened",
-	"sealed_unknown":        "the owner's Chrome has no saved sign-in by that name",
-	"release_missing":       "the owner's release for this fill isn't in their Chrome",
+	"no_page":               "the run's tab is gone: closed, or given back to the person",
+	"no_back":               "the tab has no earlier page of this run's to go back to",
+	// The person moved in their own tab the run was working in: it's theirs again, and the run works there no more.
+	"given_back": "the person moved to another page in their own tab, so the taf stopped working in that tab, which is theirs again. " +
+		"Tell them in one plain line, in their language, for example: you moved to another page, so I stopped working in that tab; " +
+		"send me your message again from the page you want. Make no other step there",
+	"no_hand":         "that hand-over is over, or was never opened",
+	"sealed_unknown":  "the owner's Chrome has no saved sign-in by that name",
+	"release_missing": "the owner's release for this fill isn't in their Chrome",
 }
 
 // recoverable are the refusals a taf gets past by building its next call

@@ -74,7 +74,7 @@ var chromeNotRun = map[string]bool{
 	"bad_step": true, "bad_url": true, "address_private": true, "site_not_listed": true, "site_blocked": true,
 	"needs_site_permission": true, "page_changed": true, "ref_unknown": true, "not_visible": true, "secret_field": true,
 	"payment_step": true, "dialog_open": true, "paused_by_owner": true, "paused_failures": true, "paused_no_progress": true, "stopped": true,
-	"option_unknown": true, "disabled": true, "no_page": true,
+	"option_unknown": true, "disabled": true, "no_page": true, "no_back": true, "given_back": true,
 }
 
 // chromeRefusal is a step the Chrome answered with an error: its code, and
@@ -344,7 +344,8 @@ func (c *chromeSession) after(p chromePage, err error) {
 	switch {
 	case err == nil && p.URL != "":
 		c.url = p.URL
-	case errors.As(err, &r) && r.Code == "stopped":
+	case errors.As(err, &r) && (r.Code == "stopped" || r.Code == "given_back"):
+		// The person stopped the run, or took back the tab of theirs it worked in.
 		c.ended = true
 	}
 }

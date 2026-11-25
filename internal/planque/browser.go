@@ -772,8 +772,12 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			}
 			if c, ok := sess.(*chromeSession); ok && cr != nil && recoverable[cr.Code] {
 				// The Chrome refused before doing anything: the page is read
-				// again (a read changes nothing), so the taf gets it with the why.
-				if now, err := c.read(ctx, 0); err == nil {
+				// again (a read changes nothing), so the taf gets it with the why,
+				// only while the tab still shows the address this call was on. A
+				// tab that shows another (the person moved in a tab of theirs the
+				// run joined) gives the taf nothing of it, whatever the Chrome
+				// let through.
+				if now, err := c.read(ctx, 0); err == nil && sameAddress(now.Page.URL, page.URL) {
 					res = s.withPage(ctx, g, c, res, now.Page)
 				}
 			}
@@ -881,4 +885,12 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skCheckout(g.ID, a.URL))
 	return OpDone, browserAnswer(map[string]any{"site": rec.Site, "lines": co.Lines, "total": co.Total, "currency": co.Currency,
 		"confirmation": noteOf(after), "evidence": s.keepEvidence(ctx, g, p.Op, sess, page, after)})
+}
+
+// sameAddress reports whether a and b are the same page's address: equal
+// once a fragment is dropped (an anchor in the same page). Empty is never
+// the same as anything.
+func sameAddress(a, b string) bool {
+	a, b = strings.SplitN(a, "#", 2)[0], strings.SplitN(b, "#", 2)[0]
+	return a != "" && a == b
 }
