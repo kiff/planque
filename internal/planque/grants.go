@@ -3664,6 +3664,14 @@ type connection struct {
 	Status    string    `json:"status"`
 	Mode      string    `json:"mode,omitempty"`
 	ModeWords string    `json:"mode_words,omitempty"`
+	// Sites are a browser connection's signed sites (BrowserRequest.Sites),
+	// and AnySite says one was signed for any public site (no sites): tafs
+	// cloud gives a taf the page the person sends with a message only when
+	// its host is one of the sites, or AnySite. A browser connection says
+	// exactly one of them; any other kind says neither, so an absent pair
+	// is never read as "any site".
+	Sites   []string `json:"sites,omitempty"`
+	AnySite bool     `json:"any_site,omitempty"`
 }
 
 func connectionOf(g *Grant) connection {
@@ -3681,6 +3689,13 @@ func connectionOf(g *Grant) connection {
 	case KindKey:
 		if a := g.Request.API; a != nil {
 			c.API = &grantAPI{URL: a.URL, Base: a.Base, Auth: a.Auth}
+		}
+	case KindBrowser:
+		// As a call reads it (browser.Allowed): no list is any public site.
+		if b := g.Request.Browser; b != nil && len(b.Sites) > 0 {
+			c.Sites = slices.Clone(b.Sites)
+		} else {
+			c.AnySite = true
 		}
 	}
 	return c
