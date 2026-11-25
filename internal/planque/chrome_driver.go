@@ -314,7 +314,7 @@ func (c *chromeSession) stepPage(ctx context.Context, st chromeStep) (chromePage
 	c.sent = true
 	if !c.worked {
 		c.worked = true
-		c.s.markChromeWorked(ctx, c.tenant, c.chrome, c.agentRun, c.agent)
+		c.s.markChromeWorked(ctx, c.tenant, c.chrome, c.agentRun, c.agent, c.grant)
 	}
 	until := time.Now().Add(min(chromeWaitFor, time.Until(c.deadline)))
 	for {

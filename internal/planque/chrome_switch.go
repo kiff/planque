@@ -63,6 +63,8 @@ func (s *Server) switchChrome(w http.ResponseWriter, r *http.Request, sr signedR
 	}
 	// Both Chromes hear their lists again: it left one and joined the other.
 	s.tellChromes(r.Context(), g.Tenant, was, c.ID)
+	// Its runs leave the old Chrome's side panel (chrome_runs.go).
+	s.dropChromeWorked(r.Context(), g.Tenant, was, g.ID)
 	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 

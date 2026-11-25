@@ -18,8 +18,9 @@ import (
 //
 // Each step planque sends a Chrome marks that Chrome and the kiff/agents run
 // whose call sent it: the run is the call's permit's, which KIFF signed, and
-// the Chrome is the one the step went to, so a connection moved to another
-// Chrome later carries nothing with it. The panel asks with its own KIFF
+// the Chrome is the one the step went to. A connection moved to another
+// Chrome takes its runs out of the old one's panel, and carries none to the
+// new one. The panel asks with its own KIFF
 // session: KIFF's /v1/me names the session's device, and planque finds the
 // paired Chrome that device is by the key the extension offered for it at
 // pairing (Chrome.KiffPub), which KIFF matches to its device
@@ -48,8 +49,17 @@ const chromeKiffAskEvery = time.Minute
 
 func skChromeWorked(chrome, run string) string { return "CHROMEWORKED#" + chrome + "#" + run }
 
-// chromeWorked is one run that worked in a Chrome.
+// chromeWorked is one run that worked in a Chrome, through the connection
+// Grant (kept, never listed: a move of that connection drops it).
 type chromeWorked struct {
+	Run   string    `json:"run"`
+	Taf   string    `json:"taf"`
+	Grant string    `json:"grant,omitempty"`
+	At    time.Time `json:"at"`
+}
+
+// chromeWorkedRow is a run as the panel's read lists it.
+type chromeWorkedRow struct {
 	Run string    `json:"run"`
 	Taf string    `json:"taf"`
 	At  time.Time `json:"at"`
@@ -72,27 +82,33 @@ func kiffOfferPub(offer string) string {
 // markChromeWorked keeps that run worked in chrome. A call with no run (a
 // permit from before runs were named) marks nothing. A mark that can't be
 // kept is logged: the step still goes.
-func (s *Server) markChromeWorked(ctx context.Context, tenant, chrome, run, taf string) {
+func (s *Server) markChromeWorked(ctx context.Context, tenant, chrome, run, taf, grant string) {
 	if run == "" {
 		return
 	}
 	now := s.now().UTC()
 	err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(tenant), SK: skChromeWorked(chrome, run), TTL: now.Add(chromeWorkedKept).Unix()},
-		chromeWorked{Run: run, Taf: taf, At: now}, store.Cond{})
+		chromeWorked{Run: run, Taf: taf, Grant: grant, At: now}, store.Cond{})
 	if err != nil {
 		s.log().ErrorContext(ctx, "a run's mark in its Chrome wasn't kept", slog.String("tenant", tenant), slog.String("chrome", chrome), slog.String("err", err.Error()))
 	}
 }
 
-// dropChromeWorked removes an unpaired Chrome's marks. One left is never
-// read: the Chrome is gone, and its mark ends on its own.
-func (s *Server) dropChromeWorked(ctx context.Context, tenant, chrome string) {
+// dropChromeWorked removes a Chrome's marks: all of an unpaired one's, or,
+// with grant, those of a connection that moved to another Chrome. One left
+// after an unpairing is never read: the Chrome is gone, and its mark ends on
+// its own.
+func (s *Server) dropChromeWorked(ctx context.Context, tenant, chrome, grant string) {
 	items, err := s.KV.Query(ctx, tenantPK(tenant), skChromeWorked(chrome, ""))
 	if err != nil {
 		s.log().ErrorContext(ctx, "an unpaired Chrome's runs weren't listed", slog.String("tenant", tenant), slog.String("chrome", chrome), slog.String("err", err.Error()))
 		return
 	}
 	for _, it := range items {
+		var m chromeWorked
+		if grant != "" && (json.Unmarshal(it.Doc, &m) != nil || m.Grant != grant) {
+			continue
+		}
 		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
 	}
 }
@@ -108,7 +124,7 @@ func (s *Server) chromeOwnRuns(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	runs := []chromeWorked{}
+	runs := []chromeWorkedRow{}
 	if !me.DeviceSession || me.DevicePlatform != "chrome" || me.DeviceID == "" || !s.chromeOnFor(tenant) {
 		writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
 		return
@@ -130,7 +146,7 @@ func (s *Server) chromeOwnRuns(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(it.Doc, &m) != nil || m.Run == "" || (it.TTL != 0 && now.Unix() >= it.TTL) {
 				continue
 			}
-			runs = append(runs, m)
+			runs = append(runs, chromeWorkedRow{Run: m.Run, Taf: m.Taf, At: m.At})
 		}
 		sort.SliceStable(runs, func(i, j int) bool { return runs[i].At.After(runs[j].At) })
 		runs = runs[:min(len(runs), chromeWorkedListed)]

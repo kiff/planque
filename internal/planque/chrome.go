@@ -891,7 +891,7 @@ func (s *Server) removeChromeShots(ctx context.Context, tenant, id string) (bool
 		chromeIndex{Tenant: tenant, Unpaired: true}, store.Cond{})
 	s.closeChrome(ctx, tenant, id, closeUnpaired, "this Chrome was unpaired")
 	// The runs it worked on leave its side panel with it (chrome_runs.go).
-	s.dropChromeWorked(ctx, tenant, id)
+	s.dropChromeWorked(ctx, tenant, id, "")
 	// Its acts' images go with it (chrome_screenshot.go), its carried
 	// connections' too when a re-pairing replaced it: they were taken in this
 	// Chrome. None can be read from now on; one not deleted is left to the sweep.

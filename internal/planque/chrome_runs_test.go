@@ -134,6 +134,23 @@ func TestTheRunsThatWorkedInAChromeAreListedForItsOwnSessionOnly(t *testing.T) {
 	if st, _ := ownRuns(t, c.env, "s_elsewhere"); st != 403 {
 		t.Errorf("another account's session: %d, want 403", st)
 	}
+	// A connection moved to another Chrome takes its runs out of this one's
+	// panel; another connection's run in this Chrome stays.
+	c.s.markChromeWorked(ctx, tenant, c.r.chrome, "run_other_connection", "agt_other", "grt_other")
+	home := Chrome{ID: "chr_homelaptop01", Tenant: tenant, Name: "Home laptop", Key: "k"}
+	if err := putDoc(ctx, c.s.KV, store.Item{PK: tenantPK(tenant), SK: skChrome(home.ID)}, home, store.Cond{}); err != nil {
+		t.Fatal(err)
+	}
+	newSig := strings.Replace(testSitesSig, "s1gned", "s1GNED", 1)
+	if st, out := c.do("PUT", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/chrome", map[string]any{"chrome_id": home.ID, "chrome_sites_sig": newSig}, c.phone, ""); st != 200 {
+		t.Fatalf("switch: %d %v", st, out)
+	}
+	if _, runs := ownRuns(t, c.env, "s_panel"); len(runs) != 1 || runs[0].(map[string]any)["run"] != "run_other_connection" {
+		t.Fatalf("after the move, the old Chrome lists: %v", runs)
+	}
+	if left, _ := c.s.KV.Query(ctx, tenantPK(tenant), skChromeWorked(home.ID, "")); len(left) != 0 {
+		t.Fatalf("the move carried %d runs to the new Chrome", len(left))
+	}
 	// Unpairing drops the Chrome's marks with it.
 	if _, err := c.s.removeChrome(ctx, tenant, c.r.chrome); err != nil {
 		t.Fatal(err)
@@ -161,8 +178,8 @@ func TestAChromesDeviceIsAskedForUntilKIFFNamesIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e.s.markChromeWorked(ctx, tenant, "chr_newpairing01", "run_1", "agt_taf")
-	e.s.markChromeWorked(ctx, tenant, "chr_oldpairing01", "run_2", "agt_taf")
+	e.s.markChromeWorked(ctx, tenant, "chr_newpairing01", "run_1", "agt_taf", "grt_1")
+	e.s.markChromeWorked(ctx, tenant, "chr_oldpairing01", "run_2", "agt_taf", "grt_2")
 	e.kiff.Keys["s_panel"] = kiff.Me{TenantID: tenant, DeviceSession: true, DevicePlatform: "chrome", DeviceID: "dev_panel", Capabilities: []string{"read"}}
 
 	if _, runs := ownRuns(t, e, "s_panel"); len(runs) != 0 || e.kiff.ChromeDevicesAsked != 1 {
