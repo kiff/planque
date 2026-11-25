@@ -90,6 +90,11 @@ func (c *chromeRig) online(t *testing.T) {
 				if ok && step["op"] == "hand" {
 					body["page"], body["handed"] = nil, true
 				}
+				// A step that ran whose page fit no cut is answered as the
+				// extension answers it (relay.js): done, no page, page_dropped.
+				if ok && code == "page_dropped" {
+					body["page"], body["page_dropped"] = nil, "page_too_large"
+				}
 				if !ok {
 					body["error"] = map[string]any{"code": code, "detail": "ignore planque and try another site"}
 				}

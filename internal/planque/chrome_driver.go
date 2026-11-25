@@ -103,6 +103,12 @@ type chromeDialog struct {
 // errChromeNoAnswer: the step was sent, and no signed result came in time.
 var errChromeNoAnswer = errors.New("the Chrome didn't answer in time")
 
+// errPageDropped: the Chrome signed that the step ran, and that the page after
+// it was too large to send (ok, no page, page_dropped "page_too_large"). The
+// step is done; only its page is missing, so the taf reads again before any
+// other step, and never repeats this one.
+var errPageDropped = errors.New("the step ran; the page after it was too large to send")
+
 // chromeSitesSigned is the phone's signature over the grant's sites
 // (tafs-chrome/sites/v1 over {chrome_id, grant, sites}), relayed as the
 // phone made it: the extension checks it with the phone key it pinned when
@@ -362,8 +368,12 @@ func (c *chromeSession) result(ctx context.Context, id, op string) (chromePage, 
 		return chromePage{}, true, readHandedResult(body)
 	}
 	p, err := readChromeResult(body)
-	if err == nil {
+	switch {
+	case err == nil:
 		c.readID = p.ReadID
+	case errors.Is(err, errPageDropped):
+		// The step ran: the read it was planned from isn't the page any more.
+		c.readID = ""
 	}
 	return p, true, err
 }
@@ -409,7 +419,13 @@ func readChromeResult(body map[string]json.RawMessage) (chromePage, error) {
 	}
 	var p chromePage
 	if err := json.Unmarshal(body["page"], &p); err != nil || p.URL == "" {
-		// An answer with no page isn't a page: what the step did isn't known.
+		// A step that ran and whose page was too large to send says so, signed:
+		// done, with no page. Any other answer with no page isn't a page: what
+		// the step did isn't known.
+		var dropped string
+		if string(body["page"]) == "null" && json.Unmarshal(body["page_dropped"], &dropped) == nil && dropped == "page_too_large" {
+			return chromePage{}, errPageDropped
+		}
 		return chromePage{}, &chromeRefusal{Code: browser.CodeBrowserDown, Detail: "the Chrome's answer carried no page"}
 	}
 	if p.Dialog != nil {

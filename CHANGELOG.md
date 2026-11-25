@@ -7,6 +7,9 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **A step the owner's Chrome ran, whose page was too large to send, is done, never a failure.** For Chrome 0.2.21, which answers such a step (an act, its back included, or a hand-over) ok, with no page and `page_dropped: "page_too_large"`, signed with the rest of the result.
+  - planque tells the taf, in its own words, that the step ran and not to repeat it, and to read the page again before any other step; the steps after it in the call aren't sent. Nothing is read for it, and the read it was planned from stays the latest one.
+  - **An older Chrome's `page_too_large` after an act** now says the step may have run, and not to repeat it, where it said the step failed.
 - **A tab of the person's that a run joined: what the taf hears when they move, and what it never gets.** For Chrome 0.2.15, which hands such a tab back to the person.
   - **`given_back`:** the extension's answer when the person moved in their own tab. planque tells the taf, in its own words, to say so to the person in one plain line in their language and to make no other step there. The call is "Not sent", the taf is told not to try another way, and the run ends, so its next call starts a new one.
   - **A page planque reads again after a refused step** (`page_changed` and the other recoverable codes) goes to the taf only while the tab still shows the address the call was on. A tab showing another address gives the taf nothing of it and is kept as no read, so the person's page never reaches a taf even if a Chrome let the read through. A refused answer's own page was never kept or forwarded, and a test now pins that.

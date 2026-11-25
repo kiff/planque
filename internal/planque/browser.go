@@ -755,6 +755,14 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			return state, res
 		}
 		next, err := sess.Do(ctx, st)
+		if errors.Is(err, errPageDropped) {
+			// The owner's Chrome ran the step and couldn't send the page after
+			// it: the step is done, never a failure (a taf told its Submit
+			// failed may press it again). Nothing more runs with no page to
+			// check it against.
+			ran++
+			return OpDone, ranNoPage(i+1, ran, len(a.Steps)-ran, s.openToolName(ctx, g))
+		}
 		if cr := (*chromeRefusal)(nil); errors.Is(err, errChromeOffline) || errors.As(err, &cr) && cr.NotRun() {
 			// The owner's Chrome refused the step before doing anything, or
 			// wasn't there to take it: nothing more runs, and nothing is unknown.
@@ -785,6 +793,10 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 		}
 		if err != nil {
 			why := err.Error()
+			tooLarge := false
+			if cr := (*chromeRefusal)(nil); errors.As(err, &cr) && cr.Code == "page_too_large" {
+				tooLarge = true
+			}
 			if _, chrome := sess.(*chromeSession); chrome {
 				// The owner's Chrome: what the taf reads is planque's own words,
 				// never the extension's; its detail goes to the log, cut short.
@@ -792,6 +804,11 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 				err = errors.New(cut(err.Error(), 200))
 			}
 			s.log().WarnContext(ctx, "browser step failed", slog.String("grant", g.ID), slog.String("op", p.Op), slog.String("err", err.Error()))
+			if tooLarge {
+				// A Chrome before it said page_dropped answers an act that ran,
+				// and whose page fit no cut, this way: the step may have run.
+				return OpUnknown, toolResult(fmt.Sprintf("Step %d may have run in the owner's Chrome: the page after it was too large to send, so what it did isn't known. Don't repeat it: read the page again with %s before a new call, and if that read doesn't show whether it ran, ask the person.", i+1, s.openToolName(ctx, g)), true)
+			}
 			res := toolResult(fmt.Sprintf("Step %d failed in the browser (%s): the steps before it ran; what the page did with them isn't known. planque will not run them again; read the page before a new call.", i+1, why), true)
 			return OpUnknown, res
 		}
@@ -807,6 +824,21 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 	}
 	return OpDone, browserAnswer(map[string]any{"site": browser.Site(page.URL), "steps_run": ran, "read": browser.Read(page), "page": browser.Mask(page, maxPageText),
 		"evidence": s.keepEvidence(ctx, g, p.Op, sess, before, page)})
+}
+
+// ranNoPage is the answer to a step the owner's Chrome ran and whose page was
+// too large to send: done, with planque's words and no page's, so it is never
+// fenced (fenceResult). step is the step's number, ran how many steps ran in
+// all, notSent how many after it weren't sent.
+func ranNoPage(step, ran, notSent int, openTool string) map[string]any {
+	text := fmt.Sprintf("Step %d ran in the owner's Chrome, but the page after it was too large to send, so there's no page to show.", step)
+	if notSent > 0 {
+		text += fmt.Sprintf(" The steps after it weren't sent (%d).", notSent)
+	}
+	text += " Don't repeat it: it ran. Read the page again with " + openTool + " before any other step; if that read is too large too, tell the person in one plain line, in their language, that the page is too large for you to read."
+	r := toolResult(text, false)
+	r["structuredContent"] = map[string]any{"steps_run": ran, "steps_not_sent": notSent, "page_dropped": "page_too_large"}
+	return r
 }
 
 // browsePay completes a checkout once, with KIFF's permit for it: the
