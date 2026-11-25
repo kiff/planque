@@ -1016,12 +1016,19 @@ func profileIDShape(v string) bool {
 }
 
 // chromeConnection is one browser connection on a paired Chrome, as the
-// Chromes list says it: its grant, the taf's name and the sites it reaches.
+// Chromes list says it: its grant, the taf's name and the sites it reaches,
+// and the owner's phone's signature over those sites (SitesSigned), as the
+// grant's steps carry it. The extension takes a taf's sites for the page the
+// person has open only from that signature, checked with the phone key it
+// pinned (tafs chrome/src/protocol.js signedSitesOf), never from Sites.
 type chromeConnection struct {
 	Grant string   `json:"grant"`
 	Agent string   `json:"agent"`
 	Name  string   `json:"name"`
 	Sites []string `json:"sites"`
+	// SitesSigned is absent for a connection with no phone signature of its
+	// own: one a re-pairing carried, whose sites the pairing holds.
+	SitesSigned *chromeSitesSigned `json:"sites_signed,omitempty"`
 }
 
 // chromesConnections is each Chrome's live connections (asked for or
@@ -1043,7 +1050,12 @@ func (s *Server) chromesConnections(ctx context.Context, tenant string) (map[str
 			if name == "" {
 				name = g.Request.Agent
 			}
-			on[b.Chrome] = append(on[b.Chrome], chromeConnection{Grant: g.ID, Agent: g.Request.Agent, Name: name, Sites: b.Sites})
+			c := chromeConnection{Grant: g.ID, Agent: g.Request.Agent, Name: name, Sites: b.Sites}
+			if g.ChromeSitesSig != "" {
+				// The same {sites, sig} the grant's steps carry (startChrome).
+				c.SitesSigned = &chromeSitesSigned{Sites: b.Sites, Sig: g.ChromeSitesSig}
+			}
+			on[b.Chrome] = append(on[b.Chrome], c)
 		}
 	}
 	return on, nil

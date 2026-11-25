@@ -7,6 +7,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **Each connection the owner's Chrome hears carries the phone's signature over its sites** (`sites_signed: {sites, sig}`, the same the grant's steps carry), in the welcome and in each `connections` update. The extension takes a taf's sites for the page the person has open only from that signature, so until now no taf was ever given the page. A connection with no phone signature of its own (one a re-pairing carried) has none.
+  - **Contracts:** the welcome and the list, as planque posts them, are written to `internal/planque/testdata/chrome-welcome.json` and `chrome-connections.json` (`UPDATE_CONTRACTS=1`), for tafs' extension tests to read in place of a hand-written fake.
 - **A step the owner's Chrome ran, whose page was too large to send, is done, never a failure.** For Chrome 0.2.21, which answers such a step (an act, its back included, or a hand-over) ok, with no page and `page_dropped: "page_too_large"`, signed with the rest of the result.
   - planque tells the taf, in its own words, that the step ran and not to repeat it, and to read the page again before any other step; the steps after it in the call aren't sent. Nothing is read for it, and the read it was planned from stays the latest one.
   - **An older Chrome's `page_too_large` after an act** now says the step may have run, and not to repeat it, where it said the step failed.
