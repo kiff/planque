@@ -844,7 +844,24 @@ func TestTheConnectionsSayABrowserConnectionsSignedSites(t *testing.T) {
 		byKind[v["kind"].(string)] = v
 	}
 	sites, _ := byKind[KindBrowser]["sites"].([]any)
-	if len(sites) != 1 || sites[0] != "shop.example" {
+	if _, any := byKind[KindBrowser]["any_site"]; len(sites) != 1 || sites[0] != "shop.example" || any {
 		t.Fatalf("the browser connection (%s): %v", g.ID, byKind[KindBrowser])
+	}
+}
+
+// A browser connection signed for no sites works on any public site, and
+// says so in words of its own, any_site: never as a missing list, which is
+// also what every other kind (and an older planque) sends.
+func TestABrowserConnectionForAnySiteSaysSo(t *testing.T) {
+	for name, b := range map[string]*BrowserRequest{"no sites": {Currency: "EUR"}, "no browser limits": nil} {
+		g := &Grant{Request: Request{Agent: "agt_taf", Kind: KindBrowser, Browser: b}, Status: StatusConnected}
+		c := connectionOf(g)
+		if !c.AnySite || c.Sites != nil {
+			t.Fatalf("%s: %+v", name, c)
+		}
+	}
+	key := connectionOf(&Grant{Request: Request{Agent: "agt_taf", API: &APIRequest{URL: "https://api.example/openapi.json"}}})
+	if key.AnySite || key.Sites != nil {
+		t.Fatalf("a key grant: %+v", key)
 	}
 }
