@@ -142,13 +142,16 @@ type chromePage struct {
 // follow one another (chrome_run.go, held), or, when another call holds that
 // one, the call's own, closed with it.
 type chromeSession struct {
-	s        *Server
-	tenant   string
-	chrome   string
-	grant    string
-	run      string
-	taf      string
-	sites    []string
+	s      *Server
+	tenant string
+	chrome string
+	grant  string
+	run    string
+	taf    string
+	sites  []string
+	// agentRun is the call's permit's run (Permit.Run): each step it sends
+	// carries it (chromeStep.AgentRun).
+	agentRun string
 	signed   chromeSitesSigned
 	deadline time.Time
 	n        int
@@ -169,7 +172,7 @@ type chromeSession struct {
 // startChrome is a grant's session in its paired Chrome, for the operation
 // op: the pairing and the offer are read again here, on every call, so a
 // Chrome unpaired or an account no longer offered stops the next step.
-func (s *Server) startChrome(ctx context.Context, g *Grant, op, taf string) (*chromeSession, string, string) {
+func (s *Server) startChrome(ctx context.Context, g *Grant, op, taf, agentRun string) (*chromeSession, string, string) {
 	b := g.Request.Browser
 	if b == nil || b.Driver != DriverExtension || b.Chrome == "" {
 		return nil, CodeChromeUnpaired, "this connection names no paired Chrome"
@@ -187,7 +190,7 @@ func (s *Server) startChrome(ctx context.Context, g *Grant, op, taf string) (*ch
 	if g.ChromeSitesSig == "" && !carried {
 		return nil, CodeSitesUnsigned, "the owner's phone hasn't signed this connection's sites, so the Chrome would run nothing"
 	}
-	return &chromeSession{s: s, tenant: g.Tenant, chrome: b.Chrome, grant: g.ID, run: op, taf: taf, sites: b.Sites,
+	return &chromeSession{s: s, tenant: g.Tenant, chrome: b.Chrome, grant: g.ID, run: op, taf: taf, sites: b.Sites, agentRun: agentRun,
 		signed: chromeSitesSigned{Sites: b.Sites, Sig: g.ChromeSitesSig, Carried: carried}, deadline: time.Now().Add(chromeCallBudget)}, "", ""
 }
 
@@ -259,7 +262,7 @@ func (c *chromeSession) Close(ctx context.Context) ([]byte, error) {
 // base fills in what every step of the run carries.
 func (c *chromeSession) base(st chromeStep) chromeStep {
 	st.ID = chromeStepID(c.run, c.n)
-	st.ChromeID, st.Run, st.Taf, st.Grant, st.Sites = c.chrome, c.run, c.taf, c.grant, c.sites
+	st.ChromeID, st.Run, st.Taf, st.Grant, st.Sites, st.AgentRun = c.chrome, c.run, c.taf, c.grant, c.sites, c.agentRun
 	signed := c.signed
 	st.SitesSigned = &signed
 	return st

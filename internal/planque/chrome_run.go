@@ -43,15 +43,21 @@ func skChromeRun(g *Grant) string { return "CHROMERUN#" + g.ID }
 
 // chromeRunDoc is a grant's run: its id and step count, the extension's read
 // id and the address its tab shows, the sites' signature and the Chrome it
-// began under, and when its last call ended. Run is empty once it ended.
+// began under, the kiff/agents run whose calls it serves, and when its last
+// call ended. Run is empty once it ended.
 type chromeRunDoc struct {
-	Run    string    `json:"run,omitempty"`
-	N      int       `json:"n,omitempty"`
-	ReadID string    `json:"read_id,omitempty"`
-	URL    string    `json:"url,omitempty"`
-	Sites  string    `json:"sites"`
-	Chrome string    `json:"chrome"`
-	At     time.Time `json:"at"`
+	Run    string `json:"run,omitempty"`
+	N      int    `json:"n,omitempty"`
+	ReadID string `json:"read_id,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Sites  string `json:"sites"`
+	Chrome string `json:"chrome"`
+	// AgentRun is the kiff/agents run whose calls this run serves (the
+	// permit's run, chromeStep.AgentRun): only that run's next call takes it
+	// over, since a run may hold the person's own tab, which joins only the
+	// run they started from the panel. "" for calls whose permit named none.
+	AgentRun string    `json:"agent_run,omitempty"`
+	At       time.Time `json:"at"`
 }
 
 // heldRun is the run a call holds: the version it wrote, and what the run's
@@ -72,8 +78,8 @@ func (c *chromeSession) sitesKey() string {
 }
 
 // claimRun makes the grant's run this call's: the one under way when it's
-// still the grant's (same Chrome, same signed sites, idle less than
-// chromeRunIdle, no other call holding it), else a new one, under the call's
+// still the grant's (same Chrome, same signed sites, the same kiff/agents run,
+// idle less than chromeRunIdle, no other call holding it), else a new one, under the call's
 // own operation id, after closing the one before. When the record can't be
 // read or written, or another call holds the run, the call runs alone, as
 // each call did before: nothing is shared and its run closes with it.
@@ -96,7 +102,9 @@ func (s *Server) claimRun(ctx context.Context, g *Grant, c *chromeSession) {
 	}
 	// A run the person paused stays the grant's past its idle time
 	// (chromeRunPausedFor), so the step sent again on Resume goes on in its tab.
-	if found && doc.Run != "" && doc.Chrome == c.chrome && doc.Sites == c.sitesKey() &&
+	// Never another kiff/agents run's: a schedule's, the phone's or the watch's
+	// call right after the person's panel run gets a run, and a tab, of its own.
+	if found && doc.Run != "" && doc.Chrome == c.chrome && doc.Sites == c.sitesKey() && doc.AgentRun == c.agentRun &&
 		(now.Sub(doc.At) < chromeRunIdle || s.runPaused(ctx, g.Tenant, doc.Chrome, doc.Run, now)) {
 		if putDoc(ctx, s.KV, next, doc, cond) != nil {
 			return
@@ -105,7 +113,7 @@ func (s *Server) claimRun(ctx context.Context, g *Grant, c *chromeSession) {
 		c.held = &heldRun{ver: next.Ver, url: doc.URL, reused: true}
 		return
 	}
-	if putDoc(ctx, s.KV, next, chromeRunDoc{Run: c.run, Sites: c.sitesKey(), Chrome: c.chrome, At: now}, cond) != nil {
+	if putDoc(ctx, s.KV, next, chromeRunDoc{Run: c.run, Sites: c.sitesKey(), Chrome: c.chrome, AgentRun: c.agentRun, At: now}, cond) != nil {
 		return
 	}
 	c.held = &heldRun{ver: next.Ver}
@@ -135,9 +143,9 @@ func (c *chromeSession) restart(id string) {
 // with no answer) is closed and left for the next call to start anew.
 func (s *Server) releaseRun(ctx context.Context, c *chromeSession) {
 	now := s.now()
-	doc := chromeRunDoc{Run: c.run, N: c.n, ReadID: c.readID, URL: c.url, Sites: c.sitesKey(), Chrome: c.chrome, At: now}
+	doc := chromeRunDoc{Run: c.run, N: c.n, ReadID: c.readID, URL: c.url, Sites: c.sitesKey(), Chrome: c.chrome, AgentRun: c.agentRun, At: now}
 	if c.ended {
-		doc = chromeRunDoc{Sites: doc.Sites, Chrome: c.chrome, At: now}
+		doc = chromeRunDoc{Sites: doc.Sites, Chrome: c.chrome, AgentRun: c.agentRun, At: now}
 	}
 	it := store.Item{PK: tenantPK(c.tenant), SK: skChromeRun(&Grant{ID: c.grant}), Ver: c.held.ver + 1, TTL: now.Add(chromeRunPausedFor + chromeRunLease).Unix()}
 	ver := c.held.ver

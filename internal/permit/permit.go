@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,10 @@ type Permit struct {
 	// Approval is the held call the owner approved, when KIFF minted this
 	// permit from that approval; "" when a Card's room allowed the call.
 	Approval string
+	// Run is the kiff/agents run the call was made in, as KIFF signed it
+	// from the caller's KIFF-Run header (claim "run"); "" when it names none,
+	// or names something that isn't a run's id.
+	Run      string
 	IssuedAt time.Time
 	Expires  time.Time
 }
@@ -112,6 +117,7 @@ type claims struct {
 		Card       string `json:"card"`
 		Decision   string `json:"decision"`
 		Approval   string `json:"approval"`
+		Run        string `json:"run"`
 	} `json:"authorization_details"`
 }
 
@@ -176,7 +182,19 @@ func (v *Verifier) Verify(ctx context.Context, token string, want Want) (Permit,
 		return Permit{}, ErrLifetime
 	}
 	return Permit{ID: c.Jti, Subject: c.Sub, Tenant: d.Tenant, Tool: d.Tool, ArgsHash: d.ArgsSHA256,
-		Op: d.Op, Card: d.Card, Decision: d.Decision, Approval: d.Approval, IssuedAt: iat, Expires: exp}, nil
+		Op: d.Op, Card: d.Card, Decision: d.Decision, Approval: d.Approval, Run: runOf(d.Run), IssuedAt: iat, Expires: exp}, nil
+}
+
+// runID is what a run's id may be: kiff/agents' ids are short and plain.
+var runID = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
+
+// runOf is a permit's run claim, or "" for one that isn't a run's id: the
+// claim is KIFF's, signed, but only an id goes any further.
+func runOf(r string) string {
+	if !runID.MatchString(r) {
+		return ""
+	}
+	return r
 }
 
 func (v *Verifier) now() time.Time {

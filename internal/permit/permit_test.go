@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -74,5 +75,22 @@ func TestJWKSTrust(t *testing.T) {
 	now = now.Add(31 * time.Minute)
 	if _, err := j.Key(ctx, "k2"); err == nil {
 		t.Fatal("trusted a key set older than an hour")
+	}
+}
+
+// A permit's run claim goes further only as a run's id: KIFF signs it from
+// the caller's KIFF-Run header, and anything else in it is dropped.
+func TestARunClaimIsKeptOnlyAsARunsID(t *testing.T) {
+	for in, want := range map[string]string{
+		"run_ana_1":                  "run_ana_1",
+		"01KAXQ7Z9V3M2E8R5N4T6Y1W0B": "01KAXQ7Z9V3M2E8R5N4T6Y1W0B",
+		"":                           "",
+		"run with spaces":            "",
+		"run\nnext":                  "",
+		strings.Repeat("r", 129):     "",
+	} {
+		if got := runOf(in); got != want {
+			t.Errorf("runOf(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
