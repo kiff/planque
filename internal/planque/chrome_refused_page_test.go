@@ -164,7 +164,7 @@ func TestEveryCodeTheChromeSendsHasPlanquesWordsNamingNoTool(t *testing.T) {
 		"page_changed", "ref_unknown", "not_visible", "secret_field", "payment_step", "dialog_open",
 		"paused_by_owner", "paused_failures", "paused_no_progress", "stopped", "page_unresponsive",
 		"browser_unavailable", "page_too_large", "option_unknown", "disabled", "no_page", "no_hand",
-		"sealed_unknown", "release_missing",
+		"sealed_unknown", "release_missing", "no_back", "given_back",
 	}
 	tool := regexp.MustCompile(`\bbrowse_[a-z_]+`)
 	for _, c := range sent {
