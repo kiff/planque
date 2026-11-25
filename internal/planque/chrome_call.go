@@ -403,6 +403,8 @@ func chromeFailed(err error, ran int) map[string]any {
 	switch {
 	case errors.Is(err, errChromeOffline):
 		return browserRefusal(CodeChromeOffline, "the owner's Chrome isn't reachable (closed, or the computer is asleep); this step can run when it is", ran > 0)
+	case errors.Is(err, errPageDropped):
+		return browserRefusal("page_too_large", chromeWhy["page_too_large"], ran > 0)
 	case errors.As(err, &r):
 		why, ok := chromeWhy[r.Code]
 		if !ok {
@@ -670,6 +672,10 @@ func fenceResult(res any, tag string) any {
 	if isErr, _ := r["isError"].(bool); isErr {
 		return res
 	}
+	if _, dropped := sc["page_dropped"]; dropped {
+		// A step that ran with no page after it (ranNoPage): planque's words only.
+		return res
+	}
 	delete(sc, "note")
 	return fencedAnswer(sc, tag)
 }
@@ -715,6 +721,8 @@ func chromeUnknownWhy(err error) string {
 		return "the owner's Chrome answered " + r.Code
 	case errors.Is(err, errChromeDropped):
 		return "the owner's Chrome's connection ended while the step waited"
+	case errors.Is(err, errPageDropped):
+		return "the step ran; the page after it was too large to send"
 	default:
 		return "the owner's Chrome didn't answer in time"
 	}

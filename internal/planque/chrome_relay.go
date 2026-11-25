@@ -374,8 +374,9 @@ func (s *Server) relayResult(ctx context.Context, conn chromeConn, m map[string]
 
 // resultBody is what the Chrome signed in a result message m: the six fields
 // every result carries, over the step's own nonce and this Chrome's id too, so
-// a result is filed only against the step planque sent to this Chrome; and a
-// hand step's "handed" (protocol.js result), signed with the rest. False when
+// a result is filed only against the step planque sent to this Chrome; a hand
+// step's "handed" (protocol.js result); and "page_dropped", a step that ran
+// whose page was too large to send. Each is signed with the rest. False when
 // one of the six is missing.
 func resultBody(m map[string]json.RawMessage) (map[string]json.RawMessage, bool) {
 	body := map[string]json.RawMessage{}
@@ -386,8 +387,10 @@ func resultBody(m map[string]json.RawMessage) (map[string]json.RawMessage, bool)
 		}
 		body[k] = v
 	}
-	if v, ok := m["handed"]; ok {
-		body["handed"] = v
+	for _, k := range []string{"handed", "page_dropped"} {
+		if v, ok := m[k]; ok {
+			body[k] = v
+		}
 	}
 	return body, true
 }

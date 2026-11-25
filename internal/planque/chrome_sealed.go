@@ -424,6 +424,10 @@ func (s *Server) actSealed(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if cr := (*chromeRefusal)(nil); errors.Is(err, errChromeOffline) || errors.As(err, &cr) && cr.NotRun() {
 		return OpNotSent, chromeFailed(err, 0)
 	}
+	if errors.Is(err, errPageDropped) {
+		// The fill ran; only the page after it was too large to send.
+		return OpDone, ranNoPage(1, 1, 0, s.openToolName(ctx, g))
+	}
 	if err != nil {
 		var cr *chromeRefusal
 		if errors.As(err, &cr) && (cr.Code == CodeReleaseMissing || cr.Code == "sealed_unknown") {
