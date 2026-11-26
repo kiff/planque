@@ -140,9 +140,9 @@ func (s *Server) undeclare(ctx context.Context, g *Grant) error {
 // the profile fails, the declared tools go too, and the key is deleted.
 func (s *Server) connectDeclared(ctx context.Context, g *Grant) error {
 	// Connecting until the approved profile is in KIFF too (Registering).
-	g.Status, g.HeldUntil, g.Declared, g.Registering = StatusConnected, time.Time{}, false, true
+	g.Status, g.HeldUntil, g.Declared, g.Registering, g.RegisterBy = StatusConnected, time.Time{}, false, true, s.now().Add(registerTTL).UTC()
 	if err := s.saveGrant(ctx, g); err != nil {
-		g.Status, g.Declared, g.Registering = StatusPending, true, false
+		g.Status, g.Declared, g.Registering, g.RegisterBy = StatusPending, true, false, time.Time{}
 		return err
 	}
 	var names, titles []string
@@ -159,7 +159,7 @@ func (s *Server) connectDeclared(ctx context.Context, g *Grant) error {
 	}
 	g.event(s.now(), "Connected in KIFF: "+strings.Join(titles, ", ")+" (declared at the request)")
 	s.setupReads(ctx, key, g)
-	g.Registering = false
+	g.Registering, g.RegisterBy = false, time.Time{}
 	return s.saveGrant(ctx, g)
 }
 

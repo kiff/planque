@@ -1,9 +1,12 @@
 package planque
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 // A grant whose tools are still being registered in KIFF reads as connecting,
@@ -83,5 +86,72 @@ func TestRegisteringEndsWithAFailure(t *testing.T) {
 	}
 	if g.Status != StatusFailed || g.Registering || g.registering() {
 		t.Fatalf("after a refused registration: %s, registering %v", g.Status, g.Registering)
+	}
+}
+
+// A registration cut off mid-way (planque's run timed out or stopped between
+// two tools) never leaves the grant reading as connecting for ever: past
+// RegisterBy the sweep undoes it, what was registered leaves KIFF and the
+// grant fails. Before that, the sweep leaves a registration under way alone.
+func TestARegistrationCutOffIsUndoneByTheSweep(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	if st, out := e.approveAndSignIn(id, digest); st != 200 || out["status"] != StatusConnected {
+		t.Fatalf("confirm: %d %v", st, out)
+	}
+	if n := len(e.kiff.Connections(tenant)); n != 2 {
+		t.Fatalf("KIFF holds %d tools, want 2", n)
+	}
+	// As a run that stopped after registering: saved connected, still registering.
+	ctx := context.Background()
+	g, err := e.s.loadGrant(ctx, tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Registering, g.RegisterBy = true, e.s.now().Add(registerTTL).UTC()
+	if err := e.s.saveGrant(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	if g.deadline() != g.RegisterBy {
+		t.Fatalf("the registration's deadline: %v", g.deadline())
+	}
+
+	e.at(registerTTL - time.Minute)
+	if n, err := e.s.Sweep(ctx); err != nil || n != 0 {
+		t.Fatalf("a sweep within the registration's time: %d %v", n, err)
+	}
+	if g, _ := e.s.loadGrant(ctx, tenant, id); !g.registering() || len(e.kiff.Connections(tenant)) != 2 {
+		t.Fatalf("a registration under way was touched: %s registering %v", g.Status, g.Registering)
+	}
+
+	e.at(registerTTL + time.Minute)
+	if n, err := e.s.Sweep(ctx); err != nil || n != 1 {
+		t.Fatalf("the sweep past RegisterBy: %d %v", n, err)
+	}
+	g, _ = e.s.loadGrant(ctx, tenant, id)
+	if g.Status != StatusFailed || g.Registering || !g.RegisterBy.IsZero() || !strings.Contains(g.Reason, "didn't finish") {
+		t.Fatalf("after the sweep: %s, registering %v by %v, %q", g.Status, g.Registering, g.RegisterBy, g.Reason)
+	}
+	if n := len(e.kiff.Connections(tenant)); n != 0 {
+		t.Fatalf("KIFF still holds %d of its tools", n)
+	}
+	if !g.deadline().IsZero() {
+		t.Fatalf("a failed grant keeps a deadline: %v", g.deadline())
+	}
+}
+
+// A registration that finishes leaves no deadline behind.
+func TestAFinishedRegistrationHasNoDeadline(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, digest := e.request()
+	e.approveAndSignIn(id, digest)
+	g, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Status != StatusConnected || g.Registering || !g.RegisterBy.IsZero() || !g.deadline().IsZero() {
+		t.Fatalf("connected: %s, registering %v by %v, deadline %v", g.Status, g.Registering, g.RegisterBy, g.deadline())
 	}
 }

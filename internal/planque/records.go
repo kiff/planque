@@ -307,9 +307,15 @@ type Grant struct {
 	// connected meanwhile (view: StatusConnecting): an agent that read a tool now
 	// would get KIFF's "Unknown tool". Cleared once the last tool and the profile
 	// are in KIFF, or by a failure.
-	Registering bool    `json:"registering,omitempty"`
-	Request     Request `json:"request"`
-	Text        string  `json:"text"`
+	Registering bool `json:"registering,omitempty"`
+	// RegisterBy is when a registration under way (Registering) must have
+	// finished: past it, planque was cut off mid-way (its run timed out or
+	// stopped), and the sweep, or the grant's next read, undoes what was
+	// registered and fails the grant, so it never reads as connecting for
+	// ever. Zero once Registering ends.
+	RegisterBy time.Time `json:"register_by,omitempty"`
+	Request    Request   `json:"request"`
+	Text       string    `json:"text"`
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.
