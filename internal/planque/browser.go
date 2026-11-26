@@ -515,6 +515,11 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if err := dec.Decode(&a); err != nil {
 		return OpNotSent, browserRefusal(CodeBadArguments, "the arguments aren't this tool's: "+err.Error(), false)
 	}
+	// A proof test account's tafs pay for nothing, whoever approves it, in
+	// planque's browser or the owner's Chrome.
+	if tool.Tool == browsePay && s.ProofTestTenants[g.Tenant] {
+		return OpNotSent, browserRefusal(CodeTestTenant, "this is a test account: none of its tafs pays for anything", false)
+	}
 	// A hand-over's answer is planque's to give, from what it kept: no page,
 	// no Chrome step, so no URL to check.
 	if tool.Tool == browseHandResult {

@@ -680,6 +680,11 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 		writeErr(w, http.StatusBadRequest, "this key is in the connection's fixed header, which isn't kept as a secret: nothing was kept")
 		return
 	}
+	// A proof test account never holds a live Stripe key, given or replaced.
+	if why := s.testTenantKeyRefusal(g, key); why != "" {
+		writeTestTenant(w, why)
+		return
+	}
 	a := sr.approval
 	if err := profileApproval(g.Request.Profile, req.Profile); err != nil {
 		s.fail(w, r, err)

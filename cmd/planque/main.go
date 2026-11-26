@@ -30,6 +30,10 @@
 //	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
 //	                   accounts that may make a managed connection to any app;
 //	                   set at deploy, never kept in the repository
+//	PLANQUE_PROOF_TEST_TENANTS optional tenants:<id>[,<id>]: the accounts a
+//	                   robot test user runs (KIFF_PROOF_TEST_TENANTS' ids):
+//	                   no live Stripe key and no browse_pay there; set at
+//	                   deploy, never kept in the repository
 //	PLANQUE_CHROME_OFFER which accounts the owner's own Chrome is offered to,
 //	                   once a build is listed: on (every one), test (only
 //	                   PLANQUE_CHROME_TENANTS, tenants:<id>[,<id>]), or off;
@@ -332,6 +336,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if err != nil {
 		return nil, errors.New("PLANQUE_OWN_CLIENT_TENANTS " + err.Error())
 	}
+	proofTenants, err := planque.ManagedTestTenantsFrom(os.Getenv("PLANQUE_PROOF_TEST_TENANTS"))
+	if err != nil {
+		return nil, errors.New("PLANQUE_PROOF_TEST_TENANTS " + err.Error())
+	}
 	// KIFF's proof monitor, when set, is the only source of proved marks. Half
 	// a setting is a mistake, never a silent fall back to the shipped file. Its
 	// read-only token is read from planque's one secret (proof_state_token)
@@ -344,6 +352,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	return &planque.Server{
 		ProofState:         proofState,
 		ManagedTestTenants: testTenants,
+		ProofTestTenants:   proofTenants,
 		NeverUse:           neverUse,
 		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",

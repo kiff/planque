@@ -455,6 +455,11 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		if provider, toolkit, match := connectorEntry(id); match {
 			switch directEntryFor(toolkit) {
 			case StripeEntry:
+				// A proof test account connects Stripe only by a test key.
+				if s.testTenantStripeManaged(r.PathValue("tenant"), toolkit) {
+					writeTestTenant(w, stripeOnlyByTestKey)
+					return
+				}
 				writeErr(w, http.StatusConflict, "Stripe connects directly, with test mode: ask for catalog entry "+StripeEntry)
 				return
 			case QontoEntry:
