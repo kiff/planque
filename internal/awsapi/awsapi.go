@@ -13,10 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -44,6 +46,17 @@ type Client struct {
 	Creds    func() (Credentials, error)
 	HTTP     *http.Client
 	Endpoint string // optional override, e.g. a local DynamoDB
+	// RetryDropped sends a call once more when its connection dropped before
+	// an answer (EOF, reset), signed afresh. Only for a service whose calls
+	// are safe to send twice, such as KMS's: a DynamoDB write may have landed
+	// before the drop, and a second one would count or refuse it again.
+	RetryDropped bool
+}
+
+// dropped reports whether err is a connection that closed before its answer:
+// a kept-alive connection the other side had closed (EOF), or a reset.
+func dropped(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET)
 }
 
 // Error is an AWS error answer.
@@ -68,6 +81,27 @@ func (c *Client) Do(ctx context.Context, action string, in, out any) error {
 	if err != nil {
 		return err
 	}
+	err = c.do(ctx, action, body, out)
+	if err != nil && c.RetryDropped && dropped(err) && ctx.Err() == nil {
+		// One retry, after a short wait (100–200 ms, jittered so a burst of
+		// dropped calls doesn't come back at once), or none if the caller's
+		// time ran out meanwhile.
+		t := time.NewTimer(retryWait + time.Duration(rand.Int64N(int64(retryWait))))
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return err
+		case <-t.C:
+		}
+		err = c.do(ctx, action, body, out)
+	}
+	return err
+}
+
+// retryWait is the least wait before a dropped call is sent again.
+var retryWait = 100 * time.Millisecond
+
+func (c *Client) do(ctx context.Context, action string, body []byte, out any) error {
 	endpoint := c.Endpoint
 	if endpoint == "" {
 		endpoint = "https://" + c.Service + "." + c.Region + ".amazonaws.com/"

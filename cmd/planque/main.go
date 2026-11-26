@@ -139,7 +139,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	switch {
 	case os.Getenv("PLANQUE_KMS_KEY") != "":
 		sealer = &seal.KMS{KeyID: os.Getenv("PLANQUE_KMS_KEY"), API: &awsapi.Client{Service: "kms", Region: region,
-			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds, RetryDropped: true}}
 	case os.Getenv("PLANQUE_LOCAL_KEY") != "":
 		l, err := seal.NewLocal(os.Getenv("PLANQUE_LOCAL_KEY"))
 		if err != nil {
@@ -311,7 +311,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			return nil, errors.New("PLANQUE_CHROME_STEP_KEY and PLANQUE_CHROME_WS_ENDPOINT must name the step key and the WebSocket API's https endpoint")
 		}
 		chromeSigner = stepkey.KMS{KeyID: stepKey, Client: &awsapi.Client{Service: "kms", Region: region,
-			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds}}
+			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds, RetryDropped: true}}
 		chromePoster = wsapi.API{Endpoint: strings.TrimRight(wsEndpoint, "/"), Region: region, Creds: creds}
 	}
 	// Which accounts the owner's Chrome is offered to: every one, a few, or
