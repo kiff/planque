@@ -156,6 +156,10 @@ type Server struct {
 	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps        map[string]bool
 	ManagedTestTenants map[string]bool
+	// ProofTestTenants are the accounts a robot test user runs
+	// (PLANQUE_PROOF_TEST_TENANTS, test_tenants.go): they take no live
+	// Stripe key, and none of their tafs pays (browse_pay).
+	ProofTestTenants map[string]bool
 	// NeverUse are grants whose sign-ins are never reused or called, by any
 	// grant on the same account at the app (PLANQUE_NEVER_USE, NeverUseFrom):
 	// an account no taf is meant to reach.
