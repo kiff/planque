@@ -466,6 +466,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			return
 		}
 		reused, meta, api, server = g, g.Vendor, g.Request.API, g.Request.Server
+		if s.testTenantStripeSignIn(tenant, g.Request.Kind, server) {
+			writeTestTenant(w, stripeOnlyByTestKey)
+			return
+		}
 		if req.Application != "" && (g.Request.Application == nil || g.Request.Application.ID != req.Application) {
 			writeErr(w, http.StatusBadRequest, "that connection belongs to another registered application")
 			return
@@ -540,6 +544,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	case req.Kind == KindBrowser:
 		// No vendor to discover: the browser is planque's own.
 	default:
+		if s.testTenantStripeSignIn(tenant, req.Kind, server) {
+			writeTestTenant(w, stripeOnlyByTestKey)
+			return
+		}
 		meta, err = s.OAuth.Discover(r.Context(), server)
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, "Couldn't find how to sign in to "+server+": "+err.Error())
@@ -664,8 +672,7 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	switch {
 	// A new connection on a held sign-in, by either route: only to an app
 	// the published list names (managed_apps.go).
-	case !s.managedAllowed(tenant, from.Request.Connector.Toolkit):
-		writeErr(w, http.StatusForbidden, errNotDisclosed)
+	case !s.managedOK(w, tenant, from.Request.Connector.Toolkit):
 		return
 	case more:
 		writeErr(w, http.StatusBadRequest, "reusing a managed app's sign-in takes agent, agent_name and tools: [] alone: pick its tools from the catalog once it's listed")

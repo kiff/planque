@@ -2,6 +2,8 @@ package planque
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -104,5 +106,51 @@ func TestAProofTestAccountsTafsPayNothing(t *testing.T) {
 		if code(sc) != "" || len(e.b.Orders) != 1 {
 			t.Fatalf("another account's pay: %s %v", out, sc)
 		}
+	}
+}
+
+// On a proof test account, Stripe's other ways in are refused before
+// anything is kept: a sign-in to Stripe's MCP server, from the catalog's
+// Stripe entry and asked directly, and the managed Stripe app (whose key is
+// typed on the platform's page). The API-key grant still connects with a
+// test key.
+func TestAProofTestAccountConnectsStripeOnlyByATestKey(t *testing.T) {
+	e := newEnv(t)
+	e.s.ProofTestTenants = map[string]bool{tenant: true}
+	e.enrol()
+	for name, ask := range map[string]func() (int, map[string]any){
+		"the catalog's Stripe entry": func() (int, map[string]any) {
+			return e.do("POST", "/v1/accounts/"+tenant+"/catalog/"+StripeEntry+"/grants", map[string]any{"agent": "agt_taf"}, nil, "k_setup")
+		},
+		"a sign-in asked directly": func() (int, map[string]any) {
+			return e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"agent": "agt_taf", "server": stripeServer, "tools": []any{}}, nil, "k_setup")
+		},
+	} {
+		st, out := ask()
+		if st != http.StatusForbidden || out["code"] != CodeTestTenant || !strings.Contains(out["error"].(string), "test mode") {
+			t.Errorf("%s: %d %v", name, st, out)
+		}
+	}
+	if items, _ := e.kv.Query(context.Background(), tenantPK(tenant), "GRANT#"); len(items) != 0 {
+		t.Fatalf("a refused Stripe sign-in kept %d grants", len(items))
+	}
+	// The managed Stripe app, at every step that checks a managed connection.
+	rec := httptest.NewRecorder()
+	if e.s.managedOK(rec, tenant, "stripe") || rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), CodeTestTenant) {
+		t.Fatalf("the managed Stripe app on a test account: %d %s", rec.Code, rec.Body)
+	}
+	e.s.ManagedTestTenants = map[string]bool{tenant: true} // may connect any app
+	if rec := httptest.NewRecorder(); !e.s.managedOK(rec, tenant, "googlesheets") {
+		t.Fatalf("another app on a test account: %d %s", rec.Code, rec.Body)
+	}
+	// Not a proof test account: neither is refused here.
+	if e.s.testTenantStripeManaged("another-tenant", "stripe") || e.s.testTenantStripeSignIn("another-tenant", "", stripeServer) {
+		t.Fatal("another account's Stripe is refused")
+	}
+	// The API-key grant connects with a test key, its tools approved.
+	v := newRESTVendor(t)
+	g := e.connectAPI(v)
+	if g.Status != StatusConnected {
+		t.Fatalf("the API-key grant with a test key: %s", g.Status)
 	}
 }

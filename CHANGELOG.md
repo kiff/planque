@@ -9,6 +9,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 - **A proof test account never moves real money.** `PLANQUE_PROOF_TEST_TENANTS` (`tenants:<id>[,<id>]`, as `PLANQUE_MANAGED_TEST_TENANTS`; set at deploy to the ids in KIFF's `KIFF_PROOF_TEST_TENANTS`, never kept in the repository; a malformed value stops planque from starting) names the accounts a robot test user runs. On those accounts:
   - **A Stripe key must be in test mode.** A key given or replaced for an API-key connection (`POST …/grants/{id}/key`) is refused, 403 with `code: test_tenant`, with nothing kept, when it's a key to Stripe's API (`api.stripe.com`) that doesn't start `sk_test_` or `rk_test_`, or a live Stripe secret or restricted key (`sk_`, `rk_`) given for any vendor. A test key is taken as before.
+  - **Stripe connects only by that test key.** Its other two ways carry a key planque never reads, so both are refused (403, `code: test_tenant`, nothing kept): a sign-in to Stripe's MCP server (`mcp.stripe.com`, from the catalog's Stripe entry or asked directly, a held one reused included), and the managed Stripe app at every step that checks a managed connection (its key is typed on the connection platform's page).
   - **No taf pays.** Every `browse_pay` is refused (`refused_by: connection`, `code: test_tenant`, nothing sent), for every agent, in planque's browser and in the owner's Chrome, whatever approval it carries.
   - Every other account is unchanged. Unset, no account is a proof test account. `deploy/aws.sh` keeps the setting on a rerun.
 

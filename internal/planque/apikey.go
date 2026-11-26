@@ -682,7 +682,7 @@ func (s *Server) giveKey(w http.ResponseWriter, r *http.Request, sr signedReques
 	}
 	// A proof test account never holds a live Stripe key, given or replaced.
 	if why := s.testTenantKeyRefusal(g, key); why != "" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": why, "code": CodeTestTenant})
+		writeTestTenant(w, why)
 		return
 	}
 	a := sr.approval

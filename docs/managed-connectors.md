@@ -106,7 +106,9 @@ The accounts a robot test user runs (KIFF's `KIFF_PROOF_TEST_TENANTS`) never
 move real money: `PLANQUE_PROOF_TEST_TENANTS=tenants:<id>[,<id>]`, set at
 deploy the same way, refuses them a live Stripe key (a key to Stripe's API that
 doesn't start `sk_test_` or `rk_test_`, or a live `sk_`/`rk_` key for any
-vendor) and every `browse_pay`, both with `code: test_tenant`. It narrows only;
+vendor), any other way to connect Stripe (a sign-in to `mcp.stripe.com`, or the
+managed Stripe app, whose keys planque never sees), and every `browse_pay`, all
+with `code: test_tenant`. It narrows only;
 unset, no account is one.
 
 The account-authenticated catalog endpoints include upstream discovery:

@@ -418,8 +418,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 	}
 	// Only an app the subprocessors page names (managed_apps.go): checked
 	// before anything, a held sign-in's reuse included, reaches the platform.
-	if !s.managedAllowed(tenant, toolkit) {
-		writeErr(w, http.StatusForbidden, errNotDisclosed)
+	if !s.managedOK(w, tenant, toolkit) {
 		return
 	}
 	body, err := readBody(r)
@@ -641,8 +640,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 			err = s.addTools(r.Context(), g, "", sr.approval)
 		} else {
 			// A new connection: only to an app the published list names now.
-			if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
-				writeErr(w, http.StatusForbidden, errNotDisclosed)
+			if !s.managedOK(w, g.Tenant, g.Request.Connector.Toolkit) {
 				return
 			}
 			a := sr.approval
@@ -660,8 +658,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	// A sign-in under way that never came back to the app: the approving
 	// device asks again, and planque asks the provider (kiff/planque#87).
 	if g.Connector != nil && !g.SignedIn && (g.Status == StatusApproved || g.Status == StatusSignedIn) {
-		if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
-			writeErr(w, http.StatusForbidden, errNotDisclosed)
+		if !s.managedOK(w, g.Tenant, g.Request.Connector.Toolkit) {
 			return
 		}
 		s.resumeConnectorSignIn(w, r, sr, g, p)
@@ -692,8 +689,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 	}
 	// A grant asked before the app left the published list (or before the
 	// list) starts no sign-in at the platform now.
-	if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
-		writeErr(w, http.StatusForbidden, errNotDisclosed)
+	if !s.managedOK(w, g.Tenant, g.Request.Connector.Toolkit) {
 		return
 	}
 	s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in approved "+sr.approval.Who())
@@ -1595,8 +1591,7 @@ func (s *Server) connectFreshConnector(w http.ResponseWriter, r *http.Request, s
 		s.fail(w, r, err)
 		return
 	}
-	if !s.managedAllowed(g.Tenant, g.Request.Connector.Toolkit) {
-		writeErr(w, http.StatusForbidden, errNotDisclosed)
+	if !s.managedOK(w, g.Tenant, g.Request.Connector.Toolkit) {
 		return
 	}
 	from := g.Connector.Account
