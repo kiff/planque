@@ -9,5 +9,6 @@
   "gmail": {"at": "2026-11-13", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/3084c2a2"},
   "typeform": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/900c6465"},
   "googlecalendar": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/cc430a6f"},
-  "googledrive": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/cc430a6f"}
+  "googledrive": {"at": "2026-11-16", "how": "oauth", "link": "https://github.com/kiff/tafs/commit/cc430a6f"},
+  "moneybird": {"at": "2026-11-26", "how": "key", "entries": ["moneybird-key"], "link": "https://github.com/kiff/tafs/pull/2188"}
 }
