@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "un instrument al aplicației s-a schimbat de când l-ați aprobat",
 		PausedGone:          "un instrument al aplicației pe care l-ați aprobat nu mai este oferit",
 		Connected:           "Conectat",
+		Connecting:          "Se conectează · instrumentele dvs. sunt configurate în KIFF",
 		NewToolsWaiting:     "Conectat · instrumente noi așteaptă aprobarea dvs.",
 		ToolsWaiting:        "Conectat la cont · instrumente care așteaptă aprobarea dvs.",
 		WaitingForYou:       "Așteaptă aprobarea dvs.",

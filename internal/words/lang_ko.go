@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "승인한 뒤 앱 도구가 바뀌었습니다",
 		PausedGone:          "승인한 앱 도구가 더 이상 제공되지 않습니다",
 		Connected:           "연결됨",
+		Connecting:          "연결 중 · KIFF에서 도구를 설정하는 중",
 		NewToolsWaiting:     "연결됨 · 새 도구가 승인을 기다리는 중",
 		ToolsWaiting:        "로그인함 · 도구가 승인을 기다리는 중",
 		WaitingForYou:       "승인을 기다리는 중",

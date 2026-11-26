@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "כלי של האפליקציה השתנה מאז שאישרת אותו",
 		PausedGone:          "כלי של האפליקציה שאישרת כבר לא מוצע",
 		Connected:           "מחובר",
+		Connecting:          "מתחבר · הכלים שלך מוגדרים ב-KIFF",
 		NewToolsWaiting:     "מחובר · כלים חדשים ממתינים לאישורך",
 		ToolsWaiting:        "נכנסת · כלים ממתינים לאישורך",
 		WaitingForYou:       "ממתין לאישורך",

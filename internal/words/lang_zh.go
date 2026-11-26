@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "您核准後，App 的某項工具已變更",
 		PausedGone:          "您核准的某項 App 工具已不再提供",
 		Connected:           "已連接",
+		Connecting:          "連接中 · 正在 KIFF 中設定您的工具",
 		NewToolsWaiting:     "已連接 · 新工具等待您核准",
 		ToolsWaiting:        "已登入 · 工具等待您核准",
 		WaitingForYou:       "等待您核准",

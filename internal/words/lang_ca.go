@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "una eina de l'aplicació ha canviat des que la vas aprovar",
 		PausedGone:          "una eina de l'aplicació que vas aprovar ja no s'ofereix",
 		Connected:           "Connectat",
+		Connecting:          "Connectant · les teves eines s'estan configurant a KIFF",
 		NewToolsWaiting:     "Connectat · eines noves esperen la teva aprovació",
 		ToolsWaiting:        "Sessió iniciada · eines esperen la teva aprovació",
 		WaitingForYou:       "Espera la teva aprovació",

@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "programos įrankis pasikeitė po to, kai jį patvirtinote",
 		PausedGone:          "programos įrankis, kurį patvirtinote, nebesiūlomas",
 		Connected:           "Prijungta",
+		Connecting:          "Jungiamasi · jūsų įrankiai nustatomi KIFF",
 		NewToolsWaiting:     "Prijungta · nauji įrankiai laukia jūsų patvirtinimo",
 		ToolsWaiting:        "Prisijungta · įrankiai laukia jūsų patvirtinimo",
 		WaitingForYou:       "Laukia jūsų patvirtinimo",

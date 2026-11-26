@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "një mjet i aplikacionit ka ndryshuar që kur e miratuat",
 		PausedGone:          "një mjet i aplikacionit që e miratuat nuk ofrohet më",
 		Connected:           "E lidhur",
+		Connecting:          "Po lidhet · mjetet tuaja po konfigurohen në KIFF",
 		NewToolsWaiting:     "E lidhur · mjete të reja presin miratimin tuaj",
 		ToolsWaiting:        "Keni hyrë · mjete që presin miratimin tuaj",
 		WaitingForYou:       "Pret miratimin tuaj",

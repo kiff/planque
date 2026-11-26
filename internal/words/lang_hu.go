@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "az alkalmazás egyik eszköze megváltozott, mióta jóváhagytad",
 		PausedGone:          "egy alkalmazáseszköz, amelyet jóváhagytál, már nem érhető el",
 		Connected:           "Csatlakoztatva",
+		Connecting:          "Csatlakozás · az eszközeid beállítása folyamatban a KIFF-ben",
 		NewToolsWaiting:     "Csatlakoztatva · új eszközök várnak a jóváhagyásodra",
 		ToolsWaiting:        "Bejelentkezve · eszközök várnak a jóváhagyásodra",
 		WaitingForYou:       "A jóváhagyásodra vár",

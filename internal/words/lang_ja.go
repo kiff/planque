@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "承認したあとにアプリのツールが変更されました",
 		PausedGone:          "承認したアプリのツールが提供されなくなりました",
 		Connected:           "接続済み",
+		Connecting:          "接続中・KIFFでツールを設定しています",
 		NewToolsWaiting:     "接続済み・新しいツールが承認待ちです",
 		ToolsWaiting:        "サインイン済み・ツールが承認待ちです",
 		WaitingForYou:       "承認待ち",

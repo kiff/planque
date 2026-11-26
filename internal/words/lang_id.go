@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "alat aplikasi berubah sejak Anda menyetujuinya",
 		PausedGone:          "alat aplikasi yang Anda setujui tidak lagi ditawarkan",
 		Connected:           "Terhubung",
+		Connecting:          "Menghubungkan · alat Anda sedang disiapkan di KIFF",
 		NewToolsWaiting:     "Terhubung · alat baru menunggu persetujuan Anda",
 		ToolsWaiting:        "Sudah masuk · alat menunggu persetujuan Anda",
 		WaitingForYou:       "Menunggu persetujuan Anda",

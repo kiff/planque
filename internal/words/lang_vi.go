@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "một công cụ của ứng dụng đã thay đổi kể từ khi bạn phê duyệt",
 		PausedGone:          "một công cụ của ứng dụng mà bạn đã phê duyệt không còn được cung cấp",
 		Connected:           "Đã kết nối",
+		Connecting:          "Đang kết nối · công cụ của bạn đang được thiết lập trong KIFF",
 		NewToolsWaiting:     "Đã kết nối · công cụ mới đang chờ bạn phê duyệt",
 		ToolsWaiting:        "Đã đăng nhập · công cụ đang chờ bạn phê duyệt",
 		WaitingForYou:       "Đang chờ bạn phê duyệt",

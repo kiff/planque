@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "bir uygulama aracı, onayladığınızdan beri değişti",
 		PausedGone:          "onayladığınız bir uygulama aracı artık sunulmuyor",
 		Connected:           "Bağlandı",
+		Connecting:          "Bağlanıyor · araçlarınız KIFF'te kuruluyor",
 		NewToolsWaiting:     "Bağlandı · yeni araçlar onayınızı bekliyor",
 		ToolsWaiting:        "Oturum açıldı · araçlar onayınızı bekliyor",
 		WaitingForYou:       "Onayınızı bekliyor",

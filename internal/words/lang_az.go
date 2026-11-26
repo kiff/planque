@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "tətbiq aləti siz onu təsdiq etdikdən sonra dəyişib",
 		PausedGone:          "təsdiq etdiyiniz tətbiq aləti artıq təklif olunmur",
 		Connected:           "Qoşulub",
+		Connecting:          "Qoşulur · alətləriniz KIFF-də qurulur",
 		NewToolsWaiting:     "Qoşulub · yeni alətlər təsdiqinizi gözləyir",
 		ToolsWaiting:        "Daxil olunub · alətlər təsdiqinizi gözləyir",
 		WaitingForYou:       "Təsdiqinizi gözləyir",
