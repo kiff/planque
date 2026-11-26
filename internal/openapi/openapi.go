@@ -896,6 +896,9 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 			}
 		}
 	}
+	for name, prop := range props {
+		props[name] = digitsAsText(prop)
+	}
 	schema := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
 		sort.Strings(required)
@@ -909,6 +912,63 @@ func (r *resolver) operation(path, method string, o map[string]any, shared []raw
 }
 
 var argName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-\[\]]{0,63}$`)
+
+// digitsAsText offers an id that may be a string or an integer, and holds
+// only digits (Moneybird's identifier, {"type": ["string", "integer"],
+// "pattern": "^\\d+$"}), as a string only, at any depth. A vendor's ids
+// can be 18 digits, past 2^53 - 1: sent as a JSON number, KIFF can't sign
+// the call's permit (two such numbers would hash the same), and the call
+// is refused. As text it reaches the vendor the same, in the path or the
+// body. A "null" the type allows stays.
+func digitsAsText(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, value := range x {
+			switch k {
+			case "properties", "patternProperties", "$defs", "definitions":
+				if named, ok := value.(map[string]any); ok {
+					children := make(map[string]any, len(named))
+					for name, child := range named {
+						children[name] = digitsAsText(child)
+					}
+					out[k] = children
+					continue
+				}
+			case "const", "enum", "default", "example", "examples":
+				out[k] = value
+				continue
+			}
+			out[k] = digitsAsText(value)
+		}
+		if types, ok := out["type"].([]any); ok && slices.Contains(types, any("string")) && slices.Contains(types, any("integer")) {
+			if pattern, _ := out["pattern"].(string); digitsOnly.MatchString(pattern) {
+				text := []any{"string"}
+				if slices.Contains(types, any("null")) {
+					text = append(text, "null")
+				}
+				if len(text) == 1 {
+					out["type"] = "string"
+				} else {
+					out["type"] = text
+				}
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, child := range x {
+			out[i] = digitsAsText(child)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+// digitsOnly matches a pattern that allows digits alone: ^\d+$, ^[0-9]+$,
+// with or without a length.
+var digitsOnly = regexp.MustCompile(`^\^(\\d|\[0-9\])(\+|\*|\{\d+(,\d*)?\})\$$`)
 
 func validArgName(n string) bool { return argName.MatchString(n) }
 
