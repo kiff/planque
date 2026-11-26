@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -47,11 +48,10 @@ func TestTheCanonicalPathIsEncodedAsAWSSignsIt(t *testing.T) {
 // more, signed afresh, on a client whose calls are safe to send twice (KMS's). One whose writes may have landed (DynamoDB's)
 // returns the drop as it was, and an AWS answer, even an error, is never sent again.
 func TestADroppedCallIsSentOnceMoreOnlyWhereThatIsSafe(t *testing.T) {
-	serve := func(dropFirst bool, status int) (*httptest.Server, *int) {
-		calls := 0
+	serve := func(dropFirst bool, status int) (*httptest.Server, *atomic.Int32) {
+		var calls atomic.Int32 // the handler's goroutine adds, the test reads
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			calls++
-			if dropFirst && calls == 1 {
+			if n := calls.Add(1); dropFirst && n == 1 {
 				conn, _, err := w.(http.Hijacker).Hijack()
 				if err == nil {
 					conn.Close()
@@ -80,16 +80,16 @@ func TestADroppedCallIsSentOnceMoreOnlyWhereThatIsSafe(t *testing.T) {
 	}
 
 	srv, calls := serve(true, http.StatusOK)
-	if err := call(srv, true); err != nil || *calls != 2 {
-		t.Fatalf("with the retry: err %v after %d calls, want success after 2", err, *calls)
+	if err := call(srv, true); err != nil || calls.Load() != 2 {
+		t.Fatalf("with the retry: err %v after %d calls, want success after 2", err, calls.Load())
 	}
 	srv, calls = serve(true, http.StatusOK)
-	if err := call(srv, false); err == nil || !dropped(err) || *calls != 1 {
-		t.Fatalf("without it: err %v after %d calls, want the drop after 1", err, *calls)
+	if err := call(srv, false); err == nil || !dropped(err) || calls.Load() != 1 {
+		t.Fatalf("without it: err %v after %d calls, want the drop after 1", err, calls.Load())
 	}
 	srv, calls = serve(false, http.StatusInternalServerError)
-	if err := call(srv, true); !Is(err, "KMSInternalException") || *calls != 1 {
-		t.Fatalf("an AWS error: err %v after %d calls, want it as answered after 1", err, *calls)
+	if err := call(srv, true); !Is(err, "KMSInternalException") || calls.Load() != 1 {
+		t.Fatalf("an AWS error: err %v after %d calls, want it as answered after 1", err, calls.Load())
 	}
 
 	// The retry waits first; a caller whose time runs out in that wait gets the drop, and nothing is sent again.
@@ -101,7 +101,7 @@ func TestADroppedCallIsSentOnceMoreOnlyWhereThatIsSafe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	if err := c.Do(ctx, "Decrypt", map[string]string{"CiphertextBlob": "eA=="}, nil); err == nil || !dropped(err) || *calls != 1 || time.Since(start) > 500*time.Millisecond {
-		t.Fatalf("cancelled in the wait: err %v after %d calls in %v, want the drop after 1, at once", err, *calls, time.Since(start))
+	if err := c.Do(ctx, "Decrypt", map[string]string{"CiphertextBlob": "eA=="}, nil); err == nil || !dropped(err) || calls.Load() != 1 || time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("cancelled in the wait: err %v after %d calls in %v, want the drop after 1, at once", err, calls.Load(), time.Since(start))
 	}
 }
