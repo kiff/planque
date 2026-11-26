@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "lietotnes rīks ir mainījies kopš tā apstiprināšanas",
 		PausedGone:          "lietotnes rīks, ko tu apstiprināji, vairs netiek piedāvāts",
 		Connected:           "Pievienots",
+		Connecting:          "Pievieno · tavi rīki tiek iestatīti KIFF",
 		NewToolsWaiting:     "Pievienots · jauni rīki gaida tavu apstiprinājumu",
 		ToolsWaiting:        "Pierakstīts · rīki gaida tavu apstiprinājumu",
 		WaitingForYou:       "Gaida tavu apstiprinājumu",

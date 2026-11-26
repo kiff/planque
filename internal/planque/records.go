@@ -281,6 +281,9 @@ const (
 	StatusApproved  = "approved"  // signed; waiting for the vendor sign-in
 	StatusSignedIn  = "signed_in" // token held, unused; waiting for the approving phone to confirm
 	StatusConnected = "connected" // token held, tools registered in KIFF
+	// StatusConnecting is never stored: it's how a grant saved connected reads
+	// while its tools are still being registered in KIFF (Grant.Registering).
+	StatusConnecting = "connecting"
 	// StatusListed: a grant asked for with no tools (connect first): the
 	// sign-in is confirmed and held, and the vendor's tools are listed in
 	// its catalog. Nothing is in KIFF until the asking agent sets the
@@ -296,11 +299,23 @@ const (
 
 // Grant is one connection of a vendor account to one taf.
 type Grant struct {
-	ID      string  `json:"id"`
-	Tenant  string  `json:"tenant"`
-	Status  string  `json:"status"`
-	Request Request `json:"request"`
-	Text    string  `json:"text"`
+	ID     string `json:"id"`
+	Tenant string `json:"tenant"`
+	Status string `json:"status"`
+	// Registering: saved connected, so the relay answers KIFF's probe, while its
+	// tools are still being registered in KIFF. No reader outside planque sees it
+	// connected meanwhile (view: StatusConnecting): an agent that read a tool now
+	// would get KIFF's "Unknown tool". Cleared once the last tool and the profile
+	// are in KIFF, or by a failure.
+	Registering bool `json:"registering,omitempty"`
+	// RegisterBy is when a registration under way (Registering) must have
+	// finished: past it, planque was cut off mid-way (its run timed out or
+	// stopped), and the sweep, or the grant's next read, undoes what was
+	// registered and fails the grant, so it never reads as connecting for
+	// ever. Zero once Registering ends.
+	RegisterBy time.Time `json:"register_by,omitempty"`
+	Request    Request   `json:"request"`
+	Text       string    `json:"text"`
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.

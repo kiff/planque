@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "alat aplikacije se promenio otkad ste ga odobrili",
 		PausedGone:          "alat aplikacije koji ste odobrili više se ne nudi",
 		Connected:           "Povezano",
+		Connecting:          "Povezivanje · vaši alati se podešavaju u KIFF-u",
 		NewToolsWaiting:     "Povezano · novi alati čekaju vaše odobrenje",
 		ToolsWaiting:        "Prijavljeni · alati čekaju vaše odobrenje",
 		WaitingForYou:       "Čeka vaše odobrenje",

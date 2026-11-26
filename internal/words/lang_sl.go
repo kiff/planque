@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "orodje aplikacije se je spremenilo, odkar ste ga odobrili",
 		PausedGone:          "orodje aplikacije, ki ste ga odobrili, se ne ponuja več",
 		Connected:           "Povezano",
+		Connecting:          "Povezovanje · vaša orodja se nastavljajo v KIFF",
 		NewToolsWaiting:     "Povezano · nova orodja čakajo na vašo odobritev",
 		ToolsWaiting:        "Prijavljeni · orodja čakajo na vašo odobritev",
 		WaitingForYou:       "Čaka na vašo odobritev",

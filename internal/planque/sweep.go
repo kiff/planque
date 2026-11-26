@@ -41,11 +41,16 @@ func parseDue(sk string) (at time.Time, tenant, id string, ok bool) {
 	return at, parts[1], parts[2], err == nil
 }
 
-// deadline is when g must be confirmed (a sign-in) or its tools approved (a
+// deadline is when g's registration in KIFF must have finished
+// (RegisterBy), when g must be confirmed (a sign-in) or its tools approved (a
 // held sign-in), as expire reads them, when a connected grant's new
 // sign-in must be done (a renewal), or when a request nobody signed ends
 // (pendingTTL); zero when it has none.
 func (g *Grant) deadline() time.Time {
+	if g.registering() && !g.RegisterBy.IsZero() {
+		// Its registration in KIFF must finish by then (registerTTL).
+		return g.RegisterBy
+	}
 	if g.Request.Connector != nil && g.Status == StatusApproved {
 		return g.HeldUntil
 	}

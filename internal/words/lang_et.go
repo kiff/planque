@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "rakenduse tööriist on muutunud pärast seda, kui selle kinnitasid",
 		PausedGone:          "rakenduse tööriista, mille kinnitasid, enam ei pakuta",
 		Connected:           "Ühendatud",
+		Connecting:          "Ühendamine · sinu tööriistu seadistatakse KIFF-is",
 		NewToolsWaiting:     "Ühendatud · uued tööriistad ootavad sinu kinnitust",
 		ToolsWaiting:        "Sisse logitud · tööriistad ootavad sinu kinnitust",
 		WaitingForYou:       "Ootab sinu kinnitust",

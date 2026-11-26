@@ -39,6 +39,11 @@ const signInTTL = 60 * time.Minute
 // nothing (connect first): the tools must be set and approved by then.
 const holdTTL = 24 * time.Hour
 
+// registerTTL is how long a connection's registration in KIFF may take
+// (Grant.RegisterBy): longer than any one run of planque, so only a
+// registration that was cut off is ever past it.
+const registerTTL = 20 * time.Minute
+
 var toolName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 
 // toolKey is a tool's name in KIFF when the request names none: the
@@ -1284,6 +1289,11 @@ type approvalView struct {
 	Text string `json:"text,omitempty"`
 }
 
+// registering is whether g is saved connected while its tools are still being
+// registered in KIFF (Registering): to every reader outside planque, it isn't
+// connected yet.
+func (g *Grant) registering() bool { return g.Registering && g.Status == StatusConnected }
+
 // view is g as r's app reads it, in the language it asks in (keepLang).
 func (s *Server) view(r *http.Request, g *Grant) grantView {
 	asked := "en"
@@ -1295,6 +1305,9 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
+	if g.registering() {
+		v.Status = StatusConnecting
+	}
 	if c := g.Request.Connector; c != nil {
 		v.Provider = c.Provider
 		v.Custody = CustodyProvider
@@ -1359,6 +1372,12 @@ func statusWords(g *Grant) string { return statusIn(english, g) }
 
 // statusIn is statusWords in w's language.
 func statusIn(w words.Approval, g *Grant) string {
+	if g.registering() {
+		if w.Connecting == "" {
+			return words.Approve("en").Connecting
+		}
+		return w.Connecting
+	}
 	if g.Paused != nil && g.Status != StatusDisconnected && g.Status != StatusFailed {
 		// The person reads a line from the pause's kind, in their language: never
 		// its Why, which is English and names the tool.
@@ -1818,6 +1837,21 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 // as stored, its tokens kept until the vendor confirms revoking them, for
 // the next sweep or read to try again (kiff/planque#23).
 func (s *Server) expire(ctx context.Context, g *Grant) (ended bool, err error) {
+	if g.registering() && !g.RegisterBy.IsZero() && s.now().After(g.RegisterBy) {
+		// A registration in KIFF cut off mid-way (planque's run timed out or
+		// stopped): what may be in KIFF leaves it, the sign-in is revoked, and
+		// the grant fails, so it never reads as connecting for ever.
+		var names []string
+		for _, t := range g.Tools {
+			names = append(names, t.Name)
+		}
+		err := s.undo(ctx, g, names, "its tools' registration in KIFF didn't finish; nothing stays connected")
+		var failed connectFailed
+		if err != nil && !errors.As(err, &failed) {
+			return false, err
+		}
+		return true, nil
+	}
 	if g.renewing() && s.now().After(g.Renewal.By) {
 		// A new sign-in for a connected grant that wasn't done in time: it
 		// goes, and the one in use stays, with its tools.
@@ -2817,8 +2851,10 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	sum := sha256.Sum256([]byte(transport))
 	g.Transport = hex.EncodeToString(sum[:])
 	// The relay must answer KIFF's probe before the registration returns,
-	// so the grant is saved as connected first; a failure undoes it.
-	g.Status, g.HeldUntil = StatusConnected, time.Time{}
+	// so the grant is saved as connected first; a failure undoes it. Until
+	// every tool is in KIFF it reads as connecting (Registering), so no agent
+	// reads a tool KIFF doesn't know yet.
+	g.Status, g.HeldUntil, g.Registering, g.RegisterBy = StatusConnected, time.Time{}, true, s.now().Add(registerTTL).UTC()
 	if err := s.saveGrant(ctx, g); err != nil {
 		s.revoke(ctx, g)
 		return err
@@ -2841,6 +2877,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	}
 	g.event(s.now(), "Connected in KIFF: "+strings.Join(titles, ", "))
 	s.setupReads(ctx, key, g)
+	g.Registering, g.RegisterBy = false, time.Time{}
 	return s.saveGrant(ctx, g)
 }
 
@@ -3376,7 +3413,7 @@ func (s *Server) undo(ctx context.Context, g *Grant, registered []string, reason
 
 func (s *Server) failGrant(ctx context.Context, g *Grant, reason string) error {
 	from := g.Status
-	g.Status, g.Reason = StatusFailed, reason
+	g.Status, g.Reason, g.Registering, g.RegisterBy = StatusFailed, reason, false, time.Time{}
 	g.event(s.now(), "failed: "+reason)
 	if err := s.saveGrant(ctx, g); err != nil {
 		return err
@@ -3676,6 +3713,10 @@ type connection struct {
 
 func connectionOf(g *Grant) connection {
 	c := connection{Agent: g.Request.Agent, AgentName: label(g.Request.AgentName), Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Kind: connectionKind(g), Status: g.Status}
+	if g.registering() {
+		// The account's connections and an agent's grants (setupGrantOf) read it as connecting too.
+		c.Status = StatusConnecting
+	}
 	switch c.Kind {
 	case KindVendorSignIn:
 		c.Server = g.Request.Server

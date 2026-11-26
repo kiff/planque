@@ -104,6 +104,7 @@ func init() {
 		PausedChanged:       "nástroj aplikácie sa od vášho schválenia zmenil",
 		PausedGone:          "nástroj aplikácie, ktorý ste schválili, sa už neponúka",
 		Connected:           "Pripojené",
+		Connecting:          "Pripájanie · vaše nástroje sa nastavujú v KIFF",
 		NewToolsWaiting:     "Pripojené · nové nástroje čakajú na vaše schválenie",
 		ToolsWaiting:        "Prihlásené · nástroje čakajú na vaše schválenie",
 		WaitingForYou:       "Čaká na vaše schválenie",

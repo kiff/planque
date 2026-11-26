@@ -70,6 +70,9 @@ type KIFF struct {
 	// once it holds that many connections: a refusal for a request whose tool
 	// names aren't known beforehand.
 	RefuseConnectAfter int
+	// OnConnect, when set, is called with each connection's name as it's
+	// registered, before KIFF answers: a test reads planque meanwhile.
+	OnConnect func(name string)
 	// ConnectDown makes KIFF answer each connect 503, as KIFF in trouble.
 	ConnectDown bool
 
@@ -428,8 +431,11 @@ func (k *KIFF) connect(w http.ResponseWriter, r *http.Request) {
 	if k.RefuseConnectAfter > 0 && len(k.conns) >= k.RefuseConnectAfter {
 		refused, isRefused = "KIFF refused it for the test", true
 	}
-	down := k.ConnectDown
+	down, onConnect := k.ConnectDown, k.OnConnect
 	k.mu.Unlock()
+	if onConnect != nil {
+		onConnect(c.Name)
+	}
 	if down {
 		writeJSON(w, 503, map[string]string{"error": "KIFF is unavailable"})
 		return
