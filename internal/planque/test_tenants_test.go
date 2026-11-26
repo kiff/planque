@@ -125,6 +125,9 @@ func TestAProofTestAccountConnectsStripeOnlyByATestKey(t *testing.T) {
 		"a sign-in asked directly": func() (int, map[string]any) {
 			return e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"agent": "agt_taf", "server": stripeServer, "tools": []any{}}, nil, "k_setup")
 		},
+		"the managed Stripe app": func() (int, map[string]any) {
+			return e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:stripe/grants", map[string]any{"agent": "agt_taf", "new_sign_in": true}, nil, "k_setup")
+		},
 	} {
 		st, out := ask()
 		if st != http.StatusForbidden || out["code"] != CodeTestTenant || !strings.Contains(out["error"].(string), "test mode") {
@@ -143,10 +146,16 @@ func TestAProofTestAccountConnectsStripeOnlyByATestKey(t *testing.T) {
 	if rec := httptest.NewRecorder(); !e.s.managedOK(rec, tenant, "googlesheets") {
 		t.Fatalf("another app on a test account: %d %s", rec.Code, rec.Body)
 	}
-	// Not a proof test account: neither is refused here.
+	// Not a proof test account: neither is refused here, and the managed
+	// Stripe ask gets its usual answer (Stripe connects directly).
 	if e.s.testTenantStripeManaged("another-tenant", "stripe") || e.s.testTenantStripeSignIn("another-tenant", "", stripeServer) {
 		t.Fatal("another account's Stripe is refused")
 	}
+	e.s.ProofTestTenants = map[string]bool{}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/connector:composio:stripe/grants", map[string]any{"agent": "agt_taf", "new_sign_in": true}, nil, "k_setup"); st != http.StatusConflict || out["code"] == CodeTestTenant {
+		t.Fatalf("another account's managed Stripe ask: %d %v", st, out)
+	}
+	e.s.ProofTestTenants = map[string]bool{tenant: true}
 	// The API-key grant connects with a test key, its tools approved.
 	v := newRESTVendor(t)
 	g := e.connectAPI(v)
