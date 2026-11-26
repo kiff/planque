@@ -77,6 +77,7 @@ var approvals = map[string]Approval{
 		PausedChanged:    "an app tool changed since you approved it",
 		PausedGone:       "an app tool you approved is no longer offered",
 		Connected:        "Connected",
+		Connecting:       "Connecting · your tools are being set up in KIFF",
 		NewToolsWaiting:  "Connected · new tools waiting for your approval",
 		ToolsWaiting:     "Signed in · tools waiting for your approval",
 		WaitingForYou:    "Waiting for your approval",

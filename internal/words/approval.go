@@ -84,10 +84,13 @@ type Approval struct {
 	TelegramTail      string
 
 	// How a connection stands.
-	PausedF          string // why
-	PausedChanged    string // a tool the person approved changed at the app since (the why of PausedF)
-	PausedGone       string // a tool the person approved is no longer offered by the app (the why of PausedF)
-	Connected        string
+	PausedF       string // why
+	PausedChanged string // a tool the person approved changed at the app since (the why of PausedF)
+	PausedGone    string // a tool the person approved is no longer offered by the app (the why of PausedF)
+	Connected     string
+	// Connecting: approved and signed in, its tools still being registered in
+	// KIFF (a few seconds). A language without it reads English's.
+	Connecting       string
 	NewToolsWaiting  string
 	ToolsWaiting     string
 	WaitingForYou    string
