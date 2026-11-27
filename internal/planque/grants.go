@@ -3850,6 +3850,13 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		answer["chromes"] = names
 	}
+	// While planque's hosted browser is offered to this account
+	// (PLANQUE_BROWSER_OFFER), whether it pays (PLANQUE_BROWSER_PAY), so Coach
+	// drafts no payment rules a browser that can't pay would never use.
+	// Nothing about it while it isn't offered.
+	if s.browserOnFor(tenant) {
+		answer["browser"] = map[string]bool{"pay": s.BrowserPay}
+	}
 	writeJSON(w, http.StatusOK, answer)
 }
 
