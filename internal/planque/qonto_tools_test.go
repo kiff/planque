@@ -106,6 +106,18 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
 		t.Fatalf("served tools refused: %+v", r)
 	}
+	// A taf that guessed a tool name reads, in the refusal, that balances are
+	// served and by which tool, and every tool it may ask for, so it retries
+	// with a served one rather than telling the owner balances can't be read.
+	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools")
+	if r == nil || !strings.Contains(r.Msg, "balances") || !strings.Contains(r.Msg, "get_organization") {
+		t.Fatalf("the refusal doesn't name balances and get_organization: %+v", r)
+	}
+	for _, name := range qontoServed {
+		if !strings.Contains(r.Msg, name) || !strings.Contains(r.Want, name) {
+			t.Errorf("the refusal doesn't list %s: %+v", name, r)
+		}
+	}
 }
 
 // Asked for on Qonto's MCP server, a tool planque doesn't serve is refused
