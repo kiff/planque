@@ -31,7 +31,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", with the %s header set to %s on each call",
 
 		APIAsReadF: "Its tools are the ones reviewed for %s.",
-		KeyVaultF:  "Your key is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to %s, %s.",
+
+		APIPublishedF: "Its tools are the ones its published description lists for %s.",
+		KeyVaultF:     "Your key is kept in a sealed vault and is never shown again; the taf never sees it. It's sent only to %s, %s.",
 		DiscoverAPIF: "Connect %s with an API key you give, to see what it offers for %s.\n%s\n\n" +
 			"Only its API description is read: none of its operations is called, nothing is read from your account, nothing is changed, and nothing is given to the taf. " +
 			"The tools the taf may use come next, and you approve them again. If they aren't approved within a day, the key is deleted.\n\n" +
@@ -118,7 +120,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", mit dem Header %s auf %s bei jedem Aufruf",
 
 		APIAsReadF: "Seine Werkzeuge sind die für %s geprüften.",
-		KeyVaultF:  "Dein Schlüssel liegt in einem versiegelten Tresor und wird nie wieder angezeigt; der taf sieht ihn nie. Er wird nur an %s gesendet, %s.",
+
+		APIPublishedF: "Seine Werkzeuge sind die, die seine veröffentlichte Beschreibung für %s aufführt.",
+		KeyVaultF:     "Dein Schlüssel liegt in einem versiegelten Tresor und wird nie wieder angezeigt; der taf sieht ihn nie. Er wird nur an %s gesendet, %s.",
 		DiscoverAPIF: "Verbinde %s mit einem API-Schlüssel, den du gibst, um zu sehen, was es für %s anbietet.\n%s\n\n" +
 			"Gelesen wird nur seine API-Beschreibung: Keine seiner Operationen wird aufgerufen, aus deinem Konto wird nichts gelesen, nichts wird geändert, und der taf bekommt nichts. " +
 			"Die Tools, die der taf nutzen darf, kommen als Nächstes, und du genehmigst sie erneut. Werden sie nicht innerhalb eines Tages genehmigt, wird der Schlüssel gelöscht.\n\n" +
@@ -205,7 +209,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", avec l'en-tête %s à %s à chaque appel",
 
 		APIAsReadF: "Ses outils sont ceux qui ont été examinés pour %s.",
-		KeyVaultF:  "Votre clé est gardée dans un coffre scellé et n'est plus jamais affichée ; le taf ne la voit jamais. Elle n'est envoyée qu'à %s, %s.",
+
+		APIPublishedF: "Ses outils sont ceux que sa description publiée indique pour %s.",
+		KeyVaultF:     "Votre clé est gardée dans un coffre scellé et n'est plus jamais affichée ; le taf ne la voit jamais. Elle n'est envoyée qu'à %s, %s.",
 		DiscoverAPIF: "Connectez %s avec une clé d'API que vous donnez, pour voir ce qu'il propose pour %s.\n%s\n\n" +
 			"Seule sa description d'API est lue : aucune de ses opérations n'est appelée, rien n'est lu dans votre compte, rien n'est modifié et rien n'est donné au taf. " +
 			"Les outils que le taf pourra utiliser viennent ensuite, et vous les approuvez à nouveau. S'ils ne sont pas approuvés dans la journée, la clé est supprimée.\n\n" +
@@ -292,7 +298,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", con la cabecera %s a %s en cada llamada",
 
 		APIAsReadF: "Sus herramientas son las revisadas para %s.",
-		KeyVaultF:  "Tu clave se guarda en una caja fuerte sellada y no se vuelve a mostrar; el taf nunca la ve. Solo se envía a %s, %s.",
+
+		APIPublishedF: "Sus herramientas son las que su descripción publicada indica para %s.",
+		KeyVaultF:     "Tu clave se guarda en una caja fuerte sellada y no se vuelve a mostrar; el taf nunca la ve. Solo se envía a %s, %s.",
 		DiscoverAPIF: "Conecta %s con una clave de API que das, para ver lo que ofrece para %s.\n%s\n\n" +
 			"Solo se lee su descripción de API: no se llama a ninguna de sus operaciones, no se lee nada de tu cuenta, no se cambia nada y no se le da nada al taf. " +
 			"Las herramientas que el taf puede usar vienen después, y las vuelves a aprobar. Si no se aprueban en un día, se borra la clave.\n\n" +
@@ -379,7 +387,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", con l'intestazione %s impostata a %s a ogni chiamata",
 
 		APIAsReadF: "I suoi strumenti sono quelli verificati per %s.",
-		KeyVaultF:  "La tua chiave è custodita in una cassaforte sigillata e non viene più mostrata; il taf non la vede mai. Viene inviata solo a %s, %s.",
+
+		APIPublishedF: "I suoi strumenti sono quelli che la sua descrizione pubblicata elenca per %s.",
+		KeyVaultF:     "La tua chiave è custodita in una cassaforte sigillata e non viene più mostrata; il taf non la vede mai. Viene inviata solo a %s, %s.",
 		DiscoverAPIF: "Collega %s con una chiave API che dai, per vedere cosa offre per %s.\n%s\n\n" +
 			"Si legge solo la sua descrizione dell'API: nessuna delle sue operazioni viene chiamata, non si legge nulla dal tuo account, non si cambia nulla e non si dà nulla al taf. " +
 			"Gli strumenti che il taf può usare vengono dopo, e li approvi di nuovo. Se non vengono approvati entro un giorno, la chiave viene eliminata.\n\n" +
@@ -466,7 +476,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", com o cabeçalho %s a %s em cada chamada",
 
 		APIAsReadF: "As suas ferramentas são as revistas para %s.",
-		KeyVaultF:  "A sua chave fica num cofre selado e nunca mais é mostrada; o taf nunca a vê. Só é enviada para %s, %s.",
+
+		APIPublishedF: "As suas ferramentas são as que a sua descrição publicada indica para %s.",
+		KeyVaultF:     "A sua chave fica num cofre selado e nunca mais é mostrada; o taf nunca a vê. Só é enviada para %s, %s.",
 		DiscoverAPIF: "Ligue %s com uma chave de API que dá, para ver o que oferece para %s.\n%s\n\n" +
 			"Só se lê a sua descrição de API: nenhuma das suas operações é chamada, nada é lido da sua conta, nada é alterado e nada é dado ao taf. " +
 			"As ferramentas que o taf pode usar vêm a seguir, e aprova-as novamente. Se não forem aprovadas no prazo de um dia, a chave é apagada.\n\n" +
@@ -553,7 +565,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", met de header %s op %s bij elke aanroep",
 
 		APIAsReadF: "De tools zijn de tools die voor %s zijn beoordeeld.",
-		KeyVaultF:  "Je sleutel wordt in een verzegelde kluis bewaard en nooit meer getoond; het taf ziet hem nooit. Hij wordt alleen naar %s gestuurd, %s.",
+
+		APIPublishedF: "De tools zijn de tools die de gepubliceerde beschrijving voor %s noemt.",
+		KeyVaultF:     "Je sleutel wordt in een verzegelde kluis bewaard en nooit meer getoond; het taf ziet hem nooit. Hij wordt alleen naar %s gestuurd, %s.",
 		DiscoverAPIF: "Koppel %s met een API-sleutel die je geeft, om te zien wat het biedt voor %s.\n%s\n\n" +
 			"Alleen de API-beschrijving wordt gelezen: geen van de bewerkingen wordt aangeroepen, er wordt niets uit je account gelezen, niets veranderd en niets aan het taf gegeven. " +
 			"De tools die het taf mag gebruiken komen hierna, en die keur je opnieuw goed. Worden ze niet binnen een dag goedgekeurd, dan wordt de sleutel verwijderd.\n\n" +
@@ -640,7 +654,9 @@ var approvals = map[string]Approval{
 		FixedHeaderF:        ", z nagłówkiem %s ustawionym na %s przy każdym wywołaniu",
 
 		APIAsReadF: "Jego narzędzia to te sprawdzone dla %s.",
-		KeyVaultF:  "Twój klucz jest przechowywany w zapieczętowanym sejfie i nigdy więcej nie jest pokazywany; taf nigdy go nie widzi. Jest wysyłany tylko do %s, %s.",
+
+		APIPublishedF: "Jego narzędzia to te, które jego opublikowany opis podaje dla %s.",
+		KeyVaultF:     "Twój klucz jest przechowywany w zapieczętowanym sejfie i nigdy więcej nie jest pokazywany; taf nigdy go nie widzi. Jest wysyłany tylko do %s, %s.",
 		DiscoverAPIF: "Połącz %s kluczem API, który podasz, aby zobaczyć, co oferuje dla %s.\n%s\n\n" +
 			"Odczytywany jest tylko opis jego API: żadna z jego operacji nie jest wywoływana, nic nie jest odczytywane z Twojego konta, nic nie jest zmieniane i nic nie trafia do tafa. " +
 			"Narzędzia, których taf może używać, są następne i zatwierdzasz je ponownie. Jeśli nie zostaną zatwierdzone w ciągu doby, klucz zostanie usunięty.\n\n" +

@@ -73,6 +73,7 @@ func init() {
 		KeyAsBasicUser:      "sebagai nama pengguna masuk HTTP Basic",
 		FixedHeaderF:        ", dengan header %s diatur ke %s pada setiap panggilan",
 		APIAsReadF:          "Alatnya adalah yang telah ditinjau untuk %s.",
+		APIPublishedF:       "Alatnya adalah yang dicantumkan deskripsi terbitannya untuk %s.",
 		KeyVaultF:           "Kunci Anda disimpan dalam brankas tersegel dan tidak pernah ditampilkan lagi; taf tidak melihatnya. Kunci hanya dikirim ke %s, %s.",
 		DiscoverAPIF:        "Hubungkan %s dengan kunci API yang Anda berikan, untuk melihat apa yang ditawarkannya untuk %s.\n%s\n\nHanya deskripsi API-nya yang dibaca: tidak ada operasinya yang dipanggil, tidak ada yang dibaca dari akun Anda, tidak ada yang diubah, dan tidak ada yang diberikan kepada taf. Alat yang boleh dipakai taf menyusul, dan Anda menyetujuinya lagi. Jika tidak disetujui dalam sehari, kunci dihapus.\n\n%s Anda bisa memutuskan koneksi kapan saja, yang akan menghapusnya.",
 		WillGiveKeyF:        "Anda akan memberikan kunci API untuk %s.\n%s\n\n",

@@ -73,6 +73,7 @@ func init() {
 		KeyAsBasicUser:      "jako uživatelské jméno přihlášení HTTP Basic",
 		FixedHeaderF:        ", s hlavičkou %s nastavenou na %s při každém volání",
 		APIAsReadF:          "Jeho nástroje jsou ty, které byly pro %s zkontrolovány.",
+		APIPublishedF:       "Jeho nástroje jsou ty, které pro %s uvádí jeho zveřejněný popis.",
 		KeyVaultF:           "Váš klíč je uložen v zapečetěném trezoru a už se nikdy nezobrazí; taf ho nevidí. Posílá se jen na %s, %s.",
 		DiscoverAPIF:        "Připojte %s pomocí klíče API, který dáte, abyste viděli, co nabízí pro %s.\n%s\n\nČte se jen popis jeho API: žádná z jeho operací se nevolá, z vašeho účtu se nic nečte, nic se nemění a tafu se nic nedává. Nástroje, které taf smí používat, přijdou potom a vy je schvalujete znovu. Pokud nejsou schváleny do jednoho dne, klíč se smaže.\n\n%s Odpojit se můžete kdykoli, čímž se smaže.",
 		WillGiveKeyF:        "Dáte klíč API pro %s.\n%s\n\n",

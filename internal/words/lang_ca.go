@@ -73,6 +73,7 @@ func init() {
 		KeyAsBasicUser:      "com a nom d'usuari d'un inici de sessió HTTP Basic",
 		FixedHeaderF:        ", amb la capçalera %s establerta a %s a cada crida",
 		APIAsReadF:          "Les seves eines són les revisades per a %s.",
+		APIPublishedF:       "Les seves eines són les que la seva descripció publicada indica per a %s.",
 		KeyVaultF:           "La teva clau es guarda en una caixa forta segellada i no es torna a mostrar mai; el taf no la veu. Només s'envia a %s, %s.",
 		DiscoverAPIF:        "Connecta %s amb una clau d'API que tu dones, per veure què ofereix per a %s.\n%s\n\nNomés es llegeix la descripció de la seva API: cap de les seves operacions es crida, no es llegeix res del teu compte, no es canvia res i no es dona res al taf. Les eines que el taf pot fer servir vénen després, i les tornes a aprovar. Si no s'aproven en un dia, la clau s'elimina.\n\n%s Pots desconnectar en qualsevol moment, cosa que l'elimina.",
 		WillGiveKeyF:        "Donaràs una clau d'API per a %s.\n%s\n\n",

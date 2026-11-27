@@ -73,6 +73,7 @@ func init() {
 		KeyAsBasicUser:      "ca nume de utilizator al unei conectări HTTP Basic",
 		FixedHeaderF:        ", cu antetul %s setat la %s la fiecare apel",
 		APIAsReadF:          "Instrumentele sale sunt cele verificate pentru %s.",
+		APIPublishedF:       "Instrumentele sale sunt cele pe care descrierea sa publicată le indică pentru %s.",
 		KeyVaultF:           "Cheia dvs. este păstrată într-un seif sigilat și nu se mai arată niciodată; taful nu o vede. Este trimisă doar la %s, %s.",
 		DiscoverAPIF:        "Conectați %s cu o cheie API pe care o dați, ca să vedeți ce oferă pentru %s.\n%s\n\nSe citește doar descrierea API-ului său: nicio operațiune nu este apelată, nu se citește nimic din contul dvs., nu se schimbă nimic și nu se dă nimic taf-ului. Instrumentele pe care taful le poate folosi urmează, iar dvs. le aprobați din nou. Dacă nu sunt aprobate într-o zi, cheia este ștearsă.\n\n%s Vă puteți deconecta oricând, ceea ce o șterge.",
 		WillGiveKeyF:        "Veți da o cheie API pentru %s.\n%s\n\n",
