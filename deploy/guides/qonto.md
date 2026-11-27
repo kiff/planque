@@ -10,9 +10,9 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **Qonto's own sign-in is the first route.** Catalog entry `qonto`: the
   owner signs in on Qonto's own page and approves; no key is pasted and no
-  taf sees the sign-in. Its scopes are reviewed. Planque never asks a bank for a scope that moves money, so no
-  transfer is possible on it. It reads the business, its accounts, balances
-  and transactions, clients, client and supplier invoices, products,
+  taf sees the sign-in. Its scopes are reviewed. Planque never asks a bank for a scope that
+  moves money, so no transfer is possible on it. It reads the business, its
+  accounts, balances, IBANs, team members and transactions, clients, client and supplier invoices, products,
   attachments and e-invoicing, and writes clients and client invoices.
 - **Before the owner signs in, tell them what Qonto needs.** Qonto doesn't
   list planque yet, so **an owner or admin of their Qonto organisation must
@@ -25,6 +25,11 @@ Failure table checked against planque's answers on 2026-11-16.
   an owner or admin can't connect. Whether to approve it is their choice,
   and they can remove the address in the same screen at any time. If they'd
   rather not, nothing is connected.
+- **Tell them about professional secrecy before they sign in.** Qonto's
+  consent page also asks them to accept the lifting of Qonto's professional
+  secrecy for the tool they chose: it lets Qonto pass planque the data that
+  page lists. Whether to accept is their choice; without that tick, nothing
+  is connected.
 - **The sign-in is with the owner's own Qonto login.** A Google account that
   isn't the one their Qonto organisation uses (a work or test address) makes
   Qonto offer to create a company: never create one, close the page. On a
@@ -45,6 +50,10 @@ Failure table checked against planque's answers on 2026-11-16.
   only.
 
 ## Tools
+
+These are the tools of the key entries `qonto-key@1` and `qonto-key@2`. The
+sign-in route (`qonto`) uses Qonto's own MCP tools, so don't name one of
+these for it: read the tools the connection lists.
 
 | Tool | What it does | Read or write | Returns |
 |---|---|---|---|
