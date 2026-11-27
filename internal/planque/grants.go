@@ -1223,7 +1223,13 @@ type grantView struct {
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
-	Text        string `json:"text"`
+	// VendorRevoke is what disconnecting does at the vendor (vendorRevokeOf):
+	// "revoked", "not_revoked" (a sign-in at a vendor that publishes no way to
+	// revoke one, as Qonto) or "key_stays" (a key the owner made, which only
+	// the owner can delete there). Empty for a browser or a connection with
+	// nothing held at a vendor. The apps pick their disconnect words from it.
+	VendorRevoke string `json:"vendor_revoke,omitempty"`
+	Text         string `json:"text"`
 	// Terms are each tool's exact terms, for the owner who opens Details:
 	// the text names the tools in words (kiff/tafs#138, item 52).
 	Terms []string `json:"terms,omitempty"`
@@ -1329,7 +1335,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), VendorRevoke: vendorRevokeOf(g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -3523,7 +3529,9 @@ func (s *Server) endGrant(ctx context.Context, g *Grant, said, by string) error 
 	case g.TokenOf != "":
 		what = said + ": the sign-in it used stays with the connection it came from"
 	case g.Request.Kind == KindAPIKey:
-		what = said + ": key deleted"
+		what = said + ": key deleted here; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case vendorRevokeOf(g) == revokeNotOffered:
+		what = said + ": token deleted here; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
 	case g.Request.Kind == KindBrowser:
 		what = said + ": the browser's sign-ins and screenshots deleted"
 	}
@@ -3955,6 +3963,35 @@ func label(s string) string {
 
 // vendorName is the vendor as the owner reads it: its own name, else the
 // host of its server.
+// What disconnecting does at the vendor (grantView.VendorRevoke).
+const (
+	revokeAtVendor   = "revoked"
+	revokeNotOffered = "not_revoked"
+	revokeKeyStays   = "key_stays"
+)
+
+// vendorRevokeOf says what disconnecting g does at its vendor: a sign-in is
+// revoked there when the vendor's OAuth metadata names a revocation endpoint
+// (oauth.Client.Revoke), and only deleted here when it names none; a key the
+// owner made stays valid there until the owner deletes it; a managed sign-in
+// is revoked through its connection platform (revokeConnector). A browser, or
+// a grant that holds nothing at a vendor, says nothing.
+func vendorRevokeOf(g *Grant) string {
+	switch {
+	case g.Request.Kind == KindAPIKey:
+		return revokeKeyStays
+	case g.Request.Kind == KindBrowser:
+		return ""
+	case g.Request.Connector != nil:
+		return revokeAtVendor
+	case g.Vendor.Token == "":
+		return ""
+	case g.Vendor.Revocation == "":
+		return revokeNotOffered
+	}
+	return revokeAtVendor
+}
+
 func vendorName(g *Grant) string {
 	// A vendor's own reviewed server is called by its app's name, a grant
 	// stored with its server's own name ("stripe-mcp") too.
