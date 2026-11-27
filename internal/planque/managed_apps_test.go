@@ -298,3 +298,44 @@ func TestAnOwnClientAccountIsNotOfferedTheManagedToolkit(t *testing.T) {
 		t.Error("an account that isn't listed was changed")
 	}
 }
+
+// An app this account can't connect through the managed connector isn't
+// offered, in Connect apps or in Coach's tool search, so Coach never proposes
+// an app whose connection would then be refused (errNotDisclosed). A listed
+// app is offered, and a test account is offered every app, as it may connect
+// every one.
+func TestAnAppThatCantConnectIsNotOffered(t *testing.T) {
+	offered := func(e *env) (catalog, search []string) {
+		_, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio", nil, nil, "k_setup")
+		for _, it := range out["entries"].([]any) {
+			catalog = append(catalog, it.(map[string]any)["entry"].(string))
+		}
+		_, out = e.do("GET", "/v1/accounts/"+tenant+"/catalog/tools?provider=composio&q=desk", nil, nil, "k_setup")
+		for _, it := range out["tools"].([]any) {
+			search = append(search, it.(map[string]any)["entry"].(string))
+		}
+		return
+	}
+	desk, calendar := "connector:composio:desk_demo", "connector:composio:calendar_demo"
+
+	e, _ := gated(t, nil, nil)
+	catalog, search := offered(e)
+	if slices.Contains(catalog, desk) || slices.Contains(catalog, calendar) || slices.Contains(search, desk) {
+		t.Errorf("an unlisted app is offered: %v %v", catalog, search)
+	}
+
+	e, _ = gated(t, []string{"Desk Demo"}, nil)
+	catalog, search = offered(e)
+	if !slices.Contains(catalog, desk) || !slices.Contains(search, desk) {
+		t.Errorf("a listed app isn't offered: %v %v", catalog, search)
+	}
+	if slices.Contains(catalog, calendar) {
+		t.Errorf("an unlisted app is offered beside a listed one: %v", catalog)
+	}
+
+	e, _ = gated(t, nil, []string{tenant})
+	catalog, search = offered(e)
+	if !slices.Contains(catalog, desk) || !slices.Contains(catalog, calendar) || !slices.Contains(search, desk) {
+		t.Errorf("a test account isn't offered every app: %v %v", catalog, search)
+	}
+}
