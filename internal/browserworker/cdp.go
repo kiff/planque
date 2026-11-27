@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,7 +57,7 @@ type cdpMessage struct {
 // the Playwright install.
 func chromePath(configured string) (string, error) {
 	candidates := []string{configured, os.Getenv("PLANQUE_CHROME")}
-	for _, name := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"} {
+	for _, name := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "chromium-headless-shell"} {
 		if p, err := exec.LookPath(name); err == nil {
 			candidates = append(candidates, p)
 		}
@@ -89,7 +91,7 @@ func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, e
 		os.RemoveAll(dir)
 		return nil, err
 	}
-	args := launchArgs(dir, proxy)
+	args := launchArgs(path, dir, proxy)
 	if testCerts {
 		// Tests only: the shop's certificate is a test one.
 		args = append([]string{"--ignore-certificate-errors"}, args...)
@@ -110,13 +112,24 @@ func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, e
 }
 
 // launchArgs are the browser's flags: headless, a profile of its own, and
-// every way out through the proxy. WebRTC's UDP (a page's STUN or TURN
+// every way out through the proxy. Chromium's headless shell (the image's
+// browser: no GTK, so none of the desktop libraries a page never reaches)
+// is headless by itself and takes plain --headless; a full Chromium runs
+// its new headless mode. In the headless shell, --force-webrtc-ip-handling-policy
+// and --disable-extensions, --disable-sync and --disable-translate do nothing:
+// it has no WebRTC policy, extensions, sync or translate to turn off. They stay
+// for a full Chromium. WebRTC is held in both by the per-target script (attach),
+// not by the flag. WebRTC's UDP (a page's STUN or TURN
 // candidates) would go around an HTTP proxy, so it is confined to what
 // the proxy carries, which is nothing: a page gathers no candidate and
 // probes no address.
-func launchArgs(dir, proxy string) []string {
+func launchArgs(path, dir, proxy string) []string {
+	headless := "--headless=new"
+	if headlessShell(path) {
+		headless = "--headless"
+	}
 	return []string{
-		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+		headless, "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
 		"--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
 		"--disable-background-networking", "--disable-component-update", "--disable-default-apps",
 		"--disable-translate", "--metrics-recording-only", "--mute-audio", "--hide-scrollbars",
@@ -133,6 +146,13 @@ func launchArgs(dir, proxy string) []string {
 		"--site-per-process",
 		"about:blank",
 	}
+}
+
+// headlessShell says whether path is Chromium's headless shell, by its file
+// name (Debian's chromium-headless-shell, or Chrome for Testing's
+// chrome-headless-shell).
+func headlessShell(path string) bool {
+	return strings.Contains(filepath.Base(path), "headless-shell")
 }
 
 // read dispatches what the browser sends: answers to their callers, events

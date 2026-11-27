@@ -20,7 +20,7 @@ import (
 // kiff/planque#89: a STUN or TURN candidate would otherwise go around an
 // HTTP proxy to any address).
 func TestLaunchArgsSendEverythingThroughTheProxy(t *testing.T) {
-	args := launchArgs("/tmp/profile", "127.0.0.1:9999")
+	args := launchArgs("/usr/bin/chromium", "/tmp/profile", "127.0.0.1:9999")
 	for _, want := range []string{
 		"--proxy-server=http://127.0.0.1:9999",
 		"--proxy-bypass-list=<-loopback>",
@@ -32,6 +32,29 @@ func TestLaunchArgsSendEverythingThroughTheProxy(t *testing.T) {
 	} {
 		if !slices.Contains(args, want) {
 			t.Errorf("the browser isn't launched with %s: %v", want, args)
+		}
+	}
+}
+
+// The image's browser is Chromium's headless shell, which is headless by
+// itself and takes plain --headless; a full Chromium keeps the new headless
+// mode. Either way the proxy flags are the same.
+func TestLaunchArgsFitTheBrowser(t *testing.T) {
+	for path, want := range map[string]string{
+		"/usr/bin/chromium-headless-shell":  "--headless",
+		"/opt/chrome/chrome-headless-shell": "--headless",
+		"/usr/bin/chromium":                 "--headless=new",
+		"/usr/bin/google-chrome":            "--headless=new",
+	} {
+		args := launchArgs(path, "/tmp/profile", "127.0.0.1:9999")
+		if args[0] != want {
+			t.Errorf("%s is launched with %s, want %s", path, args[0], want)
+		}
+		if !slices.Contains(args, "--proxy-server=http://127.0.0.1:9999") || !slices.Contains(args, "--proxy-bypass-list=<-loopback>") {
+			t.Errorf("%s isn't sent through the proxy: %v", path, args)
+		}
+		if want == "--headless" && slices.Contains(args, "--headless=new") {
+			t.Errorf("the headless shell is also given --headless=new: %v", args)
 		}
 	}
 }
