@@ -29,6 +29,8 @@ func TestProofsRefuseWhatTheyCantRead(t *testing.T) {
 		{"an unknown field", `{"gmail":{"at":"2026-11-13","how":"key","by":"me"}}`, "object of apps"},
 		{"an unfolded name", `{"Google Calendar":{"at":"2026-11-16","how":"oauth"}}`, "folded name"},
 		{"a dash in the name", `{"google-calendar":{"at":"2026-11-16","how":"oauth"}}`, "folded name"},
+		{"another route", `{"gmail":{"at":"2026-11-13","how":"oauth","route":"mine"}}`, "neither managed nor own"},
+		{"a route on a key proof", `{"qonto":{"at":"2026-11-13","how":"key","route":"own"}}`, "narrows a sign-in"},
 		{"no how", `{"gmail":{"at":"2026-11-13"}}`, "neither key nor oauth"},
 		{"another how", `{"gmail":{"at":"2026-11-13","how":"sign-in"}}`, "neither key nor oauth"},
 		{"an entry with its revision", `{"qonto":{"at":"2026-11-13","how":"key","entries":["qonto-key@2"]}}`, "reviewed entry's name"},
@@ -54,6 +56,8 @@ func TestAProofMatchesTheAppsSlugTheWayItWasRun(t *testing.T) {
 	proved := map[string]Proof{
 		"googlecalendar": {At: "2026-11-16", How: "oauth"},
 		"qonto":          {At: "2026-11-13", How: "key", Entries: []string{"qonto-key"}},
+		"googlesheets":   {At: "2026-11-21", How: "oauth", Route: "managed"},
+		"notion":         {At: "2026-11-21", How: "oauth", Route: "own"},
 	}
 	for _, c := range []struct{ entry, how, want string }{
 		{"connector:composio:googlecalendar", "oauth", "2026-11-16"},
@@ -65,6 +69,10 @@ func TestAProofMatchesTheAppsSlugTheWayItWasRun(t *testing.T) {
 		{"connector:composio:calendar", "oauth", ""},
 		{"connector:composio:notion", "oauth", ""},
 		{"", "key", ""},
+		{"connector:composio:googlesheets", "oauth", "2026-11-21"},
+		{"googlesheets@1", "oauth", ""},
+		{"notion@1", "oauth", "2026-11-21"},
+		{"connector:composio:notion", "oauth", ""},
 	} {
 		got := proofOf(proved, c.entry, c.how)
 		if (got == nil) != (c.want == "") || got != nil && got.At != c.want {
@@ -112,6 +120,7 @@ func TestTheShippedProofsLandOnlyWhereTheyWereRun(t *testing.T) {
 		"typeform":       {"connector:composio:typeform"},
 		"googlecalendar": {"connector:composio:googlecalendar"},
 		"googledrive":    {"connector:composio:googledrive"},
+		"googlesheets":   {"connector:composio:googlesheets"},
 	}
 	for app, p := range Proved {
 		if !slices.Equal(landed[app], want[app]) {

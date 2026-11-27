@@ -28,7 +28,12 @@ type Proof struct {
 	At      string   `json:"at"`
 	How     string   `json:"how"`
 	Entries []string `json:"entries,omitempty"`
-	Link    string   `json:"link,omitempty"`
+	// Route narrows a sign-in proof to the way it was run: "managed" (the
+	// provider's own sign-in, connector:<provider>:<app>) or "own" (a reviewed
+	// entry through tafs's own client, such as googlesheets@1). Empty reaches
+	// both, as every proof did before.
+	Route string `json:"route,omitempty"`
+	Link  string `json:"link,omitempty"`
 }
 
 //go:embed proved.json
@@ -59,6 +64,12 @@ func DecodeProved(raw []byte) (map[string]Proof, error) {
 		}
 		if p.How != "key" && p.How != "oauth" {
 			return nil, fmt.Errorf("proofs: %s's how %q is neither key nor oauth", name, p.How)
+		}
+		if p.Route != "" && p.Route != "managed" && p.Route != "own" {
+			return nil, fmt.Errorf("proofs: %s's route %q is neither managed nor own", name, p.Route)
+		}
+		if p.Route != "" && p.How != "oauth" {
+			return nil, fmt.Errorf("proofs: %s's route only narrows a sign-in (oauth) proof", name)
 		}
 		for _, e := range p.Entries {
 			if !reviewedName.MatchString(e) {
@@ -100,19 +111,23 @@ func provedKey(name string) string {
 // which is the provider's words: a name planque didn't choose proves nothing.
 func proofOf(proved map[string]Proof, entry, how string) *Proof {
 	slug := entry
+	managed := false
 	if _, s, ok := connectorEntry(entry); ok {
-		slug = s
+		slug, managed = s, true
 	} else if at := strings.LastIndex(entry, "@"); at > 0 {
 		slug = entry[:at]
 	}
 	if slug == "" {
 		return nil
 	}
-	if p, ok := proved[provedKey(slug)]; ok && p.How == how {
+	runWay := func(p Proof) bool {
+		return p.How == how && (p.Route == "" || (p.Route == "managed") == managed)
+	}
+	if p, ok := proved[provedKey(slug)]; ok && runWay(p) {
 		return &p
 	}
 	for _, p := range proved {
-		if p.How == how && slices.Contains(p.Entries, slug) {
+		if runWay(p) && slices.Contains(p.Entries, slug) {
 			return &p
 		}
 	}
