@@ -81,7 +81,7 @@ func (s *Server) signedInAccount(ctx context.Context, g *Grant, access string) (
 	if s.MCP == nil {
 		return "", nil
 	}
-	res, err := s.MCP.CallTool(ctx, g.Request.Server, access, g.Vendor.AccountsTool, json.RawMessage(`{}`))
+	res, err := s.callServed(ctx, g.Request.Server, access, g.Vendor.AccountsTool, json.RawMessage(`{}`))
 	if err != nil {
 		s.log().WarnContext(ctx, "the sign-in's accounts couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "couldn't read which account the sign-in covers")

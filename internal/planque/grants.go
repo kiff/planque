@@ -389,6 +389,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeRefusal(w, r)
 		return
 	}
+	if r := qontoToolsCheck(req.Server, *req.Tools, "tools"); r != nil {
+		writeRefusal(w, r)
+		return
+	}
 	if r := unitLookupMissing(*req.Tools); r != nil && len(req.Profile) == 0 {
 		writeRefusal(w, r)
 		return
@@ -1542,6 +1546,7 @@ func (s *Server) liveCatalog(w http.ResponseWriter, r *http.Request, g *Grant) {
 		writeErr(w, http.StatusBadGateway, "couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 		return
 	}
+	listed = servedOnly(g.Request.Server, listed)
 	tools := make([]CatalogTool, 0, len(listed))
 	for _, t := range listed {
 		tools = append(tools, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
@@ -1722,6 +1727,10 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 	originalNames := toolNames(req.Tools)
 
 	if r := checkTools(g.Request.Agent, req.Tools); r != nil {
+		writeRefusal(w, r)
+		return
+	}
+	if r := qontoToolsCheck(g.Request.Server, req.Tools, "tool"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -2949,6 +2958,9 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 		return GrantedTool{}, err.Error()
 	}
 	if t.narrowed() {
+		if onHost(g.Request.Server, qontoHost) {
+			gt.VendorInputSchema = listed[i].InputSchema
+		}
 		gt.InputSchema = t.schemaOver(listed[i].InputSchema)
 		gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
 	}
