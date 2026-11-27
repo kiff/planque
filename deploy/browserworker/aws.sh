@@ -338,7 +338,7 @@ print(json.dumps({"family":fam,"requiresCompatibilities":["FARGATE"],"networkMod
 # --- planque -------------------------------------------------------------
 
 planque() {
-  if ! step "planque's Lambda: may manage its network interfaces, joins the private subnets with group $W-planque, gets PLANQUE_BROWSER_URL=http://worker.$NS:$PORT and PLANQUE_BROWSER_KEY (other settings kept)"; then return 0; fi
+  if ! step "planque's Lambda: may manage its network interfaces, joins the private subnets with group $W-planque, gets PLANQUE_BROWSER_URL=http://worker.$NS:$PORT and PLANQUE_BROWSER_KEY (other settings kept: with PLANQUE_BROWSER_OFFER unset, no account is offered the browser)"; then return 0; fi
   aws iam attach-role-policy --role-name "$LAMBDA_ROLE" --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
   local env; env=$(command aws --region "$REGION" lambda get-function-configuration --function-name "$FN" --output json \
     | PLANQUE_BROWSER_KEY="$KEY" python3 -c 'import json,os,sys

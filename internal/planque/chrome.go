@@ -233,6 +233,47 @@ func ChromeOfferFrom(offer, tenants string) (ChromeOffer, error) {
 	return ChromeOffer{}, errors.New(`PLANQUE_CHROME_OFFER is "on", "test" or "off"`)
 }
 
+// BrowserOffer is which accounts planque's hosted browser is offered to,
+// read as ChromeOffer is: every account, or only Tenants. The zero value
+// offers it to none, so a worker configured (PLANQUE_BROWSER_URL) offers
+// nothing until an account is named.
+type BrowserOffer = ChromeOffer
+
+// BrowserOfferFrom reads PLANQUE_BROWSER_OFFER and PLANQUE_BROWSER_TENANTS
+// as ChromeOfferFrom reads the Chrome's: "on" offers the hosted browser to
+// every account, "test" only to the accounts in tenants
+// ("tenants:<id>[,<id>]"), and "" or "off" to none. Anything else, or
+// "test" with no tenants, stops planque starting.
+func BrowserOfferFrom(offer, tenants string) (BrowserOffer, error) {
+	switch strings.TrimSpace(offer) {
+	case "", "off":
+		return BrowserOffer{}, nil
+	case "on":
+		return BrowserOffer{All: true}, nil
+	case "test":
+		only, err := ManagedTestTenantsFrom(tenants)
+		if err != nil {
+			return BrowserOffer{}, fmt.Errorf("PLANQUE_BROWSER_TENANTS %w", err)
+		}
+		if len(only) == 0 {
+			return BrowserOffer{}, errors.New("PLANQUE_BROWSER_OFFER=test needs PLANQUE_BROWSER_TENANTS")
+		}
+		return BrowserOffer{Tenants: only}, nil
+	}
+	return BrowserOffer{}, errors.New(`PLANQUE_BROWSER_OFFER is "on", "test" or "off"`)
+}
+
+// browserOnFor says planque's hosted browser is offered to tenant's
+// account: a worker is configured, and the offer names every account or
+// this one. Checked at the catalog, the ask, each call and the sign-in view.
+func (s *Server) browserOnFor(tenant string) bool {
+	return s.Browser != nil && (s.BrowserOffer.All || s.BrowserOffer.Tenants[tenant])
+}
+
+// CodeBrowserOff: a call or a sign-in view on a hosted-browser grant for an
+// account the hosted browser isn't offered to (PLANQUE_BROWSER_OFFER).
+const CodeBrowserOff = "browser_off"
+
 // chromeOn says the owner's Chrome is offered to some account: a released
 // build is listed, and the offer names every account or some.
 func (s *Server) chromeOn() bool {

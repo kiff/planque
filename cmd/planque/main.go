@@ -30,6 +30,10 @@
 //	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
 //	                   accounts that may make a managed connection to any app;
 //	                   set at deploy, never kept in the repository
+//	PLANQUE_BROWSER_OFFER which accounts planque's hosted browser is offered
+//	                   to, once PLANQUE_BROWSER_URL is set: on (every one),
+//	                   test (only PLANQUE_BROWSER_TENANTS, tenants:<id>[,<id>]),
+//	                   or off; unset, none
 //	PLANQUE_BROWSER_PAY on lets the hosted browser pay (browse_pay, held
 //	                   for the owner each time); unset or anything else, it
 //	                   pays nothing and doesn't offer browse_pay
@@ -321,6 +325,12 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 			Target: "TrentService", JSONType: "application/x-amz-json-1.1", Creds: creds, RetryDropped: true}}
 		chromePoster = wsapi.API{Endpoint: strings.TrimRight(wsEndpoint, "/"), Region: region, Creds: creds}
 	}
+	// Which accounts planque's hosted browser is offered to: every one, a
+	// few, or none (the default), whatever worker is configured.
+	browserOffer, err := planque.BrowserOfferFrom(os.Getenv("PLANQUE_BROWSER_OFFER"), os.Getenv("PLANQUE_BROWSER_TENANTS"))
+	if err != nil {
+		return nil, err
+	}
 	// Which accounts the owner's Chrome is offered to: every one, a few, or
 	// none (the default), whatever builds are listed.
 	chromeOffer, err := planque.ChromeOfferFrom(os.Getenv("PLANQUE_CHROME_OFFER"), os.Getenv("PLANQUE_CHROME_TENANTS"))
@@ -361,6 +371,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		LiveIndex:          os.Getenv("PLANQUE_LIVE_GSI") == "on",
 		Browser:            browserWorker,
+		BrowserOffer:       browserOffer,
 		ChromeBuilds:       chromeBuilds,
 		ChromeOffer:        chromeOffer,
 		ChromeScreenshots:  strings.TrimSpace(os.Getenv("PLANQUE_CHROME_SCREENSHOTS")) == "on",

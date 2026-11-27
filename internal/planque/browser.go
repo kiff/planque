@@ -554,6 +554,11 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if err := dec.Decode(&a); err != nil {
 		return OpNotSent, browserRefusal(CodeBadArguments, "the arguments aren't this tool's: "+err.Error(), false)
 	}
+	// The hosted browser runs only for an account it's offered to
+	// (PLANQUE_BROWSER_OFFER), a grant from before included: nothing opens.
+	if !chromeGrant(g) && s.Browser != nil && !s.browserOnFor(g.Tenant) {
+		return OpNotSent, browserRefusal(CodeBrowserOff, "planque's hosted browser isn't offered to this account: nothing was opened", false)
+	}
 	// A proof test account's tafs pay for nothing, whoever approves it, in
 	// planque's browser or the owner's Chrome.
 	if tool.Tool == browsePay && s.ProofTestTenants[g.Tenant] {
