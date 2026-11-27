@@ -938,7 +938,7 @@ func (s *Server) connectorCatalog(w http.ResponseWriter, r *http.Request, g *Gra
 			unusables = append(unusables, unusable{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Why: uncoveredWords(g, t)})
 			continue
 		}
-		tools = append(tools, CatalogTool{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.ReadOnly, Returns: returnsOf(t.Output)})
+		tools = append(tools, CatalogTool{Name: t.Alias(), Slug: t.Slug, Title: label(t.Name), Description: t.Description, InputSchema: t.InputSchema, ReadOnly: t.Reads(), Returns: returnsOf(t.Output)})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": tools, "unusable": unusables, "next_cursor": page.Next, "skipped": page.Skipped})
 }
@@ -977,6 +977,8 @@ func (s *Server) selectConnectorTools(ctx context.Context, g *Grant, tools []Too
 		if r := resourceOutsideSchema(ask, definition.InputSchema); r != nil {
 			return r
 		}
+		// A read only when its name is one too (connector.Tool.Reads), also for a definition kept before that check.
+		definition.ReadOnly = definition.Reads()
 		g.Connector.Tools = append(g.Connector.Tools, definition)
 		g.Catalog = append(g.Catalog, CatalogTool{Name: ask.Tool, Slug: definition.Slug, Title: label(definition.Name), Description: definition.Description, InputSchema: definition.InputSchema, ReadOnly: definition.ReadOnly})
 	}

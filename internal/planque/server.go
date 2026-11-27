@@ -150,11 +150,13 @@ type Server struct {
 	// StripeRefundsTenants offers it to these accounts only, the others as
 	// if it were off: how an installation tries it on one account.
 	StripeRefundsTenants map[string]bool
-	// ManagedApps replaces managed_apps.json when set (tests): the apps a
-	// managed connection may be made to, by folded name. ManagedTestTenants
-	// are the accounts that may make one to any app
-	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
+	// ManagedApps replaces managed_apps.json when set (tests) with the list
+	// mode: the apps a managed connection may be made to, by folded name.
+	// ManagedExcept, when ManagedApps isn't set, replaces it with the all
+	// mode: every app but these. ManagedTestTenants are the accounts that may
+	// make one to any app (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps        map[string]bool
+	ManagedExcept      map[string]bool
 	ManagedTestTenants map[string]bool
 	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
 	// on): browse_pay is offered and runs, held for the owner each time. Off

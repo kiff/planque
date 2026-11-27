@@ -145,9 +145,9 @@ func TestTestTenantsAreReadFromTheSetting(t *testing.T) {
 	}
 }
 
-// The shipped list reads, with no empty or repeated names.
+// The shipped file reads, with no empty or repeated names.
 func TestTheShippedListsRead(t *testing.T) {
-	if _, err := DecodeNames(managedAppsJSON, provedKey); err != nil {
+	if _, _, _, err := DecodeManagedList(managedAppsJSON); err != nil {
 		t.Fatal("managed_apps.json:", err)
 	}
 	for _, bad := range []string{`{}`, `null`, `[""]`, `["Gmail","gmail"]`, `["Google Sheets","GoogleSheets"]`, `[] []`} {
@@ -157,25 +157,88 @@ func TestTheShippedListsRead(t *testing.T) {
 	}
 }
 
-// The shipped list is the apps the subprocessors page names: the three Google
-// apps and, from wave 1a, the fifteen others it lists by the names planque's
-// catalog gives them. An app that isn't on that page can't be connected
-// through the platform, and the two lists are kept equal.
-func TestTheShippedListNamesTheAppsThePageNamesAndNothingElse(t *testing.T) {
+// The shipped file is what the subprocessors page says: the all mode with
+// nothing excepted, and the earlier list's 18 apps kept as its names. Its
+// exceptions hold at least the page's (kiff/cloud's managed-apps check
+// compares the two files).
+func TestTheShippedFileAllowsEveryApp(t *testing.T) {
+	if !ManagedAll {
+		t.Fatal("the shipped file isn't in the all mode")
+	}
+	if len(ManagedExcept) != 0 {
+		t.Fatalf("the shipped file excepts %v", ManagedExcept)
+	}
 	names := []string{"Gmail", "Google Calendar", "Google Sheets",
 		"Airtable", "Asana", "Cal", "Calendly", "ClickUp", "Confluence", "Dropbox", "Excel", "Jira", "Linear", "Monday", "Notion", "OneDrive", "Trello", "Wrike"}
 	if len(ManagedApps) != len(names) {
-		t.Fatalf("the shipped list has %d apps, the page names %d: %v", len(ManagedApps), len(names), ManagedApps)
+		t.Fatalf("the shipped file names %d apps, the page %d: %v", len(ManagedApps), len(names), ManagedApps)
 	}
-	for _, name := range append(names, "google sheets", "onedrive", "clickup") {
+	for _, name := range names {
 		if !ManagedApps[provedKey(name)] {
-			t.Errorf("%s isn't on the shipped list", name)
+			t.Errorf("%s isn't named", name)
 		}
 	}
-	for _, name := range []string{"Moneybird", "Pipedrive", "Stripe", "Google Drive", "Slack", "Shopify"} {
-		if ManagedApps[provedKey(name)] {
-			t.Errorf("%s is on the shipped list", name)
+	e, _ := gated(t, nil, nil)
+	s := e.s
+	s.ManagedApps = nil // the shipped file
+	for _, app := range []string{"googlesheets", "slack", "hubspot", "typeform", "pipedrive", "gusto", "plaid"} {
+		if !s.managedListed("tnt_any", app) {
+			t.Errorf("%s isn't allowed", app)
 		}
+	}
+}
+
+// The file reads in either form, and nothing else: an object must say
+// "all": true, name its exceptions ([] for none), and have no other field.
+func TestTheManagedListReadsInEitherFormOnly(t *testing.T) {
+	named, all, except, err := DecodeManagedList([]byte(` ["Gmail", "Notion"]`))
+	if err != nil || all || len(named) != 2 || len(except) != 0 {
+		t.Fatalf("the list mode: %v %v %v %v", named, all, except, err)
+	}
+	named, all, except, err = DecodeManagedList([]byte(`{"all": true, "named": ["Gmail"], "except": ["Gusto", "Plaid"]}`))
+	if err != nil || !all || !named["gmail"] || !except["gusto"] || !except["plaid"] || len(except) != 2 {
+		t.Fatalf("the all mode: %v %v %v %v", named, all, except, err)
+	}
+	if _, all, except, err = DecodeManagedList([]byte(`{"all": true, "except": ["Gusto"]}`)); err != nil || !all || !except["gusto"] {
+		t.Fatalf("the all mode without names: %v %v %v", all, except, err)
+	}
+	if _, all, except, err = DecodeManagedList([]byte(`{"all": true, "named": ["Gmail"], "except": []}`)); err != nil || !all || len(except) != 0 {
+		t.Fatalf("the all mode with nothing excepted: %v %v %v", all, except, err)
+	}
+	for _, bad := range []string{
+		`{"all": false, "except": ["Gusto"]}`,
+		`{"except": ["Gusto"]}`,
+		`{"all": true}`,
+		`{"all": true, "except": null}`,
+		`{"all": true, "except": ["Gusto"], "only": ["Slack"]}`,
+		`{"all": true, "except": ["Gusto", "gusto"]}`,
+		`{"all": true, "except": [""]}`,
+		`{"all": "yes", "except": ["Gusto"]}`,
+		`{"all": true, "except": ["Gusto"]} []`,
+		`"all"`,
+		``,
+	} {
+		if _, _, _, err := DecodeManagedList([]byte(bad)); err == nil {
+			t.Errorf("%s read as a managed list", bad)
+		}
+	}
+}
+
+// In the all mode, an operator's mark still decides first: withdrawn, an app
+// is refused whatever the file says; marked on, an exception is let through
+// (the operator's signed decision, as in the list mode). A test account tries
+// any app, exceptions included.
+func TestTheAllModeKeepsMarksAndTestAccounts(t *testing.T) {
+	e, _ := gated(t, nil, []string{"tnt_test"})
+	e.s.ManagedApps, e.s.ManagedExcept = nil, map[string]bool{"gusto": true}
+	if !e.s.managedListed("tnt_x", "deskdemo") || e.s.managedListed("tnt_x", "gusto") {
+		t.Fatal("the all mode didn't follow its exceptions")
+	}
+	if !e.s.managedListed("tnt_test", "gusto") {
+		t.Error("a test account can't try an exception")
+	}
+	if !e.s.managedAllowed("tnt_x", "desk_demo") {
+		t.Error("an app the all mode allows isn't allowed")
 	}
 }
 
@@ -233,5 +296,46 @@ func TestAnOwnClientAccountIsNotOfferedTheManagedToolkit(t *testing.T) {
 	// Another account is untouched.
 	if !e.s.managedAllowed("other-tenant", "desk_demo") || e.s.ownClientFor("other-tenant", "desk_demo") {
 		t.Error("an account that isn't listed was changed")
+	}
+}
+
+// An app this account can't connect through the managed connector isn't
+// offered, in Connect apps or in Coach's tool search, so Coach never proposes
+// an app whose connection would then be refused (errNotDisclosed). A listed
+// app is offered, and a test account is offered every app, as it may connect
+// every one.
+func TestAnAppThatCantConnectIsNotOffered(t *testing.T) {
+	offered := func(e *env) (catalog, search []string) {
+		_, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog?provider=composio", nil, nil, "k_setup")
+		for _, it := range out["entries"].([]any) {
+			catalog = append(catalog, it.(map[string]any)["entry"].(string))
+		}
+		_, out = e.do("GET", "/v1/accounts/"+tenant+"/catalog/tools?provider=composio&q=desk", nil, nil, "k_setup")
+		for _, it := range out["tools"].([]any) {
+			search = append(search, it.(map[string]any)["entry"].(string))
+		}
+		return
+	}
+	desk, calendar := "connector:composio:desk_demo", "connector:composio:calendar_demo"
+
+	e, _ := gated(t, nil, nil)
+	catalog, search := offered(e)
+	if slices.Contains(catalog, desk) || slices.Contains(catalog, calendar) || slices.Contains(search, desk) {
+		t.Errorf("an unlisted app is offered: %v %v", catalog, search)
+	}
+
+	e, _ = gated(t, []string{"Desk Demo"}, nil)
+	catalog, search = offered(e)
+	if !slices.Contains(catalog, desk) || !slices.Contains(search, desk) {
+		t.Errorf("a listed app isn't offered: %v %v", catalog, search)
+	}
+	if slices.Contains(catalog, calendar) {
+		t.Errorf("an unlisted app is offered beside a listed one: %v", catalog)
+	}
+
+	e, _ = gated(t, nil, []string{tenant})
+	catalog, search = offered(e)
+	if !slices.Contains(catalog, desk) || !slices.Contains(catalog, calendar) || !slices.Contains(search, desk) {
+		t.Errorf("a test account isn't offered every app: %v %v", catalog, search)
 	}
 }

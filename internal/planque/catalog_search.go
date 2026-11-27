@@ -122,12 +122,15 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 	for _, t := range found.Tools {
 		app, ok := found.Apps[t.Toolkit]
 		// The managed connector's Stripe and Qonto aren't offered: each is
-		// planque's direct entry.
-		if !ok || directEntryFor(t.Toolkit) != "" || s.ownClientFor(tenant, t.Toolkit) {
+		// planque's direct entry. Nor is an app this account can't connect
+		// through it (managedAllowed: not on the published list, or reached
+		// by the account's own client), so Coach never proposes an app the
+		// connection would then refuse.
+		if !ok || directEntryFor(t.Toolkit) != "" || !s.managedAllowed(tenant, t.Toolkit) {
 			continue
 		}
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
-			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.ReadOnly})
+			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.Reads()})
 	}
 	// A reviewed entry found by a tool's words alone comes after the provider's apps.
 	tools = append(tools, byTool...)

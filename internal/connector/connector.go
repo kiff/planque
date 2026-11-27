@@ -185,6 +185,9 @@ func (t Tool) Covered(granted []string) bool {
 		if name, ok := strings.CutSuffix(need, ":read"); ok && fullImpliesRead[strings.ToLower(t.Toolkit)] && slices.Contains(granted, name+":full") {
 			return true
 		}
+		if name, ok := strings.CutSuffix(need, ":add"); ok && fullImpliesAdd[strings.ToLower(t.Toolkit)] && slices.Contains(granted, name+":full") {
+			return true
+		}
 	}
 	return false
 }
@@ -203,6 +206,15 @@ var writeImpliesRead = map[string]bool{"shopify": true}
 // partly signed in". A vendor is added here once its own docs say so, never by
 // guess: elsewhere a full scope covers no read it isn't listed for.
 var fullImpliesRead = map[string]bool{"pipedrive": true}
+
+// fullImpliesAdd lists the toolkits whose provider names "<name>:add" for the
+// scope a tool that only creates needs ("Add a deal" lists "deals:add"), while
+// the vendor's own sign-in grants "<name>:full", whose description includes
+// creating (Pipedrive: "deals:full ... Create, read, update and delete deals").
+// Pipedrive's own scope list has no "deals:add", so without this a sign-in
+// granted "Deals: Full access" left "Add a deal" out as "only partly signed in".
+// A vendor is added here once its own docs say so, never by guess.
+var fullImpliesAdd = map[string]bool{"pipedrive": true}
 
 // fullAccessScope lists the toolkits whose vendor grants a sign-in every
 // endpoint under one scope name, and that name. Calendly's sign-ins made

@@ -1249,7 +1249,12 @@ type grantView struct {
 	// text the owner signs says the same in words (kiff/planque#87).
 	Custody string `json:"custody"`
 	// OnDemand: the app's sign-in was set up on this owner's pick.
-	OnDemand bool    `json:"on_demand,omitempty"`
+	OnDemand bool `json:"on_demand,omitempty"`
+	// Unproved: a managed connection to an app no recorded run has proved
+	// on the managed route (proofOf). tafs cloud then holds every change of
+	// it for the owner, as for an app set up on demand. Never on any other
+	// kind of grant.
+	Unproved bool    `json:"unproved,omitempty"`
 	Events   []Event `json:"events"`
 	// AccountName and Mode are what a managed connection has shown of its
 	// vendor account: the provider's name for it, and "live", "test" or
@@ -1323,6 +1328,11 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 			v.AccountName = st.AccountName
 		}
 		v.ModeWords = modeWords[v.Mode]
+		ctx := context.Background()
+		if r != nil {
+			ctx = r.Context()
+		}
+		v.Unproved = proofOf(s.provedMap(ctx), v.Entry, "oauth") == nil
 	}
 	if g.Request.Kind == KindBrowser {
 		v.Provider = KindBrowser

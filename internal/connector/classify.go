@@ -49,12 +49,60 @@ func words(s string) map[string]bool {
 	return m
 }
 
+// Reads says t only reads: the provider marks it read-only and its name
+// is a read (Classify). A provider that tags a write read-only
+// (NOTION_UPDATE_PAGE, CONVERT_PURCHASE_ORDER_TO_BILL, APPLY_MACRO) gets a
+// write everywhere planque says what a tool does: its catalog, the check on
+// a read-only request, KIFF's declaration and tafs cloud's holds, which skip
+// a read.
+//
+// A name that starts with a read verb is a read, as Classify has it, unless a
+// write verb is joined on after it ("or", "and", "then"). One that starts with a
+// noun (NOTION_PAGE_CREATE, SLACK_CHAT_POST_MESSAGE, HUBSPOT_CONTACTS_MERGE) is a
+// write when any word in it is a write verb, and with no verb at all it follows
+// the mark. A noun that is also a write verb after a read verb (GET_RECORD,
+// RETRIEVE_POST_COMMENTS) never turns a read into a write.
+func (t Tool) Reads() bool {
+	if !t.ReadOnly || Classify(t) != ClassRead {
+		return false
+	}
+	tokens := nameTokens(t)
+	// A write verb joined on ("or", "and", "then") is a second act, wherever it comes:
+	// GET_OR_CREATE_RECORD, SEARCH_AND_UPDATE_TICKETS, LIST_THEN_ARCHIVE.
+	for i := 1; i < len(tokens); i++ {
+		switch tokens[i-1] {
+		case "and", "or", "then":
+			if writeVerbs[tokens[i]] {
+				return false
+			}
+		}
+	}
+	if len(tokens) == 0 || readVerbs[tokens[0]] || writeVerbs[tokens[0]] {
+		// A write verb first is a read here only as "batch" before a read verb (BATCH_GET).
+		return true
+	}
+	// A name that starts with a noun is a write when any of its words is a write
+	// verb (PAGE_CREATE, PAGE_CREATE_AND_GET, SETTINGS_SEND_AS_GET): no read a
+	// reviewed guide marks starts with a noun and carries one.
+	for _, w := range tokens {
+		if writeVerbs[w] {
+			return false
+		}
+	}
+	return true
+}
+
+// nameTokens is t's slug without the toolkit's own prefix, lower case, split
+// at underscores, dashes and spaces.
+func nameTokens(t Tool) []string {
+	slug := strings.TrimPrefix(strings.ToLower(t.Slug), strings.ToLower(t.Toolkit)+"_")
+	return strings.FieldsFunc(slug, func(r rune) bool { return r == '_' || r == '-' || r == ' ' })
+}
+
 // Classify is the class of t. The toolkit's own prefix on the slug
 // (GOOGLEDRIVE_DELETE_CHILD) is dropped; the rest is split at underscores.
 func Classify(t Tool) Class {
-	slug := strings.ToLower(t.Slug)
-	slug = strings.TrimPrefix(slug, strings.ToLower(t.Toolkit)+"_")
-	tokens := strings.FieldsFunc(slug, func(r rune) bool { return r == '_' || r == '-' || r == ' ' })
+	tokens := nameTokens(t)
 	has := func(set map[string]bool) bool {
 		for _, w := range tokens {
 			if set[w] {
@@ -91,6 +139,19 @@ func Classify(t Tool) Class {
 	// call that changes many things: held, whatever its verb.
 	if !t.ReadOnly && has(map[string]bool{"all": true}) {
 		return ClassBulk
+	}
+	// The provider's mark alone never makes a read of a name that starts with
+	// a write verb (UPDATE_…, CONVERT_…_TO_BILL, APPLY_MACRO): a provider that
+	// tags a write read-only would otherwise let it run as a read. "batch"
+	// before a read verb (BATCH_GET) is a read all the same.
+	// A write over every item (ARCHIVE_ALL_…) is held as bulk, as it is
+	// unmarked; a read over all of them (LIST_ALL_…) never got here.
+	if t.ReadOnly && len(tokens) > 0 && writeVerbs[tokens[0]] &&
+		(tokens[0] != "batch" || len(tokens) < 2 || !readVerbs[tokens[1]] || alsoActs(tokens[1:])) {
+		if has(map[string]bool{"all": true}) {
+			return ClassBulk
+		}
+		return ClassWrite
 	}
 	if t.ReadOnly {
 		return ClassRead

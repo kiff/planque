@@ -312,7 +312,9 @@ evidence store when one is configured; both go with the grant.
 A site's sign-in, when one is needed, is the owner's own, in a live view of
 the grant's browser that planque serves (a later step); the storage state
 after it is sealed like a token, opened only for the grant's own session,
-and deleted on disconnect. No password ever reaches planque.
+and deleted on disconnect. planque never stores or logs a password: in the
+live view, what the owner types goes to the browser through planque's
+memory as an act, and is kept nowhere.
 
 ### The live sign-in view
 
@@ -389,8 +391,13 @@ be armed is closed and never runs. The browser's policy
 flag confining WebRTC to the proxy is set too, but measured alone it still
 let STUN checks out. So a page, in any frame, opens no peer connection and
 probes no address. Downloads are denied. A session unused for two minutes is ended
-by the worker. Deployed, the worker runs in a network with no route to
-planque's or anyone's private addresses: a second line behind the proxy.
+by the worker. Deployed (`deploy/browserworker/aws.sh`), a network ACL on
+the worker's subnets is the second line behind the proxy: inside the VPC it
+lets through only planque's calls to the worker's port and their replies,
+and out of it only TCP 443 to public addresses; private, link-local and
+shared ranges are denied. Each task runs one session, so a page that broke
+out of Chromium would hold no other account's session, and the image is
+rebuilt each week for the browser's security updates.
 
 The worker reports facts, in no language: each field's kind from its type
 and autocomplete (`password`; `card` for a number or a security code;
@@ -718,8 +725,10 @@ follows.
   parts, `registry` and `hosting`, kept short on purpose (the owner's device
   shows the hosts it signs, too); a suffix is added there in a PR that names it.
 - **The gate.** A managed connection needs the vendor's mark, or a test tenant,
-  or, for a vendor with no mark at all, a place on `managed_apps.json` (the
-  seed, now empty). A **withdrawn** mark wins over the seed.
+  or, for a vendor with no mark at all, what `managed_apps.json` (the seed)
+  allows: a place on it in its list mode, or not being one of its exceptions
+  in its all mode (docs/managed-connectors.md). A **withdrawn** mark wins over
+  the seed.
 - **The catalog read** says `managed: true` for an entry only when its vendor
   has an active mark and **every endpoint the entry has** (its API addresses,
   each region, an account template read on the vendor's own domain, or its app's
