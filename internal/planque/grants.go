@@ -3519,20 +3519,9 @@ func (s *Server) endGrant(ctx context.Context, g *Grant, said, by string) error 
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	g.Pending, g.PendingTransport = nil, ""
 	what := said + ": token deleted"
-	switch {
-	case g.keptFor > 0:
-		what = said + ": the sign-in stays, another taf's connection uses it"
-	case g.revokedShared && g.Request.Kind == KindAPIKey:
-		what = said + ": the key it shared was deleted, no other connection used it"
-	case g.revokedShared:
-		what = said + ": the sign-in it shared was revoked, no other connection used it"
-	case g.TokenOf != "":
-		what = said + ": the sign-in it used stays with the connection it came from"
-	case g.Request.Kind == KindAPIKey:
-		what = said + ": key deleted here; it stays valid at " + vendorName(g) + " until the owner deletes it there"
-	case vendorRevokeOf(g) == revokeNotOffered:
-		what = said + ": token deleted here; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
-	case g.Request.Kind == KindBrowser:
+	if ended := signInEnded(g, true); ended != "" {
+		what = said + ": " + ended
+	} else if g.Request.Kind == KindBrowser {
 		what = said + ": the browser's sign-ins and screenshots deleted"
 	}
 	if g.Request.API != nil {
@@ -3961,8 +3950,6 @@ func label(s string) string {
 	return s
 }
 
-// vendorName is the vendor as the owner reads it: its own name, else the
-// host of its server.
 // What disconnecting does at the vendor (grantView.VendorRevoke).
 const (
 	revokeAtVendor   = "revoked"
@@ -3992,6 +3979,35 @@ func vendorRevokeOf(g *Grant) string {
 	return revokeAtVendor
 }
 
+// signInEnded says what ending g did with the sign-in or key it held, for
+// its disconnect record, the same whichever door ended it (the owner's
+// Disconnect, or its taf's end): kept for another connection, revoked, or
+// only deleted here, and then what stays at the vendor. "" when g held
+// none of these, and the caller says what it held. held: whether g held a
+// sign-in of its own, so one that never signed in isn't said deleted.
+func signInEnded(g *Grant, held bool) string {
+	notOffered := vendorRevokeOf(g) == revokeNotOffered
+	switch {
+	case g.keptFor > 0:
+		return "the sign-in stays, another taf's connection uses it"
+	case g.revokedShared && g.Request.Kind == KindAPIKey:
+		return "the key it shared was deleted here, no other connection used it; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case g.revokedShared && notOffered:
+		return "the sign-in it shared was deleted here, no other connection used it; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	case g.revokedShared:
+		return "the sign-in it shared was revoked, no other connection used it"
+	case g.TokenOf != "":
+		return "the sign-in it used stays with the connection it came from"
+	case g.Request.Kind == KindAPIKey:
+		return "key deleted here; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case notOffered && held:
+		return "token deleted here; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	}
+	return ""
+}
+
+// vendorName is the vendor as the owner reads it: its own name, else the
+// host of its server.
 func vendorName(g *Grant) string {
 	// A vendor's own reviewed server is called by its app's name, a grant
 	// stored with its server's own name ("stripe-mcp") too.
