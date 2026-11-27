@@ -3742,6 +3742,12 @@ type connection struct {
 	Status    string    `json:"status"`
 	Mode      string    `json:"mode,omitempty"`
 	ModeWords string    `json:"mode_words,omitempty"`
+	// OnDemand and Unproved are the grant view's (grantView): an app set up on
+	// the owner's pick, or a managed one no recorded run has proved. tafs cloud
+	// holds every change of either for the owner, so Coach reusing this
+	// connection for a new taf asks no daily number for its writes.
+	OnDemand bool `json:"on_demand,omitempty"`
+	Unproved bool `json:"unproved,omitempty"`
 	// Sites are a browser connection's signed sites (BrowserRequest.Sites),
 	// and AnySite says one was signed for any public site (no sites): tafs
 	// cloud gives a taf the page the person sends with a message only when
@@ -3837,6 +3843,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []connection{}
+	proved := s.provedMap(r.Context())
 	for _, it := range items {
 		var g Grant
 		if json.Unmarshal(it.Doc, &g) != nil || g.Request.Agent == "" {
@@ -3847,7 +3854,13 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		if !holdsSignIn(&g) {
 			continue
 		}
-		out = append(out, connectionOf(&g))
+		c := connectionOf(&g)
+		// As the grant view says them, by the same rule.
+		c.OnDemand = g.OnDemand
+		if c.Kind == KindProvider {
+			c.Unproved = proofOf(proved, s.appEntry(&g), "oauth") == nil
+		}
+		out = append(out, c)
 	}
 	answer := map[string]any{"connections": out}
 	// While the owner's own Chrome is offered, its paired Chromes by name, so

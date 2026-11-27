@@ -62,3 +62,58 @@ func stringOf(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// Coach reusing a connection for a new taf reads it from the account's
+// connections, not the grant: so that view says unproved (and on_demand) as
+// the grant view does, by the same rule. On 27 Nov Coach offered to reuse a
+// Pipedrive connection and asked "how many deals a day" for its writes,
+// which tafs cloud holds for every change of an unproved app.
+func TestTheAccountsConnectionsSayUnprovedAsTheGrantDoes(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	g := connectConnector(t, e, f)
+	listed := func() map[string]any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("connections: %d %v", st, out)
+		}
+		list, _ := out["connections"].([]any)
+		if len(list) != 1 {
+			t.Fatalf("want the one connection: %v", out)
+		}
+		return list[0].(map[string]any)
+	}
+	grant := func() map[string]any {
+		t.Helper()
+		_, view := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID, nil, nil, "k_setup")
+		return view
+	}
+	slug := g.Request.Connector.Toolkit
+	// No proof for the app: both say unproved.
+	e.s.Proved = map[string]Proof{}
+	if c, v := listed(), grant(); c["unproved"] != true || v["unproved"] != true {
+		t.Fatalf("no proof: connection %v, grant %v", c["unproved"], v["unproved"])
+	}
+	// Proved on the managed route: neither says it.
+	e.s.Proved = map[string]Proof{provedKey(slug): {At: "2026-11-20", How: "oauth", Route: "managed"}}
+	if c, v := listed(), grant(); c["unproved"] != nil || v["unproved"] != nil {
+		t.Fatalf("proved: connection %v, grant %v", c["unproved"], v["unproved"])
+	}
+	// The connection says on_demand exactly when its grant does: not yet,
+	// then once the app was set up on the owner's pick.
+	if c, v := listed(), grant(); c["on_demand"] != nil || v["on_demand"] != nil {
+		t.Fatalf("not on demand: connection %v, grant %v", c["on_demand"], v["on_demand"])
+	}
+	ctx := context.Background()
+	stored, err := e.s.loadGrant(ctx, tenant, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.OnDemand = true
+	if err := e.s.saveGrant(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if c, v := listed(), grant(); c["on_demand"] != true || v["on_demand"] != true {
+		t.Fatalf("on demand: connection %v, grant %v", c["on_demand"], v["on_demand"])
+	}
+}
