@@ -227,7 +227,8 @@ version headings refer to releases, not merely to merged pull requests.
 ### Changed
 
 - **A connection says what disconnecting does at its vendor.** The owner's grant list carries `vendor_revoke`, which the apps use to pick their disconnect words:
-  - `revoked`: a sign-in at a vendor whose OAuth metadata names a revocation endpoint (Google Sheets, Stripe), or a managed sign-in, ended through its connection platform;
+  - `revoked`: a sign-in at a vendor whose OAuth metadata names a revocation endpoint (Google Sheets, Stripe);
+  - `revoke_requested`: a managed sign-in, disabled at its connection platform at once, with its revocation at the vendor asked of the platform, which does it later and never says it's done;
   - `not_revoked`: a sign-in at a vendor that publishes none (Qonto), deleted here only;
   - `key_stays`: a key the owner made, which stays valid at the vendor until the owner deletes it there.
 

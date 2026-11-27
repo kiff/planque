@@ -10,7 +10,8 @@ import (
 // What disconnecting does at the vendor, as the apps are told it: a sign-in
 // is revoked only where the vendor's metadata names a revocation endpoint (so
 // Qonto's isn't), a key the owner made stays at the vendor until the owner
-// deletes it there, a managed sign-in is revoked through its platform, and a
+// deletes it there, a managed sign-in is disabled at once with its revocation
+// only requested of its platform, and a
 // browser says nothing.
 func TestVendorRevokeSaysWhatDisconnectingDoesAtTheVendor(t *testing.T) {
 	signIn := func(revocation string) *Grant {
@@ -24,7 +25,7 @@ func TestVendorRevokeSaysWhatDisconnectingDoesAtTheVendor(t *testing.T) {
 		{"a sign-in whose vendor revokes", signIn("https://vendor.example/revoke"), revokeAtVendor},
 		{"a sign-in whose vendor offers no revocation", signIn(""), revokeNotOffered},
 		{"a key", &Grant{Request: Request{Kind: KindAPIKey}}, revokeKeyStays},
-		{"a managed sign-in", &Grant{Request: Request{Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}}}, revokeAtVendor},
+		{"a managed sign-in", &Grant{Request: Request{Connector: &ConnectorRequest{Provider: "composio", Toolkit: "gmail"}}}, revokeRequested},
 		{"a browser", &Grant{Request: Request{Kind: KindBrowser}}, ""},
 		{"nothing held at a vendor yet", &Grant{}, ""},
 	}

@@ -1224,9 +1224,11 @@ type grantView struct {
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
 	// VendorRevoke is what disconnecting does at the vendor (vendorRevokeOf):
-	// "revoked", "not_revoked" (a sign-in at a vendor that publishes no way to
-	// revoke one, as Qonto) or "key_stays" (a key the owner made, which only
-	// the owner can delete there). Empty for a browser or a connection with
+	// "revoked", "revoke_requested" (a managed sign-in: disabled at once, its
+	// revocation at the vendor asked of the connection platform, which never
+	// says it's done), "not_revoked" (a sign-in at a vendor that publishes no
+	// way to revoke one, as Qonto) or "key_stays" (a key the owner made, which
+	// only the owner can delete there). Empty for a browser or a connection with
 	// nothing held at a vendor. The apps pick their disconnect words from it.
 	VendorRevoke string `json:"vendor_revoke,omitempty"`
 	Text         string `json:"text"`
@@ -3953,6 +3955,7 @@ func label(s string) string {
 // What disconnecting does at the vendor (grantView.VendorRevoke).
 const (
 	revokeAtVendor   = "revoked"
+	revokeRequested  = "revoke_requested"
 	revokeNotOffered = "not_revoked"
 	revokeKeyStays   = "key_stays"
 )
@@ -3961,8 +3964,10 @@ const (
 // revoked there when the vendor's OAuth metadata names a revocation endpoint
 // (oauth.Client.Revoke), and only deleted here when it names none; a key the
 // owner made stays valid there until the owner deletes it; a managed sign-in
-// is revoked through its connection platform (revokeConnector). A browser, or
-// a grant that holds nothing at a vendor, says nothing.
+// is disabled at its connection platform at once (revokeConnector), and its
+// revocation at the vendor is asked of the platform, which does it later and
+// never says it's done, so it's requested, never "revoked". A browser, or a
+// grant that holds nothing at a vendor, says nothing.
 func vendorRevokeOf(g *Grant) string {
 	switch {
 	case g.Request.Kind == KindAPIKey:
@@ -3970,7 +3975,7 @@ func vendorRevokeOf(g *Grant) string {
 	case g.Request.Kind == KindBrowser:
 		return ""
 	case g.Request.Connector != nil:
-		return revokeAtVendor
+		return revokeRequested
 	case g.Vendor.Token == "":
 		return ""
 	case g.Vendor.Revocation == "":
