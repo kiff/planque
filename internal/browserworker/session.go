@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -390,6 +391,14 @@ func (s *session) page(ctx context.Context) (browser.Page, error) {
 	var p browser.Page
 	if err := json.Unmarshal([]byte(ev.Result.Value), &p); err != nil {
 		return browser.Page{}, errors.New("the page couldn't be read")
+	}
+	// A plain-http address is never a site's page: the proxy refused it, and the
+	// browser shows a proxy's answer to an http request as the page itself, at
+	// the address refused (a redirect to http://169.254.170.2/ read as a page).
+	// It's refused as a refused https site is, so the taf is never told a page
+	// opened there.
+	if u, err := url.Parse(p.URL); err == nil && u.Scheme == "http" && !(s.proxy.AllowLocal && isLoopback(u.Hostname())) {
+		return browser.Page{}, errors.New("the page couldn't be opened: " + navError("TUNNEL_CONNECTION_FAILED"))
 	}
 	// Masked at the source; masked again here, so no value of a secret
 	// field leaves the worker whatever the script did.
