@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"sync/atomic"
 	"testing"
 )
 
@@ -41,5 +42,26 @@ func TestAManagedGrantSaysWhenItsAppIsUnproved(t *testing.T) {
 	b.s.Proved = map[string]Proof{}
 	if g := b.connect(); b.s.view(nil, g).Unproved {
 		t.Error("a browser grant reads unproved")
+	}
+}
+
+// Where planque reads KIFF's proof monitor (PLANQUE_PROOF_STATE_URL), only
+// its green runs prove: an app a shipped or seeded proof line names, with no
+// green run behind it, is unproved, so every change of it asks the owner.
+func TestOnlyTheProofMonitorLiftsTheHold(t *testing.T) {
+	var calls atomic.Int32
+	srv := kiffState(t, map[string]string{}, &calls)
+	defer srv.Close()
+	e, _ := gated(t, []string{"Desk Demo"}, nil)
+	e.s.CatalogEntries = proofEntries()
+	e.s.ProofState = NewProofState(srv.URL+"/v1/ops/proofs/state", "state-token")
+	// A seeded line, as a hand-kept list would have it.
+	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-13", How: "oauth", Route: "managed"}}
+	st, out := askManaged(e)
+	if st != 201 {
+		t.Fatalf("ask: %d %v", st, out)
+	}
+	if u, _ := out["grant"].(map[string]any)["unproved"].(bool); !u {
+		t.Fatal("a seeded proof line lifted the hold while KIFF's monitor has no green run")
 	}
 }
