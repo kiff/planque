@@ -600,6 +600,11 @@ func CheckSite(name string) error {
 	if local(name) {
 		return fmt.Errorf("%q isn't a public site", name)
 	}
+	// A shared host or a registry's suffix covers every owner's site under
+	// it: a grant names one owner's site instead.
+	if PublicSuffix(name) {
+		return fmt.Errorf("%q is a shared domain, where anyone can have a site (the Public Suffix List): name the one site, such as shop.%s", name, name)
+	}
 	return nil
 }
 

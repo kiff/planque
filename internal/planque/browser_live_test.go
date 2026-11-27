@@ -26,6 +26,7 @@ func newLiveBrowserEnv(t *testing.T) (*browserEnv, *fakes.Shop) {
 	shop := fakes.NewTLSShop()
 	t.Cleanup(shop.Close)
 	e := newBrowserEnv(t)
+	e.s.BrowserPay = true // this test pays
 	e.s.Browser = &browserworker.Local{Options: browserworker.Options{AllowLocal: true, NavigateWait: 20 * time.Second,
 		Map: map[string]string{"shop.example:443": strings.TrimPrefix(shop.URL, "https://")},
 		Resolve: func(_ context.Context, host string) ([]netip.Addr, error) {

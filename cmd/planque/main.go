@@ -30,6 +30,9 @@
 //	PLANQUE_MANAGED_TEST_TENANTS optional tenants:<id>[,<id>]: the test
 //	                   accounts that may make a managed connection to any app;
 //	                   set at deploy, never kept in the repository
+//	PLANQUE_BROWSER_PAY on lets the hosted browser pay (browse_pay, held
+//	                   for the owner each time); unset or anything else, it
+//	                   pays nothing and doesn't offer browse_pay
 //	PLANQUE_PROOF_TEST_TENANTS optional tenants:<id>[,<id>]: the accounts a
 //	                   robot test user runs (KIFF_PROOF_TEST_TENANTS' ids):
 //	                   no live Stripe key and no browse_pay there; set at
@@ -364,6 +367,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		// The hand-over's tools, offered to new Chrome connections only: on
 		// unless PLANQUE_CHROME_HAND=off (chromeHandOn).
 		ChromeHand: chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
+		// Paying in the hosted browser: on only when set to on.
+		BrowserPay: strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_PAY")) == "on",
 		// A sealed fill in the owner's Chrome, off unless turned on.
 		SealedFill:   os.Getenv("PLANQUE_SEALED_FILL") == "on",
 		ChromeSigner: chromeSigner,

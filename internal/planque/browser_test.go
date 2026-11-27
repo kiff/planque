@@ -42,6 +42,8 @@ func newBrowserEnv(t *testing.T) *browserEnv {
 	})
 	be := &browserEnv{env: e, b: fakes.NewBrowser(), ev: fakes.NewEvidence()}
 	e.s.Browser, e.s.Evidence = be.b, be.ev
+	// These tests pay; paying off is tested on its own (browser_pay_off_test.go).
+	e.s.BrowserPay = true
 	return be
 }
 
@@ -190,8 +192,8 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 	if st != 200 || !strings.Contains(mustJSONString(cat), `"entry":"browser"`) {
 		t.Errorf("catalog: %d %v", st, cat)
 	}
-	st, viaCatalog := e.do("POST", "/v1/accounts/"+tenant+"/catalog/browser/grants", map[string]any{"agent": "agt_taf", "browser": map[string]any{"currency": "EUR"}}, nil, "k_setup")
-	if st != 201 || viaCatalog["needs_key"] != false || viaCatalog["grant"].(map[string]any)["vendor"] != "Websites" {
+	st, viaCatalog := e.do("POST", "/v1/accounts/"+tenant+"/catalog/browser/grants", map[string]any{"agent": "agt_taf", "browser": map[string]any{"sites": []string{"shop.example"}, "currency": "EUR"}}, nil, "k_setup")
+	if st != 201 || viaCatalog["needs_key"] != false || viaCatalog["grant"].(map[string]any)["request"].(map[string]any)["profile"].(map[string]any)["vendor"] != "shop.example" {
 		t.Errorf("catalog ask: %d %v", st, viaCatalog)
 	}
 
@@ -202,12 +204,15 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 	}{
 		{"a site with a scheme", map[string]any{"browser": map[string]any{"sites": []string{"https://shop.example"}}}, "isn't a site"},
 		{"a local site", map[string]any{"browser": map[string]any{"sites": []string{"db.internal"}}}, "public site"},
-		{"pay with no currency", map[string]any{"browser": map[string]any{}}, "currency is required"},
-		{"pay with no checkout", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_pay", "title": "Browse pay"}}}, "needs browse_checkout"},
-		{"a tool it hasn't", map[string]any{"browser": map[string]any{"currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_download", "title": "Browse download"}}}, "no tool browse_download"},
-		{"a profile of the agent's", map[string]any{"browser": map[string]any{"currency": "EUR"}, "profile": map[string]any{"v": "x"}}, "profile is planque's"},
-		{"a server", map[string]any{"browser": map[string]any{"currency": "EUR"}, "server": "https://mcp.example"}, "profile is planque's"},
-		{"a bad currency", map[string]any{"browser": map[string]any{"currency": "euros"}}, "ISO 4217"},
+		{"pay with no currency", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}}}, "currency is required"},
+		{"no sites", map[string]any{"browser": map[string]any{"currency": "EUR"}}, "sites is required"},
+		{"a shared host", map[string]any{"browser": map[string]any{"sites": []string{"shop.example", "github.io"}}}, "shared domain"},
+		{"no browser at all", map[string]any{}, "sites is required"},
+		{"pay with no checkout", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}, "currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_pay", "title": "Browse pay"}}}, "needs browse_checkout"},
+		{"a tool it hasn't", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}, "currency": "EUR"}, "tools": []map[string]any{{"tool": "browse_download", "title": "Browse download"}}}, "no tool browse_download"},
+		{"a profile of the agent's", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}, "currency": "EUR"}, "profile": map[string]any{"v": "x"}}, "profile is planque's"},
+		{"a server", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}, "currency": "EUR"}, "server": "https://mcp.example"}, "profile is planque's"},
+		{"a bad currency", map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}, "currency": "euros"}}, "ISO 4217"},
 	} {
 		st, out := e.ask(c.body)
 		if st != 400 || !strings.Contains(out["error"].(string), c.want) {
@@ -215,7 +220,7 @@ func TestBrowserGrantIsAskedForWithPlanquesOwnToolsAndProfile(t *testing.T) {
 		}
 	}
 	// Reads alone need no currency.
-	if st, out := e.ask(map[string]any{"tools": []map[string]any{{"tool": "browse_open", "title": "Browse open", "read_only": true}, {"tool": "browse_read", "title": "Browse read", "read_only": true}}}); st != 201 {
+	if st, out := e.ask(map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}}, "tools": []map[string]any{{"tool": "browse_open", "title": "Browse open", "read_only": true}, {"tool": "browse_read", "title": "Browse read", "read_only": true}}}); st != 201 {
 		t.Errorf("reads alone: %d %v", st, out)
 	}
 }

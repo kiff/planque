@@ -101,6 +101,31 @@ type browserTool struct {
 	Required                 []string
 }
 
+// CodeSitesUnsafe: a call or a sign-in view refused on a browser grant whose
+// sites aren't ones a grant may name now: none at all, or a shared domain
+// (browser.CheckSite). A grant asked before those checks keeps its record,
+// and opens nothing until it's asked again with its sites.
+const CodeSitesUnsafe = "sites_unsafe"
+
+// grantSitesRefusal is why g's sites aren't ones a browser opens now, or "":
+// the checks an ask makes (browserAsk), made again at each use, so a grant
+// asked before them is held to them too.
+func grantSitesRefusal(g *Grant) string {
+	if g.Request.Browser == nil || len(g.Request.Browser.Sites) == 0 {
+		return "this connection names no site, and a browser reaches only the sites listed: ask for it again with its sites"
+	}
+	for _, site := range g.Request.Browser.Sites {
+		if err := browser.CheckSite(site); err != nil {
+			return err.Error() + ": ask for this connection again with that one site"
+		}
+	}
+	return ""
+}
+
+// CodePayOff: a browse_pay refused while the hosted browser doesn't pay
+// (PLANQUE_BROWSER_PAY isn't on).
+const CodePayOff = "pay_off"
+
 const (
 	browseOpen     = "browse_open"
 	browseRead     = "browse_read"
@@ -173,7 +198,10 @@ func browserMCPTools() []mcpTool {
 // browserAsk checks a browser grant's request and gives its tools (all of
 // them when none are named) and planque's profile for them. msg is the
 // refusal in words.
-func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
+// browserAsk checks a browser grant's ask and gives its request, tools and
+// profile. pay is whether the hosted browser pays (Server.BrowserPay): off,
+// browse_pay is neither offered nor taken there.
+func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
 	if b == nil {
 		b = &BrowserRequest{}
 	}
@@ -189,6 +217,12 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 	}
 	if len(sites) > maxSites {
 		return nil, nil, nil, fmt.Sprintf("browser.sites lists at most %d sites", maxSites)
+	}
+	// Every browser grant names its sites: an all-sites browser is the whole
+	// public web for a page's instructions to lead the taf to, and for what it
+	// read to leave by.
+	if len(sites) == 0 {
+		return nil, nil, nil, "browser.sites is required: a browser reaches only the sites listed"
 	}
 	b.Sites = sites
 	b.Currency = strings.TrimSpace(b.Currency)
@@ -215,7 +249,7 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 	tools := asked
 	if len(tools) == 0 {
 		for _, t := range browserTools {
-			if t.Name == browsePay && b.Driver == DriverExtension {
+			if t.Name == browsePay && (b.Driver == DriverExtension || !pay) {
 				continue
 			}
 			// The hand-over is the owner's Chrome's, and only once it's on.
@@ -254,6 +288,11 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 		// Paying through the owner's Chrome stays off until the owner turns it
 		// on.
 		return nil, nil, nil, "browse_pay isn't offered with the owner's Chrome yet"
+	}
+	if pays && !pay {
+		// The hosted browser pays only once paying is turned on
+		// (PLANQUE_BROWSER_PAY).
+		return nil, nil, nil, "browse_pay isn't offered: paying in the hosted browser is off"
 	}
 	if pays {
 		if b.Currency == "" {
@@ -519,6 +558,15 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	// planque's browser or the owner's Chrome.
 	if tool.Tool == browsePay && s.ProofTestTenants[g.Tenant] {
 		return OpNotSent, browserRefusal(CodeTestTenant, "this is a test account: none of its tafs pays for anything", false)
+	}
+	// The hosted browser pays nothing while paying is off
+	// (PLANQUE_BROWSER_PAY), whatever the grant asked or the approval says.
+	if tool.Tool == browsePay && !chromeGrant(g) && !s.BrowserPay {
+		return OpNotSent, browserRefusal(CodePayOff, "paying in the hosted browser is off: nothing was paid", false)
+	}
+	// The sites an ask is held to now, at each use too.
+	if why := grantSitesRefusal(g); why != "" {
+		return OpNotSent, browserRefusal(CodeSitesUnsafe, why, false)
 	}
 	// A hand-over's answer is planque's to give, from what it kept: no page,
 	// no Chrome step, so no URL to check.
