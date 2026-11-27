@@ -226,6 +226,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- **On Qonto's sign-in, a search for the balance finds `get_organization`.** The catalog planque lists adds, to `get_organization`'s description, that it gives the business and its bank accounts with each account's balance and IBAN, unless Qonto's own description already says "balance" (`qontoReads`). A search by the job's words reads names and descriptions, and Qonto's text didn't name balances, so a taf looking for the balance guessed a tool name instead. Only on Qonto's host; the tools served and refused are the same.
 - **A refusal on Qonto's sign-in names balances and the tools to use.** A taf that asks for a Qonto tool planque doesn't serve (a guessed name such as `list_bank_accounts`) is told that the business's bank accounts with their balances and IBANs are served, by `get_organization`, and every tool it may ask for, so it retries with a served one rather than telling the owner that balances can't be read.
 
 - **The Qonto guide opens with the five things to say before the sign-in card.** The re-test showed Coach left out the own-login and "Desktop site" tip and the list of what the connection can read; they were in the guide as tips inside longer bullets. They are now one numbered list at the top, with the read list in Qonto's own consent-page words.

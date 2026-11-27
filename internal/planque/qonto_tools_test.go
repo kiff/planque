@@ -291,3 +291,31 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		}
 	}
 }
+
+// A served read's description says what it gives where Qonto's doesn't, so a
+// catalog search by the job's words finds it: "balance" finds get_organization
+// (the Qonto re-test, 27 Nov). Never on another server, never twice, and the
+// list given is untouched.
+func TestQontoReadsAreFoundByTheJobsWords(t *testing.T) {
+	listed := []mcpTool{{Name: "get_organization", Description: "Retrieve the organization."}, {Name: "list_transactions", Description: "List transactions."}}
+	got := servedOnly(qontoServer, listed)
+	if len(got) != 2 || !strings.Contains(strings.ToLower(got[0].Description), "balance") || !strings.Contains(got[0].Description, "IBAN") ||
+		!strings.HasPrefix(got[0].Description, "Retrieve the organization. ") {
+		t.Fatalf("get_organization's description: %q", got[0].Description)
+	}
+	if got[1].Description != "List transactions." {
+		t.Fatalf("another read's description changed: %q", got[1].Description)
+	}
+	if listed[0].Description != "Retrieve the organization." {
+		t.Fatalf("servedOnly changed the list it was given: %q", listed[0].Description)
+	}
+	// Qonto's own words already say it: nothing is added.
+	own := []mcpTool{{Name: "get_organization", Description: "The organization and each account's Balance."}}
+	if d := servedOnly(qontoServer, own)[0].Description; d != own[0].Description {
+		t.Fatalf("added to a description that already says it: %q", d)
+	}
+	// Another server's tool of the same name is as its server says.
+	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[0].Description; d != "Retrieve the organization." {
+		t.Fatalf("changed off Qonto's host: %q", d)
+	}
+}
