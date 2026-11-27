@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "HTTP Basicu sisselogimise paroolina, kasutajanimega %s",
 		KeyAsBasicUser:      "HTTP Basicu sisselogimise kasutajanimena",
 		FixedHeaderF:        ", päisega %s, mille väärtus on igal kutsel %s",
-		APIAsReadF:          "Selle API on selline, nagu on kirjeldatud aadressil %s lugemise ajal (SHA-256 %s…), aadressil %s.",
+		APIAsReadF:          "Selle tööriistad on need, mis on %s jaoks üle vaadatud.",
 		KeyVaultF:           "Sinu võtit hoitakse pitseeritud seifis ja seda ei näidata enam kunagi; taf ei näe seda. See saadetakse ainult aadressile %s, %s.",
 		DiscoverAPIF:        "Ühenda %s sinu antud API-võtmega, et näha, mida see pakub tafile %s.\n%s\n\nLoetakse ainult selle API kirjeldust: ühtegi selle toimingut ei kutsuta, sinu kontolt ei loeta midagi, midagi ei muudeta ja tafile ei anta midagi. Tööriistad, mida taf võib kasutada, tulevad järgmisena ja sa kinnitad need uuesti. Kui neid ühe päeva jooksul ei kinnitata, võti kustutatakse.\n\n%s Võid ühenduse igal ajal katkestada, mis selle kustutab.",
 		WillGiveKeyF:        "Annad API-võtme teenusele %s.\n%s\n\n",

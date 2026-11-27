@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "kao lozinka HTTP Basic prijave, s korisničkim imenom %s",
 		KeyAsBasicUser:      "kao korisničko ime HTTP Basic prijave",
 		FixedHeaderF:        ", sa zaglavljem %s postavljenim na %s pri svakom pozivu",
-		APIAsReadF:          "Njegov je API onakav kakav je opisan na %s kad je pročitan (SHA-256 %s…), na %s.",
+		APIAsReadF:          "Njegovi alati su oni pregledani za %s.",
 		KeyVaultF:           "Vaš je ključ pohranjen u zapečaćenom trezoru i više se nikada ne prikazuje; taf ga ne vidi. Šalje se samo na %s, %s.",
 		DiscoverAPIF:        "Povežite %s s API ključem koji date, da vidite što nudi za %s.\n%s\n\nČita se samo opis njegova API-ja: nijedna se njegova operacija ne poziva, ništa se ne čita s vašeg računa, ništa se ne mijenja i tafu se ništa ne daje. Alati koje taf smije koristiti slijede nakon toga i vi ih ponovno odobravate. Ako ne budu odobreni u roku od jednog dana, ključ se briše.\n\n%s Vezu možete prekinuti u bilo kojem trenutku, čime se on briše.",
 		WillGiveKeyF:        "Dat ćete API ključ za %s.\n%s\n\n",

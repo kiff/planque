@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "%s kullanıcı adıyla bir HTTP Basic oturumunun parolası olarak",
 		KeyAsBasicUser:      "bir HTTP Basic oturumunun kullanıcı adı olarak",
 		FixedHeaderF:        ", her çağrıda %s başlığı %s olarak ayarlı",
-		APIAsReadF:          "API'si, okunduğunda %s adresinde açıklandığı gibidir (SHA-256 %s…), %s üzerinde.",
+		APIAsReadF:          "Araçları, %s için incelenmiş olanlardır.",
 		KeyVaultF:           "Anahtarınız mühürlü bir kasada tutulur ve bir daha gösterilmez; taf onu görmez. Yalnızca şuraya gönderilir: %s, %s.",
 		DiscoverAPIF:        "%s hizmetini verdiğiniz bir API anahtarıyla bağlayın; %s için neler sunduğunu görün.\n%s\n\nYalnızca API açıklaması okunur: işlemlerinin hiçbiri çağrılmaz, hesabınızdan hiçbir şey okunmaz, hiçbir şey değiştirilmez ve taf'a hiçbir şey verilmez. Taf'ın kullanabileceği araçlar sonra gelir ve onları yeniden onaylarsınız. Bir gün içinde onaylanmazlarsa anahtar silinir.\n\n%s Bağlantıyı istediğiniz zaman kesebilirsiniz; bu anahtarı siler.",
 		WillGiveKeyF:        "%s için bir API anahtarı vereceksiniz.\n%s\n\n",

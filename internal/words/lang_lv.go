@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "kā HTTP Basic pierakstīšanās parole ar lietotājvārdu %s",
 		KeyAsBasicUser:      "kā HTTP Basic pierakstīšanās lietotājvārds",
 		FixedHeaderF:        ", ar galveni %s, kuras vērtība katrā izsaukumā ir %s",
-		APIAsReadF:          "Tā API ir tāds, kā aprakstīts %s lasīšanas brīdī (SHA-256 %s…), adresē %s.",
+		APIAsReadF:          "Tā rīki ir tie, kas pārbaudīti %s.",
 		KeyVaultF:           "Tava atslēga tiek glabāta aizzīmogotā seifā un vairs nekad netiek rādīta; taf to neredz. Tā tiek sūtīta tikai uz %s, %s.",
 		DiscoverAPIF:        "Pievieno %s ar API atslēgu, ko tu dod, lai redzētu, ko tas piedāvā taf %s.\n%s\n\nTiek lasīts tikai tā API apraksts: neviena tā darbība netiek izsaukta, no tava konta netiek lasīts nekas, nekas netiek mainīts un taf netiek dots nekas. Rīki, ko taf drīkst izmantot, nāk nākamie, un tu tos apstiprini vēlreiz. Ja tie netiek apstiprināti vienas dienas laikā, atslēga tiek dzēsta.\n\n%s Savienojumu vari atvienot jebkurā laikā, un tas atslēgu dzēš.",
 		WillGiveKeyF:        "Tu dosi API atslēgu pakalpojumam %s.\n%s\n\n",

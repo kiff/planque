@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "si fjalëkalimi i një hyrjeje HTTP Basic, me emrin e përdoruesit %s",
 		KeyAsBasicUser:      "si emri i përdoruesit i një hyrjeje HTTP Basic",
 		FixedHeaderF:        ", me kokën %s të vendosur në %s në çdo thirrje",
-		APIAsReadF:          "API-ja e tij është siç përshkruhet te %s kur u lexua (SHA-256 %s…), te %s.",
+		APIAsReadF:          "Mjetet e tij janë ato të shqyrtuara për %s.",
 		KeyVaultF:           "Çelësi juaj ruhet në një kasafortë të vulosur dhe nuk shfaqet më kurrë; taf-i nuk e sheh. Dërgohet vetëm te %s, %s.",
 		DiscoverAPIF:        "Lidhni %s me një çelës API që jepni ju, për të parë çfarë ofron për %s.\n%s\n\nLexohet vetëm përshkrimi i API-së së tij: asnjë nga veprimet e tij nuk thirret, nuk lexohet asgjë nga llogaria juaj, nuk ndryshohet asgjë dhe nuk i jepet asgjë taf-it. Mjetet që taf-i mund t'i përdorë vijnë më pas dhe ju i miratoni përsëri. Nëse nuk miratohen brenda një dite, çelësi fshihet.\n\n%s Mund ta ndërprisni lidhjen në çdo kohë, çka e fshin.",
 		WillGiveKeyF:        "Do të jepni një çelës API për %s.\n%s\n\n",

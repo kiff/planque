@@ -1045,7 +1045,8 @@ func apiKeyText(w words.Approval, q Request, held bool, account string, catalog 
 	if f := q.API.Auth.Fixed; f != nil {
 		where += fmt.Sprintf(w.FixedHeaderF, f.Name, f.Value)
 	}
-	api := fmt.Sprintf(w.APIAsReadF, q.API.URL, q.API.Digest[:12], q.API.Base)
+	// The description and its full digest are in the signed request (Request.API), so the card names the host only.
+	api := fmt.Sprintf(w.APIAsReadF, hostOf(q.API.Base))
 	vault := fmt.Sprintf(w.KeyVaultF, hostOf(q.API.Base), where)
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf(w.DiscoverAPIF, hostOf(q.API.Base), tafWords(w, q), api, vault)

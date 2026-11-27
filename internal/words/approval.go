@@ -38,7 +38,7 @@ type Approval struct {
 	FixedHeaderF string
 
 	// An API key.
-	APIAsReadF   string // the description's URL, its digest, the API's base
+	APIAsReadF   string // the API's host; the description and its digest are in the signed request
 	KeyVaultF    string // the API's host, where the key goes
 	DiscoverAPIF string // the API's host, the taf, APIAsRead, KeyVault
 	WillGiveKeyF string // the API's host, APIAsRead

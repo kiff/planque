@@ -72,7 +72,7 @@ func init() {
 		KeyAsBasicPasswordF: "kaip HTTP Basic prisijungimo slaptažodis, su naudotojo vardu %s",
 		KeyAsBasicUser:      "kaip HTTP Basic prisijungimo naudotojo vardas",
 		FixedHeaderF:        ", su antrašte %s, kurios reikšmė kiekvieno iškvietimo metu yra %s",
-		APIAsReadF:          "Jo API yra toks, kaip aprašyta %s skaitymo metu (SHA-256 %s…), adresu %s.",
+		APIAsReadF:          "Jo įrankiai yra tie, kurie buvo peržiūrėti %s.",
 		KeyVaultF:           "Jūsų raktas laikomas užplombuotoje saugykloje ir daugiau niekada nerodomas; taf jo nemato. Jis siunčiamas tik į %s, %s.",
 		DiscoverAPIF:        "Prijunkite %s su jūsų duotu API raktu, kad pamatytumėte, ką jis siūlo taf %s.\n%s\n\nSkaitomas tik jo API aprašas: nė viena jo operacija nekviečiama, iš jūsų paskyros nieko neskaitoma, niekas nekeičiama ir taf nieko neduodama. Įrankiai, kuriuos taf gali naudoti, ateina toliau, ir jūs juos tvirtinate iš naujo. Jei jie nepatvirtinami per vieną dieną, raktas ištrinamas.\n\n%s Ryšį galite atjungti bet kada, tai jį ištrina.",
 		WillGiveKeyF:        "Duosite API raktą %s.\n%s\n\n",
