@@ -233,6 +233,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if op, _ := args[IdempotencyArg].(string); op != p.Op {
 		return refused(CodePermitInvalid, "the permit's operation is not this call's "+IdempotencyArg)
 	}
+	// A Slack write that would notify a whole channel or workspace is never
+	// sent, on any route (slack_broadcast.go).
+	if why := slackBroadcast(g, tool, args); why != "" {
+		return refused(CodeBroadcast, why)
+	}
 	key := store.Item{PK: tenantPK(g.Tenant), SK: skOp(g.ID, p.Op)}
 	var prev operation
 	if it, err := getDoc(ctx, s.KV, key.PK, key.SK, &prev); err == nil {
