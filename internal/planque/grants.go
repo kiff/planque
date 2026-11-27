@@ -321,7 +321,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Kind == KindBrowser {
 		// The browser's tools and profile are planque's: the request names
 		// which tools, and what the browser is limited to.
-		if req.Browser != nil && req.Browser.Driver == "" && s.Browser == nil && s.relayOn() && s.chromeOnFor(tenant) {
+		if req.Browser != nil && req.Browser.Driver == "" && !s.browserOnFor(tenant) && s.relayOn() && s.chromeOnFor(tenant) {
 			// No hosted browser here, and the owner's own Chrome offered: a
 			// browser grant is one in their Chrome. Coach names no driver and
 			// sees the Chromes by name only (tafs a-browser-taf).
@@ -363,6 +363,11 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			}
 		} else if s.Browser == nil {
 			writeErr(w, http.StatusServiceUnavailable, "this installation has no browser")
+			return
+		} else if !s.browserOnFor(tenant) {
+			// A worker is configured, but the hosted browser isn't offered
+			// to this account (PLANQUE_BROWSER_OFFER).
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "planque's hosted browser isn't offered to this account", "code": CodeBrowserOff})
 			return
 		}
 		if len(req.Profile) > 0 || req.Server != "" || req.API != nil || req.Application != "" || req.Reuse != "" {

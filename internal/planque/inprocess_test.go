@@ -51,7 +51,10 @@ func newInProcessEnv(t *testing.T) *env {
 		KIFF:    &kiff.Client{API: e.kiff.Issuer, Gateway: e.kiff.Issuer, HTTP: e.client},
 		Permits: &permit.Verifier{Issuer: e.kiff.Issuer, Keys: &permit.JWKS{URL: e.kiff.Issuer + "/.well-known/kiff-permit-keys.json", HTTP: e.client}},
 		OAuth:   &oauth.Client{}, MCP: &mcp.Client{}, REST: &rest.Client{},
-		ManagedTestTenants: map[string]bool{tenant: true}}
+		ManagedTestTenants: map[string]bool{tenant: true},
+		// The hosted browser is offered to the test account only; the offer
+		// gate's own tests use other accounts (browser_offer_test.go).
+		BrowserOffer: BrowserOffer{Tenants: map[string]bool{tenant: true}}}
 	handler = e.s.Handler()
 	e.phone = e.device("dev_phone")
 	return e

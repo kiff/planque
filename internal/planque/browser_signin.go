@@ -121,6 +121,10 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 		writeJSON(w, http.StatusConflict, map[string]string{"error": why, "code": CodeSitesUnsafe})
 		return
 	}
+	if s.Browser != nil && !s.browserOnFor(g.Tenant) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "planque's hosted browser isn't offered to this account", "code": CodeBrowserOff})
+		return
+	}
 	resumer, ok := s.Browser.(browser.Resumer)
 	if s.Browser == nil || !ok {
 		writeErr(w, http.StatusServiceUnavailable, "this installation's browser can't hold a sign-in view")
@@ -218,7 +222,7 @@ func (s *Server) viewOf(r *http.Request, token string) (g *Grant, sess browser.S
 		return nil, nil, nil, l.ViewFinished
 	}
 	resumer, ok := s.Browser.(browser.Resumer)
-	if !ok {
+	if !ok || !s.browserOnFor(g.Tenant) {
 		return nil, nil, nil, l.ViewNoBrowser
 	}
 	sess, err = resumer.Resume(ctx, open.Session)

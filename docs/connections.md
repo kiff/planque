@@ -362,6 +362,15 @@ seals. planque reaches it over its API with a shared key
 key's SHA-256, `PLANQUE_WORKER_KEY_SHA256`), on a private address. An
 installation with neither lists no browser and takes no browser grant.
 
+A configured worker is offered to no account by itself. `PLANQUE_BROWSER_OFFER`
+names which: `on` (every account), `test` (only those in
+`PLANQUE_BROWSER_TENANTS`, `tenants:<id>[,<id>]`) or `off`; unset, none. An
+account off the list sees no "Use websites" in the catalog, its ask for a
+browser grant is refused (403 `browser_off`), and a browser grant it already
+holds opens nothing: each call is refused before a browser starts
+(`browser_off`), and so is the sign-in view. A malformed value stops planque
+starting.
+
 Paying is a setting of its own: the hosted browser pays (`browse_pay`) only
 with `PLANQUE_BROWSER_PAY=on`. Unset, it opens, reads, fills and reads a
 checkout, but `browse_pay` isn't offered, a grant that asks for it is

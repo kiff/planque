@@ -71,6 +71,10 @@ type Server struct {
 	// Browser drives a browser grant's browser (kiff/planque#86); nil, no
 	// browser call runs. Evidence keeps its screenshots; nil, none are.
 	Browser browser.Worker
+	// BrowserOffer is which accounts Browser is offered to
+	// (PLANQUE_BROWSER_OFFER, BrowserOfferFrom): every account (All), or only
+	// Tenants. Neither, it's offered to none, even with a worker configured.
+	BrowserOffer BrowserOffer
 	// ChromeBuilds are the extension's released builds, by the SHA-256 of
 	// their packed manifest (deploy/chrome-builds.txt): only these pair and
 	// connect. Empty, the owner's own Chrome isn't offered.

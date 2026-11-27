@@ -297,7 +297,7 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	// The browser (kiff/planque#86): planque's own entry, asked for with
 	// POST …/catalog/browser/grants, or POST …/grants with kind browser.
 	browserTitle := inLanguage(useWebsites, lang, "Use websites")
-	if s.Browser != nil && (q == "" || strings.Contains(strings.ToLower(browserVendor+" use websites "+browserTitle), q)) {
+	if s.browserOnFor(tenant) && (q == "" || strings.Contains(strings.ToLower(browserVendor+" use websites "+browserTitle), q)) {
 		v := catalogEntryView{Entry: BrowserEntry, Vendor: browserVendor, Title: browserTitle, How: KindBrowser, State: "available"}
 		if state, ok := states[BrowserEntry]; ok {
 			v.State, v.Grant = state.State, state.Grant
