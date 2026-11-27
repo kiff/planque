@@ -125,6 +125,11 @@ func TestTheReadOnlyMarkDoesntMakeAWriteVerbARead(t *testing.T) {
 		{"gmail", "GMAIL_SETTINGS_SEND_AS_GET", ClassRead},
 		{"desk", "DESK_BATCH_GET_AND_DELETE_TICKETS", ClassDelete},
 		{"desk", "DESK_BATCH_UPDATE_TICKETS", ClassWrite},
+		// A write over every item stays held as bulk, marked or not; a read
+		// over all of them stays a read.
+		{"trello", "TRELLO_ARCHIVE_ALL_LIST_CARDS", ClassBulk},
+		{"googlecalendar", "GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS", ClassRead},
+		{"teams", "TEAMS_CHATS_GET_ALL_CHATS", ClassRead},
 	} {
 		if got := Classify(tool(c.toolkit, c.slug, true)); got != c.want {
 			t.Errorf("%s marked read-only: %s, want %s", c.slug, got, c.want)

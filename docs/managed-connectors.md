@@ -357,9 +357,10 @@ nothing about it says it can change things. Unknown means a write.
 
 The mark alone also never makes a read of a name that starts with a write
 verb (`UPDATE_…`, `APPLY_…_MACRO`, `CREATE_…_EXPORT`): a provider that tags
-such a tool read-only would let it run unasked. "batch" before a read verb
-(`BATCH_GET`) is a read all the same, and a name with no write verb first
-follows the mark (`connector.Classify`).
+such a tool read-only would let it run unasked; one over every item
+(`ARCHIVE_ALL_…`) is held as bulk. "batch" before a read verb (`BATCH_GET`)
+is a read all the same, and a name with no write verb first follows the mark
+(`connector.Classify`).
 
 When unsure, it's a write. Some reads come out writes too ("custom
 properties", raw file content, a discount `code` to look up): that only costs
