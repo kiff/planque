@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -40,6 +41,9 @@ type signInRecord struct {
 	Site        string    `json:"site,omitempty"`
 	Expires     time.Time `json:"expires"`
 	OpenedAt    time.Time `json:"opened_at"`
+	// Lease is the account's browser session the view holds
+	// (browser_lease.go), freed when the view ends.
+	Lease *browserLease `json:"lease,omitempty"`
 }
 
 // signInToken is the view's token, hashed, pointing at its grant.
@@ -84,6 +88,7 @@ func (s *Server) dropSignIn(ctx context.Context, g *Grant) {
 	}
 	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skBrowserSignIn(g.ID))
 	_, _, _ = s.KV.Delete(ctx, pkSignInToken(rec.TokenSHA256), "-")
+	s.dropBrowserLease(context.WithoutCancel(ctx), rec.Lease)
 }
 
 // startBrowserSignIn is the phone's signed ask for a sign-in view on a
@@ -162,8 +167,21 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 		s.fail(w, r, err)
 		return
 	}
+	// The view is the account's browser session while it's open, as a taf's
+	// call is: one at a time, so it waits for none and none waits for it.
+	lease, left, err := s.takeBrowserLease(r.Context(), g.Tenant, s.now().Add(signInViewTTL))
+	if errors.Is(err, errBrowserBusy) {
+		secs := max(int(left.Round(time.Second)/time.Second), 1)
+		writeJSON(w, http.StatusConflict, map[string]any{"error": fmt.Sprintf("A taf is using this connection's browser right now. Try again in about %d seconds.", secs),
+			"code": browser.CodeBrowserBusy, "retry_after": secs})
+		return
+	} else if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	sess, err := resumer.(browser.Worker).Start(r.Context(), browser.Start{Grant: g.ID, State: state, Sites: sites})
 	if err != nil {
+		s.dropBrowserLease(context.WithoutCancel(r.Context()), lease)
 		s.log().WarnContext(r.Context(), "sign-in view not started", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		writeErr(w, http.StatusServiceUnavailable, "the browser couldn't be started: "+err.Error())
 		return
@@ -171,21 +189,24 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 	if start != "" {
 		if err := sess.Input(r.Context(), browser.Input{Kind: "go", URL: start}); err != nil {
 			_, _ = sess.Close(r.Context())
+			s.dropBrowserLease(context.WithoutCancel(r.Context()), lease)
 			writeErr(w, http.StatusBadGateway, "the page couldn't be opened: "+err.Error())
 			return
 		}
 	}
 	token := rand.Text()
 	now := s.now()
-	rec := signInRecord{TokenSHA256: tokenHash(token), Session: sess.ID(), Site: browser.Site(start), Expires: now.Add(signInViewTTL), OpenedAt: now.UTC()}
+	rec := signInRecord{TokenSHA256: tokenHash(token), Session: sess.ID(), Site: browser.Site(start), Expires: now.Add(signInViewTTL), OpenedAt: now.UTC(), Lease: lease}
 	ttl := rec.Expires.Add(time.Minute).Unix()
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skBrowserSignIn(g.ID), Ver: 1, TTL: ttl}, rec, store.Cond{}); err != nil {
 		_, _ = sess.Close(r.Context())
+		s.dropBrowserLease(context.WithoutCancel(r.Context()), lease)
 		s.fail(w, r, err)
 		return
 	}
 	if err := putDoc(r.Context(), s.KV, store.Item{PK: pkSignInToken(rec.TokenSHA256), SK: "-", Ver: 1, TTL: ttl}, signInToken{Tenant: g.Tenant, Grant: g.ID, Expires: rec.Expires}, store.Cond{NotExists: true}); err != nil {
 		_, _ = sess.Close(r.Context())
+		s.dropBrowserLease(context.WithoutCancel(r.Context()), lease)
 		s.fail(w, r, err)
 		return
 	}
@@ -331,6 +352,7 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 	state, err := sess.Close(r.Context())
 	_, _, _ = s.KV.Delete(r.Context(), tenantPK(g.Tenant), skBrowserSignIn(g.ID))
 	_, _, _ = s.KV.Delete(r.Context(), pkSignInToken(rec.TokenSHA256), "-")
+	s.dropBrowserLease(context.WithoutCancel(r.Context()), rec.Lease)
 	_, l := speech(r, g)
 	if err != nil {
 		s.log().WarnContext(r.Context(), "a sign-in view's browser didn't hand its sign-in back", slog.String("grant", g.ID), slog.String("err", err.Error()))

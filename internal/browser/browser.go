@@ -318,6 +318,7 @@ const (
 	CodeCurrencyOther   = "currency_other"      // the checkout isn't in the connection's currency
 	CodeBrowserDown     = "browser_unavailable" // the worker couldn't run the browser
 	CodePageChanged     = "page_changed"        // the page isn't the read the steps were built from
+	CodeBrowserBusy     = "browser_busy"        // the account's browser runs its sessions already: try again after retry_after
 	CodeLabelMismatch   = "label_mismatch"      // the step's label, submits or to isn't what the page says of its ref
 	CodePayNotApproved  = "pay_not_approved"    // a pay's permit names no approval by its owner
 )

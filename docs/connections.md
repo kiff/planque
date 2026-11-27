@@ -301,6 +301,11 @@ starts (`site_not_listed`, `address_private`, `bad_url`), and so is the
 page the browser lands on after a redirect: it is not read, and no checkout
 is recorded from it.
 
+An account's hosted browser runs one session at a time: a taf's call, a pay
+or the owner's sign-in view. A call that finds it busy is refused before
+anything starts (`browser_busy`, with `retry_after` in seconds); one the
+owner approved waits for it, up to 20 seconds and never past its permit, so it and the call fit inside KIFF's 30-second forward timeout.
+
 Money goes only through `browse_pay`. Its profile reads the amount with
 `browse_checkout` at the call's `url` (`amount.from: "read"`, path
 `total`, in the grant's currency), so KIFF counts what the page showed and

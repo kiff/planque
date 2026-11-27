@@ -526,7 +526,12 @@ func TestThePayIsMarkedBeforeItsClick(t *testing.T) {
 		var otherSC map[string]any
 		e.b.BeforeClick = func() {
 			e.b.BeforeClick = nil
-			// The first pay is at its click; a second operation pays the same checkout now.
+			// The first pay is at its click; a second operation pays the same checkout now. The
+			// account's browser lease (browser_lease.go) would make it wait; here the first's
+			// lease has lapsed, so what's tested is the checkout's own mark.
+			if _, _, err := e.s.KV.Delete(context.Background(), tenantPK(g.Tenant), skBrowserLease(0)); err != nil {
+				t.Fatal(err)
+			}
 			other, otherSC = pay(e, g, "op_second")
 		}
 		first, _ := pay(e, g, "op_first")
