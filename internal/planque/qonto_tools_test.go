@@ -15,6 +15,9 @@ import (
 // 27 Nov 2026), so a name planque serves is one Qonto has: a typo would
 // serve nothing, and a write named by mistake would show here.
 var qontoReference = []string{
+	// Named by get_organization's live description as the read of the
+	// accounts and their balances (27 Nov), not in the reference read then.
+	"list_bank_accounts",
 	"get_organization", "list_user_organizations", "list_memberships", "get_authenticated_membership", "create_membership", "list_teams", "create_team", "list_labels",
 	"list_cards", "create_card", "update_card", "change_card_status",
 	"list_transactions", "get_transaction", "export_transactions", "list_statements", "get_statement", "get_attachment", "list_transaction_attachments",
@@ -109,9 +112,9 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 	// A taf that guessed a tool name reads, in the refusal, that balances are
 	// served and by which tool, and every tool it may ask for, so it retries
 	// with a served one rather than telling the owner balances can't be read.
-	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools")
-	if r == nil || !strings.Contains(r.Msg, "balances") || !strings.Contains(r.Msg, "get_organization") {
-		t.Fatalf("the refusal doesn't name balances and get_organization: %+v", r)
+	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "get_account_balance"}}, "tools")
+	if r == nil || !strings.Contains(r.Msg, "balances") || !strings.Contains(r.Msg, "(list_bank_accounts)") {
+		t.Fatalf("the refusal doesn't name balances and list_bank_accounts: %+v", r)
 	}
 	for _, name := range qontoServed {
 		if !strings.Contains(r.Msg, name) || !strings.Contains(r.Want, name) {
@@ -297,25 +300,35 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 // (the Qonto re-test, 27 Nov). Never on another server, never twice, and the
 // list given is untouched.
 func TestQontoReadsAreFoundByTheJobsWords(t *testing.T) {
-	listed := []mcpTool{{Name: "get_organization", Description: "Retrieve the organization."}, {Name: "list_transactions", Description: "List transactions."}}
+	listed := []mcpTool{
+		{Name: "get_organization", Description: "Retrieve the authenticated organization's identity (id, slug, legal_name, locale, legal_country)."},
+		{Name: "list_bank_accounts", Description: "List the organization's bank accounts."},
+		{Name: "list_transactions", Description: "List transactions."},
+	}
 	got := servedOnly(qontoServer, listed)
-	if len(got) != 2 || !strings.Contains(strings.ToLower(got[0].Description), "balance") || !strings.Contains(got[0].Description, "IBAN") ||
-		!strings.HasPrefix(got[0].Description, "Retrieve the organization. ") {
-		t.Fatalf("get_organization's description: %q", got[0].Description)
+	if len(got) != 3 {
+		t.Fatalf("served: %+v", got)
 	}
-	if got[1].Description != "List transactions." {
-		t.Fatalf("another read's description changed: %q", got[1].Description)
+	// get_organization gives identity only (re-test 5, 27 Nov): it never says it gives balances.
+	if got[0].Description != listed[0].Description {
+		t.Fatalf("get_organization's description changed: %q", got[0].Description)
 	}
-	if listed[0].Description != "Retrieve the organization." {
-		t.Fatalf("servedOnly changed the list it was given: %q", listed[0].Description)
+	if d := got[1].Description; !strings.Contains(strings.ToLower(d), "balance") || !strings.Contains(d, "IBAN") || !strings.HasPrefix(d, "List the organization's bank accounts. ") {
+		t.Fatalf("list_bank_accounts' description: %q", d)
+	}
+	if got[2].Description != "List transactions." {
+		t.Fatalf("another read's description changed: %q", got[2].Description)
+	}
+	if listed[1].Description != "List the organization's bank accounts." {
+		t.Fatalf("servedOnly changed the list it was given: %q", listed[1].Description)
 	}
 	// Qonto's own words already say it: nothing is added.
-	own := []mcpTool{{Name: "get_organization", Description: "The organization and each account's Balance."}}
+	own := []mcpTool{{Name: "list_bank_accounts", Description: "Bank accounts with their Balance."}}
 	if d := servedOnly(qontoServer, own)[0].Description; d != own[0].Description {
 		t.Fatalf("added to a description that already says it: %q", d)
 	}
 	// Another server's tool of the same name is as its server says.
-	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[0].Description; d != "Retrieve the organization." {
+	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[1].Description; d != "List the organization's bank accounts." {
 		t.Fatalf("changed off Qonto's host: %q", d)
 	}
 }
