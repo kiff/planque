@@ -11,7 +11,7 @@ Failure table checked against planque's answers on 2026-11-16.
 Put all five in the text of the card that asks the owner to go ahead with the
 sign-in, one a line, above its question: as written, or translated faithfully
 into the owner's language, adding and dropping nothing. Don't leave one for
-later: a reworded line ("read-only") is refused. They're plain text, with no
+later: a card that rewords them can be refused. They're plain text, with no
 markup.
 
 1. Qonto's own sign-in, no key. You sign in on Qonto's own page; no one
