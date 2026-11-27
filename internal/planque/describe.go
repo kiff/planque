@@ -290,7 +290,7 @@ func (s *Server) describe(ctx context.Context, g *Grant, d describer, op string,
 	}
 	var res json.RawMessage
 	for attempt := 0; ; attempt++ {
-		res, err = s.MCP.CallTool(ctx, g.Request.Server, access, d.Tool, args)
+		res, err = s.callServed(ctx, g.Request.Server, access, d.Tool, args)
 		if !errors.Is(err, mcp.ErrUnauthorized) || attempt > 0 {
 			break
 		}

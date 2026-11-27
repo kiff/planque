@@ -152,6 +152,9 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 func relayTools(g *Grant) []mcp.Tool {
 	out := make([]mcp.Tool, 0, len(g.Tools)+len(g.Pending))
 	for _, t := range g.inKIFF() {
+		if !qontoServedOn(g.Request.Server, t.Tool) {
+			continue // never served on Qonto's sign-in, so never listed (qonto_tools.go)
+		}
 		var schema map[string]any
 		if json.Unmarshal(t.InputSchema, &schema) != nil || schema == nil {
 			schema = map[string]any{"type": "object"}
@@ -192,6 +195,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	if i < 0 {
 		return refused(CodeNotGranted, "this grant does not include "+name)
+	}
+	// Approved before planque stopped serving it on Qonto's sign-in: never
+	// sent, whatever the grant holds (qonto_tools.go).
+	if !qontoServedOn(g.Request.Server, g.Tools[i].Tool) {
+		return refusal(CodeToolNotServed, "Not sent: planque doesn't serve "+g.Tools[i].Tool+" on Qonto's sign-in. Everything outside its list stays with the owner in Qonto.")
 	}
 	// Declared before its key: nothing is usable until the owner gives the
 	// key and the grant connects.
@@ -318,6 +326,14 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
 	}
 	vendorArgs = held
+	// A Qonto client invoice is created as a draft only (qonto_tools.go).
+	var pinned map[string]any
+	if vendorArgs, pinned, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs); why != "" {
+		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
+	}
+	// What planque set on the arguments after the permit, kept with the
+	// operation, so its record says what was sent (a draft).
+	op.Pinned = pinned
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
@@ -354,7 +370,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		if !p.Live(s.now()) {
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
 		}
-		res, err = s.MCP.CallTool(ctx, g.Request.Server, access, tool.Tool, vendorArgs)
+		res, err = s.callServed(ctx, g.Request.Server, access, tool.Tool, vendorArgs)
 		if !errors.Is(err, mcp.ErrUnauthorized) || attempt > 0 {
 			break
 		}
