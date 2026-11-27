@@ -1,20 +1,31 @@
 # Qonto
 
-Checked: 2026-11-14 · Sources: planque's reviewed entries `qonto-key@1` and
-`qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)), and
-Qonto's published invoicing API description.
+Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
+`qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)) and
+`qonto-sandbox@1`, Qonto's published invoicing API description, and
+Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
 Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
 
-- **By the business's API key**, reviewed in planque's catalog. The owner
-  makes it in Qonto's settings (Integrations and partnerships, API key) and
-  pastes it as `<organisation login>:<secret key>`. The key and the taf's
-  Card come in one approval.
-- **Two reviewed entries:** `qonto-key@1` reads only; `qonto-key@2` reads more
-  and can draft an invoice. Ask for `@2` only when the job drafts.
-- **Qonto's own server sign-in** isn't usable yet: it can't send the owner
-  back to planque after signing in. Use the key.
+- **Qonto's own sign-in is the first route.** Catalog entry `qonto`: the
+  owner signs in on Qonto's own page and approves; no key is pasted and no
+  taf sees the sign-in. Its scopes are reviewed: read the business, its
+  accounts, clients, invoices and e-invoicing, and write clients and client
+  invoices. Planque never asks a bank for a scope that moves money, so no
+  transfer is possible on it, and it lists no transactions.
+- **Do not ask for an API key.** Qonto no longer issues the login-and-secret
+  key to a new developer account (its Developer Portal makes an OAuth app
+  instead). The reviewed key entries `qonto-key@1` and `qonto-key@2` are only
+  for an owner who already holds such a key (`<organisation login>:<secret
+  key>`); never propose them to anyone else, and never tell an owner to make
+  a key.
+- **The sandbox twin, for test data:** `qonto-sandbox@1`, planque's own
+  OAuth client on Qonto's sandbox, offered to test accounts only. It reads
+  the business and its accounts, and a bank account's transactions. The
+  sandbox wants a staging token on every request, including the token call;
+  planque keeps it with the client secret and sends it to Qonto's own hosts
+  only.
 
 ## Tools
 

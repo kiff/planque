@@ -13,6 +13,7 @@ import (
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
+	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/words"
 )
 
@@ -27,11 +28,11 @@ type ApplicationApproval struct {
 
 func (s *Server) applicationRequest(ctx context.Context, tenant, grant, id string, tools []ToolRequest) (*ApplicationApproval, *APIRequest, error) {
 	app, ok := s.Applications[id]
-	if !ok || app.Validate() != nil || s.ApplicationCredentials == nil {
+	if !ok || app.Validate() != nil || s.ApplicationCredentials == nil || app.TestOnly && !s.ManagedTestTenants[tenant] {
 		return nil, nil, apiError{http.StatusBadRequest, "that registered vendor app is not configured"}
 	}
 	credentials, err := s.ApplicationCredentials.Read(ctx, id)
-	if err != nil || credentials.ClientID == "" || app.AuthMethod != "none" && credentials.Secret == "" {
+	if err != nil || credentials.ClientID == "" || app.AuthMethod != "none" && credentials.Secret == "" || app.SecretHeader != "" && credentials.HeaderValue == "" {
 		return nil, nil, appcredentials.ErrUnavailable
 	}
 	// Definitions include maps and schemas: freeze a copy, not the server's
@@ -94,8 +95,12 @@ func (s *Server) registration(ctx context.Context, g *Grant) ([]oauth.Registrati
 	if err != nil || credentials.ClientID != approved.ClientID || g.ClientID != "" && credentials.ClientID != g.ClientID {
 		return nil, appcredentials.ErrUnavailable
 	}
+	if approved.Definition.SecretHeader != "" && credentials.HeaderValue == "" {
+		return nil, appcredentials.ErrUnavailable
+	}
 	return []oauth.Registration{{ClientID: credentials.ClientID, Secret: credentials.Secret, AuthMethod: approved.Definition.AuthMethod,
-		TokenURL: g.Vendor.Token, RevocationURL: g.Vendor.Revocation}}, nil
+		TokenURL: g.Vendor.Token, RevocationURL: g.Vendor.Revocation,
+		Header: approved.Definition.SecretHeader, HeaderValue: credentials.HeaderValue}}, nil
 }
 
 func (s *Server) exchangeToken(ctx context.Context, g *Grant, code, verifier string) (oauth.Token, error) {
@@ -120,6 +125,23 @@ func (s *Server) revokeToken(ctx context.Context, g *Grant, token, hint string) 
 		return err
 	}
 	return s.OAuth.Revoke(ctx, g.Vendor, g.ClientID, token, hint, registration...)
+}
+
+// withSecretHeader puts an application's secret header on ctx for one REST call: the name the approval froze,
+// the value read from the store now (so a rotation needs no new approval), for the app's server host alone.
+func (s *Server) withSecretHeader(ctx context.Context, g *Grant) (context.Context, error) {
+	approved := g.Request.Application
+	if approved == nil || approved.Definition.SecretHeader == "" {
+		return ctx, nil
+	}
+	if s.ApplicationCredentials == nil {
+		return ctx, appcredentials.ErrUnavailable
+	}
+	credentials, err := s.ApplicationCredentials.Read(ctx, approved.ID)
+	if err != nil || credentials.ClientID != approved.ClientID || credentials.HeaderValue == "" {
+		return ctx, appcredentials.ErrUnavailable
+	}
+	return rest.WithSecretHeader(ctx, rest.SecretHeader{Name: approved.Definition.SecretHeader, Value: credentials.HeaderValue, Host: hostOf(approved.Definition.Server)}), nil
 }
 
 func appWords(w words.Approval, request Request) string {

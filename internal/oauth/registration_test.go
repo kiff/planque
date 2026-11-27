@@ -124,3 +124,44 @@ func TestTheAccountFieldIsReadOnlyWhereSet(t *testing.T) {
 		}
 	}
 }
+
+// A vendor's gate that wants a header on every call to its token endpoint (Qonto's sandbox) gets the registered
+// app's header on the exchange, the refresh and the revocation, and a registration without one sends none.
+func TestARegisteredSecretHeaderGoesToTheRegisteredEndpointsOnly(t *testing.T) {
+	app := Registration{ClientID: "c", Secret: "s", TokenURL: "https://auth.example/token", RevocationURL: "https://auth.example/revoke",
+		AuthMethod: "client_secret_post", Header: "X-Gate-Token", HeaderValue: "gate-value"}
+	seen := map[string]string{}
+	c := &Client{HTTP: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		seen[r.URL.Path] = r.Header.Get("X-Gate-Token")
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","token_type":"Bearer"}`))}, nil
+	})}}
+	m := Metadata{Token: app.TokenURL, Revocation: app.RevocationURL}
+	ctx := context.Background()
+	if _, err := c.Exchange(ctx, m, "c", "https://planque.example/oauth/callback", "code", "verifier", app); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Refresh(ctx, m, "c", "old", app); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Revoke(ctx, m, "c", "old", "refresh_token", app); err != nil {
+		t.Fatal(err)
+	}
+	if seen["/token"] != "gate-value" || seen["/revoke"] != "gate-value" {
+		t.Fatalf("the registered header didn't reach the registered endpoints: %v", seen)
+	}
+	// A name with no value is a configuration fault: nothing is sent.
+	app.HeaderValue = ""
+	before := len(seen)
+	seen = map[string]string{}
+	if _, err := c.Refresh(ctx, m, "c", "old", app); err == nil || len(seen) != 0 || before == 0 {
+		t.Fatalf("a request left without its header's value: %v %v", err, seen)
+	}
+	// No header configured: none is sent.
+	app.Header = ""
+	if _, err := c.Refresh(ctx, m, "c", "old", app); err != nil || seen["/token"] != "" {
+		t.Fatalf("a header was sent that the registration doesn't name: %v %v", err, seen)
+	}
+	if b, _ := json.Marshal(Registration{Header: "X-Gate-Token", HeaderValue: "gate-value"}); strings.Contains(string(b), "gate-value") {
+		t.Fatalf("the header's value is in the registration's JSON: %s", b)
+	}
+}

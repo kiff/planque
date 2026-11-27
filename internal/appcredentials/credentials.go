@@ -20,12 +20,14 @@ import (
 type Credentials struct {
 	ClientID string `json:"client_id"`
 	Secret   string `json:"-"`
+	// HeaderValue is the value of the app's secret header, when its definition names one.
+	HeaderValue string `json:"-"`
 }
 
 // String names the client and hides its secret, so no log or %v/%+v of a
 // Credentials can print it.
 func (c Credentials) String() string {
-	if c.Secret == "" {
+	if c.Secret == "" && c.HeaderValue == "" {
 		return "client " + c.ClientID + " (no secret)"
 	}
 	return "client " + c.ClientID + " (secret hidden)"
@@ -123,9 +125,10 @@ func (s *Sealed) Put(ctx context.Context, id string, credentials Credentials) er
 		return ErrUnavailable
 	}
 	raw, err := json.Marshal(struct {
-		ClientID string `json:"client_id"`
-		Secret   string `json:"client_secret"`
-	}{credentials.ClientID, credentials.Secret})
+		ClientID    string `json:"client_id"`
+		Secret      string `json:"client_secret"`
+		HeaderValue string `json:"header_secret,omitempty"`
+	}{credentials.ClientID, credentials.Secret, credentials.HeaderValue})
 	if err != nil {
 		return ErrUnavailable
 	}
@@ -149,18 +152,19 @@ func decode(raw []byte) (Credentials, error) {
 		return Credentials{}, ErrUnavailable
 	}
 	var wire struct {
-		ClientID string `json:"client_id"`
-		Secret   string `json:"client_secret"`
+		ClientID    string `json:"client_id"`
+		Secret      string `json:"client_secret"`
+		HeaderValue string `json:"header_secret"`
 	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
-	if d.Decode(&wire) != nil || strings.TrimSpace(wire.ClientID) == "" || len(wire.ClientID) > 4096 || len(wire.Secret) > 32768 || strings.ContainsAny(wire.ClientID+wire.Secret, "\r\n\x00") {
+	if d.Decode(&wire) != nil || strings.TrimSpace(wire.ClientID) == "" || len(wire.ClientID) > 4096 || len(wire.Secret) > 32768 || len(wire.HeaderValue) > 4096 || strings.ContainsAny(wire.HeaderValue, "\r\n\x00") || strings.ContainsAny(wire.ClientID+wire.Secret, "\r\n\x00") {
 		return Credentials{}, ErrUnavailable
 	}
 	if d.Decode(new(any)) != io.EOF {
 		return Credentials{}, ErrUnavailable
 	}
-	return Credentials{ClientID: wire.ClientID, Secret: wire.Secret}, nil
+	return Credentials{ClientID: wire.ClientID, Secret: wire.Secret, HeaderValue: wire.HeaderValue}, nil
 }
 
 // AppBundle is where Bundled finds an application's credentials, still

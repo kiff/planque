@@ -37,6 +37,10 @@ func TestApplicationConfigurationIsCredentialFreeAndValidated(t *testing.T) {
 		func(a *Application) { a.Kind = MCP },
 		func(a *Application) { a.Permissions = nil },
 		func(a *Application) { a.Snapshot.Operations[0].ReadOnly = false },
+		func(a *Application) { a.SecretHeader = "Authorization" },
+		func(a *Application) { a.SecretHeader = "X Bad" },
+		func(a *Application) { a.SecretHeader = "X-Gate"; a.VersionHeader = "x-gate" },
+		func(a *Application) { a.SecretHeader = "X-Gate"; a.Kind = MCP },
 	} {
 		app := validApplication()
 		change(&app)

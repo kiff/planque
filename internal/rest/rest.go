@@ -18,6 +18,17 @@ import (
 	"github.com/kiff/planque/internal/openapi"
 )
 
+type secretHeaderKey struct{}
+
+// SecretHeader is one header whose value is a credential: it goes to Host alone, and CallAs refuses it for
+// any other host. It rides the call's context so no call site's signature carries a secret.
+type SecretHeader struct{ Name, Value, Host string }
+
+// WithSecretHeader returns ctx carrying h for CallAs.
+func WithSecretHeader(ctx context.Context, h SecretHeader) context.Context {
+	return context.WithValue(ctx, secretHeaderKey{}, h)
+}
+
 // MaxAnswer is how much of a vendor's answer a call keeps.
 const MaxAnswer = 256 << 10
 
@@ -187,6 +198,23 @@ func (c *Client) CallAs(ctx context.Context, method, target, contentType string,
 			return Answer{}, &CallError{Err: errors.New("the version header cannot replace authentication")}
 		}
 		req.Header.Set(pin.Name, pin.Value)
+	}
+	if h, ok := ctx.Value(secretHeaderKey{}).(SecretHeader); ok {
+		// The value goes to the approved host only, and never replaces the key's or a pin's header.
+		switch {
+		case h.Name == "" || h.Value == "":
+			return Answer{}, &CallError{Err: errors.New("the secret header has no value")}
+		case !strings.EqualFold(req.URL.Host, h.Host):
+			return Answer{}, &CallError{Err: errors.New("the secret header is for another host")}
+		case auth.In == "header" && strings.EqualFold(h.Name, auth.Name) || strings.EqualFold(h.Name, "Authorization") || auth.Fixed != nil && strings.EqualFold(h.Name, auth.Fixed.Name):
+			return Answer{}, &CallError{Err: errors.New("the secret header cannot replace authentication")}
+		}
+		for _, pin := range pins {
+			if pin != nil && strings.EqualFold(pin.Name, h.Name) {
+				return Answer{}, &CallError{Err: errors.New("the version header cannot be the secret header")}
+			}
+		}
+		req.Header.Set(h.Name, h.Value)
 	}
 	res, err := c.http().Do(req)
 	if err != nil {

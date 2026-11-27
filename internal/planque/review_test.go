@@ -29,7 +29,9 @@ import (
 // that line is the one a reviewer checks against the vendor's docs.
 var vendorHosts = map[string][]string{
 	"googlesheets": {"sheets.googleapis.com", "accounts.google.com", "oauth2.googleapis.com"},
-	"Qonto":        {"thirdparty.qonto.com"},
+	"Qonto":        {"thirdparty.qonto.com", "thirdparty-sandbox.staging.qonto.co"}, // docs.qonto.com, Base URLs & environments
+	// Qonto's sandbox: its API and its OAuth host, both named on docs.qonto.com (Base URLs & environments, Testing in the Sandbox).
+	"qonto_sandbox": {"thirdparty-sandbox.staging.qonto.co", "oauth-sandbox.staging.qonto.co"},
 	// Key entries, each line checked against the vendor's own documentation.
 	"Intercom":       {"api.intercom.io", "api.eu.intercom.io", "api.au.intercom.io"}, // its three regions
 	"Typeform":       {"api.typeform.com", "api.eu.typeform.com", "api.typeform.eu"},  // US, EU data centre, EU domain

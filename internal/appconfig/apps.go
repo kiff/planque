@@ -27,15 +27,21 @@ const (
 // Snapshot consists of reviewed operations, cited by Source. Their data
 // uses the same request builder as an OpenAPI snapshot.
 type Application struct {
-	Name          string            `json:"name"`
-	Kind          string            `json:"kind"`
-	Server        string            `json:"server"`
-	Source        string            `json:"source"`
-	OAuth         oauth.Metadata    `json:"oauth"`
-	AuthMethod    string            `json:"token_endpoint_auth_method"`
-	Permissions   []string          `json:"permission_words"`
-	VersionHeader string            `json:"version_header,omitempty"`
-	Snapshot      *openapi.Snapshot `json:"operations,omitempty"`
+	Name          string         `json:"name"`
+	Kind          string         `json:"kind"`
+	Server        string         `json:"server"`
+	Source        string         `json:"source"`
+	OAuth         oauth.Metadata `json:"oauth"`
+	AuthMethod    string         `json:"token_endpoint_auth_method"`
+	Permissions   []string       `json:"permission_words"`
+	VersionHeader string         `json:"version_header,omitempty"`
+	// SecretHeader names a header whose value is a credential kept with the client secret (a sandbox's
+	// access token). Only its name is public and approved with the grant; the value never leaves the store.
+	SecretHeader string `json:"secret_header,omitempty"`
+	// TestOnly keeps the application (a sandbox's test data) from every account but the test accounts
+	// (PLANQUE_MANAGED_TEST_TENANTS): its entries are not listed or found, and a request for it is refused.
+	TestOnly bool              `json:"test_only,omitempty"`
+	Snapshot *openapi.Snapshot `json:"operations,omitempty"`
 }
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
@@ -114,6 +120,14 @@ func (a Application) Validate() error {
 			return err
 		}
 	}
+	if a.SecretHeader != "" {
+		if a.Kind != REST {
+			return errors.New("only a REST application uses a secret header")
+		}
+		if !secretHeaderName.MatchString(a.SecretHeader) || reservedHeader(a.SecretHeader) || strings.EqualFold(a.SecretHeader, a.VersionHeader) {
+			return errors.New("the secret header name is not allowed")
+		}
+	}
 	if a.Kind == REST {
 		if a.Snapshot == nil || len(a.Snapshot.Operations) == 0 || len(a.Snapshot.Operations) > openapi.MaxOperations {
 			return errors.New("a REST application needs reviewed operations")
@@ -139,6 +153,18 @@ func (a Application) Validate() error {
 		}
 	}
 	return nil
+}
+
+var secretHeaderName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,63}$`)
+
+// reservedHeader: the headers a secret header may never replace or shadow.
+func reservedHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "host", "content-type", "content-length",
+		"accept", "transfer-encoding", "connection", "user-agent", "origin", "referer":
+		return true
+	}
+	return false
 }
 
 func https(raw string) bool {
