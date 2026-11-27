@@ -152,11 +152,17 @@ func TestReadsNeedsAReadsName(t *testing.T) {
 		{"quickbooks", "QUICKBOOKS_CONVERT_PURCHASE_ORDER_TO_BILL", true, false},
 		{"notion", "NOTION_FETCH_PAGE", true, true},
 		{"notion", "NOTION_FETCH_PAGE", false, false},
-		// A name that starts with a noun is what its last verb says.
+		// A name that starts with a noun is a write with any write verb in it.
 		{"slack", "SLACK_CHAT_POST_MESSAGE", true, false},
 		{"notion", "NOTION_PAGE_CREATE", true, false},
 		{"hubspot", "HUBSPOT_CONTACTS_MERGE", true, false},
-		{"gmail", "GMAIL_SETTINGS_SEND_AS_GET", true, true},
+		{"gmail", "GMAIL_SETTINGS_SEND_AS_GET", true, false},
+		{"notion", "NOTION_PAGE_CREATE_AND_GET", true, false},
+		// A write verb joined on after a read verb is a second act.
+		{"attio", "ATTIO_GET_OR_CREATE_RECORD", true, false},
+		{"zendesk", "ZENDESK_SEARCH_AND_UPDATE_TICKETS", true, false},
+		{"trello", "TRELLO_LIST_THEN_ARCHIVE", true, false},
+		{"hubspot", "HUBSPOT_FIND_OR_CREATE_CONTACT", true, false},
 		{"microsoft_teams", "MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS", true, true},
 		{"googlecalendar", "GOOGLECALENDAR_EVENTS_LIST", true, true},
 		{"monday", "MONDAY_BOARDS", true, true},
