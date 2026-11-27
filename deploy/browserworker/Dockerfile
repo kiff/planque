@@ -8,8 +8,11 @@
 # full browser depends on GTK, which brings gdk-pixbuf and through it libtiff,
 # image and desktop libraries a page never reaches (Chromium decodes images
 # itself). The headless shell needs none of them. Both bases are pinned by
-# digest (multi-arch indexes; the worker is built for linux/arm64), so a
-# rebuild changes nothing until the digests are moved on purpose.
+# digest (multi-arch indexes; the worker is built for linux/arm64). The
+# packages are not: apt installs what trixie and trixie-security carry at
+# build time, so a rebuild takes the newest Chromium security release (wanted
+# for a browser). The build prints that version, so a scan or a test names
+# the Chromium it checked.
 
 FROM golang:1.26-trixie@sha256:f9e99477a80ccd7adfb69780510b22c7249ce9169885f18aa762cd886e75e018 AS build
 WORKDIR /src
@@ -22,6 +25,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium-headless-shell fonts-liberation ca-certificates tini \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+ && chromium-headless-shell --version \
  && useradd --create-home --uid 10001 worker
 COPY --from=build /out/browserworker /usr/local/bin/browserworker
 USER worker
