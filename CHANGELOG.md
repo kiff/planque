@@ -7,6 +7,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Added
 
+- **The tool search finds a vendor's own sign-in.** planque's own sign-in entries, `qonto` and `stripe`, list no tools before the owner signs in, so the tool search, Coach's only way to find an app, never returned them: a search for "Qonto" found only Qonto's key entries, and Coach offered a key. Now, when a word of the search or an app asked for names the vendor, its own sign-in comes first, as the app itself (`sign_in: true`, no slug), ahead of its key entries. The Qonto guide asks for its five lines on the card before the sign-in, as written or translated faithfully, since a reworded line can be refused; they now speak to the owner, and say what planque serves (products added, "as Qonto's page lists it" dropped).
+
 - **The account's connections say when a connection's app is unproved or set up on demand.** `/connections` carries `on_demand` and `unproved` as the grant view says them, so Coach reusing a connection for a new taf asks no daily number for writes tafs cloud holds for every change.
 
 - **The tool search says when a managed app is unproved.** A managed app's tools carry `unproved: true` when no recorded run has proved it on the managed route, by the same rule as its grant, so Coach knows before any grant exists that every change of it asks the owner (and asks no daily number for its writes).

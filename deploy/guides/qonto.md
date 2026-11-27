@@ -6,28 +6,32 @@ Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
 Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
 Failure table checked against planque's answers on 2026-11-16.
 
-## Say these five things before the sign-in card
+## Put these five lines on the card before the sign-in
 
-Tell the owner all five, in your own words, in the message before the Sign in
-card, and ask them to say yes. Don't leave one for later.
+Put all five in the text of the card that asks the owner to go ahead with the
+sign-in, one a line, above its question: as written, or translated faithfully
+into the owner's language, adding and dropping nothing. Don't leave one for
+later: a card that rewords them can be refused. They're plain text, with no
+markup.
 
-1. **Qonto's own sign-in, no key.** They sign in on Qonto's own page; no one
+1. Qonto's own sign-in, no key. You sign in on Qonto's own page; no one
    makes or pastes a key.
-2. **An owner or admin approves planque's address first:** Qonto AI, then
-   Qonto MCP, then Advanced settings, add `https://planque.kiff.dev/oauth/callback`.
-3. **Use their own Qonto login, and "Desktop site" on a phone.** If Qonto's
-   page offers to create a company, they close it; if it shows only Apple,
-   they open the browser's "Desktop site" view.
-4. **Professional secrecy.** Qonto's consent page asks them to accept the
-   lifting of Qonto's professional secrecy for the tool they chose. Their
+2. An owner or admin approves planque's address first: in Qonto, open
+   Qonto AI, then Qonto MCP, then Advanced settings, and add
+   https://planque.kiff.dev/oauth/callback.
+3. Use your own Qonto login, and "Desktop site" on a phone. If Qonto's
+   page offers to create a company, close it. If it shows only Apple, open
+   your browser's "Desktop site" view.
+4. Professional secrecy. Qonto's consent page asks you to accept the
+   lifting of Qonto's professional secrecy for the tool you chose. It's your
    choice; without the tick, nothing is connected.
-5. **What it can read, as Qonto's page lists it:** the account balance, IBAN,
-   transactions, the business and its team; supplier invoices; receipts and
-   other attachments; client invoices and credit notes. It can draft a client
-   invoice, which they send themselves, and add or update clients. It can't
-   finalise, cancel, send or mark an invoice paid, or delete an invoice or a
-   client. It can't make payments, approve or refuse card
-   and transfer requests, set trusted beneficiaries, or store their login.
+5. What it can read: the account balance, IBAN, transactions, the
+   business and its team; supplier invoices; receipts and other attachments;
+   client invoices and credit notes; products. It can draft a client invoice,
+   which you send yourself, and add or update clients. It can't finalise,
+   cancel, send or mark an invoice paid, or delete an invoice or a client. It
+   can't make payments, approve or refuse card and transfer requests, set
+   trusted beneficiaries, or store your login.
 
 ## How it connects
 
@@ -35,7 +39,7 @@ card, and ask them to say yes. Don't leave one for later.
   owner signs in on Qonto's own page and approves; no key is pasted and no
   taf sees the sign-in. Its scopes are reviewed (the list above). Planque never
   asks for a scope that moves money, so no transfer is possible on it.
-- **Before the sign-in, say the five things above.** The address approval is
+- **Before the sign-in, the five lines above are on the card.** The address approval is
   an owner's or admin's choice, can be removed in the same screen at any
   time, and a member who isn't an owner or admin can't connect. Until it is
   approved, Qonto's page says the address isn't on its list and isn't
