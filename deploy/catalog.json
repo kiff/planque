@@ -2603,6 +2603,7 @@
       "ur": "Qonto sandbox: صرف پڑھنا",
       "vi": "Qonto sandbox: chỉ đọc",
       "zh": "Qonto sandbox: 唯讀"
-    }
+    },
+    "test_only": true
   }
 }

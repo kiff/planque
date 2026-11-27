@@ -101,7 +101,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var byApp []foundTool
-		byApp, byTool = s.reviewedTools(q, states)
+		byApp, byTool = s.reviewedTools(tenant, q, states)
 		tools = append(tools, byApp...)
 	}
 	found, err := provider.Search(r.Context(), q, apps, r.URL.Query().Get("cursor"))
@@ -142,7 +142,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 // byApp, every tool of an entry whose vendor or title a word names; byTool,
 // the tools of the others whose name or title a word names. Words shorter
 // than three letters name nothing. Entries in id order, tools in the entry's.
-func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) (byApp, byTool []foundTool) {
+func (s *Server) reviewedTools(tenant, q string, states map[string]catalogEntryView) (byApp, byTool []foundTool) {
 	var words []string
 	for _, w := range strings.Fields(strings.ToLower(q)) {
 		if len([]rune(w)) >= 3 {
@@ -166,6 +166,9 @@ func (s *Server) reviewedTools(q string, states map[string]catalogEntryView) (by
 	sort.Strings(ids)
 	for _, id := range ids {
 		e := entries[id]
+		if !s.entryOffered(tenant, e) {
+			continue
+		}
 		app := names(e.Vendor + " " + e.Title)
 		state := "available"
 		if st, ok := states[id]; ok {

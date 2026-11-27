@@ -146,3 +146,47 @@ func TestQontoSandboxSendsItsStagingTokenToItsHostsAlone(t *testing.T) {
 		t.Errorf("the approved definition lacks the header's name: %s", b)
 	}
 }
+
+// The sandbox entry holds test data, so it is for the test accounts alone: another account neither sees it
+// in the catalog nor in a search, and a grant for it is refused as an entry that doesn't exist.
+func TestTheQontoSandboxIsOfferedToTestAccountsOnly(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	ctx := context.Background()
+	e.s.Applications = shippedApps(t)
+	credentials := &appcredentials.Sealed{KV: e.kv, Sealer: e.s.Sealer}
+	if err := credentials.Put(ctx, "qonto_sandbox", appcredentials.Credentials{ClientID: "c", Secret: "s", HeaderValue: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	e.s.ApplicationCredentials = credentials
+	raw, _ := os.ReadFile("../../deploy/catalog.json")
+	var err error
+	if e.s.CatalogEntries, err = DecodeCatalog(raw, e.s.Applications); err != nil {
+		t.Fatal(err)
+	}
+	listed := func() bool {
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog", nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("catalog: %d %v", st, out)
+		}
+		return strings.Contains(mustJSONString(out), "qonto-sandbox@1")
+	}
+	found := func() bool {
+		byApp, byTool := e.s.reviewedTools(tenant, "qonto", map[string]catalogEntryView{})
+		return strings.Contains(mustJSONString(byApp), `"qonto-sandbox@1"`) || strings.Contains(mustJSONString(byTool), `"qonto-sandbox@1"`)
+	}
+	e.s.ManagedTestTenants = map[string]bool{}
+	if listed() || found() {
+		t.Fatal("an account that isn't a test account is offered the Qonto sandbox")
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/qonto-sandbox@1/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st == 201 {
+		t.Fatalf("an account that isn't a test account asked for the Qonto sandbox: %d %v", st, out)
+	}
+	e.s.ManagedTestTenants = map[string]bool{tenant: true}
+	if !listed() || !found() {
+		t.Fatal("a test account isn't offered the Qonto sandbox")
+	}
+	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/qonto-sandbox@1/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st != 201 {
+		t.Fatalf("a test account can't ask for the Qonto sandbox: %d %v", st, out)
+	}
+}

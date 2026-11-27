@@ -31,16 +31,25 @@ type CatalogEntry struct {
 	// Titles is Title in other languages, by language tag ("de", "pt-br"):
 	// what Connect apps shows a person who asks in that language. English
 	// stays in Title, and a language with none reads Title (TitleIn).
-	Titles            map[string]string `json:"titles,omitempty"`
-	Icon              string            `json:"icon,omitempty"`
-	Kind              string            `json:"kind,omitempty"`
-	Server            string            `json:"server,omitempty"`
-	Application       string            `json:"application,omitempty"`
-	API               *apiAsk           `json:"api,omitempty"`
-	VersionHeader     string            `json:"version_header,omitempty"`
-	DescriptionSHA256 string            `json:"description_sha256,omitempty"`
-	Tools             []ToolRequest     `json:"tools"`
-	Profile           json.RawMessage   `json:"profile"`
+	Titles        map[string]string `json:"titles,omitempty"`
+	Icon          string            `json:"icon,omitempty"`
+	Kind          string            `json:"kind,omitempty"`
+	Server        string            `json:"server,omitempty"`
+	Application   string            `json:"application,omitempty"`
+	API           *apiAsk           `json:"api,omitempty"`
+	VersionHeader string            `json:"version_header,omitempty"`
+	// TestOnly keeps an entry (a sandbox's test data) from every account but the test accounts
+	// (PLANQUE_MANAGED_TEST_TENANTS): not listed, not found, and its grant not accepted.
+	TestOnly          bool            `json:"test_only,omitempty"`
+	DescriptionSHA256 string          `json:"description_sha256,omitempty"`
+	Tools             []ToolRequest   `json:"tools"`
+	Profile           json.RawMessage `json:"profile"`
+}
+
+// entryOffered says whether tenant may see and ask for e: every account for a reviewed entry, the test
+// accounts alone for a TestOnly one.
+func (s *Server) entryOffered(tenant string, e CatalogEntry) bool {
+	return !e.TestOnly || s.ManagedTestTenants[tenant]
 }
 
 var catalogID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}@[1-9][0-9]{0,8}$`)
@@ -276,6 +285,9 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	lang := catalogLang(r)
 	for id, e := range newestRevisions(s.catalogEntries()) {
+		if !s.entryOffered(tenant, e) {
+			continue
+		}
 		title := e.TitleIn(lang)
 		if q != "" && !strings.Contains(strings.ToLower(e.Vendor+" "+e.Title+" "+title), q) {
 			continue
@@ -453,6 +465,9 @@ func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry, ok := s.catalogEntries()[id]
+	if ok && !s.entryOffered(r.PathValue("tenant"), entry) {
+		ok = false
+	}
 	if !ok {
 		if provider, toolkit, match := connectorEntry(id); match {
 			switch directEntryFor(toolkit) {
