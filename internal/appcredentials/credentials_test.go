@@ -68,6 +68,36 @@ func TestApplicationCredentialsAreSealedAndBoundToTheirApp(t *testing.T) {
 	}
 }
 
+// A secret header's value is kept sealed with the client secret and hidden like it.
+func TestASecretHeaderValueIsSealedAndHidden(t *testing.T) {
+	kv := &store.Memory{}
+	s := &Sealed{KV: kv, Sealer: &seal.Local{Key: make([]byte, 32)}}
+	ctx := context.Background()
+	want := Credentials{ClientID: "demo-client", Secret: "demo-secret", HeaderValue: "gate-value"}
+	if err := s.Put(ctx, "gated", want); err != nil {
+		t.Fatal(err)
+	}
+	it, _, _ := kv.Get(ctx, "OAUTHAPP#gated", "CREDENTIALS")
+	if strings.Contains(string(it.Doc), "gate-value") {
+		t.Fatal("the header's value was stored in plaintext")
+	}
+	got, err := s.Read(ctx, "gated")
+	if err != nil || got != want {
+		t.Fatalf("it did not round-trip: %v", err)
+	}
+	for _, shown := range []string{got.String(), fmt.Sprintf("%v %+v %#v", got, got, got)} {
+		if strings.Contains(shown, "gate-value") || strings.Contains(shown, "demo-secret") {
+			t.Fatalf("a credential printed its secret: %s", shown)
+		}
+	}
+	if b, _ := json.Marshal(got); strings.Contains(string(b), "gate-value") {
+		t.Fatalf("the header's value is in the JSON: %s", b)
+	}
+	if _, err := decode([]byte(`{"client_id":"c","header_secret":"a\nb"}`)); err == nil {
+		t.Fatal("a header value with a line break was accepted")
+	}
+}
+
 // namedAPI answers for any one secret it's told the name of, and records
 // which names were asked.
 type namedAPI struct{ asked []string }

@@ -1,8 +1,9 @@
 # Qonto
 
-Checked: 2026-11-14 · Sources: planque's reviewed entries `qonto-key@1` and
-`qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)), and
-Qonto's published invoicing API description.
+Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
+`qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)) and
+`qonto-sandbox@1`, Qonto's published invoicing API description, and
+Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
 Failure table checked against planque's answers on 2026-11-16.
 
 ## How it connects
@@ -14,7 +15,16 @@ Failure table checked against planque's answers on 2026-11-16.
 - **Two reviewed entries:** `qonto-key@1` reads only; `qonto-key@2` reads more
   and can draft an invoice. Ask for `@2` only when the job drafts.
 - **Qonto's own server sign-in** isn't usable yet: it can't send the owner
-  back to planque after signing in. Use the key.
+  back to planque after signing in.
+- **Qonto no longer issues the key to a new developer account:** its
+  Developer Portal creates an OAuth app (a client id and secret) instead.
+  The OAuth route is planque's own client, as for Google Sheets:
+  `qonto-sandbox@1` is the first entry, on Qonto's **sandbox** (test data):
+  the owner signs in on Qonto's page and approves, no key is pasted. The
+  sandbox wants a staging token on every request, including the token
+  call; planque keeps it with the client secret and sends it to Qonto's own
+  hosts only. Reads only for now (the business and its accounts, and a
+  bank account's transactions); a transfer request comes later.
 
 ## Tools
 

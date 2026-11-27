@@ -18,6 +18,10 @@ type Registration struct {
 	TokenURL      string `json:"token_endpoint"`
 	RevocationURL string `json:"revocation_endpoint,omitempty"`
 	Secret        string `json:"-"`
+	// Header and HeaderValue: one header the vendor's gate wants on every call to these endpoints
+	// (Qonto's sandbox). The name is the approved definition's; the value comes from the credential store.
+	Header      string `json:"-"`
+	HeaderValue string `json:"-"`
 }
 
 func (c *Client) formRequest(ctx context.Context, endpoint string, form url.Values, revoke bool, registrations []Registration) (*http.Request, error) {
@@ -64,6 +68,12 @@ func (c *Client) formRequest(ctx context.Context, endpoint string, form url.Valu
 	req.Header.Set("Accept", "application/json")
 	if app.AuthMethod == "client_secret_basic" {
 		req.SetBasicAuth(url.QueryEscape(app.ClientID), url.QueryEscape(app.Secret))
+	}
+	if app.Header != "" {
+		if app.HeaderValue == "" {
+			return nil, errors.New("the registered app's secret header value is unavailable")
+		}
+		req.Header.Set(app.Header, app.HeaderValue)
 	}
 	return req, nil
 }

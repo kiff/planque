@@ -910,6 +910,10 @@ func (s *Server) callAPI(ctx context.Context, g *Grant, tool GrantedTool, key st
 	if hostOf(target) != host {
 		return OpNotSent, toolResult("Refused by planque: the call would leave "+host+". Nothing was sent.", true)
 	}
+	ctx, err = s.withSecretHeader(ctx, g)
+	if err != nil {
+		return OpNotSent, toolResult("Not sent: planque couldn't read this app's credentials.", true)
+	}
 	ans, err := s.REST.CallAs(ctx, method, target, snap.Operations[i].ContentType(), body, g.Request.API.Auth, key, g.Request.API.VersionPin)
 	var ce *rest.CallError
 	switch {
