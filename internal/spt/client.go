@@ -60,6 +60,9 @@ type Token struct {
 	DeactivatedReason string `json:"deactivated_reason"`
 	Livemode          bool   `json:"livemode"`
 	Limits            Limits `json:"usage_limits"`
+	Seller            struct {
+		Profile string `json:"network_business_profile"`
+	} `json:"seller_details"`
 }
 
 // String is the token without its id.
@@ -99,7 +102,9 @@ func (c *Client) Issue(ctx context.Context, in Issue) (Token, error) {
 		return Token{}, err
 	}
 	want := Limits{Currency: strings.ToLower(in.Currency), MaxAmount: in.MaxAmount, ExpiresAt: in.ExpiresAt.Unix()}
-	if t.Limits != want || t.Status != "active" || t.ID == "" {
+	// The seller too: a token issued to any other profile than the one asked
+	// is revoked, and an answer that doesn't say which is refused the same.
+	if t.Limits != want || t.Seller.Profile != in.SellerProfile || t.Status != "active" || t.ID == "" {
 		if t.ID != "" {
 			_ = c.Revoke(ctx, t.ID)
 		}
@@ -157,7 +162,13 @@ func (c *Client) call(ctx context.Context, method, path string, form url.Values,
 	}
 	res, err := hc.Do(req)
 	if err != nil {
-		return err
+		// A transport error carries the whole URL, and a token's id is in the
+		// path of a read or a revoke: say the failure without it.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return fmt.Errorf("spt: Stripe unreachable (%s %s): %w", method, routeOf(path), errorOnly{ue.Err})
+		}
+		return fmt.Errorf("spt: Stripe unreachable (%s %s)", method, routeOf(path))
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<10))
@@ -182,3 +193,23 @@ func (c *Client) call(ctx context.Context, method, path string, form url.Values,
 	}
 	return nil
 }
+
+// routeOf is path with a token's id taken out.
+func routeOf(path string) string {
+	const prefix = "/v1/shared_payment/issued_tokens/"
+	rest, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return path
+	}
+	if _, tail, found := strings.Cut(rest, "/"); found {
+		return prefix + "{id}/" + tail
+	}
+	return prefix + "{id}"
+}
+
+// errorOnly wraps a transport's own error, so errors.Is still finds a
+// timeout or a cancel, without the URL a *url.Error would print.
+type errorOnly struct{ err error }
+
+func (e errorOnly) Error() string { return e.err.Error() }
+func (e errorOnly) Unwrap() error { return e.err }

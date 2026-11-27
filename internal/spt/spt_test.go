@@ -60,6 +60,7 @@ func (f *fakeStripe) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		exp, _ := strconv.ParseInt(form.Get("usage_limits[expires_at]"), 10, 64)
 		t := &Token{ID: fmt.Sprintf("spt_test%d", f.n), Status: "active",
 			Limits: Limits{Currency: form.Get("usage_limits[currency]"), MaxAmount: max, ExpiresAt: exp}}
+		t.Seller.Profile = form.Get("seller_details[network_business_profile]")
 		if f.lie != nil {
 			f.lie(t)
 			f.lie = nil
@@ -356,5 +357,53 @@ func TestAWebhookCountsOnlySignedAndFresh(t *testing.T) {
 		if _, err := Verify(c.payload, c.header, "whsec_x", c.at); err == nil {
 			t.Errorf("%s was taken", name)
 		}
+	}
+}
+
+// A token issued to another seller than asked, or whose answer doesn't say
+// which, is revoked and refused.
+func TestATokenForAnotherSellerIsRevoked(t *testing.T) {
+	for name, lie := range map[string]func(*Token){
+		"another profile": func(t *Token) { t.Seller.Profile = "profile_test_other" },
+		"no profile":      func(t *Token) { t.Seller.Profile = "" },
+	} {
+		i, f, _ := setup(t, "sk_test_x")
+		f.lie = lie
+		if _, err := i.Pay(context.Background(), approval(), shop()); err == nil {
+			t.Errorf("%s: taken", name)
+		}
+		if len(f.revoked) != 1 {
+			t.Errorf("%s: revoked %v", name, f.revoked)
+		}
+	}
+}
+
+// A transport failure on a read or a revoke never carries the token's id,
+// though the id is in the URL it failed on; a timeout is still a timeout.
+func TestATransportErrorDoesntCarryTheTokenID(t *testing.T) {
+	i, _, _ := setup(t, "sk_test_x")
+	p, err := i.Pay(context.Background(), approval(), shop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	i.Client.Base = "http://127.0.0.1:1" // nothing listens
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, err := range []error{
+		func() error { _, err := i.Client.Get(context.Background(), p.Token); return err }(),
+		i.Client.Revoke(context.Background(), p.Token),
+		func() error { _, err := i.Settle(context.Background(), p); return err }(),
+		i.Stop(context.Background(), []Purchase{p}),
+		func() error { _, err := i.Client.Get(ctx, p.Token); return err }(),
+	} {
+		if err == nil {
+			t.Fatal("no error from an unreachable Stripe")
+		}
+		if strings.Contains(err.Error(), "spt_") || strings.Contains(fmt.Sprintf("%+v %#v", err, err), "spt_") {
+			t.Errorf("the token id is in the error: %v", err)
+		}
+	}
+	if _, err := i.Client.Get(ctx, p.Token); !errors.Is(err, context.Canceled) {
+		t.Errorf("a cancel isn't a cancel: %v", err)
 	}
 }
