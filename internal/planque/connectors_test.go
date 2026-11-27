@@ -36,6 +36,8 @@ import (
 const whoTool = `{"slug":"DESK_DEMO_WHOAMI","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Get my profile","tags":["readOnlyHint"],"input_parameters":{"type":"object","properties":{}}}`
 
 type connectorFixture struct {
+	// taggedWrite lists DESK_DEMO_UPDATE_TICKET, a write the provider tags read-only.
+	taggedWrite                   bool
 	mu                            sync.Mutex
 	t                             *testing.T
 	user, callback, accountStatus string
@@ -315,6 +317,9 @@ func (f *connectorFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			if f.who {
 				items += "," + whoTool
+			}
+			if f.taggedWrite {
+				items += `,{"slug":"DESK_DEMO_UPDATE_TICKET","toolkit":{"slug":"desk_demo"},"version":"20261101_00","name":"Update a ticket","tags":["readOnlyHint"],"input_parameters":{"type":"object","properties":{"ticket":{"type":"string"}},"additionalProperties":false}}`
 			}
 			body = `{"items":[` + items + `]}`
 		} else {
@@ -1671,5 +1676,41 @@ func TestAResourceArgumentThatIsntAStringIsRefusedWhenChosen(t *testing.T) {
 	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Refund reply", Name: "refund_reply", ResourceArg: "ticket"}}, "profile": p}, nil, "k_setup")
 	if st != 200 || out["status"] != StatusPending {
 		t.Fatalf("a string resource: %d %v", st, out)
+	}
+}
+
+// A write the provider tags read-only (NOTION_UPDATE_PAGE, CONVERT_…_TO_BILL, APPLY_MACRO) is a write in the grant's
+// catalog, so it can't be asked for as a read, and KIFF and tafs cloud never see it as one: their holds skip a read.
+func TestAWriteTheProviderTagsReadOnlyIsAWrite(t *testing.T) {
+	e, f := newConnectorFixture(t)
+	f.taggedWrite = true
+	first := connectConnector(t, e, f)
+	grants := "/v1/accounts/" + tenant + "/grants"
+	st, out := e.do("POST", grants, map[string]any{"reuse": first.ID, "agent": "agt_updates", "agent_name": "Ticket updates", "tools": []any{}}, nil, "k_setup")
+	if st != 201 {
+		t.Fatalf("reuse: %d %v", st, out)
+	}
+	path := grants + "/" + out["id"].(string)
+	st, catalog := e.do("GET", path+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, catalog)
+	}
+	alias := ""
+	for _, raw := range catalog["tools"].([]any) {
+		if tool := raw.(map[string]any); tool["slug"] == "DESK_DEMO_UPDATE_TICKET" {
+			alias = tool["name"].(string)
+			if tool["read_only"] == true {
+				t.Fatalf("a write tagged read-only is listed as a read: %v", tool)
+			}
+		}
+	}
+	if alias == "" {
+		t.Fatalf("the tagged write isn't listed: %v", catalog["tools"])
+	}
+	p := profile.Profile{V: profile.Version, Vendor: "Support desk", Transport: "rest", Pin: profile.Pin{Kind: "none"}, Source: "drafted",
+		Operations: []profile.Operation{{Tool: "update_ticket", Title: "Update a ticket", Kind: "read", Shape: "single", RequiredArguments: []string{"ticket"}}}}
+	st, out = e.do("POST", path+"/tools", map[string]any{"tools": []ToolRequest{{Tool: alias, Title: "Update a ticket", Name: "update_ticket", ReadOnly: true}}, "profile": p}, nil, "k_setup")
+	if st != 400 || !strings.Contains(fmt.Sprint(out["error"]), "isn't read-only") {
+		t.Fatalf("asked for as a read: %d %v", st, out)
 	}
 }

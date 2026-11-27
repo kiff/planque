@@ -136,3 +136,21 @@ func TestTheReadOnlyMarkDoesntMakeAWriteVerbARead(t *testing.T) {
 		}
 	}
 }
+
+// Reads is the provider's mark and a read's name: a write the provider tags read-only is a write.
+func TestReadsNeedsAReadsName(t *testing.T) {
+	for _, c := range []struct {
+		toolkit, slug string
+		marked, reads bool
+	}{
+		{"notion", "NOTION_UPDATE_PAGE", true, false},
+		{"zendesk", "ZENDESK_APPLY_MACRO", true, false},
+		{"quickbooks", "QUICKBOOKS_CONVERT_PURCHASE_ORDER_TO_BILL", true, false},
+		{"notion", "NOTION_FETCH_PAGE", true, true},
+		{"notion", "NOTION_FETCH_PAGE", false, false},
+	} {
+		if got := (Tool{Toolkit: c.toolkit, Slug: c.slug, ReadOnly: c.marked}).Reads(); got != c.reads {
+			t.Errorf("%s marked %v: reads %v, want %v", c.slug, c.marked, got, c.reads)
+		}
+	}
+}

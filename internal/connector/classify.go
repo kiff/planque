@@ -49,6 +49,16 @@ func words(s string) map[string]bool {
 	return m
 }
 
+// Reads says t only reads: the provider marks it read-only and its name
+// is a read (Classify). A provider that tags a write read-only
+// (NOTION_UPDATE_PAGE, CONVERT_PURCHASE_ORDER_TO_BILL, APPLY_MACRO) gets a
+// write everywhere planque says what a tool does: its catalog, the check on
+// a read-only request, KIFF's declaration and tafs cloud's holds, which skip
+// a read.
+func (t Tool) Reads() bool {
+	return t.ReadOnly && Classify(t) == ClassRead
+}
+
 // Classify is the class of t. The toolkit's own prefix on the slug
 // (GOOGLEDRIVE_DELETE_CHILD) is dropped; the rest is split at underscores.
 func Classify(t Tool) Class {

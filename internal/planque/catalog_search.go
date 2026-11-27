@@ -127,7 +127,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
-			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.ReadOnly})
+			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.Reads()})
 	}
 	// A reviewed entry found by a tool's words alone comes after the provider's apps.
 	tools = append(tools, byTool...)
