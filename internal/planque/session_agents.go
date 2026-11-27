@@ -30,7 +30,7 @@ type sessionAgent struct {
 
 // sessionAgents answers which agents a chat asked connections for
 // (GET /v1/accounts/{tenant}/sessions/{session}/agents): the grants whose
-// request carried that session and that haven't ended, for any of the
+// request carried that session and that haven't ended or failed, for any of the
 // account's keys or sessions, as the connections list is. tafs cloud reads it
 // when the chat is deleted and ends, through the end route and with the
 // person's own session, those no live taf runs. planque doesn't know tafs, so
@@ -56,7 +56,7 @@ func (s *Server) sessionAgents(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(it.Doc, &g) != nil || g.Tenant != tenant || g.AskedIn != session || g.Request.Agent == "" {
 			continue
 		}
-		if g.Status == StatusDisconnected {
+		if g.Status == StatusDisconnected || g.Status == StatusFailed {
 			continue
 		}
 		if slices.ContainsFunc(out, func(a sessionAgent) bool { return a.Agent == g.Request.Agent }) {

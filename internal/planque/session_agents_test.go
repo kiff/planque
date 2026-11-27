@@ -72,6 +72,23 @@ func TestASessionsAgentsAreKeptBesideTheGrantAndEndWithIt(t *testing.T) {
 	if _, got := e.do("GET", "/v1/accounts/"+tenant+"/sessions/ses_chat01/agents", nil, nil, "k_setup"); len(got["agents"].([]any)) != 0 {
 		t.Fatalf("an ended grant still listed: %v", got)
 	}
+
+	// A grant that failed keeps no chat either, and isn't listed.
+	st, out = ask("agt_failing", "ses_chat03")
+	if st != 201 {
+		t.Fatalf("request: %d %v", st, out)
+	}
+	failing, _ := e.s.loadGrant(context.Background(), tenant, out["id"].(string))
+	failing.Status = StatusFailed
+	if err := e.s.saveGrant(context.Background(), failing); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := e.s.loadGrant(context.Background(), tenant, failing.ID); g.AskedIn != "" {
+		t.Fatalf("a failed grant keeps its chat: %q", g.AskedIn)
+	}
+	if _, got := e.do("GET", "/v1/accounts/"+tenant+"/sessions/ses_chat03/agents", nil, nil, "k_setup"); len(got["agents"].([]any)) != 0 {
+		t.Fatalf("a failed grant listed: %v", got)
+	}
 }
 
 // A session is an id or nothing: anything else is refused before a grant is

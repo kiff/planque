@@ -614,9 +614,10 @@ func (s *Server) loadGrant(ctx context.Context, tenant, id string) (*Grant, erro
 // harmless, since the sweep checks the grant itself, but it would wait there
 // for days.
 func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
-	// An ended grant keeps no chat (AskedIn), whichever door ended it: the
-	// owner's Disconnect, a taf's end, a chat's delete or a superseding grant.
-	if g.Status == StatusDisconnected {
+	// An ended grant keeps no chat (AskedIn), whichever door ended it (the
+	// owner's Disconnect, a taf's end, a chat's delete or a superseding grant),
+	// and neither does one that failed.
+	if g.Status == StatusDisconnected || g.Status == StatusFailed {
 		g.AskedIn = ""
 	}
 	c := store.Cond{Ver: &g.ver}
