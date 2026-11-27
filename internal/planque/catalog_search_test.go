@@ -104,3 +104,42 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 		t.Fatalf("provider down, nothing reviewed: %d %v", st, out)
 	}
 }
+
+// A managed app no recorded run has proved is held by tafs cloud for every
+// change. Coach asks a new taf's rules before any grant exists, so the search
+// says it too, by the same rule as the grant (proofOf): on 27 Nov Coach asked
+// "how many deals a day" for Pipedrive, and the Card was refused twice.
+func TestTheToolSearchSaysAManagedAppIsUnproved(t *testing.T) {
+	e := newInProcessEnv(t)
+	e.enrol()
+	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}
+	desk := func() map[string]any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog/tools?q=list", nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("search: %d %v", st, out)
+		}
+		for _, x := range out["tools"].([]any) {
+			if m := x.(map[string]any); m["app"] == "desk_demo" {
+				return m
+			}
+		}
+		t.Fatalf("desk_demo not found: %v", out)
+		return nil
+	}
+	// No proof for it: unproved, as its grant will say.
+	e.s.Proved = map[string]Proof{}
+	if got := desk(); got["unproved"] != true {
+		t.Fatalf("no proof: %v", got)
+	}
+	// Proved on the managed route: nothing is said.
+	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-20", How: "oauth", Route: "managed"}}
+	if got := desk(); got["unproved"] != nil {
+		t.Fatalf("proved: %v", got)
+	}
+	// A proof through tafs's own client doesn't reach the managed route.
+	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-20", How: "oauth", Route: "own"}}
+	if got := desk(); got["unproved"] != true {
+		t.Fatalf("proved by its own client only: %v", got)
+	}
+}
