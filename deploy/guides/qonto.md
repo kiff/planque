@@ -6,6 +6,27 @@ Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
 Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
 Failure table checked against planque's answers on 2026-11-16.
 
+## Say these five things before the sign-in card
+
+Tell the owner all five, in your own words, in the message before the Sign in
+card, and ask them to say yes. Don't leave one for later.
+
+1. **Qonto's own sign-in, no key.** They sign in on Qonto's own page; no one
+   makes or pastes a key.
+2. **An owner or admin approves planque's address first:** Qonto AI, then
+   Qonto MCP, then Advanced settings, add `https://planque.kiff.dev/oauth/callback`.
+3. **Use their own Qonto login, and "Desktop site" on a phone.** If Qonto's
+   page offers to create a company, they close it; if it shows only Apple,
+   they open the browser's "Desktop site" view.
+4. **Professional secrecy.** Qonto's consent page asks them to accept the
+   lifting of Qonto's professional secrecy for the tool they chose. Their
+   choice; without the tick, nothing is connected.
+5. **What it can read, as Qonto's page lists it:** the account balance, IBAN,
+   transactions, the business and its team; supplier invoices; receipts and
+   exporting them; client invoices and credit notes. It can create client
+   invoices and add clients. It can't make payments, approve or refuse card
+   and transfer requests, set trusted beneficiaries, or store their login.
+
 ## How it connects
 
 - **Qonto's own sign-in is the first route.** Catalog entry `qonto`: the
