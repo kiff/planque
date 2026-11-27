@@ -100,7 +100,7 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 	}
 
 	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "send_client_invoice"}}, "tools"); r == nil ||
-		r.Code != refToolNotServed || r.Tool != "send_client_invoice" || r.Field != "tools" || !strings.Contains(r.Msg, "stay with the owner in Qonto") {
+		r.Code != refToolNotServed || r.Tool != "send_client_invoice" || r.Field != "tools" || !strings.Contains(r.Msg, "Everything else stays with the owner in Qonto") {
 		t.Fatalf("refusal: %+v", r)
 	}
 	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
@@ -144,7 +144,7 @@ func TestACallToAQontoToolPlanqueDoesntServeIsNotSent(t *testing.T) {
 			{ToolRequest: ToolRequest{Name: "clients", Tool: "list_clients", ReadOnly: true}},
 		}}
 	got := mustJSONString(e.s.call(context.Background(), g, "send_invoice", json.RawMessage(`{}`), ""))
-	if !strings.Contains(got, `"code":"`+CodeToolNotServed+`"`) || !strings.Contains(got, `"sent":false`) || !strings.Contains(got, "Not sent: planque doesn't serve send_client_invoice") {
+	if !strings.Contains(got, `"code":"`+CodeToolNotServed+`"`) || !strings.Contains(got, `"sent":false`) || !strings.Contains(got, "Not sent: planque doesn't serve send_client_invoice on Qonto's sign-in. Everything outside its list stays with the owner in Qonto.") {
 		t.Fatalf("a never-served Qonto tool: %s", got)
 	}
 	if n := e.vendor.CallCount(); n != 0 {
@@ -189,44 +189,62 @@ func TestEveryVendorCallGoesThroughCallServed(t *testing.T) {
 }
 
 // A Qonto client invoice is created as a draft whatever the taf sets: the
-// status and e-invoicing report the tool takes are pinned, other values and
-// anything that would send or finalize are refused, and other tools pass.
+// status and e-invoicing report the tool takes are pinned and returned as
+// pinned; other values, at any depth, anything that would send or finalize,
+// an argument the schema doesn't name, and a tool with no schema on record
+// are refused; other tools and servers pass.
 func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 	takes := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"},
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"},"report_einvoicing":{"type":"boolean"}}}`)}
-	pinned := func(args string) map[string]any {
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"},"report_einvoicing":{"type":"boolean"},
+			"items":{"type":"array"},"settings":{"type":"object"}}}`)}
+	pinned := func(args string) (map[string]any, map[string]any) {
 		t.Helper()
-		out, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args))
+		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args))
 		if why != "" {
 			t.Fatalf("%s refused: %s", args, why)
 		}
 		var m map[string]any
 		_ = json.Unmarshal(out, &m)
-		return m
+		return m, pins
 	}
-	if m := pinned(`{"client_id":"c1"}`); m["status"] != "draft" || m["report_einvoicing"] != false || m["client_id"] != "c1" {
-		t.Fatalf("left out: %v", m)
+	m, pins := pinned(`{"client_id":"c1","items":[{"title":"Audit","quantity":1}]}`)
+	if m["status"] != "draft" || m["report_einvoicing"] != false || m["client_id"] != "c1" || pins["status"] != "draft" || pins["report_einvoicing"] != false {
+		t.Fatalf("left out: %v, pinned %v", m, pins)
 	}
-	if m := pinned(`{"client_id":"c1","status":"draft","report_einvoicing":false}`); m["status"] != "draft" || m["report_einvoicing"] != false {
+	if m, _ := pinned(`{"client_id":"c1","status":"draft","report_einvoicing":false,"settings":{"status":"draft"}}`); m["status"] != "draft" || m["report_einvoicing"] != false {
 		t.Fatalf("set to the draft values: %v", m)
 	}
-	for _, args := range []string{`{"status":"unpaid"}`, `{"status":"finalized"}`, `{"Status":"unpaid"}`, `{"report_einvoicing":true}`,
-		`{"report_einvoicing":"true"}`, `{"send_email":true}`, `{"finalize":true}`, `{"submit_einvoice":true}`, `{"einvoicing":true}`, `[]`, `nope`} {
-		if _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args)); why == "" {
+	for _, args := range []string{
+		`{"status":"unpaid"}`, `{"status":"finalized"}`, `{"report_einvoicing":true}`, `{"report_einvoicing":"true"}`,
+		// At any depth, in an object or an array.
+		`{"settings":{"status":"unpaid"}}`, `{"settings":{"Status":"unpaid"}}`, `{"settings":{"report_einvoicing":true}}`,
+		`{"settings":{"send_email":true}}`, `{"items":[{"title":"x","finalize":true}]}`, `{"settings":{"nested":{"submit_einvoice":true}}}`,
+		// Top-level arguments the schema doesn't name, sending or not.
+		`{"send_email":true}`, `{"finalize":true}`, `{"einvoicing":true}`, `{"memo":"hello"}`,
+		`[]`, `nope`,
+	} {
+		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args)); why == "" {
 			t.Fatalf("%s was let through", args)
+		}
+	}
+	// Without the schema Qonto listed, nothing is sent: Qonto's default could finalize it.
+	for _, schema := range []string{``, `not json`, `{"type":"object"}`, `{"type":"object","properties":{}}`} {
+		noSchema := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
+		if _, _, why := qontoDraftOnly(qontoServer, noSchema, json.RawMessage(`{}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+			t.Fatalf("schema %q: %q", schema, why)
 		}
 	}
 	// A tool that takes neither field gets neither: nothing it would reject is added.
 	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
-	if out, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1"}` {
-		t.Fatalf("a tool without the fields: %s %s", out, why)
+	if out, pins, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1"}` || pins != nil {
+		t.Fatalf("a tool without the fields: %s %v %s", out, pins, why)
 	}
 	// Negative: another Qonto tool, and the same name on another server, pass as they are.
 	for _, c := range []struct {
 		server string
 		tool   GrantedTool
 	}{{qontoServer, GrantedTool{ToolRequest: ToolRequest{Tool: "create_client"}}}, {"https://mcp.vendor.example/mcp", takes}} {
-		if out, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`)); why != "" || string(out) != `{"status":"unpaid"}` {
+		if out, _, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`)); why != "" || string(out) != `{"status":"unpaid"}` {
 			t.Fatalf("%s %s: %s %s", c.server, c.tool.Tool, out, why)
 		}
 	}

@@ -55,8 +55,8 @@ func servedOnly(server string, listed []mcpTool) []mcpTool {
 
 // qontoNotServed refuses a Qonto tool planque doesn't serve on its sign-in.
 func qontoNotServed(tool, field string) *toolRefusal {
-	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of Qonto's reads, create_client_invoice (a draft), create_client or update_client",
-		Msg: tool + " isn't served on Qonto's sign-in: planque serves its reads, drafting a client invoice, and adding or updating a client. Finalizing, cancelling, sending, marking paid and deleting stay with the owner in Qonto; leave it out"}
+	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of the tools planque serves on Qonto's sign-in",
+		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business, its accounts and team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client. Everything else stays with the owner in Qonto; leave it out"}
 }
 
 // qontoToolsCheck refuses, before the owner sees anything, a requested tool
@@ -87,46 +87,85 @@ func (s *Server) callServed(ctx context.Context, server, access, tool string, ar
 // qontoDraftOnly keeps a Qonto client invoice a draft, whatever the taf set:
 // Qonto's create takes a status (draft, or unpaid, which finalizes it) and,
 // for e-invoicing, whether to report it, which sends it on creation with no
-// recall. A field the tool takes is pinned to draft and to not reporting; a
-// value other than those, or any argument that would send, finalize or
-// submit, is refused. Other tools and servers pass as they are.
-func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json.RawMessage, string) {
+// recall. It fails closed:
+//   - without the tool's input schema as Qonto listed it, nothing is sent;
+//   - a top-level argument the schema doesn't name is refused, so a new
+//     argument Qonto adds isn't passed on before it's reviewed;
+//   - at any depth, a status other than draft, a report_einvoicing other
+//     than false, or a key that would send, finalize or submit is refused;
+//   - a status or report_einvoicing the schema takes is pinned to draft and
+//     false, and returned as pinned, for the operation's record.
+//
+// Other tools and servers pass as they are.
+func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json.RawMessage, map[string]any, string) {
 	if !onHost(server, qontoHost) || tool.Tool != "create_client_invoice" {
-		return args, ""
+		return args, nil, ""
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(tool.InputSchema, &schema) != nil || len(schema.Properties) == 0 {
+		return nil, nil, "planque has no record of the arguments Qonto's create_client_invoice takes, so it can't keep the invoice a draft; connect Qonto again"
 	}
 	var in map[string]any
 	dec := json.NewDecoder(bytes.NewReader(args))
 	dec.UseNumber()
 	if dec.Decode(&in) != nil || in == nil {
-		return nil, "the arguments are not a JSON object"
+		return nil, nil, "the arguments are not a JSON object"
 	}
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	_ = json.Unmarshal(tool.InputSchema, &schema)
-	for k, v := range in {
-		switch key := strings.ToLower(k); {
-		case key == "status":
-			if v != "draft" {
-				return nil, "a Qonto client invoice is created only as a draft: finalizing it is the owner's, in Qonto"
-			}
-		case key == "report_einvoicing":
-			if v != false {
-				return nil, "a Qonto client invoice isn't reported for e-invoicing on creation: sending it is the owner's, in Qonto"
-			}
-		case strings.Contains(key, "send"), strings.Contains(key, "finali"), strings.Contains(key, "submit"), strings.Contains(key, "einvoic"), strings.Contains(key, "e_invoic"):
-			return nil, k + " would send or finalize the invoice: a Qonto client invoice is created only as a draft, which the owner sends"
+	for k := range in {
+		if _, ok := schema.Properties[k]; !ok {
+			return nil, nil, k + " isn't an argument Qonto's create_client_invoice lists, so it isn't passed on"
 		}
 	}
+	if why := draftOnlyTree(in); why != "" {
+		return nil, nil, why
+	}
+	pinned := map[string]any{}
 	if _, ok := schema.Properties["status"]; ok {
-		in["status"] = "draft"
+		in["status"], pinned["status"] = "draft", "draft"
 	}
 	if _, ok := schema.Properties["report_einvoicing"]; ok {
-		in["report_einvoicing"] = false
+		in["report_einvoicing"], pinned["report_einvoicing"] = false, false
 	}
 	out, err := json.Marshal(in)
 	if err != nil {
-		return nil, "the arguments couldn't be kept as a draft"
+		return nil, nil, "the arguments couldn't be kept as a draft"
 	}
-	return out, ""
+	if len(pinned) == 0 {
+		pinned = nil
+	}
+	return out, pinned, ""
+}
+
+// draftOnlyTree refuses, anywhere in v, what would make a Qonto client
+// invoice more than a draft.
+func draftOnlyTree(v any) string {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, child := range t {
+			switch key := strings.ToLower(k); {
+			case key == "status":
+				if child != "draft" {
+					return "a Qonto client invoice is created only as a draft: finalizing it is the owner's, in Qonto"
+				}
+			case key == "report_einvoicing":
+				if child != false {
+					return "a Qonto client invoice isn't reported for e-invoicing on creation: sending it is the owner's, in Qonto"
+				}
+			case strings.Contains(key, "send"), strings.Contains(key, "finali"), strings.Contains(key, "submit"), strings.Contains(key, "einvoic"), strings.Contains(key, "e_invoic"):
+				return k + " would send or finalize the invoice: a Qonto client invoice is created only as a draft, which the owner sends"
+			}
+			if why := draftOnlyTree(child); why != "" {
+				return why
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if why := draftOnlyTree(child); why != "" {
+				return why
+			}
+		}
+	}
+	return ""
 }

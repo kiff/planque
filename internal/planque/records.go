@@ -517,6 +517,9 @@ type operation struct {
 	AnswerDropped   bool                  `json:"answer_dropped,omitempty"`
 	Profile         json.RawMessage       `json:"profile,omitempty"`
 	ProfileRevision *kiff.ProfileRevision `json:"profile_revision,omitempty"`
+	// Pinned is what planque set on the arguments after the permit, as
+	// sent: a Qonto client invoice's status draft (qontoDraftOnly).
+	Pinned map[string]any `json:"pinned,omitempty"`
 }
 
 func tenantPK(t string) string { return "TENANT#" + t }
