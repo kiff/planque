@@ -3,6 +3,7 @@ package planque
 import (
 	"cmp"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,6 +25,46 @@ type foundTool struct {
 	// every change of such an app for the owner, so Coach says so before
 	// it asks the rules, when no grant exists yet. Never on a reviewed entry.
 	Unproved bool `json:"unproved,omitempty"`
+	// SignIn marks planque's own sign-in entry for a vendor (qonto, stripe):
+	// it has no tools until the owner signs in, so it's found as the app
+	// itself, with no slug, and asked for by its entry with no tools.
+	SignIn bool `json:"sign_in,omitempty"`
+}
+
+// ownSignIns are planque's own entries for a vendor's MCP server, signed in
+// to directly (qonto.go, stripe_refunds.go). They list no tools before the
+// sign-in, so the search finds them by the vendor's name.
+var ownSignIns = []struct{ entry, vendor string }{{QontoEntry, qontoVendor}, {StripeEntry, stripeVendor}}
+
+// ownSignInsFound is a row for each own sign-in entry a word of q, or an app
+// in apps, names: first in the answer, ahead of the same vendor's key
+// entries, since its own sign-in is the way to connect it and the guide's
+// key route is only for an owner who already holds a key. Without it, a
+// search for "Qonto" found only Qonto's key entries, and Coach asked for a
+// key (a Qonto re-test, 27 Nov).
+func ownSignInsFound(q string, apps []string, states map[string]catalogEntryView) []foundTool {
+	var found []foundTool
+	for _, o := range ownSignIns {
+		name := strings.ToLower(o.vendor)
+		named := slices.Contains(apps, name)
+		for _, w := range strings.Fields(strings.ToLower(q)) {
+			if len([]rune(w)) >= 3 && strings.Contains(name, w) {
+				named = true
+			}
+		}
+		if !named {
+			continue
+		}
+		state := "available"
+		if st, ok := states[o.entry]; ok {
+			state = st.State
+		}
+		found = append(found, foundTool{Entry: o.entry, App: name, AppTitle: o.vendor, AppState: state,
+			Name:        o.vendor + "'s own sign-in",
+			Description: "Connect it by its entry, with no tools: request {entry: \"" + o.entry + "\"}. Its tools are listed once the owner signs in.",
+			SignIn:      true})
+	}
+	return found
 }
 
 // What one search answers at most, whatever the provider and the reviewed
@@ -99,15 +140,19 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	tools, byTool := []foundTool{}, []foundTool{}
-	if r.URL.Query().Get("cursor") == "" && len(apps) == 0 {
+	if r.URL.Query().Get("cursor") == "" {
 		states, err := s.entryStates(r.Context(), tenant)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		var byApp []foundTool
-		byApp, byTool = s.reviewedTools(tenant, q, states)
-		tools = append(tools, byApp...)
+		// A vendor's own sign-in first, by its name or as an app asked for.
+		tools = append(tools, ownSignInsFound(q, apps, states)...)
+		if len(apps) == 0 {
+			var byApp []foundTool
+			byApp, byTool = s.reviewedTools(tenant, q, states)
+			tools = append(tools, byApp...)
+		}
 	}
 	found, err := provider.Search(r.Context(), q, apps, r.URL.Query().Get("cursor"))
 	if err != nil {

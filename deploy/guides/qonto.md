@@ -6,10 +6,11 @@ Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
 Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
 Failure table checked against planque's answers on 2026-11-16.
 
-## Say these five things before the sign-in card
+## Put these five lines on the card before the sign-in
 
-Tell the owner all five, in your own words, in the message before the Sign in
-card, and ask them to say yes. Don't leave one for later.
+Put all five, as written here, in the text of the card that asks the owner to
+go ahead with the sign-in, one a line, above its question. Don't leave one for
+later, and don't reword them: a reworded line ("read-only") is refused.
 
 1. **Qonto's own sign-in, no key.** They sign in on Qonto's own page; no one
    makes or pastes a key.
@@ -35,7 +36,7 @@ card, and ask them to say yes. Don't leave one for later.
   owner signs in on Qonto's own page and approves; no key is pasted and no
   taf sees the sign-in. Its scopes are reviewed (the list above). Planque never
   asks for a scope that moves money, so no transfer is possible on it.
-- **Before the sign-in, say the five things above.** The address approval is
+- **Before the sign-in, the five lines above are on the card.** The address approval is
   an owner's or admin's choice, can be removed in the same screen at any
   time, and a member who isn't an owner or admin can't connect. Until it is
   approved, Qonto's page says the address isn't on its list and isn't
