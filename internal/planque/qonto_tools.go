@@ -93,6 +93,8 @@ func (s *Server) callServed(ctx context.Context, server, access, tool string, ar
 //     argument Qonto adds isn't passed on before it's reviewed;
 //   - at any depth, a status other than draft, a report_einvoicing other
 //     than false, or a key that would send, finalize or submit is refused;
+//   - a status or report_einvoicing the schema declares below the top level
+//     is refused, since it can't be pinned when the taf leaves it out;
 //   - a status or report_einvoicing the schema takes is pinned to draft and
 //     false, and returned as pinned, for the operation's record.
 //
@@ -106,6 +108,14 @@ func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json
 	}
 	if json.Unmarshal(tool.InputSchema, &schema) != nil || len(schema.Properties) == 0 {
 		return nil, nil, "planque has no record of the arguments Qonto's create_client_invoice takes, so it can't keep the invoice a draft; connect Qonto again"
+	}
+	// A status or report_einvoicing the schema declares below the top level
+	// can't be pinned when the taf leaves it out, and Qonto's default could
+	// finalize or report the invoice: nothing is sent until it's reviewed.
+	for k, v := range schema.Properties {
+		if nested := nestedDraftField(v); nested != "" {
+			return nil, nil, "Qonto's create_client_invoice takes " + nested + " inside " + k + ", which planque can't keep a draft; it isn't sent until that's reviewed"
+		}
 	}
 	var in map[string]any
 	dec := json.NewDecoder(bytes.NewReader(args))
@@ -168,4 +178,39 @@ func draftOnlyTree(v any) string {
 		}
 	}
 	return ""
+}
+
+// nestedDraftField names a status or report_einvoicing property anywhere in
+// a schema node, or "" for none.
+func nestedDraftField(node json.RawMessage) string {
+	var v any
+	if json.Unmarshal(node, &v) != nil {
+		return ""
+	}
+	var walk func(any) string
+	walk = func(v any) string {
+		switch t := v.(type) {
+		case map[string]any:
+			if props, ok := t["properties"].(map[string]any); ok {
+				for k := range props {
+					if key := strings.ToLower(k); key == "status" || key == "report_einvoicing" {
+						return k
+					}
+				}
+			}
+			for _, child := range t {
+				if found := walk(child); found != "" {
+					return found
+				}
+			}
+		case []any:
+			for _, child := range t {
+				if found := walk(child); found != "" {
+					return found
+				}
+			}
+		}
+		return ""
+	}
+	return walk(v)
 }

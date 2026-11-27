@@ -234,6 +234,17 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 			t.Fatalf("schema %q: %q", schema, why)
 		}
 	}
+	// A status or report_einvoicing nested in the schema can't be pinned when left out: refused, whatever the arguments.
+	for _, schema := range []string{
+		`{"type":"object","properties":{"invoice":{"type":"object","properties":{"status":{"type":"string"}}}}}`,
+		`{"type":"object","properties":{"invoice":{"type":"object","properties":{"report_einvoicing":{"type":"boolean"}}}}}`,
+		`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"Status":{"type":"string"}}}}}}`,
+	} {
+		nested := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
+		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`)); !strings.Contains(why, "can't keep a draft") {
+			t.Fatalf("nested schema %s: %q", schema, why)
+		}
+	}
 	// A tool that takes neither field gets neither: nothing it would reject is added.
 	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
 	if out, pins, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1"}` || pins != nil {
