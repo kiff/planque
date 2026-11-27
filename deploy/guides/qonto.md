@@ -24,7 +24,11 @@ card, and ask them to say yes. Don't leave one for later.
 5. **What it can read, as Qonto's page lists it:** the account balance, IBAN,
    transactions, the business and its team; supplier invoices; receipts and
    exporting them; client invoices and credit notes. It can create client
-   invoices and add clients. It can't make payments, approve or refuse card
+   invoices and add clients. Through Qonto's own tools that write access also
+   reaches further than a draft: finalising an invoice, sending it by email or
+   as an e-invoice (an e-invoice can't be recalled), marking it paid, and
+   deleting drafts or clients. Say so, and that the Card can hold those for
+   their approval. It can't make payments, approve or refuse card
    and transfer requests, set trusted beneficiaries, or store their login.
 
 ## How it connects
