@@ -65,3 +65,22 @@ func TestOnlyTheProofMonitorLiftsTheHold(t *testing.T) {
 		t.Fatal("a seeded proof line lifted the hold while KIFF's monitor has no green run")
 	}
 }
+
+// A green monitor run of our own client's entry for an app (googlesheets@1)
+// proves that entry, not the managed route to the same app: the managed
+// connection to it stays unproved, and the entry itself reads proved.
+func TestAnOwnClientGreenDoesntLiftTheManagedHold(t *testing.T) {
+	var calls atomic.Int32
+	srv := kiffState(t, map[string]string{"googlesheets@1": "green"}, &calls)
+	defer srv.Close()
+	e, _ := gated(t, []string{"Google Sheets"}, nil)
+	e.s.CatalogEntries = map[string]CatalogEntry{"googlesheets@1": {Vendor: "Google Sheets", Application: "googlesheets"}}
+	e.s.ProofState = NewProofState(srv.URL+"/v1/ops/proofs/state", "state-token")
+	proved := e.s.provedMap(t.Context())
+	if proofOf(proved, "googlesheets@1", "oauth") == nil {
+		t.Fatalf("the own client's entry isn't proved by its green run: %+v", proved)
+	}
+	if proofOf(proved, "connector:composio:googlesheets", "oauth") != nil {
+		t.Fatalf("the own client's green run proves the managed route: %+v", proved)
+	}
+}
