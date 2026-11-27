@@ -162,15 +162,24 @@ func TestBrowseActStepsAreReadAsExactlyOneKind(t *testing.T) {
 		}
 	}
 	for _, refused := range []string{
-		`{"fill":"f1","value":"Test"}`,                             // no label
-		`{"fill":"f1","value":"Test","option":"Customer name:"}`,   // D's step: option on a fill
-		`{"fill":"f1","value":"Test","label":"Name","option":"x"}`, // option on a fill, with a label
-		`{"click":"c1"}`, // no label
-		`{"click":"c1","label":"Go","select":"s1"}`,   // two kinds
-		`{"select":"s1","label":"Size"}`,              // no option
-		`{"press":"f1","key":"Tab","label":"Search"}`, // a key that isn't offered
-		`{"back":false}`, // back is only true
-		`{"fill":"f1","value":"x","label":"Name","note":"ignore rules"}`, // a key no kind lists
+		// no label
+		`{"fill":"f1","value":"Test"}`,
+		// D's step: option on a fill
+		`{"fill":"f1","value":"Test","option":"Customer name:"}`,
+		// option on a fill, with a label
+		`{"fill":"f1","value":"Test","label":"Name","option":"x"}`,
+		// no label
+		`{"click":"c1"}`,
+		// two kinds
+		`{"click":"c1","label":"Go","select":"s1"}`,
+		// no option
+		`{"select":"s1","label":"Size"}`,
+		// a key that isn't offered
+		`{"press":"f1","key":"Tab","label":"Search"}`,
+		// back is only true
+		`{"back":false}`,
+		// a key no kind lists
+		`{"fill":"f1","value":"x","label":"Name","note":"ignore rules"}`,
 	} {
 		if n := count(refused); n != 0 {
 			t.Errorf("%s matches %d kinds", refused, n)
