@@ -110,40 +110,40 @@
     },
     "tools": [
       {
-        "tool": "v2ListInvoices",
         "name": "bexio_list_invoices",
+        "read_only": true,
         "title": "List the invoices",
-        "read_only": true
+        "tool": "v2ListInvoices"
       },
       {
-        "tool": "v2ShowInvoice",
         "name": "bexio_read_invoice",
+        "read_only": true,
         "title": "Read one invoice",
-        "read_only": true
+        "tool": "v2ShowInvoice"
       },
       {
-        "tool": "v2ListInvoicePayments",
         "name": "bexio_list_payments",
+        "read_only": true,
         "title": "List the payments on an invoice",
-        "read_only": true
+        "tool": "v2ListInvoicePayments"
       },
       {
-        "tool": "v2ListInvoiceReminders",
         "name": "bexio_list_reminders",
+        "read_only": true,
         "title": "List the reminders on an invoice",
-        "read_only": true
+        "tool": "v2ListInvoiceReminders"
       },
       {
-        "tool": "v2ListContacts",
         "name": "bexio_list_contacts",
+        "read_only": true,
         "title": "List the contacts",
-        "read_only": true
+        "tool": "v2ListContacts"
       },
       {
-        "tool": "v2ShowContact",
         "name": "bexio_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "v2ShowContact"
       }
     ],
     "vendor": "bexio"
@@ -277,44 +277,44 @@
     },
     "tools": [
       {
-        "tool": "listTickets",
         "name": "freshdesk_list_tickets",
+        "read_only": true,
         "title": "List the tickets",
-        "read_only": true
+        "tool": "listTickets"
       },
       {
-        "tool": "searchTickets",
         "name": "freshdesk_search_tickets",
+        "read_only": true,
         "title": "Search the tickets",
-        "read_only": true
+        "tool": "searchTickets"
       },
       {
-        "tool": "viewTicket",
         "name": "freshdesk_read_ticket",
+        "read_only": true,
         "title": "Read one ticket",
-        "read_only": true
+        "tool": "viewTicket"
       },
       {
-        "tool": "listTicketConversations",
         "name": "freshdesk_read_conversations",
+        "read_only": true,
         "title": "Read a ticket's replies and notes",
-        "read_only": true
+        "tool": "listTicketConversations"
       },
       {
-        "tool": "viewContact",
         "name": "freshdesk_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "viewContact"
       },
       {
-        "tool": "replyToTicket",
         "name": "freshdesk_reply",
-        "title": "Reply to a ticket"
+        "title": "Reply to a ticket",
+        "tool": "replyToTicket"
       },
       {
-        "tool": "addTicketNote",
         "name": "freshdesk_add_note",
-        "title": "Add a note to a ticket"
+        "title": "Add a note to a ticket",
+        "tool": "addTicketNote"
       }
     ],
     "vendor": "Freshdesk"
@@ -436,46 +436,46 @@
     },
     "tools": [
       {
-        "tool": "pulls_list",
         "name": "github_list_pull_requests",
+        "read_only": true,
         "title": "List a repository's pull requests",
-        "read_only": true
+        "tool": "pulls_list"
       },
       {
-        "tool": "pulls_get",
         "name": "github_read_pull_request",
+        "read_only": true,
         "title": "Read one pull request",
-        "read_only": true
+        "tool": "pulls_get"
       },
       {
-        "tool": "checks_list_for_ref",
         "name": "github_list_checks",
+        "read_only": true,
         "title": "List the checks run on a commit or branch",
-        "read_only": true
+        "tool": "checks_list_for_ref"
       },
       {
-        "tool": "repos_get_combined_status_for_ref",
         "name": "github_read_status",
+        "read_only": true,
         "title": "Read the combined status of a commit or branch",
-        "read_only": true
+        "tool": "repos_get_combined_status_for_ref"
       },
       {
-        "tool": "actions_list_workflow_runs_for_repo",
         "name": "github_list_runs",
+        "read_only": true,
         "title": "List a repository's workflow runs",
-        "read_only": true
+        "tool": "actions_list_workflow_runs_for_repo"
       },
       {
-        "tool": "actions_get_workflow_run",
         "name": "github_read_run",
+        "read_only": true,
         "title": "Read one workflow run",
-        "read_only": true
+        "tool": "actions_get_workflow_run"
       },
       {
-        "tool": "actions_list_jobs_for_workflow_run",
         "name": "github_list_run_jobs",
+        "read_only": true,
         "title": "List the jobs of a workflow run",
-        "read_only": true
+        "tool": "actions_list_jobs_for_workflow_run"
       }
     ],
     "vendor": "GitHub"
@@ -560,15 +560,15 @@
     },
     "tools": [
       {
-        "tool": "sheets_get_values",
         "name": "google_sheets_read_range",
+        "read_only": true,
         "title": "Read a range of cells",
-        "read_only": true
+        "tool": "sheets_get_values"
       },
       {
-        "tool": "sheets_append_values",
         "name": "google_sheets_add_row",
-        "title": "Add a row to a sheet"
+        "title": "Add a row to a sheet",
+        "tool": "sheets_append_values"
       }
     ],
     "vendor": "Google Sheets"
@@ -700,55 +700,55 @@
     },
     "tools": [
       {
-        "tool": "listConversations",
         "name": "intercom_list_conversations",
+        "read_only": true,
         "title": "List the conversations",
-        "read_only": true
+        "tool": "listConversations"
       },
       {
-        "tool": "retrieveConversation",
         "name": "intercom_read_conversation",
+        "read_only": true,
         "title": "Read one conversation",
-        "read_only": true
+        "tool": "retrieveConversation"
       },
       {
-        "tool": "ShowContact",
         "name": "intercom_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "ShowContact"
       },
       {
-        "tool": "replyConversation",
-        "name": "intercom_reply",
-        "title": "Reply to a conversation",
+        "arguments": {
+          "admin_id": {
+            "path": "admin_id",
+            "required": true,
+            "type": "string"
+          },
+          "body": {
+            "path": "body",
+            "required": true,
+            "type": "string"
+          },
+          "conversation_id": {
+            "path": "conversation_id",
+            "required": true,
+            "type": "string"
+          }
+        },
         "fixed_arguments": {
           "message_type": "comment",
           "type": "admin"
         },
-        "arguments": {
-          "admin_id": {
-            "path": "admin_id",
-            "type": "string",
-            "required": true
-          },
-          "body": {
-            "path": "body",
-            "type": "string",
-            "required": true
-          },
-          "conversation_id": {
-            "path": "conversation_id",
-            "type": "string",
-            "required": true
-          }
-        },
-        "resource_argument": "conversation_id"
+        "name": "intercom_reply",
+        "resource_argument": "conversation_id",
+        "title": "Reply to a conversation",
+        "tool": "replyConversation"
       },
       {
-        "tool": "createNote",
         "name": "intercom_add_note",
+        "resource_argument": "contact_id",
         "title": "Add a note to a contact",
-        "resource_argument": "contact_id"
+        "tool": "createNote"
       }
     ],
     "vendor": "Intercom"
@@ -858,34 +858,34 @@
     },
     "tools": [
       {
-        "tool": "listVouchers",
         "name": "lexoffice_list_vouchers",
+        "read_only": true,
         "title": "List invoices and other vouchers",
-        "read_only": true
+        "tool": "listVouchers"
       },
       {
-        "tool": "retrieveInvoice",
         "name": "lexoffice_read_invoice",
+        "read_only": true,
         "title": "Read one invoice",
-        "read_only": true
+        "tool": "retrieveInvoice"
       },
       {
-        "tool": "retrievePayment",
         "name": "lexoffice_read_payment",
+        "read_only": true,
         "title": "Read the payment status of a voucher",
-        "read_only": true
+        "tool": "retrievePayment"
       },
       {
-        "tool": "listContacts",
         "name": "lexoffice_list_contacts",
+        "read_only": true,
         "title": "List the contacts",
-        "read_only": true
+        "tool": "listContacts"
       },
       {
-        "tool": "retrieveContact",
         "name": "lexoffice_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "retrieveContact"
       }
     ],
     "vendor": "Lexware Office"
@@ -995,34 +995,34 @@
     },
     "tools": [
       {
-        "tool": "get_administrations",
         "name": "moneybird_list_administrations",
+        "read_only": true,
         "title": "List the administrations",
-        "read_only": true
+        "tool": "get_administrations"
       },
       {
-        "tool": "get_administration_id_sales_invoices",
         "name": "moneybird_list_invoices",
+        "read_only": true,
         "title": "List the sales invoices",
-        "read_only": true
+        "tool": "get_administration_id_sales_invoices"
       },
       {
-        "tool": "get_administration_id_sales_invoices_id",
         "name": "moneybird_read_invoice",
+        "read_only": true,
         "title": "Read one sales invoice",
-        "read_only": true
+        "tool": "get_administration_id_sales_invoices_id"
       },
       {
-        "tool": "get_administration_id_contacts",
         "name": "moneybird_list_contacts",
+        "read_only": true,
         "title": "List the contacts",
-        "read_only": true
+        "tool": "get_administration_id_contacts"
       },
       {
-        "tool": "get_administration_id_contacts_id",
         "name": "moneybird_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "get_administration_id_contacts_id"
       }
     ],
     "vendor": "Moneybird"
@@ -1155,50 +1155,50 @@
     },
     "tools": [
       {
-        "tool": "getPersons",
         "name": "pipedrive_list_persons",
+        "read_only": true,
         "title": "List the people",
-        "read_only": true
+        "tool": "getPersons"
       },
       {
-        "tool": "getPerson",
         "name": "pipedrive_read_person",
+        "read_only": true,
         "title": "Read one person",
-        "read_only": true
+        "tool": "getPerson"
       },
       {
-        "tool": "getDeals",
         "name": "pipedrive_list_deals",
+        "read_only": true,
         "title": "List the deals",
-        "read_only": true
+        "tool": "getDeals"
       },
       {
-        "tool": "getDeal",
         "name": "pipedrive_read_deal",
+        "read_only": true,
         "title": "Read one deal",
-        "read_only": true
+        "tool": "getDeal"
       },
       {
-        "tool": "getActivities",
         "name": "pipedrive_list_activities",
+        "read_only": true,
         "title": "List the activities",
-        "read_only": true
+        "tool": "getActivities"
       },
       {
-        "tool": "getActivity",
         "name": "pipedrive_read_activity",
+        "read_only": true,
         "title": "Read one activity",
-        "read_only": true
+        "tool": "getActivity"
       },
       {
-        "tool": "addPerson",
         "name": "pipedrive_add_person",
-        "title": "Add a person"
+        "title": "Add a person",
+        "tool": "addPerson"
       },
       {
-        "tool": "addActivity",
         "name": "pipedrive_add_activity",
-        "title": "Add an activity (a follow-up task)"
+        "title": "Add an activity (a follow-up task)",
+        "tool": "addActivity"
       }
     ],
     "vendor": "Pipedrive"
@@ -1301,27 +1301,76 @@
     },
     "tools": [
       {
-        "tool": "getLeads",
         "name": "pipedrive_list_leads",
+        "read_only": true,
         "title": "List the leads",
-        "read_only": true
+        "tool": "getLeads"
       },
       {
-        "tool": "getLead",
         "name": "pipedrive_read_lead",
+        "read_only": true,
         "title": "Read one lead",
-        "read_only": true
+        "tool": "getLead"
       },
       {
-        "tool": "addNote",
         "name": "pipedrive_add_note",
-        "title": "Add a note to a lead"
+        "title": "Add a note to a lead",
+        "tool": "addNote"
       }
     ],
     "vendor": "Pipedrive"
   },
   "qonto-key@1": {
-    "vendor": "Qonto",
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization"
+      },
+      "base": "https://thirdparty.qonto.com/v2",
+      "operations": [
+        "get_organization",
+        "list_clients",
+        "list_client_invoices",
+        "get_client_invoice"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi.json"
+    },
+    "description_sha256": "a92d22d631b9ad4e337c185176d67213bd0c7cd96c147f0be46aa27b435e70fc",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "qonto-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "Read the business and its bank accounts",
+          "tool": "qonto_organization"
+        },
+        {
+          "kind": "read",
+          "title": "List the clients",
+          "tool": "qonto_list_clients"
+        },
+        {
+          "kind": "read",
+          "title": "List the client invoices",
+          "tool": "qonto_list_client_invoices"
+        },
+        {
+          "kind": "read",
+          "title": "Read one client invoice",
+          "tool": "qonto_get_client_invoice"
+        }
+      ],
+      "pin": {
+        "kind": "base_path",
+        "value": "/v2"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Qonto"
+    },
     "title": "Qonto invoicing, read only",
     "titles": {
       "ar": "Qonto: الفوترة، قراءة فقط",
@@ -1368,85 +1417,125 @@
       "vi": "Qonto: lập hóa đơn, chỉ đọc",
       "zh": "Qonto: 開立發票，唯讀"
     },
-    "kind": "api_key",
+    "tools": [
+      {
+        "name": "qonto_organization",
+        "read_only": true,
+        "title": "Read the business and its bank accounts",
+        "tool": "get_organization"
+      },
+      {
+        "name": "qonto_list_clients",
+        "read_only": true,
+        "title": "List the clients",
+        "tool": "list_clients"
+      },
+      {
+        "name": "qonto_list_client_invoices",
+        "read_only": true,
+        "title": "List the client invoices",
+        "tool": "list_client_invoices"
+      },
+      {
+        "name": "qonto_get_client_invoice",
+        "read_only": true,
+        "title": "Read one client invoice",
+        "tool": "get_client_invoice"
+      }
+    ],
+    "vendor": "Qonto"
+  },
+  "qonto-key@2": {
     "api": {
-      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi.json",
-      "base": "https://thirdparty.qonto.com/v2",
       "auth": {
         "in": "header",
         "name": "Authorization"
       },
+      "base": "https://thirdparty.qonto.com/v2",
       "operations": [
         "get_organization",
         "list_clients",
         "list_client_invoices",
-        "get_client_invoice"
-      ]
+        "get_client_invoice",
+        "list_quotes",
+        "get_quote",
+        "list_supplier_invoices",
+        "create_client_invoice"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi-2.json"
     },
-    "description_sha256": "a92d22d631b9ad4e337c185176d67213bd0c7cd96c147f0be46aa27b435e70fc",
-    "tools": [
-      {
-        "tool": "get_organization",
-        "name": "qonto_organization",
-        "title": "Read the business and its bank accounts",
-        "read_only": true
-      },
-      {
-        "tool": "list_clients",
-        "name": "qonto_list_clients",
-        "title": "List the clients",
-        "read_only": true
-      },
-      {
-        "tool": "list_client_invoices",
-        "name": "qonto_list_client_invoices",
-        "title": "List the client invoices",
-        "read_only": true
-      },
-      {
-        "tool": "get_client_invoice",
-        "name": "qonto_get_client_invoice",
-        "title": "Read one client invoice",
-        "read_only": true
-      }
-    ],
+    "description_sha256": "9c3270688adc07aa5c818c31a8f8167105fa5ae7223e305352043e7ccfe707cf",
+    "kind": "api_key",
     "profile": {
-      "v": "kiff.profile.v1",
-      "vendor": "Qonto",
-      "transport": "rest",
+      "catalog_entry": "qonto-key@2",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "Read the business and its bank accounts",
+          "tool": "qonto_organization"
+        },
+        {
+          "kind": "read",
+          "title": "List the clients",
+          "tool": "qonto_list_clients"
+        },
+        {
+          "kind": "read",
+          "title": "List the client invoices",
+          "tool": "qonto_list_client_invoices"
+        },
+        {
+          "kind": "read",
+          "title": "Read one client invoice",
+          "tool": "qonto_get_client_invoice"
+        },
+        {
+          "kind": "read",
+          "title": "List the quotes",
+          "tool": "qonto_list_quotes"
+        },
+        {
+          "kind": "read",
+          "title": "Read one quote",
+          "tool": "qonto_get_quote"
+        },
+        {
+          "kind": "read",
+          "title": "List the supplier invoices",
+          "tool": "qonto_list_supplier_invoices"
+        },
+        {
+          "claim": "invoice_draft",
+          "effect": "none_until_approved",
+          "kind": "write",
+          "required_arguments": [
+            "quote_id",
+            "client_id",
+            "issue_date",
+            "due_date",
+            "currency",
+            "iban",
+            "items"
+          ],
+          "resource": {
+            "arg": "quote_id",
+            "noun": "quote"
+          },
+          "shape": "single",
+          "title": "Draft an invoice from an accepted quote",
+          "tool": "qonto_draft_client_invoice"
+        }
+      ],
       "pin": {
         "kind": "base_path",
         "value": "/v2"
       },
       "source": "catalog",
-      "catalog_entry": "qonto-key@1",
       "test_proven": false,
-      "operations": [
-        {
-          "tool": "qonto_organization",
-          "title": "Read the business and its bank accounts",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_clients",
-          "title": "List the clients",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_client_invoices",
-          "title": "List the client invoices",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_get_client_invoice",
-          "title": "Read one client invoice",
-          "kind": "read"
-        }
-      ]
-    }
-  },
-  "qonto-key@2": {
-    "vendor": "Qonto",
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Qonto"
+    },
     "title": "Qonto invoicing: reads, and invoice drafts from quotes",
     "titles": {
       "ar": "Qonto: الفوترة، قراءة ومسودات فواتير من عروض الأسعار",
@@ -1493,172 +1582,122 @@
       "vi": "Qonto: lập hóa đơn, đọc và bản nháp hóa đơn từ báo giá",
       "zh": "Qonto: 開立發票，讀取並從報價單建立發票草稿"
     },
-    "kind": "api_key",
-    "api": {
-      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/qonto-invoicing-openapi-2.json",
-      "base": "https://thirdparty.qonto.com/v2",
-      "auth": {
-        "in": "header",
-        "name": "Authorization"
-      },
-      "operations": [
-        "get_organization",
-        "list_clients",
-        "list_client_invoices",
-        "get_client_invoice",
-        "list_quotes",
-        "get_quote",
-        "list_supplier_invoices",
-        "create_client_invoice"
-      ]
-    },
-    "description_sha256": "9c3270688adc07aa5c818c31a8f8167105fa5ae7223e305352043e7ccfe707cf",
     "tools": [
       {
-        "tool": "get_organization",
         "name": "qonto_organization",
+        "read_only": true,
         "title": "Read the business and its bank accounts",
-        "read_only": true
+        "tool": "get_organization"
       },
       {
-        "tool": "list_clients",
         "name": "qonto_list_clients",
+        "read_only": true,
         "title": "List the clients",
-        "read_only": true
+        "tool": "list_clients"
       },
       {
-        "tool": "list_client_invoices",
         "name": "qonto_list_client_invoices",
+        "read_only": true,
         "title": "List the client invoices",
-        "read_only": true
+        "tool": "list_client_invoices"
       },
       {
-        "tool": "get_client_invoice",
         "name": "qonto_get_client_invoice",
+        "read_only": true,
         "title": "Read one client invoice",
-        "read_only": true
+        "tool": "get_client_invoice"
       },
       {
-        "tool": "list_quotes",
         "name": "qonto_list_quotes",
+        "read_only": true,
         "title": "List the quotes",
-        "read_only": true
+        "tool": "list_quotes"
       },
       {
-        "tool": "get_quote",
         "name": "qonto_get_quote",
+        "read_only": true,
         "title": "Read one quote",
-        "read_only": true
+        "tool": "get_quote"
       },
       {
-        "tool": "list_supplier_invoices",
         "name": "qonto_list_supplier_invoices",
+        "read_only": true,
         "title": "List the supplier invoices",
-        "read_only": true
+        "tool": "list_supplier_invoices"
       },
       {
-        "tool": "create_client_invoice",
-        "name": "qonto_draft_client_invoice",
-        "title": "Draft an invoice from an accepted quote",
-        "fixed_arguments": {
-          "status": "draft"
-        },
         "arguments": {
-          "quote_id": {
-            "path": "quote_id",
-            "type": "string",
-            "required": true,
-            "description": "The accepted quote this invoice is drafted from"
-          },
           "client_id": {
+            "description": "The quote's client",
             "path": "client_id",
-            "type": "string",
             "required": true,
-            "description": "The quote's client"
-          },
-          "issue_date": {
-            "path": "issue_date",
-            "type": "string",
-            "required": true,
-            "description": "YYYY-MM-DD"
-          },
-          "due_date": {
-            "path": "due_date",
-            "type": "string",
-            "required": true,
-            "description": "YYYY-MM-DD"
+            "type": "string"
           },
           "currency": {
+            "description": "The quote's currency, e.g. EUR",
             "path": "currency",
-            "type": "string",
             "required": true,
-            "description": "The quote's currency, e.g. EUR"
+            "type": "string"
+          },
+          "due_date": {
+            "description": "YYYY-MM-DD",
+            "path": "due_date",
+            "required": true,
+            "type": "string"
           },
           "iban": {
-            "path": "payment_methods.iban",
-            "type": "string",
-            "required": true,
             "description": "One of the business's own Qonto IBANs (qonto_organization lists them): any other is refused",
             "one_of": {
-              "tool": "get_organization",
-              "path": "organization.bank_accounts.iban"
-            }
+              "path": "organization.bank_accounts.iban",
+              "tool": "get_organization"
+            },
+            "path": "payment_methods.iban",
+            "required": true,
+            "type": "string"
           },
-          "performance_start_date": {
-            "path": "performance_start_date",
-            "type": "string",
-            "description": "YYYY-MM-DD"
-          },
-          "performance_end_date": {
-            "path": "performance_end_date",
-            "type": "string",
-            "description": "YYYY-MM-DD"
+          "issue_date": {
+            "description": "YYYY-MM-DD",
+            "path": "issue_date",
+            "required": true,
+            "type": "string"
           },
           "items": {
-            "path": "items",
-            "type": "array",
-            "required": true,
             "description": "The quote's own lines",
+            "path": "items",
+            "required": true,
             "schema": {
-              "type": "array",
-              "maxItems": 100,
               "items": {
-                "type": "object",
                 "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 40
-                  },
                   "description": {
-                    "type": "string",
-                    "maxLength": 1800
+                    "maxLength": 1800,
+                    "type": "string"
                   },
                   "quantity": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 40,
                     "type": "string"
                   },
                   "unit": {
                     "type": "string"
                   },
                   "unit_price": {
-                    "type": "object",
                     "properties": {
-                      "value": {
+                      "currency": {
                         "type": "string"
                       },
-                      "currency": {
+                      "value": {
                         "type": "string"
                       }
                     },
                     "required": [
                       "value",
                       "currency"
-                    ]
-                  },
-                  "vat_rate": {
-                    "type": "string"
+                    ],
+                    "type": "object"
                   },
                   "vat_exemption_reason": {
-                    "type": "string",
                     "enum": [
                       "N1",
                       "N2",
@@ -1721,7 +1760,11 @@
                       "S9.29.30",
                       "S9.27.28",
                       "S9.1-5"
-                    ]
+                    ],
+                    "type": "string"
+                  },
+                  "vat_rate": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -1729,84 +1772,41 @@
                   "quantity",
                   "unit_price",
                   "vat_rate"
-                ]
-              }
-            }
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "performance_end_date": {
+            "description": "YYYY-MM-DD",
+            "path": "performance_end_date",
+            "type": "string"
+          },
+          "performance_start_date": {
+            "description": "YYYY-MM-DD",
+            "path": "performance_start_date",
+            "type": "string"
+          },
+          "quote_id": {
+            "description": "The accepted quote this invoice is drafted from",
+            "path": "quote_id",
+            "required": true,
+            "type": "string"
           }
         },
-        "resource_argument": "quote_id"
+        "fixed_arguments": {
+          "status": "draft"
+        },
+        "name": "qonto_draft_client_invoice",
+        "resource_argument": "quote_id",
+        "title": "Draft an invoice from an accepted quote",
+        "tool": "create_client_invoice"
       }
     ],
-    "profile": {
-      "v": "kiff.profile.v1",
-      "vendor": "Qonto",
-      "transport": "rest",
-      "pin": {
-        "kind": "base_path",
-        "value": "/v2"
-      },
-      "source": "catalog",
-      "catalog_entry": "qonto-key@2",
-      "test_proven": false,
-      "operations": [
-        {
-          "tool": "qonto_organization",
-          "title": "Read the business and its bank accounts",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_clients",
-          "title": "List the clients",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_client_invoices",
-          "title": "List the client invoices",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_get_client_invoice",
-          "title": "Read one client invoice",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_quotes",
-          "title": "List the quotes",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_get_quote",
-          "title": "Read one quote",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_list_supplier_invoices",
-          "title": "List the supplier invoices",
-          "kind": "read"
-        },
-        {
-          "tool": "qonto_draft_client_invoice",
-          "title": "Draft an invoice from an accepted quote",
-          "kind": "write",
-          "effect": "none_until_approved",
-          "shape": "single",
-          "resource": {
-            "arg": "quote_id",
-            "noun": "quote"
-          },
-          "claim": "invoice_draft",
-          "required_arguments": [
-            "quote_id",
-            "client_id",
-            "issue_date",
-            "due_date",
-            "currency",
-            "iban",
-            "items"
-          ]
-        }
-      ]
-    }
+    "vendor": "Qonto"
   },
   "sevdesk-key@1": {
     "api": {
@@ -1912,34 +1912,34 @@
     },
     "tools": [
       {
-        "tool": "getInvoices",
         "name": "sevdesk_list_invoices",
+        "read_only": true,
         "title": "List the invoices",
-        "read_only": true
+        "tool": "getInvoices"
       },
       {
-        "tool": "getInvoiceById",
         "name": "sevdesk_read_invoice",
+        "read_only": true,
         "title": "Read one invoice",
-        "read_only": true
+        "tool": "getInvoiceById"
       },
       {
-        "tool": "getIsInvoicePartiallyPaid",
         "name": "sevdesk_invoice_partly_paid",
+        "read_only": true,
         "title": "Check whether an invoice is partly paid",
-        "read_only": true
+        "tool": "getIsInvoicePartiallyPaid"
       },
       {
-        "tool": "getContacts",
         "name": "sevdesk_list_contacts",
+        "read_only": true,
         "title": "List the contacts",
-        "read_only": true
+        "tool": "getContacts"
       },
       {
-        "tool": "getContactById",
         "name": "sevdesk_read_contact",
+        "read_only": true,
         "title": "Read one contact",
-        "read_only": true
+        "tool": "getContactById"
       }
     ],
     "vendor": "sevdesk"
@@ -2061,49 +2061,191 @@
     },
     "tools": [
       {
-        "tool": "ListShipments",
         "name": "shippo_list_shipments",
+        "read_only": true,
         "title": "List the shipments",
-        "read_only": true
+        "tool": "ListShipments"
       },
       {
-        "tool": "GetShipment",
         "name": "shippo_read_shipment",
+        "read_only": true,
         "title": "Read one shipment",
-        "read_only": true
+        "tool": "GetShipment"
       },
       {
-        "tool": "GetTrack",
         "name": "shippo_track_parcel",
+        "read_only": true,
         "title": "Get a parcel's tracking status",
-        "read_only": true
+        "tool": "GetTrack"
       },
       {
-        "tool": "ListOrders",
         "name": "shippo_list_orders",
+        "read_only": true,
         "title": "List the orders",
-        "read_only": true
+        "tool": "ListOrders"
       },
       {
-        "tool": "GetOrder",
         "name": "shippo_read_order",
+        "read_only": true,
         "title": "Read one order",
-        "read_only": true
+        "tool": "GetOrder"
       },
       {
-        "tool": "ListTransactions",
         "name": "shippo_list_labels",
+        "read_only": true,
         "title": "List the shipping labels",
-        "read_only": true
+        "tool": "ListTransactions"
       },
       {
-        "tool": "GetTransaction",
         "name": "shippo_read_label",
+        "read_only": true,
         "title": "Read one shipping label",
-        "read_only": true
+        "tool": "GetTransaction"
       }
     ],
     "vendor": "Shippo"
+  },
+  "slack-key@1": {
+    "api": {
+      "auth": {
+        "in": "header",
+        "name": "Authorization",
+        "prefix": "Bearer "
+      },
+      "base": "https://slack.com/api",
+      "operations": [
+        "conversations_list",
+        "conversations_history",
+        "conversations_replies",
+        "users_lookupByEmail",
+        "chat_postMessage"
+      ],
+      "url": "https://raw.githubusercontent.com/kiff/planque/main/deploy/specs/slack-key-openapi.json"
+    },
+    "description_sha256": "1dfbbfe3b1d209a3ca7a8b72ade9936de67d3fbdde9fe25c11c6975154cddd24",
+    "kind": "api_key",
+    "profile": {
+      "catalog_entry": "slack-key@1",
+      "operations": [
+        {
+          "kind": "read",
+          "title": "List the channels",
+          "tool": "slack_list_channels"
+        },
+        {
+          "kind": "read",
+          "title": "Read a channel's messages",
+          "tool": "slack_read_channel"
+        },
+        {
+          "kind": "read",
+          "title": "Read a thread's replies",
+          "tool": "slack_read_thread"
+        },
+        {
+          "kind": "read",
+          "title": "Find a person by email",
+          "tool": "slack_find_user_by_email"
+        },
+        {
+          "effect": "sends",
+          "kind": "write",
+          "required_arguments": [
+            "channel",
+            "text"
+          ],
+          "shape": "single",
+          "title": "Post a message to a channel",
+          "tool": "slack_post_message"
+        }
+      ],
+      "pin": {
+        "kind": "none"
+      },
+      "source": "catalog",
+      "test_proven": false,
+      "transport": "rest",
+      "v": "kiff.profile.v1",
+      "vendor": "Slack"
+    },
+    "title": "Slack: read channels, messages and threads, find a person by email, post a message",
+    "titles": {
+      "ar": "Slack: قراءة القنوات والرسائل والمحادثات، والبحث عن شخص بالبريد الإلكتروني، ونشر رسالة",
+      "az": "Slack: kanalları, mesajları və mövzuları oxumaq, şəxsi e-poçtla tapmaq, mesaj göndərmək",
+      "bg": "Slack: четене на канали, съобщения и нишки, намиране на човек по имейл, публикуване на съобщение",
+      "bn": "Slack: চ্যানেল, বার্তা ও থ্রেড পড়া, ইমেল দিয়ে কাউকে খোঁজা, বার্তা পোস্ট করা",
+      "ca": "Slack: llegir canals, missatges i fils, trobar una persona pel correu, publicar un missatge",
+      "cs": "Slack: čtení kanálů, zpráv a vláken, vyhledání osoby podle e-mailu, odeslání zprávy",
+      "de": "Slack: Kanäle, Nachrichten und Threads lesen, eine Person per E-Mail finden, eine Nachricht senden",
+      "el": "Slack: ανάγνωση καναλιών, μηνυμάτων και νημάτων, εύρεση ατόμου με email, δημοσίευση μηνύματος",
+      "es": "Slack: leer canales, mensajes e hilos, encontrar a una persona por su correo, publicar un mensaje",
+      "et": "Slack: kanalite, sõnumite ja lõimede lugemine, inimese leidmine e-posti järgi, sõnumi postitamine",
+      "fr": "Slack : lire canaux, messages et fils, trouver une personne par e-mail, publier un message",
+      "he": "Slack: קריאת ערוצים, הודעות ושרשורים, איתור אדם לפי אימייל, פרסום הודעה",
+      "hi": "Slack: चैनल, संदेश और थ्रेड पढ़ना, ईमेल से किसी व्यक्ति को खोजना, संदेश पोस्ट करना",
+      "hr": "Slack: čitanje kanala, poruka i niti, pronalaženje osobe po e-pošti, objava poruke",
+      "hu": "Slack: csatornák, üzenetek és szálak olvasása, személy keresése e-mail alapján, üzenet közzététele",
+      "hy": "Slack: ալիքների և հաղորդագրությունների ընթերցում, անձի որոնում էլ. փոստով, հրապարակում",
+      "id": "Slack: membaca kanal, pesan, dan utas, mencari orang lewat email, memposting pesan",
+      "it": "Slack: leggere canali, messaggi e thread, trovare una persona via email, pubblicare un messaggio",
+      "ja": "Slack: チャンネル・メッセージ・スレッドの読み取り、メールでの人物検索、メッセージの投稿",
+      "ka": "Slack: არხების და შეტყობინებების კითხვა, ადამიანის პოვნა ელფოსტით, შეტყობინების გამოქვეყნება",
+      "km": "Slack: អានឆានែល សារ និងខ្សែសន្ទនា ស្វែងរកមនុស្សតាមអ៊ីមែល ផុសសារ",
+      "ko": "Slack: 채널, 메시지, 스레드 읽기, 이메일로 사람 찾기, 메시지 게시",
+      "lo": "Slack: ອ່ານຊ່ອງ, ຂໍ້ຄວາມ ແລະ ກະທູ້, ຊອກຫາຄົນດ້ວຍອີເມວ, ໂພສຂໍ້ຄວາມ",
+      "lt": "Slack: kanalų, žinučių ir gijų skaitymas, asmens paieška pagal el. paštą, žinutės paskelbimas",
+      "lv": "Slack: kanālu, ziņu un pavedienu lasīšana, personas atrašana pēc e-pasta, ziņas publicēšana",
+      "mk": "Slack: читање канали, пораки и нишки, наоѓање лице преку е-пошта, објавување порака",
+      "mn": "Slack: сувгууд, мессеж болон сэдвүүдийг унших, и-мэйлээр хүн хайх, мессеж нийтлэх",
+      "ne": "Slack: च्यानल, सन्देश र थ्रेड पढ्ने, इमेलबाट व्यक्ति खोज्ने, सन्देश पोस्ट गर्ने",
+      "nl": "Slack: kanalen, berichten en threads lezen, iemand zoeken via e-mail, een bericht plaatsen",
+      "pl": "Slack: czytanie kanałów, wiadomości i wątków, wyszukiwanie osoby po e-mailu, publikowanie wiadomości",
+      "pt": "Slack: ler canais, mensagens e tópicos, encontrar uma pessoa pelo e-mail, publicar uma mensagem",
+      "pt-br": "Slack: ler canais, mensagens e threads, encontrar uma pessoa pelo e-mail, postar uma mensagem",
+      "ro": "Slack: citirea canalelor și mesajelor, găsirea unei persoane după e-mail, postarea unui mesaj",
+      "sk": "Slack: čítanie kanálov, správ a vlákien, vyhľadanie osoby podľa e-mailu, odoslanie správy",
+      "sl": "Slack: branje kanalov, sporočil in niti, iskanje osebe po e-pošti, objava sporočila",
+      "sq": "Slack: lexo kanale, mesazhe dhe fije, gjej një person me email, publiko një mesazh",
+      "sr": "Slack: читање канала, порука и нити, проналажење особе преко имејла, објава поруке",
+      "th": "Slack: อ่านช่อง ข้อความ และเธรด ค้นหาบุคคลด้วยอีเมล โพสต์ข้อความ",
+      "tk": "Slack: kanallary, habarlary we şahalary okamak, e-poçta arkaly adamy tapmak, habar ýerleşdirmek",
+      "tr": "Slack: kanalları, mesajları ve konuları okuma, e-postayla kişi bulma, mesaj gönderme",
+      "ur": "Slack: چینلز، پیغامات اور تھریڈز پڑھنا، ای میل سے کسی شخص کو تلاش کرنا، پیغام پوسٹ کرنا",
+      "vi": "Slack: đọc kênh, tin nhắn và chuỗi, tìm một người qua email, đăng tin nhắn",
+      "zh": "Slack：读取频道、消息和对话串，按邮箱查找用户，发布消息"
+    },
+    "tools": [
+      {
+        "name": "slack_list_channels",
+        "read_only": true,
+        "title": "List the channels",
+        "tool": "conversations_list"
+      },
+      {
+        "name": "slack_read_channel",
+        "read_only": true,
+        "title": "Read a channel's messages",
+        "tool": "conversations_history"
+      },
+      {
+        "name": "slack_read_thread",
+        "read_only": true,
+        "title": "Read a thread's replies",
+        "tool": "conversations_replies"
+      },
+      {
+        "name": "slack_find_user_by_email",
+        "read_only": true,
+        "title": "Find a person by email",
+        "tool": "users_lookupByEmail"
+      },
+      {
+        "name": "slack_post_message",
+        "title": "Post a message to a channel",
+        "tool": "chat_postMessage"
+      }
+    ],
+    "vendor": "Slack"
   },
   "typeform-key@1": {
     "api": {
@@ -2202,22 +2344,22 @@
     },
     "tools": [
       {
-        "tool": "listForms",
         "name": "typeform_list_forms",
+        "read_only": true,
         "title": "List the forms",
-        "read_only": true
+        "tool": "listForms"
       },
       {
-        "tool": "retrieveForm",
         "name": "typeform_read_form",
+        "read_only": true,
         "title": "Read one form",
-        "read_only": true
+        "tool": "retrieveForm"
       },
       {
-        "tool": "listResponses",
         "name": "typeform_list_responses",
+        "read_only": true,
         "title": "List a form's responses",
-        "read_only": true
+        "tool": "listResponses"
       }
     ],
     "vendor": "Typeform"
@@ -2339,39 +2481,39 @@
     },
     "tools": [
       {
-        "tool": "ListTickets",
         "name": "zendesk_list_tickets",
+        "read_only": true,
         "title": "List the tickets",
-        "read_only": true
+        "tool": "ListTickets"
       },
       {
-        "tool": "ListSearchResults",
         "name": "zendesk_search",
+        "read_only": true,
         "title": "Search tickets",
-        "read_only": true
+        "tool": "ListSearchResults"
       },
       {
-        "tool": "ShowTicket",
         "name": "zendesk_read_ticket",
+        "read_only": true,
         "title": "Read one ticket",
-        "read_only": true
+        "tool": "ShowTicket"
       },
       {
-        "tool": "ListTicketComments",
         "name": "zendesk_read_comments",
+        "read_only": true,
         "title": "Read a ticket's comments",
-        "read_only": true
+        "tool": "ListTicketComments"
       },
       {
-        "tool": "ShowUser",
         "name": "zendesk_read_user",
+        "read_only": true,
         "title": "Read one user",
-        "read_only": true
+        "tool": "ShowUser"
       },
       {
-        "tool": "UpdateTicket",
         "name": "zendesk_update_ticket",
-        "title": "Reply to a ticket or set its status"
+        "title": "Reply to a ticket or set its status",
+        "tool": "UpdateTicket"
       }
     ],
     "vendor": "Zendesk"

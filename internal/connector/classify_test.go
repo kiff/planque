@@ -104,3 +104,35 @@ func TestAHeldToolIsNotADefinition(t *testing.T) {
 		t.Errorf("a write refused: %v", err)
 	}
 }
+
+// The provider's read-only mark doesn't make a read of a name that starts with
+// a write verb: a provider that tags a write read-only (seen in the generated
+// guides: CONVERT_PURCHASE_ORDER_TO_BILL, APPLY_ZENDESK_MACRO) would let it
+// run unasked. A batch read stays a read, and a name with no write verb first
+// still follows the mark.
+func TestTheReadOnlyMarkDoesntMakeAWriteVerbARead(t *testing.T) {
+	for _, c := range []struct {
+		toolkit, slug string
+		want          Class
+	}{
+		{"notion", "NOTION_UPDATE_PAGE", ClassWrite},
+		{"zoho_books", "ZOHO_BOOKS_CONVERT_PURCHASE_ORDER_TO_BILL", ClassMoney},
+		{"zendesk", "ZENDESK_APPLY_ZENDESK_MACRO", ClassWrite},
+		{"intercom", "INTERCOM_CREATE_DATA_EXPORT", ClassWrite},
+		{"googlesheets", "GOOGLESHEETS_BATCH_GET", ClassRead},
+		{"googlesheets", "GOOGLESHEETS_SPREADSHEETS_VALUES_GET", ClassRead},
+		{"gmail", "GMAIL_LIST_MESSAGES", ClassRead},
+		{"gmail", "GMAIL_SETTINGS_SEND_AS_GET", ClassRead},
+		{"desk", "DESK_BATCH_GET_AND_DELETE_TICKETS", ClassDelete},
+		{"desk", "DESK_BATCH_UPDATE_TICKETS", ClassWrite},
+		// A write over every item stays held as bulk, marked or not; a read
+		// over all of them stays a read.
+		{"trello", "TRELLO_ARCHIVE_ALL_LIST_CARDS", ClassBulk},
+		{"googlecalendar", "GOOGLECALENDAR_EVENTS_LIST_ALL_CALENDARS", ClassRead},
+		{"teams", "TEAMS_CHATS_GET_ALL_CHATS", ClassRead},
+	} {
+		if got := Classify(tool(c.toolkit, c.slug, true)); got != c.want {
+			t.Errorf("%s marked read-only: %s, want %s", c.slug, got, c.want)
+		}
+	}
+}

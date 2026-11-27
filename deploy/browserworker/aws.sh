@@ -25,6 +25,20 @@
 #     sends TCP 443 only. No UDP leaves it: the VPC resolver (its DNS) isn't
 #     filtered by security groups, and nothing else is allowed. planque's
 #     group sends TCP 443 anywhere and 8787 to the worker.
+#   - a network ACL on the private subnets, the second line under the
+#     session proxy: inside the VPC only planque's 8787 and its replies; out
+#     of it TCP 443 to public addresses only. Private, link-local and
+#     shared ranges (10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10)
+#     are denied, so a page that breaks out of Chromium can't reach anything
+#     in the VPC but planque's port. (AWS doesn't filter the VPC resolver or
+#     the task metadata endpoint with ACLs; the worker has no task role.)
+#   - one browser session per task (BROWSER_MAX_SESSIONS=1): Chromium runs
+#     without its sandbox in the container, so a renderer exploit owns the
+#     task; one session per task keeps it from reaching another account's
+#     session. More sessions at once means more tasks (BROWSER_TASKS).
+#   - the image is rebuilt each ISO week: its tag is the commit plus the
+#     week, and the base and Chromium are pulled fresh, so Debian's security
+#     updates land by the next `up` (run it weekly).
 #   - the key: generated here once (or kept from planque's configuration),
 #     held in a variable; planque gets PLANQUE_BROWSER_KEY, the worker only
 #     its SHA-256 (PLANQUE_WORKER_KEY_SHA256). planque's other settings are
@@ -33,8 +47,9 @@
 # Environment: AWS_REGION (default eu-west-1), PLANQUE_NAME (default
 # planque), BROWSER_VPC_CIDR (default 10.42.0.0/16), BROWSER_NAMESPACE
 # (default planque.internal), BROWSER_CPU / BROWSER_MEMORY (default 1024 /
-# 2048), BROWSER_MAX_SESSIONS (default 3: what 2 GB holds with headroom),
-# BROWSER_IMAGE_TAG (default the commit). Building the image needs
+# 2048), BROWSER_MAX_SESSIONS (default 1; see above), BROWSER_TASKS (how
+# many tasks run, default 1), BROWSER_IMAGE_TAG (default the commit and the
+# ISO week, e.g. 1e0c04c12345-202648). Building the image needs
 # docker with buildx (linux/arm64).
 set -euo pipefail
 
@@ -45,8 +60,10 @@ CIDR=${BROWSER_VPC_CIDR:-10.42.0.0/16}
 NS=${BROWSER_NAMESPACE:-planque.internal}
 CPU=${BROWSER_CPU:-1024}
 MEM=${BROWSER_MEMORY:-2048}
-MAX=${BROWSER_MAX_SESSIONS:-3}
+MAX=${BROWSER_MAX_SESSIONS:-1}
 [[ "$MAX" =~ ^[1-9][0-9]*$ ]] || { echo "BROWSER_MAX_SESSIONS is a count of at least 1" >&2; exit 2; }
+TASKS=${BROWSER_TASKS:-1}
+[[ "$TASKS" =~ ^[1-9][0-9]*$ ]] || { echo "BROWSER_TASKS is a count of at least 1" >&2; exit 2; }
 W=$NAME-browser
 FN=$NAME
 LAMBDA_ROLE=$NAME-lambda
@@ -75,7 +92,7 @@ have() { say "  exists: $1"; }
 tagged() { # the id of a resource of kind $1 tagged Name=$2, or nothing
   local q
   case "$1" in
-    vpc) q=Vpcs[0].VpcId ;; subnet) q=Subnets[0].SubnetId ;;
+    vpc) q=Vpcs[0].VpcId ;; subnet) q=Subnets[0].SubnetId ;; network-acl) q=NetworkAcls[0].NetworkAclId ;;
     internet-gateway) q=InternetGateways[0].InternetGatewayId ;;
     route-table) q=RouteTables[0].RouteTableId ;; nat-gateway) q=NatGateways[0].NatGatewayId ;;
     security-group) q=SecurityGroups[0].GroupId ;; address) q=Addresses[0].AllocationId ;;
@@ -144,6 +161,43 @@ subnet() { # subnet VAR name cidr zone
   printf -v "$1" %s "$id"
 }
 
+# acl gives the private subnets their own network ACL and sets its entries
+# exactly (ACLs are stateless: each direction is listed). Entries are
+# evaluated lowest number first; the default deny-all closes each list.
+acl() {
+  local id; id=$(tagged network-acl "$W-private")
+  if [[ -n "$id" ]]; then have "private subnets' network ACL (entries reset to the listed ones)"; fi
+  if ! step "network ACL on the private subnets: in the VPC only 8787 and replies; out TCP 443 to public addresses only, private ranges denied"; then return 0; fi
+  [[ -n "$id" ]] || id=$(aws ec2 create-network-acl --vpc-id "$VPC" --tag-specifications "$(nametag network-acl "$W-private")" --query NetworkAcl.NetworkAclId)
+  local n e
+  for e in true false; do
+    for n in $(aws ec2 describe-network-acls --network-acl-ids "$id" --query "NetworkAcls[0].Entries[?Egress==\`$e\` && RuleNumber<\`32767\`].RuleNumber"); do
+      aws ec2 delete-network-acl-entry --network-acl-id "$id" --rule-number "$n" $([[ $e == true ]] && echo --egress || echo --ingress)
+    done
+  done
+  entry() { # entry egress|ingress number allow|deny proto cidr [from to]
+    local args=(--network-acl-id "$id" "--$1" --rule-number "$2" --rule-action "$3" --protocol "$4" --cidr-block "$5")
+    [[ -z "${6:-}" ]] || args+=(--port-range "From=$6,To=$7")
+    aws ec2 create-network-acl-entry "${args[@]}"
+  }
+  entry egress 100 allow 6 "$CIDR" "$PORT" "$PORT"   # planque to the worker
+  entry egress 110 allow 6 "$CIDR" 1024 65535         # replies inside the VPC
+  entry egress 120 deny -1 10.0.0.0/8
+  entry egress 130 deny -1 172.16.0.0/12
+  entry egress 140 deny -1 192.168.0.0/16
+  entry egress 150 deny -1 169.254.0.0/16
+  entry egress 160 deny -1 100.64.0.0/10
+  entry egress 200 allow 6 0.0.0.0/0 443 443          # the web, over the NAT
+  entry ingress 100 allow 6 "$CIDR" "$PORT" "$PORT"  # the worker's port, from the VPC
+  entry ingress 110 allow 6 0.0.0.0/0 1024 65535      # replies: the web's, the worker's to planque
+  local sn assoc
+  for sn in "$PRIV_A" "$PRIV_B"; do
+    assoc=$(aws ec2 describe-network-acls --filters Name=association.subnet-id,Values="$sn" \
+      --query "NetworkAcls[0].Associations[?SubnetId=='$sn'].NetworkAclAssociationId | [0]")
+    aws ec2 replace-network-acl-association --association-id "$assoc" --network-acl-id "$id" --query NewAssociationId >/dev/null
+  done
+}
+
 # groups makes both security groups and sets their rules exactly: each
 # group's default allow-all egress is removed, so what's listed is all.
 groups() {
@@ -180,7 +234,7 @@ groups() {
 IMAGE=""
 
 image() {
-  local repo=$W tag=${BROWSER_IMAGE_TAG:-$(git -C "$ROOT" rev-parse --short=12 HEAD)}
+  local repo=$W tag=${BROWSER_IMAGE_TAG:-$(git -C "$ROOT" rev-parse --short=12 HEAD)-$(date -u +%G%V)}
   local host=$ACCOUNT.dkr.ecr.$REGION.amazonaws.com
   IMAGE=$host/$repo:$tag
   if aws ecr describe-repositories --repository-names "$repo" --query 'repositories[0].repositoryName' >/dev/null 2>&1; then
@@ -195,7 +249,7 @@ image() {
     have "image $repo:$tag"
   elif step "build deploy/browserworker/Dockerfile for linux/arm64 and push it as $repo:$tag"; then
     aws ecr get-login-password | docker login --username AWS --password-stdin "$host" >/dev/null
-    docker buildx build --platform linux/arm64 -f "$ROOT/deploy/browserworker/Dockerfile" -t "$IMAGE" --push "$ROOT" >&2
+    docker buildx build --pull --no-cache --platform linux/arm64 -f "$ROOT/deploy/browserworker/Dockerfile" -t "$IMAGE" --push "$ROOT" >&2
   fi
 }
 
@@ -271,10 +325,10 @@ print(json.dumps({"family":fam,"requiresCompatibilities":["FARGATE"],"networkMod
   if [[ "$(aws ecs describe-services --cluster "$W" --services worker --query 'services[0].status' 2>/dev/null || true)" == ACTIVE ]]; then
     have "ECS service worker"
     if step "roll the service onto the new task"; then
-      aws ecs update-service --cluster "$W" --service worker --task-definition "$td" --network-configuration "$net" --query service.status >/dev/null
+      aws ecs update-service --cluster "$W" --service worker --task-definition "$td" --desired-count "$TASKS" --network-configuration "$net" --query service.status >/dev/null
     fi
-  elif step "create the ECS service worker: one task, private subnets, no public IP, named worker.$NS"; then
-    aws ecs create-service --cluster "$W" --service-name worker --task-definition "$td" --desired-count 1 \
+  elif step "create the ECS service worker: $TASKS task(s), private subnets, no public IP, named worker.$NS"; then
+    aws ecs create-service --cluster "$W" --service-name worker --task-definition "$td" --desired-count "$TASKS" \
       --launch-type FARGATE --platform-version LATEST --network-configuration "$net" \
       --service-registries "registryArn=$SVC_REG" --query service.status >/dev/null
   fi
@@ -297,18 +351,19 @@ print(json.dumps({"Variables":v}))' "http://worker.$NS:$PORT")
 }
 
 cost() {
-  python3 - "$CPU" "$MEM" <<'EOF' >&2
+  python3 - "$CPU" "$MEM" "$TASKS" <<'EOF' >&2
 import sys
 cpu, mem = int(sys.argv[1]) / 1024, int(sys.argv[2]) / 1024
+tasks = int(sys.argv[3])
 h = 730  # hours in a month
 # eu-west-1 on-demand list prices; check them before quoting.
-fargate = (cpu * 0.03238 + mem * 0.00356) * h        # Fargate, Linux/ARM
+fargate = tasks * (cpu * 0.03238 + mem * 0.00356) * h  # Fargate, Linux/ARM, per task
 nat = 0.048 * h                                        # one NAT gateway
 ip = 0.005 * h                                         # its public IPv4 address
 dns = 0.50 + 1.00                                      # private hosted zone, Cloud Map
 ecr = 0.10 * 1.0                                       # about 1 GB of images
 print("\nmonthly, before traffic (USD, eu-west-1, on-demand):")
-for k, v in (("Fargate worker, always on", fargate), ("NAT gateway", nat), ("NAT public IPv4", ip),
+for k, v in ((f"Fargate worker x{tasks}, always on", fargate), ("NAT gateway", nat), ("NAT public IPv4", ip),
              ("private DNS, Cloud Map", dns), ("image storage", ecr)):
     print(f"  {k:<28} {v:7.2f}")
 print(f"  {'total':<28} {fargate + nat + ip + dns + ecr:7.2f}")
@@ -378,6 +433,7 @@ print(json.dumps({"Variables":v}))')
     for g in "$W-public" "$W-private-a" "$W-private-b"; do
       local sn; sn=$(tagged subnet "$g"); [[ -z "$sn" ]] || aws ec2 delete-subnet --subnet-id "$sn"
     done
+    e=$(tagged network-acl "$W-private"); [[ -z "$e" ]] || aws ec2 delete-network-acl --network-acl-id "$e"
     aws ec2 delete-vpc --vpc-id "$VPC"
   fi
   say "removed the browser worker; planque runs without a browser"
@@ -386,6 +442,7 @@ print(json.dumps({"Variables":v}))')
 if [[ "$MODE" == down ]]; then down; exit 0; fi
 say "browser worker, $REGION ($MODE):"
 network
+acl
 image
 key
 discovery

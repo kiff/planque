@@ -92,6 +92,19 @@ func Classify(t Tool) Class {
 	if !t.ReadOnly && has(map[string]bool{"all": true}) {
 		return ClassBulk
 	}
+	// The provider's mark alone never makes a read of a name that starts with
+	// a write verb (UPDATE_…, CONVERT_…_TO_BILL, APPLY_MACRO): a provider that
+	// tags a write read-only would otherwise let it run as a read. "batch"
+	// before a read verb (BATCH_GET) is a read all the same.
+	// A write over every item (ARCHIVE_ALL_…) is held as bulk, as it is
+	// unmarked; a read over all of them (LIST_ALL_…) never got here.
+	if t.ReadOnly && len(tokens) > 0 && writeVerbs[tokens[0]] &&
+		(tokens[0] != "batch" || len(tokens) < 2 || !readVerbs[tokens[1]] || alsoActs(tokens[1:])) {
+		if has(map[string]bool{"all": true}) {
+			return ClassBulk
+		}
+		return ClassWrite
+	}
 	if t.ReadOnly {
 		return ClassRead
 	}

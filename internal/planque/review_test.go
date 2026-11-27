@@ -38,6 +38,7 @@ var vendorHosts = map[string][]string{
 	"Shippo":         {"api.goshippo.com"},
 	"Pipedrive":      {"api.pipedrive.com"},
 	"Moneybird":      {"moneybird.com"},
+	"Slack":          {"slack.com"}, // the Web API's one host, https://slack.com/api/<method>
 	"sevdesk":        {"my.sevdesk.de"},
 	"bexio":          {"api.bexio.com"},
 	"Lexware Office": {"api.lexware.io"},
