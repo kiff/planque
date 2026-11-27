@@ -19,6 +19,11 @@ type foundTool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	ReadOnly    bool   `json:"read_only"`
+	// Unproved: a managed app no recorded run has proved on the managed
+	// route (proofOf), as its grant will say (grantView). tafs cloud holds
+	// every change of such an app for the owner, so Coach says so before
+	// it asks the rules, when no grant exists yet. Never on a reviewed entry.
+	Unproved bool `json:"unproved,omitempty"`
 }
 
 // What one search answers at most, whatever the provider and the reviewed
@@ -119,6 +124,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "the connection catalog is unavailable")
 		return
 	}
+	proved := s.provedMap(r.Context())
 	for _, t := range found.Tools {
 		app, ok := found.Apps[t.Toolkit]
 		// The managed connector's Stripe and Qonto aren't offered: each is
@@ -129,8 +135,10 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 		if !ok || directEntryFor(t.Toolkit) != "" || !s.managedAllowed(tenant, t.Toolkit) {
 			continue
 		}
-		tools = append(tools, foundTool{Entry: "connector:" + providerID + ":" + t.Toolkit, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
-			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.Reads()})
+		entry := "connector:" + providerID + ":" + t.Toolkit
+		tools = append(tools, foundTool{Entry: entry, App: t.Toolkit, AppTitle: label(app.Name), AppState: appState(app),
+			Slug: t.Slug, Name: label(t.Name), Description: t.Description, ReadOnly: t.Reads(),
+			Unproved: proofOf(proved, entry, "oauth") == nil})
 	}
 	// A reviewed entry found by a tool's words alone comes after the provider's apps.
 	tools = append(tools, byTool...)
