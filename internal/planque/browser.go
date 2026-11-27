@@ -151,15 +151,7 @@ var browserTools = []browserTool{
 	{Name: browseAct, Title: "Fill in and click on a page", Effect: profile.EffectWrites, Required: []string{"url", "steps"},
 		Description: "Opens a page and runs the steps in order: fill a field, select an option, click a control or a link, each by its ref from browse_open, naming that answer's read. In the owner's Chrome a step may also check a box, press a key (Enter, Escape, ArrowDown or ArrowUp) on a ref, scroll, go back, or fill with keys typed one at a time. Each step runs only while the page is still that read: after a navigation, a change to the page's fields, options and controls, or a new address (a site adding a query parameter counts), the rest are refused as page_changed, and the page is read again first. Each step names its ref's label as the read gives it, with submits: true for a control that submits a form and to: the host for a link: a held call shows them, and a step whose words aren't the page's is refused (label_mismatch). Returns the page after, with its read. A step that would pay or place an order, or type into a password, card or code field, is refused and nothing more runs: paying is browse_pay's, and a sign-in, card or code is the person's, handed over with browse_hand." + dataNotInstructions,
 		Schema: `{"type":"object","required":["url","steps"],"properties":{"url":{"type":"string","description":"The page to start on, https"},"read":{"type":"string","description":"The read of the browse_open answer the steps' refs come from; left out in the owner's Chrome, the latest read of this page"},` +
-			`"steps":{"type":"array","maxItems":20,"items":{"type":"object","properties":{"fill":{"type":"string","description":"A field's ref"},"value":{"type":"string"},` +
-			`"label":{"type":"string","description":"The label the read gives this step's ref (field, control or link), exactly: the owner reads it on a held call, and a step whose label isn't the page's is refused"},` +
-			`"submits":{"type":"boolean","description":"With a click or press on a control the read marks submits: true"},"to":{"type":"string","description":"With a click on a link: the host of the url the read gives it"},` +
-			`"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string"},"click":{"type":"string","description":"A control's or link's ref"},` +
-			`"check":{"type":"string","description":"In the owner's Chrome: a checkbox's or radio's ref, to tick"},` +
-			`"press":{"type":"string","description":"In the owner's Chrome: a field's, control's or link's ref, to press key on"},"key":{"type":"string","enum":["Enter","Escape","ArrowDown","ArrowUp"]},` +
-			`"scroll":{"type":"string","description":"In the owner's Chrome: a ref to bring into view, or up or down for the page"},` +
-			`"back":{"type":"boolean","description":"In the owner's Chrome: go back where the tab was"},` +
-			`"keys":{"type":"boolean","description":"In the owner's Chrome, with fill: type one key at a time, for a field that offers a list as it's typed into"}}}}}}`},
+			`"steps":{"type":"array","maxItems":20,"items":` + browseActStep + `}}}`},
 	{Name: browseCheckout, Title: "Read a checkout", Read: true, Required: []string{"url"},
 		Description: "Reads a checkout page: the site, the lines (item, quantity, price), the total and its currency, as the page shows them. The total is what browse_pay pays, held for the owner." + dataNotInstructions,
 		Schema:      `{"type":"object","required":["url"],"properties":{"url":{"type":"string","description":"The checkout page, https"}}}`},
@@ -771,6 +763,30 @@ func (s *Server) keepEvidence(ctx context.Context, g *Grant, op string, sess bro
 	ev.Screenshot = ref
 	return ev
 }
+
+// browseActStep is one browse_act step's schema: exactly one of its kinds,
+// each with only its own keys (additionalProperties: false), so a step is
+// written as the page reads it before KIFF holds the call. Every kind that
+// names a field, control or link requires its label, the words the owner
+// reads on a held call; option goes only with select. The owner's Chrome's
+// kinds (check, press, scroll, back, keys, sealed) are listed for every
+// browser: the hosted browser refuses them at run time, as before.
+var browseActStep = `{"type":"object","oneOf":[` +
+	`{"type":"object","required":["fill","label"],"additionalProperties":false,"properties":{"fill":{"type":"string","description":"A field's ref"},"value":{"type":"string"},` +
+	`"label":` + stepLabel + `,"submits":{"type":"boolean","description":"With keys, a value holding a line break submits the form: true"},` +
+	`"keys":{"type":"boolean","description":"In the owner's Chrome: type one key at a time, for a field that offers a list as it's typed into"},` +
+	`"sealed":{"type":"string","description":"In the owner's Chrome, in place of value: a sign-in saved there, by its handle from a read's page.sealed"}}},` +
+	`{"type":"object","required":["select","option","label"],"additionalProperties":false,"properties":{"select":{"type":"string","description":"A select field's ref"},"option":{"type":"string","description":"The option to pick, as the read lists it"},"label":` + stepLabel + `}},` +
+	`{"type":"object","required":["click","label"],"additionalProperties":false,"properties":{"click":{"type":"string","description":"A control's or link's ref"},"label":` + stepLabel + `,` +
+	`"submits":{"type":"boolean","description":"On a control the read marks submits: true"},"to":{"type":"string","description":"On a link: the host of the url the read gives it"}}},` +
+	`{"type":"object","required":["check","label"],"additionalProperties":false,"properties":{"check":{"type":"string","description":"In the owner's Chrome: a checkbox's or radio's ref, to tick"},"label":` + stepLabel + `}},` +
+	`{"type":"object","required":["press","key","label"],"additionalProperties":false,"properties":{"press":{"type":"string","description":"In the owner's Chrome: a field's, control's or link's ref, to press key on"},` +
+	`"key":{"type":"string","enum":["Enter","Escape","ArrowDown","ArrowUp"]},"label":` + stepLabel + `,"submits":{"type":"boolean","description":"Enter in a field, or on a control the read marks submits: true"}}},` +
+	`{"type":"object","required":["scroll"],"additionalProperties":false,"properties":{"scroll":{"type":"string","description":"In the owner's Chrome: a ref to bring into view, or up or down for the page"}}},` +
+	`{"type":"object","required":["back"],"additionalProperties":false,"properties":{"back":{"type":"boolean","enum":[true],"description":"In the owner's Chrome: go back where the tab was"}}}]}`
+
+// stepLabel is a step's label property, the same on every kind that names a ref.
+const stepLabel = `{"type":"string","description":"The label the read gives this step's ref (field, control or link), exactly: the owner reads it on a held call, and a step whose label isn't the page's is refused"}`
 
 // browseAct runs the steps, each checked against the page it runs on: a
 // refused step stops the call there, and the answer says how many ran.
