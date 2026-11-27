@@ -48,6 +48,8 @@ func TestDeletingFinishedGrantsKeepsEverythingElse(t *testing.T) {
 		row(skOp(id, "op2"))
 	}
 	row(skSnapshot("grt_done_0", 1))
+	// A vendor listing kept beside a finished grant goes with it; a kept grant's stays.
+	row(skVendorTools("grt_done_1"))
 	save(&Grant{ID: "grt_failed", Status: StatusFailed})
 	row(skOp("grt_failed", "op1"))
 	// A provider access confirmed disabled: its record may go.
@@ -70,6 +72,7 @@ func TestDeletingFinishedGrantsKeepsEverythingElse(t *testing.T) {
 	save(&Grant{ID: "grt_triggers", Status: StatusListed, SignedIn: true, TriggerIDs: []string{"trg_1"}})
 	row(skOp(live.ID, "keep1"))
 	row(skOp("grt_waiting", "keep2"))
+	row(skVendorTools("grt_waiting"))
 	// The due index: a finished grant's stale row goes, a live one's stays.
 	// One time for both rows, taken once: the key is by the second, so a key
 	// rebuilt from the clock later is another row when a second passed between
@@ -128,6 +131,12 @@ func TestDeletingFinishedGrantsKeepsEverythingElse(t *testing.T) {
 			t.Fatal(err)
 		}
 		return ok
+	}
+	if has(skVendorTools("grt_done_1")) {
+		t.Fatal("a finished grant's vendor listing was kept")
+	}
+	if !has(skVendorTools("grt_waiting")) {
+		t.Fatal("a kept grant's vendor listing was deleted")
 	}
 	for _, id := range []string{"grt_done_0", "grt_done_3", "grt_failed", "grt_revoked"} {
 		if has(skGrant(id)) || has(skLive(id)) {
