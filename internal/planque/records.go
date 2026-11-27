@@ -325,8 +325,8 @@ type Grant struct {
 	// it, so it's in no request served and no digest signed. A chat's delete
 	// reads it (sessionAgents) to end what that chat asked for. Cleared when
 	// the grant is saved ended (saveGrant).
-	AskedIn string    `json:"asked_in,omitempty"`
-	Text    string    `json:"text"`
+	AskedIn string `json:"asked_in,omitempty"`
+	Text    string `json:"text"`
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.
