@@ -14,6 +14,11 @@ Failure table checked against planque's answers on 2026-11-16.
   accounts, clients, invoices and e-invoicing, and write clients and client
   invoices. Planque never asks a bank for a scope that moves money, so no
   transfer is possible on it, and it lists no transactions.
+- **Before the owner signs in, tell them what Qonto's page will show.**
+  Qonto doesn't list planque yet, so its page says the address isn't on
+  Qonto's list and that Qonto hasn't verified it, and asks them to tick that
+  they trust it. That is expected until Qonto lists planque. Whether to
+  trust it is their choice, and if they'd rather not, nothing is connected.
 - **Do not ask for an API key.** Qonto no longer issues the login-and-secret
   key to a new developer account (its Developer Portal makes an OAuth app
   instead). The reviewed key entries `qonto-key@1` and `qonto-key@2` are only
