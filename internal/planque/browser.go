@@ -637,7 +637,7 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	} else if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
 	}
-	defer s.dropBrowserLease(ctx, lease)
+	defer s.dropBrowserLease(context.WithoutCancel(ctx), lease)
 	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
@@ -967,7 +967,7 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	} else if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
 	}
-	defer s.dropBrowserLease(ctx, lease)
+	defer s.dropBrowserLease(context.WithoutCancel(ctx), lease)
 	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
