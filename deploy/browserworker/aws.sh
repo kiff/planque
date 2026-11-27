@@ -99,7 +99,11 @@ tagged() { # the id of a resource of kind $1 tagged Name=$2, or nothing
   esac
   local filters=(Name=tag:Name,Values="$2")
   [[ "$1" == nat-gateway ]] && filters+=(Name=state,Values=pending,available)
-  local v; v=$(aws ec2 "describe-${1}s" --filters "${filters[@]}" --query "$q" 2>/dev/null || true)
+  # describe-nat-gateways names its option --filter; every other describe here takes --filters.
+  local opt=--filters; [[ "$1" == nat-gateway ]] && opt=--filter
+  # Elastic IPs are listed by describe-addresses; "describe-${1}s" would make describe-addresss.
+  local cmd="describe-${1}s"; [[ "$1" == address ]] && cmd=describe-addresses
+  local v; v=$(aws ec2 "$cmd" "$opt" "${filters[@]}" --query "$q" 2>/dev/null || true)
   [[ "$v" == None ]] && v=""
   echo "$v"
 }
