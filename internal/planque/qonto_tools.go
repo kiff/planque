@@ -25,12 +25,18 @@ import (
 // named here.
 //
 // The names are Qonto's MCP tool reference (docs.qonto.com/mcp/tools, read
-// 27 Nov 2026).
+// 27 Nov 2026), and list_bank_accounts (below).
 var qontoServed = []string{
 	// Reads.
 	"get_organization", "get_authenticated_membership", "list_memberships", "list_teams",
 	"list_transactions", "get_transaction", "get_attachment", "list_transaction_attachments",
 	"list_clients", "get_client",
+	// Interim, removed at step 9 of the policy move (planque passes the
+	// vendor's live list): the bank accounts with their balances and IBANs.
+	// get_organization gives the business's identity only, and its own live
+	// description names list_bank_accounts for balances (27 Nov); the
+	// reference read that day didn't list it.
+	"list_bank_accounts",
 	"list_client_invoices", "get_client_invoice", "list_credit_notes", "get_credit_note", "list_supplier_invoices", "get_supplier_invoice", "list_products",
 	// Writes: a client invoice, always as a draft (qontoDraftOnly), and a
 	// client added or updated.
@@ -46,35 +52,17 @@ func qontoServedOn(server, tool string) bool {
 
 // servedOnly drops from a server's list the tools planque never serves there,
 // so no catalog, no live catalog and no connection ever shows or grants one.
-// On Qonto's sign-in it also says what a read gives where Qonto's own
-// description doesn't (qontoReads), so a search by the job's words finds it.
 func servedOnly(server string, listed []mcpTool) []mcpTool {
 	if !onHost(server, qontoHost) {
 		return listed
 	}
-	served := slices.DeleteFunc(slices.Clone(listed), func(t mcpTool) bool { return !slices.Contains(qontoServed, t.Name) })
-	for i, t := range served {
-		if words, ok := qontoReads[t.Name]; ok && !strings.Contains(strings.ToLower(t.Description), words.key) {
-			served[i].Description = strings.TrimSpace(t.Description + " " + words.line)
-		}
-	}
-	return served
-}
-
-// qontoReads is what a served Qonto read gives, in planque's words, for a
-// read whose own description doesn't say it: added to the description
-// planque lists unless it already has the key word. A catalog search by the
-// job's words reads names and descriptions, so "balance" finds
-// get_organization (the Qonto re-test, 27 Nov: a guessed list_bank_accounts,
-// and "balances can't be read", though get_organization gives them).
-var qontoReads = map[string]struct{ key, line string }{
-	"get_organization": {key: "balance", line: "It gives the business and its bank accounts, with each account's balance and IBAN."},
+	return slices.DeleteFunc(slices.Clone(listed), func(t mcpTool) bool { return !slices.Contains(qontoServed, t.Name) })
 }
 
 // qontoNotServed refuses a Qonto tool planque doesn't serve on its sign-in.
 func qontoNotServed(tool, field string) *toolRefusal {
 	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of " + strings.Join(qontoServed, ", "),
-		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business and its bank accounts with their balances and IBANs (get_organization), the team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client, by these tools: " + strings.Join(qontoServed, ", ") + ". Everything else stays with the owner in Qonto; leave it out"}
+		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business's identity (get_organization), its bank accounts with their balances and IBANs (list_bank_accounts), the team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client, by these tools: " + strings.Join(qontoServed, ", ") + ". Everything else stays with the owner in Qonto; leave it out"}
 }
 
 // qontoToolsCheck refuses, before the owner sees anything, a requested tool
