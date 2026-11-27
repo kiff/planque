@@ -111,6 +111,11 @@ func (p *Proxy) serve(c net.Conn) {
 			p.plainLocal(c, req)
 			return
 		}
+		host := ""
+		if req.URL != nil {
+			host = req.URL.Hostname()
+		}
+		p.log().Info("egress refused", slog.String("host", host), slog.String("why", "the browser reaches sites over https only"))
 		p.refuse(c, http.StatusForbidden, "the browser reaches sites over https only")
 		return
 	}
