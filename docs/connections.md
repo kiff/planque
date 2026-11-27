@@ -287,7 +287,11 @@ the words the read gave it, with `submits: true` for a control that submits
 a form and `to`, the host a link goes to. A held call shows them to the
 owner, so planque refuses a step whose words aren't the page's
 (`label_mismatch`): a missing or different label, a submit not said to
-submit, a link to another host. Links are followed. The steps before it ran, and the
+submit (a click or Enter on a submitting control, Enter in a field, or a
+field typed key by key with a line break), a link to another host, or a
+control or link with no words, which the owner couldn't read. `submits` is
+the read's fact about the page: a button a script makes submit reads as not
+submitting, so `payment_step` stays the net for paying. Links are followed. The steps before it ran, and the
 answer says how many. A step that takes the browser off the grant's sites
 stops it there (`site_not_listed`). A URL off the sites, a local name or an
 address written out, or a non-https URL is refused before any browser

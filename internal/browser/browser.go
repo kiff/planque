@@ -572,8 +572,11 @@ func Refuse(p Page, step Step) (code, why string) {
 
 // Matches says why step's words for its ref aren't the page's: its code
 // and words, or "" when they are. A step names its ref by the label the read
-// gave it (spaces folded, case kept), says submits: true exactly when the ref
-// is a control that submits a form, and to: the host a link goes to. Those
+// gave it (spaces folded, case kept), says submits: true exactly when the step
+// submits a form (a click or Enter on a control the read marks submits, Enter
+// in a field, or a field typed key by key with a line break in it), and to:
+// the host a link goes to. A control or link with no words is never named: the
+// owner couldn't read what it is. Those
 // are what a held call shows the owner, so a taf that names a step otherwise
 // than the page does, by mistake or not, runs nothing: the owner signed the
 // words, and the words are checked. A scroll, back and a ref the page
@@ -593,8 +596,16 @@ func Matches(p Page, step Step) (code, why string) {
 		if f.Ref != ref {
 			continue
 		}
-		if step.Submits || step.To != "" {
-			return CodeLabelMismatch, ref + " is a field: submits goes with a control, to with a link"
+		// Enter in a field submits its form on most pages, and so does a line
+		// break typed key by key.
+		enter := step.Press != "" && step.Key == "Enter" || step.Keys && strings.ContainsAny(step.Value, "\r\n")
+		switch {
+		case step.To != "":
+			return CodeLabelMismatch, ref + " is a field: to goes with a link"
+		case enter && !step.Submits:
+			return CodeLabelMismatch, fmt.Sprintf("Enter in %s (%q) submits its form: say submits: true", ref, f.Label)
+		case !enter && step.Submits:
+			return CodeLabelMismatch, ref + " is a field: submits goes with a control, or with Enter in a field"
 		}
 		return label("field", f.Label)
 	}
@@ -603,6 +614,8 @@ func Matches(p Page, step Step) (code, why string) {
 			continue
 		}
 		switch {
+		case strings.TrimSpace(c.Label) == "":
+			return CodeLabelMismatch, ref + " has no words on the page, so the owner couldn't read what it is: a step never names it"
 		case step.To != "":
 			return CodeLabelMismatch, ref + " is a control: to goes with a link"
 		case c.Submits && !step.Submits:
@@ -621,6 +634,8 @@ func Matches(p Page, step Step) (code, why string) {
 			host = strings.ToLower(u.Hostname())
 		}
 		switch {
+		case strings.TrimSpace(l.Label) == "":
+			return CodeLabelMismatch, ref + " has no words on the page, so the owner couldn't read what it is: a step never names it"
 		case step.Submits:
 			return CodeLabelMismatch, ref + " is a link: submits goes with a control"
 		case !strings.EqualFold(strings.TrimSpace(step.To), host):

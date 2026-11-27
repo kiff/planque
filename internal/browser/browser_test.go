@@ -390,8 +390,8 @@ func TestMaskKeepsOnlyKnownCuts(t *testing.T) {
 func TestMatchesHoldsAStepToThePagesWordsForItsRef(t *testing.T) {
 	p := Page{URL: "https://shop.example/form", Title: "Order",
 		Fields:   []Field{{Ref: "f1", Label: "Customer name", Kind: "text"}},
-		Controls: []Control{{Ref: "c1", Label: "Submit order", Submits: true}, {Ref: "c2", Label: "Save draft"}},
-		Links:    []Link{{Ref: "l1", Label: "Partner", URL: "https://Other.example/x"}}}
+		Controls: []Control{{Ref: "c1", Label: "Submit order", Submits: true}, {Ref: "c2", Label: "Save draft"}, {Ref: "c3", Label: " "}},
+		Links:    []Link{{Ref: "l1", Label: "Partner", URL: "https://Other.example/x"}, {Ref: "l2", URL: "https://shop.example/y"}}}
 	for _, c := range []struct {
 		name string
 		step Step
@@ -412,6 +412,14 @@ func TestMatchesHoldsAStepToThePagesWordsForItsRef(t *testing.T) {
 		{"a link to another host", Step{Click: "l1", Label: "Partner", To: "shop.example"}, false},
 		{"submits on a field", Step{Fill: "f1", Value: "x", Label: "Customer name", Submits: true}, false},
 		{"Enter on a submit names it", Step{Press: "c1", Key: "Enter", Label: "Submit order", Submits: true}, true},
+		{"Enter in a field not said to submit", Step{Press: "f1", Key: "Enter", Label: "Customer name"}, false},
+		{"Enter in a field said to submit", Step{Press: "f1", Key: "Enter", Label: "Customer name", Submits: true}, true},
+		{"another key in a field said to submit", Step{Press: "f1", Key: "Escape", Label: "Customer name", Submits: true}, false},
+		{"a line break typed key by key, not said to submit", Step{Fill: "f1", Value: "Ana\nx", Keys: true, Label: "Customer name"}, false},
+		{"a line break typed key by key, said to submit", Step{Fill: "f1", Value: "Ana\r", Keys: true, Label: "Customer name", Submits: true}, true},
+		{"a line break set at once submits nothing", Step{Fill: "f1", Value: "Ana\nx", Label: "Customer name"}, true},
+		{"a control with no words", Step{Click: "c3", Label: " "}, false},
+		{"a link with no words", Step{Click: "l2", Label: "", To: "shop.example"}, false},
 		{"a scroll to a ref names nothing", Step{Scroll: "c1"}, true},
 		{"back names nothing", Step{Back: true}, true},
 		{"a ref the page doesn't have is Refuse's", Step{Click: "zz"}, true},
