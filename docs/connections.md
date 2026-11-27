@@ -308,7 +308,9 @@ evidence store when one is configured; both go with the grant.
 A site's sign-in, when one is needed, is the owner's own, in a live view of
 the grant's browser that planque serves (a later step); the storage state
 after it is sealed like a token, opened only for the grant's own session,
-and deleted on disconnect. No password ever reaches planque.
+and deleted on disconnect. planque never stores or logs a password: in the
+live view, what the owner types goes to the browser through planque's
+memory as an act, and is kept nowhere.
 
 ### The live sign-in view
 

@@ -5,6 +5,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+- **The live sign-in view's password line says what happens.** docs/connections.md said "No password ever reaches planque". In the live view, what the owner types reaches the worker through planque's memory as an act; it isn't stored or logged. The line now says "planque never stores or logs a password" and how the typing passes. Docs only.
 ### Added
 
 - **Google Sheets is proved, on the managed route only.** `proved.json` marks it from a phone proof on a test account (read, then a row added), and a sign-in proof may now say which way it was run: `"route": "managed"` reaches only `connector:<provider>:<app>` entries, `"own"` only a reviewed entry through tafs's own client (`googlesheets@1`), and none reaches both, as before. Our own Sheets client stays unproved until a run goes through it, so the gallery doesn't offer Sheets through it. A `route` on a key proof, or any other word, is refused.
