@@ -152,6 +152,9 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 func relayTools(g *Grant) []mcp.Tool {
 	out := make([]mcp.Tool, 0, len(g.Tools)+len(g.Pending))
 	for _, t := range g.inKIFF() {
+		if !qontoServedOn(g.Request.Server, t.Tool) {
+			continue // never served on Qonto's sign-in, so never listed (qonto_tools.go)
+		}
 		var schema map[string]any
 		if json.Unmarshal(t.InputSchema, &schema) != nil || schema == nil {
 			schema = map[string]any{"type": "object"}
@@ -192,6 +195,11 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	if i < 0 {
 		return refused(CodeNotGranted, "this grant does not include "+name)
+	}
+	// Approved before planque stopped serving it on Qonto's sign-in: never
+	// sent, whatever the grant holds (qonto_tools.go).
+	if !qontoServedOn(g.Request.Server, g.Tools[i].Tool) {
+		return refusal(CodeToolNotServed, "Not sent: planque doesn't serve "+g.Tools[i].Tool+" on Qonto's sign-in. Finalizing, cancelling, sending, marking paid and deleting stay with the owner in Qonto.")
 	}
 	// Declared before its key: nothing is usable until the owner gives the
 	// key and the grant connects.
