@@ -251,6 +251,12 @@ func (s *Server) provedMap(ctx context.Context) map[string]Proof {
 			have.At = at
 		}
 		have.How = how
+		// A green run of a reviewed entry proves that entry's own way in
+		// (our own client, or the key), never the managed route to the same
+		// app: a managed connection stays unproved until its own run.
+		if how == "oauth" {
+			have.Route = "own"
+		}
 		if !slices.Contains(have.Entries, name) {
 			have.Entries = append(have.Entries, name)
 		}
