@@ -75,24 +75,43 @@ no connector-secret permission or runtime setting.
 
 ## Connect an app
 
-### Only the apps the subprocessors page names
+### Only the apps the subprocessors page allows
 
 The connection platform is a processor of the people who connect through it,
 and KIFF's subprocessors page says which apps it is used for. planque keeps a
-copy of that list, `internal/planque/managed_apps.json`: a JSON array of the
-apps by the names people know them by (`["Google Sheets"]`). A request for a
-managed connection (`POST …/catalog/connector:<provider>:<app>/grants`) to
-an app not on it is refused with `403` and "This app can't be connected
-through tafs yet.", before anything reaches the platform: no app read, no
-set-up, no reuse of a held sign-in (from the catalog or `POST …/grants` with
-`reuse`). Approving a grant asked before is checked the same way, so a grant
-that waited while its app left the list starts no sign-in. The app's slug is matched to a name by
-its folded form (lower case, no spaces, dots, dashes or underscores:
-`googlesheets` is "Google Sheets"); an app whose slug isn't its name folded
-stays refused. An empty list, as today, refuses every managed connection.
+copy of what that page says, `internal/planque/managed_apps.json`, in one of
+two forms, the page's own file's:
 
-An app is added to the published list first, then to this copy, in a pull
-request of its own; the two are kept equal. Connections made before stay as
+- **The list mode**, a JSON array of the apps by the names people know them by
+  (`["Google Sheets"]`): only those apps. An empty list refuses every managed
+  connection.
+- **The all mode**, `{"all": true, "named": [...], "except": [...]}`: any app,
+  except the services in `except` (one withdrawn later; `[]` for none).
+  `named` is the apps the page speaks of by name; it allows nothing more. An
+  object without `"all": true`, without its `except` list, or with any other
+  field doesn't read. This is the mode shipped, with nothing excepted:
+  blocking an app is the person's own choice, and what keeps a connection
+  safe is the person's Card, the held classes never served, and every change
+  on an app no run has proved asking the owner first.
+
+A request for a managed connection
+(`POST …/catalog/connector:<provider>:<app>/grants`) to an app the file
+doesn't allow is refused with `403` and "This app can't be connected through
+tafs yet.", before anything reaches the platform: no app read, no set-up, no
+reuse of a held sign-in (from the catalog or `POST …/grants` with `reuse`).
+Approving a grant asked before is checked the same way, so a grant that waited
+while its app left the list starts no sign-in. The app's slug is matched to a
+name by its folded form (lower case, no spaces, dots, dashes or underscores:
+`googlesheets` is "Google Sheets"). In the list mode an app whose slug isn't
+its name folded stays refused; in the all mode an exception names the app as
+the page does, and planque's `except` may add the provider's slug beside it,
+so an exception whose slug differs still holds. An app taken off (or made an
+exception) closes the connections made to it (`errAppClosed`).
+
+An app is allowed on the published page first, then in this copy, in a pull
+request of its own: in the list mode the two lists are kept equal; in the all
+mode this copy's `except` holds at least the page's (kiff/cloud's
+`managed-apps.yml` checks it hourly). Connections made before stay as
 they are: their calls, tools added to them and a new sign-in on them go on.
 
 The accounts KIFF tests with (Evals, phone proofs) may connect any app, to try

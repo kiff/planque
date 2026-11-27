@@ -714,8 +714,10 @@ follows.
   parts, `registry` and `hosting`, kept short on purpose (the owner's device
   shows the hosts it signs, too); a suffix is added there in a PR that names it.
 - **The gate.** A managed connection needs the vendor's mark, or a test tenant,
-  or, for a vendor with no mark at all, a place on `managed_apps.json` (the
-  seed, now empty). A **withdrawn** mark wins over the seed.
+  or, for a vendor with no mark at all, what `managed_apps.json` (the seed)
+  allows: a place on it in its list mode, or not being one of its exceptions
+  in its all mode (docs/managed-connectors.md). A **withdrawn** mark wins over
+  the seed.
 - **The catalog read** says `managed: true` for an entry only when its vendor
   has an active mark and **every endpoint the entry has** (its API addresses,
   each region, an account template read on the vendor's own domain, or its app's
