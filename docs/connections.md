@@ -261,8 +261,12 @@ the taf's Card like any relayed call. Nothing is site-specific.
 them): `browse_open` and `browse_read` read a page, `browse_act` fills in
 and clicks (a write counted per call), `browse_checkout` reads a checkout
 (the site, its lines, the total and the currency), and `browse_pay`
-completes one. `sites`, when given, are the only hosts (and subdomains)
-the browser opens. `currency` is the only one `browse_pay` pays in, and is
+completes one. `sites` are the only hosts (and subdomains) the browser
+opens. They're required, at least one, and none may be a shared domain
+where anyone has a site (`github.io`, `vercel.app`, `myshopify.com`) or a
+registry's suffix (`co.uk`): the Public Suffix List
+(`internal/browser/public_suffix_list.dat`, refreshed with
+`tools/publicsuffix.sh`) decides. `currency` is the only one `browse_pay` pays in, and is
 required with it. The owner approves on the phone like any grant; there is
 no vendor to sign in at, so approving connects at once. The catalog lists
 the browser as the entry `browser` where a worker is configured.
