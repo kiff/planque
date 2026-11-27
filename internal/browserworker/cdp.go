@@ -115,7 +115,11 @@ func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, e
 // every way out through the proxy. Chromium's headless shell (the image's
 // browser: no GTK, so none of the desktop libraries a page never reaches)
 // is headless by itself and takes plain --headless; a full Chromium runs
-// its new headless mode. WebRTC's UDP (a page's STUN or TURN
+// its new headless mode. In the headless shell, --force-webrtc-ip-handling-policy
+// and --disable-extensions, --disable-sync and --disable-translate do nothing:
+// it has no WebRTC policy, extensions, sync or translate to turn off. They stay
+// for a full Chromium. WebRTC is held in both by the per-target script (attach),
+// not by the flag. WebRTC's UDP (a page's STUN or TURN
 // candidates) would go around an HTTP proxy, so it is confined to what
 // the proxy carries, which is nothing: a page gathers no candidate and
 // probes no address.
