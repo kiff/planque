@@ -37,10 +37,20 @@ func isSlack(g *Grant, t GrantedTool) bool {
 	return false
 }
 
+// slackRead says t is a read, so its words can't notify anyone. Only a key
+// grant's tool can be: its reviewed entry's mark says so. A managed app's tool
+// is never taken as a read on its provider's mark, which can be wrong (a send
+// tagged read-only, or a name like CHAT_POST_MESSAGE that no verb list
+// places), so every managed Slack call is checked. A read whose own words
+// carry a broadcast mention is refused too; it can be asked without one.
+func slackRead(t GrantedTool) bool {
+	return t.Connector == nil && t.ReadOnly
+}
+
 // slackBroadcast is why a call to t with args is refused, or "": a Slack tool
-// that isn't read-only whose arguments, at any depth, mention everyone.
+// that isn't a read whose arguments, at any depth, mention everyone.
 func slackBroadcast(g *Grant, t GrantedTool, args map[string]any) string {
-	if t.ReadOnly || !isSlack(g, t) {
+	if !isSlack(g, t) || slackRead(t) {
 		return ""
 	}
 	if m := broadcastIn(args); m != "" {

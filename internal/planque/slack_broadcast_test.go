@@ -69,3 +69,31 @@ func TestASlackMessageToEveryoneIsRefusedOnEveryRoute(t *testing.T) {
 		t.Errorf("a key grant to another API: refused (%s)", why)
 	}
 }
+
+// A managed Slack tool is checked whatever its provider marks it, so a send
+// wrongly marked read-only can't notify everyone. A managed read without a
+// broadcast mention goes through; a key grant's reviewed read stays a read.
+func TestAManagedSlackToolIsCheckedWhateverItsMark(t *testing.T) {
+	managed := &Grant{}
+	loud := map[string]any{"channel": "C1", "text": "<!channel> the release is out"}
+	for _, c := range []struct{ toolkit, slug string }{
+		{"slack", "SLACK_SEND_MESSAGE"}, {"slack", "SLACK_CHAT_POST_MESSAGE"},
+		{"slack", "SLACK_UPDATE_MESSAGE"}, {"slackbot", "SLACKBOT_SEND_MESSAGE"},
+	} {
+		marked := GrantedTool{ToolRequest: ToolRequest{Tool: c.slug, Name: "send", ReadOnly: true},
+			Connector: &connector.Tool{Toolkit: c.toolkit, Slug: c.slug, ReadOnly: true}}
+		if why := slackBroadcast(managed, marked, loud); why == "" {
+			t.Errorf("%s marked read-only: sent, want refused", c.slug)
+		}
+	}
+	read := GrantedTool{ToolRequest: ToolRequest{Tool: "SLACK_SEARCH_MESSAGES", Name: "read", ReadOnly: true},
+		Connector: &connector.Tool{Toolkit: "slack", Slug: "SLACK_SEARCH_MESSAGES", ReadOnly: true}}
+	if why := slackBroadcast(managed, read, map[string]any{"query": "release notes"}); why != "" {
+		t.Errorf("a managed read: refused (%s)", why)
+	}
+	key := &Grant{Request: Request{API: &APIRequest{Base: "https://slack.com/api"}}}
+	reviewed := GrantedTool{ToolRequest: ToolRequest{Tool: "search.messages", Name: "search", ReadOnly: true}}
+	if why := slackBroadcast(key, reviewed, map[string]any{"query": "@here"}); why != "" {
+		t.Errorf("a key grant's reviewed read: refused (%s)", why)
+	}
+}
