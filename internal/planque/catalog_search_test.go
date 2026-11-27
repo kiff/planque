@@ -60,12 +60,13 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 
 	st, tools, out := search("q=Qonto")
-	// The newest revision only (newestRevisions): @2's 7 reads, @1's four among
-	// them, and its one draft. @1 isn't offered beside it.
-	if st != 200 || reviewed(tools) != 8 || reviewed(tools[:8]) != 8 {
+	// Qonto's own sign-in first (ownSignInsFound), then the newest key
+	// revision only (newestRevisions): @2's 7 reads, @1's four among them,
+	// and its one draft. @1 isn't offered beside it.
+	if st != 200 || tools[0]["entry"] != QontoEntry || reviewed(tools) != 8 || reviewed(tools[1:9]) != 8 {
 		t.Fatalf("by the app's name: %d %v", st, out)
 	}
-	for _, x := range tools[:8] {
+	for _, x := range tools[1:9] {
 		draft := x["entry"] == "qonto-key@2" && x["slug"] == "create_client_invoice"
 		if !strings.HasPrefix(x["app_title"].(string), "Qonto invoicing") || x["app_state"] != "available" || x["read_only"] != !draft || x["slug"] == "" || x["name"] == "" {
 			t.Fatalf("a reviewed tool as found: %v", x)
@@ -73,7 +74,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 	}
 	// The managed connector's Qonto is still left out.
 	for _, x := range tools {
-		if x["app"] == qontoToolkit {
+		if strings.HasPrefix(x["entry"].(string), "connector:") && x["app"] == qontoToolkit {
 			t.Fatalf("the managed Qonto was offered: %v", x)
 		}
 	}
@@ -84,7 +85,7 @@ func TestTheToolSearchFindsReviewedEntries(t *testing.T) {
 		t.Fatalf("by the tools' words: %d %v", st, out)
 	}
 	// The app's name and a tool's words: the app's name puts it first.
-	if st, tools, out := search("q=qonto%20invoices"); st != 200 || reviewed(tools) != 8 || reviewed(tools[:1]) != 1 {
+	if st, tools, out := search("q=qonto%20invoices"); st != 200 || reviewed(tools) != 8 || reviewed(tools[1:2]) != 1 {
 		t.Fatalf("by the app's name and the tools' words: %d %v", st, out)
 	}
 	// Words that name nothing reviewed, short words, a next page, or apps
@@ -141,5 +142,88 @@ func TestTheToolSearchSaysAManagedAppIsUnproved(t *testing.T) {
 	e.s.Proved = map[string]Proof{"deskdemo": {At: "2026-11-20", How: "oauth", Route: "own"}}
 	if got := desk(); got["unproved"] != true {
 		t.Fatalf("proved by its own client only: %v", got)
+	}
+}
+
+// planque's own sign-in entries (qonto, stripe) have no tools until the owner
+// signs in, so the search finds them by the vendor's name, first, as the app
+// itself: in a Qonto re-test (27 Nov), "Qonto bank account balance" found only
+// Qonto's key entries, a search with apps ["qonto"] found nothing, and Coach
+// asked the owner for a key, which Qonto's guide forbids.
+func TestTheToolSearchFindsAVendorsOwnSignInFirst(t *testing.T) {
+	conf, err := os.ReadFile("../../deploy/catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newInProcessEnv(t)
+	e.enrol()
+	if e.s.CatalogEntries, err = DecodeCatalog(conf, shippedApps(t)); err != nil {
+		t.Fatal(err)
+	}
+	e.s.Connectors = map[string]connector.Provider{"fake": fakeCatalogProvider{}}
+	search := func(query string) []map[string]any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog/tools?"+query, nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("%s: %d %v", query, st, out)
+		}
+		var tools []map[string]any
+		for _, x := range out["tools"].([]any) {
+			tools = append(tools, x.(map[string]any))
+		}
+		return tools
+	}
+	own := func(tools []map[string]any, entry string) (at int) {
+		for i, x := range tools {
+			if x["entry"] == entry {
+				if x["sign_in"] != true || x["slug"] != "" || x["app_state"] != "available" || !strings.Contains(x["description"].(string), `request {entry: "`+entry+`"}`) {
+					t.Fatalf("an own sign-in as found: %v", x)
+				}
+				return i
+			}
+		}
+		return -1
+	}
+	// The re-test's words: Qonto's own sign-in, first, ahead of its key entries.
+	tools := search("q=Qonto%20bank%20account%20balance")
+	if own(tools, QontoEntry) != 0 || tools[0]["app_title"] != "Qonto" {
+		t.Fatalf("by Qonto's name: %v", tools)
+	}
+	keys := 0
+	for _, x := range tools[1:] {
+		if strings.HasPrefix(x["entry"].(string), "qonto-") {
+			keys++
+		}
+	}
+	if keys == 0 {
+		t.Fatalf("the key entries are still found, after it: %v", tools)
+	}
+	// The name with punctuation or a possessive is still the name.
+	for _, query := range []string{"q=Qonto%27s%20balance", "q=qonto%3F", "q=%22Qonto%22%20invoices", "q=Qonto%E2%80%99s%20IBAN"} {
+		if tools := search(query); own(tools, QontoEntry) != 0 {
+			t.Fatalf("%s: %v", query, tools)
+		}
+	}
+	// Asked as an app, with other words: found too, alone of the reviewed.
+	if tools := search("q=balance&apps=qonto"); own(tools, QontoEntry) != 0 {
+		t.Fatalf("with apps [qonto]: %v", tools)
+	}
+	// Stripe's the same.
+	if tools := search("q=stripe%20refunds"); own(tools, StripeEntry) != 0 || own(tools, QontoEntry) != -1 {
+		t.Fatalf("by Stripe's name: %v", tools)
+	}
+	// A proof test account connects Stripe only by a test key: its own sign-in isn't offered there; Qonto's still is.
+	e.s.ProofTestTenants = map[string]bool{tenant: true}
+	if tools := search("q=stripe%20qonto"); own(tools, StripeEntry) != -1 || own(tools, QontoEntry) != 0 {
+		t.Fatalf("a proof test account: %v", tools)
+	}
+	e.s.ProofTestTenants = nil
+	// Words that name neither, a word too short to name anything, or a next page: none.
+	// A word only part of a vendor's name names it not: French "ont" in "Combien de factures ont été payées ?", or "strip".
+	for _, query := range []string{"q=invoices", "q=qo", "q=Qonto&cursor=c2", "q=Combien%20de%20factures%20ont%20%C3%A9t%C3%A9%20pay%C3%A9es%20%3F",
+		"q=strip%20the%20rows", "q=str%20tri%20rip", "q=qont"} {
+		if tools := search(query); own(tools, QontoEntry) != -1 || own(tools, StripeEntry) != -1 {
+			t.Fatalf("%s: %v", query, tools)
+		}
 	}
 }
