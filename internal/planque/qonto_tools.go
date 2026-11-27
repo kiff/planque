@@ -88,7 +88,9 @@ func (s *Server) callServed(ctx context.Context, server, access, tool string, ar
 // Qonto's create takes a status (draft, or unpaid, which finalizes it) and,
 // for e-invoicing, whether to report it, which sends it on creation with no
 // recall. It fails closed:
-//   - without the tool's input schema as Qonto listed it, nothing is sent;
+//   - without the tool's input schema as Qonto listed it (kept beside a
+//     narrowed tool's own), or without a top-level status in it to pin,
+//     nothing is sent;
 //   - a top-level argument the schema doesn't name is refused, so a new
 //     argument Qonto adds isn't passed on before it's reviewed;
 //   - at any depth, a status other than draft, a report_einvoicing other
@@ -103,11 +105,22 @@ func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json
 	if !onHost(server, qontoHost) || tool.Tool != "create_client_invoice" {
 		return args, nil, ""
 	}
+	// Qonto's own schema: a narrowed tool's InputSchema is planque's, with
+	// planque's names, so its vendor schema is kept beside it.
+	vendor := tool.InputSchema
+	if tool.narrowed() {
+		vendor = tool.VendorInputSchema
+	}
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
-	if json.Unmarshal(tool.InputSchema, &schema) != nil || len(schema.Properties) == 0 {
+	if json.Unmarshal(vendor, &schema) != nil || len(schema.Properties) == 0 {
 		return nil, nil, "planque has no record of the arguments Qonto's create_client_invoice takes, so it can't keep the invoice a draft; connect Qonto again"
+	}
+	// The status is what keeps it a draft: without one to pin, Qonto's
+	// default decides, so nothing is sent until that's reviewed.
+	if _, ok := schema.Properties["status"]; !ok {
+		return nil, nil, "Qonto's create_client_invoice lists no status planque can pin, so it can't keep the invoice a draft; it isn't sent until that's reviewed"
 	}
 	// A status or report_einvoicing the schema declares below the top level
 	// can't be pinned when the taf leaves it out, and Qonto's default could

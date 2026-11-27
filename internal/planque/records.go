@@ -238,6 +238,11 @@ type GrantedTool struct {
 	// the vendor listed it when the owner approved it (kiff/planque#71): a
 	// different one later pauses the grant.
 	VendorSchemaSHA256 string `json:"vendor_schema_sha256,omitempty"`
+	// VendorInputSchema is the vendor's own input schema, kept beside a
+	// narrowed tool's InputSchema (planque's narrowed one) where planque
+	// checks the vendor's arguments themselves: a Qonto client invoice's
+	// draft pin (qontoDraftOnly).
+	VendorInputSchema json.RawMessage `json:"vendor_input_schema,omitempty"`
 	// FieldsChecked says planque read this narrowed write's operation and
 	// found every field it names there: set at its first call once checked,
 	// so a tool defined before the check (kiff/planque#61) is checked too.

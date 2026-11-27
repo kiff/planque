@@ -241,14 +241,33 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"Status":{"type":"string"}}}}}}`,
 	} {
 		nested := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
-		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`)); !strings.Contains(why, "can't keep a draft") {
+		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`)); why == "" || !strings.Contains(why, "draft") {
 			t.Fatalf("nested schema %s: %q", schema, why)
 		}
 	}
-	// A tool that takes neither field gets neither: nothing it would reject is added.
+	// A schema with no top-level status to pin leaves Qonto's default to decide: refused.
 	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
-	if out, pins, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1"}` || pins != nil {
-		t.Fatalf("a tool without the fields: %s %v %s", out, pins, why)
+	if _, _, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "lists no status") {
+		t.Fatalf("a tool without a status: %q", why)
+	}
+	// A tool that takes a status but no report_einvoicing gets only the status: nothing it would reject is added.
+	statusOnly := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"}}}`)}
+	if out, pins, why := qontoDraftOnly(qontoServer, statusOnly, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1","status":"draft"}` || len(pins) != 1 {
+		t.Fatalf("a tool with a status only: %s %v %s", out, pins, why)
+	}
+	// A narrowed tool (a Card fixing the client) is checked against Qonto's own schema, kept beside planque's narrowed one.
+	narrowed := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice", Fixed: map[string]json.RawMessage{"client_id": json.RawMessage(`"c1"`)}},
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"lines":{"type":"array"}}}`), VendorInputSchema: takes.InputSchema}
+	if !narrowed.narrowed() {
+		t.Fatal("the test tool isn't narrowed")
+	}
+	if out, pins, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1","items":[]}`)); why != "" || pins["status"] != "draft" || !strings.Contains(string(out), `"status":"draft"`) {
+		t.Fatalf("a narrowed tool: %s %v %s", out, pins, why)
+	}
+	// Narrowed, from before Qonto's schema was kept: refused, never checked against planque's names.
+	narrowed.VendorInputSchema = nil
+	if _, _, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+		t.Fatalf("a narrowed tool without Qonto's schema: %q", why)
 	}
 	// Negative: another Qonto tool, and the same name on another server, pass as they are.
 	for _, c := range []struct {

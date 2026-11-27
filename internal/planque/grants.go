@@ -2958,6 +2958,9 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 		return GrantedTool{}, err.Error()
 	}
 	if t.narrowed() {
+		if onHost(g.Request.Server, qontoHost) {
+			gt.VendorInputSchema = listed[i].InputSchema
+		}
 		gt.InputSchema = t.schemaOver(listed[i].InputSchema)
 		gt.Description = "Through planque: " + t.Tool + narrowingText(t) + "."
 	}
