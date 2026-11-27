@@ -10,15 +10,27 @@ Failure table checked against planque's answers on 2026-11-16.
 
 - **Qonto's own sign-in is the first route.** Catalog entry `qonto`: the
   owner signs in on Qonto's own page and approves; no key is pasted and no
-  taf sees the sign-in. Its scopes are reviewed: read the business, its
-  accounts, clients, invoices and e-invoicing, and write clients and client
-  invoices. Planque never asks a bank for a scope that moves money, so no
-  transfer is possible on it, and it lists no transactions.
-- **Before the owner signs in, tell them what Qonto's page will show.**
-  Qonto doesn't list planque yet, so its page says the address isn't on
-  Qonto's list and that Qonto hasn't verified it, and asks them to tick that
-  they trust it. That is expected until Qonto lists planque. Whether to
-  trust it is their choice, and if they'd rather not, nothing is connected.
+  taf sees the sign-in. Its scopes are reviewed. Planque never asks a bank for a scope that moves money, so no
+  transfer is possible on it. It reads the business, its accounts, balances
+  and transactions, clients, client and supplier invoices, products,
+  attachments and e-invoicing, and writes clients and client invoices.
+- **Before the owner signs in, tell them what Qonto needs.** Qonto doesn't
+  list planque yet, so **an owner or admin of their Qonto organisation must
+  first approve planque's address in Qonto:** Qonto AI, then Qonto MCP, then
+  Advanced settings, add `https://planque.kiff.dev/oauth/callback`. Qonto's
+  sign-in page says, until the address is approved, that it isn't on its list
+  and that Qonto hasn't verified it. Once it is approved, the sign-in goes
+  on to Qonto's consent screen, which lists what the connection can't do: no
+  payments, and no approving cards or transfers. A member who isn't
+  an owner or admin can't connect. Whether to approve it is their choice,
+  and they can remove the address in the same screen at any time. If they'd
+  rather not, nothing is connected.
+- **The sign-in is with the owner's own Qonto login.** A Google account that
+  isn't the one their Qonto organisation uses (a work or test address) makes
+  Qonto offer to create a company: never create one, close the page. On a
+  phone, Qonto's page may show only "Continue with Apple": open the browser's
+  "Desktop site" view, which shows Google and "another sign-in method" (email
+  and password, for an account made that way).
 - **Do not ask for an API key.** Qonto no longer issues the login-and-secret
   key to a new developer account (its Developer Portal makes an OAuth app
   instead). The reviewed key entries `qonto-key@1` and `qonto-key@2` are only
