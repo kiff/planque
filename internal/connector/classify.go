@@ -56,27 +56,36 @@ func words(s string) map[string]bool {
 // a read-only request, KIFF's declaration and tafs cloud's holds, which skip
 // a read.
 //
-// A name that starts with a read verb is a read, as Classify has it. One
-// that starts with a noun (NOTION_PAGE_CREATE, SLACK_CHAT_POST_MESSAGE,
-// HUBSPOT_CONTACTS_MERGE) is what its last verb says: a write verb last is a
-// write, a read verb last (GMAIL_SETTINGS_SEND_AS_GET) a read, and with no
-// verb at all it follows the mark. A noun that is also a write verb after a
-// read verb (GET_RECORD, RETRIEVE_POST_COMMENTS) never turns a read into a
-// write.
+// A name that starts with a read verb is a read, as Classify has it, unless a
+// write verb is joined on after it ("or", "and", "then"). One that starts with a
+// noun (NOTION_PAGE_CREATE, SLACK_CHAT_POST_MESSAGE, HUBSPOT_CONTACTS_MERGE) is a
+// write when any word in it is a write verb, and with no verb at all it follows
+// the mark. A noun that is also a write verb after a read verb (GET_RECORD,
+// RETRIEVE_POST_COMMENTS) never turns a read into a write.
 func (t Tool) Reads() bool {
 	if !t.ReadOnly || Classify(t) != ClassRead {
 		return false
 	}
 	tokens := nameTokens(t)
+	// A write verb joined on ("or", "and", "then") is a second act, wherever it comes:
+	// GET_OR_CREATE_RECORD, SEARCH_AND_UPDATE_TICKETS, LIST_THEN_ARCHIVE.
+	for i := 1; i < len(tokens); i++ {
+		switch tokens[i-1] {
+		case "and", "or", "then":
+			if writeVerbs[tokens[i]] {
+				return false
+			}
+		}
+	}
 	if len(tokens) == 0 || readVerbs[tokens[0]] || writeVerbs[tokens[0]] {
 		// A write verb first is a read here only as "batch" before a read verb (BATCH_GET).
 		return true
 	}
-	for i := len(tokens) - 1; i >= 0; i-- {
-		switch {
-		case readVerbs[tokens[i]]:
-			return true
-		case writeVerbs[tokens[i]]:
+	// A name that starts with a noun is a write when any of its words is a write
+	// verb (PAGE_CREATE, PAGE_CREATE_AND_GET, SETTINGS_SEND_AS_GET): no read a
+	// reviewed guide marks starts with a noun and carries one.
+	for _, w := range tokens {
+		if writeVerbs[w] {
 			return false
 		}
 	}
