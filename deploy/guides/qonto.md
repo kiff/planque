@@ -23,7 +23,7 @@ card, and ask them to say yes. Don't leave one for later.
    choice; without the tick, nothing is connected.
 5. **What it can read, as Qonto's page lists it:** the account balance, IBAN,
    transactions, the business and its team; supplier invoices; receipts and
-   exporting them; client invoices and credit notes. It can draft a client
+   other attachments; client invoices and credit notes. It can draft a client
    invoice, which they send themselves, and add or update clients. It can't
    finalise, cancel, send or mark an invoice paid, or delete an invoice or a
    client. It can't make payments, approve or refuse card
