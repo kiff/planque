@@ -3858,7 +3858,7 @@ func (s *Server) accountConnections(w http.ResponseWriter, r *http.Request) {
 		// As the grant view says them, by the same rule.
 		c.OnDemand = g.OnDemand
 		if c.Kind == KindProvider {
-			c.Unproved = proofOf(proved, c.Entry, "oauth") == nil
+			c.Unproved = proofOf(proved, s.appEntry(&g), "oauth") == nil
 		}
 		out = append(out, c)
 	}

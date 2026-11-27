@@ -99,8 +99,21 @@ func TestTheAccountsConnectionsSayUnprovedAsTheGrantDoes(t *testing.T) {
 	if c, v := listed(), grant(); c["unproved"] != nil || v["unproved"] != nil {
 		t.Fatalf("proved: connection %v, grant %v", c["unproved"], v["unproved"])
 	}
-	// The connection says on_demand exactly when its grant does.
-	if c, v := listed(), grant(); c["on_demand"] != v["on_demand"] {
-		t.Fatalf("on_demand: connection %v, grant %v", c["on_demand"], v["on_demand"])
+	// The connection says on_demand exactly when its grant does: not yet,
+	// then once the app was set up on the owner's pick.
+	if c, v := listed(), grant(); c["on_demand"] != nil || v["on_demand"] != nil {
+		t.Fatalf("not on demand: connection %v, grant %v", c["on_demand"], v["on_demand"])
+	}
+	ctx := context.Background()
+	stored, err := e.s.loadGrant(ctx, tenant, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.OnDemand = true
+	if err := e.s.saveGrant(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if c, v := listed(), grant(); c["on_demand"] != true || v["on_demand"] != true {
+		t.Fatalf("on demand: connection %v, grant %v", c["on_demand"], v["on_demand"])
 	}
 }
