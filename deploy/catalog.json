@@ -891,6 +891,7 @@
     "vendor": "Lexware Office"
   },
   "moneybird-key@1": {
+    "test_only": true,
     "api": {
       "auth": {
         "in": "header",

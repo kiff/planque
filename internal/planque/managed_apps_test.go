@@ -157,16 +157,17 @@ func TestTheShippedListsRead(t *testing.T) {
 	}
 }
 
-// The shipped file is what the subprocessors page says: the all mode with
-// nothing excepted, and the earlier list's 18 apps kept as its names. Its
-// exceptions hold at least the page's (kiff/cloud's managed-apps check
-// compares the two files).
+// The shipped file is what the subprocessors page says: the all mode, and the
+// earlier list's 18 apps kept as its names. Its exceptions hold at least the
+// page's (kiff/cloud's managed-apps check compares the two files), and here
+// two more: Moneybird and QuickBooks, parked until they're tested
+// (TestMoneybirdAndQuickBooksAreParked).
 func TestTheShippedFileAllowsEveryApp(t *testing.T) {
 	if !ManagedAll {
 		t.Fatal("the shipped file isn't in the all mode")
 	}
-	if len(ManagedExcept) != 0 {
-		t.Fatalf("the shipped file excepts %v", ManagedExcept)
+	if len(ManagedExcept) != 2 || !ManagedExcept["moneybird"] || !ManagedExcept["quickbooks"] {
+		t.Fatalf("the shipped file excepts %v, not just the two parked apps", ManagedExcept)
 	}
 	names := []string{"Gmail", "Google Calendar", "Google Sheets",
 		"Airtable", "Asana", "Cal", "Calendly", "ClickUp", "Confluence", "Dropbox", "Excel", "Jira", "Linear", "Monday", "Notion", "OneDrive", "Trello", "Wrike"}
