@@ -126,6 +126,14 @@ type Step struct {
 	// Chrome (a handle from a read's page.sealed): the extension fills it
 	// only with the owner's phone's release, and nobody else sees the value.
 	Sealed string `json:"sealed,omitempty"`
+	// Label is the words the read gave the step's ref (its field's,
+	// control's or link's label); Submits says a control submits a form,
+	// and To is the host a link goes to, both as the read says. They're
+	// what the owner reads on a held call, so a step whose words aren't the
+	// page's is refused (Matches): what runs is what the owner signed.
+	Label   string `json:"label,omitempty"`
+	Submits bool   `json:"submits,omitempty"`
+	To      string `json:"to,omitempty"`
 }
 
 // SealedHandle is a sealed value's handle: one saved sign-in's part, as the
@@ -310,6 +318,7 @@ const (
 	CodeCurrencyOther   = "currency_other"      // the checkout isn't in the connection's currency
 	CodeBrowserDown     = "browser_unavailable" // the worker couldn't run the browser
 	CodePageChanged     = "page_changed"        // the page isn't the read the steps were built from
+	CodeLabelMismatch   = "label_mismatch"      // the step's label, submits or to isn't what the page says of its ref
 	CodePayNotApproved  = "pay_not_approved"    // a pay's permit names no approval by its owner
 )
 
@@ -559,6 +568,87 @@ func Refuse(p Page, step Step) (code, why string) {
 		return "", ""
 	}
 	return CodeRefUnknown, "the page has no field " + ref
+}
+
+// Matches says why step's words for its ref aren't the page's: its code
+// and words, or "" when they are. A step names its ref by the label the read
+// gave it (spaces folded, case kept), says submits: true exactly when the step
+// submits a form (a click or Enter on a control the read marks submits, Enter
+// in a field, or a field typed key by key with a line break in it), and to:
+// the host a link goes to. A control or link with no words is never named: the
+// owner couldn't read what it is. Those
+// are what a held call shows the owner, so a taf that names a step otherwise
+// than the page does, by mistake or not, runs nothing: the owner signed the
+// words, and the words are checked. A scroll, back and a ref the page
+// doesn't have (Refuse's) are let through.
+func Matches(p Page, step Step) (code, why string) {
+	ref := step.Ref()
+	if ref == "" || step.Scroll != "" {
+		return "", ""
+	}
+	label := func(kind, want string) (string, string) {
+		if sameWords(step.Label, want) {
+			return "", ""
+		}
+		return CodeLabelMismatch, fmt.Sprintf("%s is the %s %q on this page, not %q: give each step the label the read gives its ref", ref, kind, want, step.Label)
+	}
+	for _, f := range p.Fields {
+		if f.Ref != ref {
+			continue
+		}
+		// Enter in a field submits its form on most pages, and so does a line
+		// break typed key by key.
+		enter := step.Press != "" && step.Key == "Enter" || step.Keys && strings.ContainsAny(step.Value, "\r\n")
+		switch {
+		case step.To != "":
+			return CodeLabelMismatch, ref + " is a field: to goes with a link"
+		case enter && !step.Submits:
+			return CodeLabelMismatch, fmt.Sprintf("Enter in %s (%q) submits its form: say submits: true", ref, f.Label)
+		case !enter && step.Submits:
+			return CodeLabelMismatch, ref + " is a field: submits goes with a control, or with Enter in a field"
+		}
+		return label("field", f.Label)
+	}
+	for _, c := range p.Controls {
+		if c.Ref != ref {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(c.Label) == "":
+			return CodeLabelMismatch, ref + " has no words on the page, so the owner couldn't read what it is: a step never names it"
+		case step.To != "":
+			return CodeLabelMismatch, ref + " is a control: to goes with a link"
+		case c.Submits && !step.Submits:
+			return CodeLabelMismatch, fmt.Sprintf("%s (%q) submits a form: say submits: true", ref, c.Label)
+		case !c.Submits && step.Submits:
+			return CodeLabelMismatch, fmt.Sprintf("%s (%q) submits no form: leave submits out", ref, c.Label)
+		}
+		return label("control", c.Label)
+	}
+	for _, l := range p.Links {
+		if l.Ref != ref {
+			continue
+		}
+		host := ""
+		if u, err := url.Parse(l.URL); err == nil {
+			host = strings.ToLower(u.Hostname())
+		}
+		switch {
+		case strings.TrimSpace(l.Label) == "":
+			return CodeLabelMismatch, ref + " has no words on the page, so the owner couldn't read what it is: a step never names it"
+		case step.Submits:
+			return CodeLabelMismatch, ref + " is a link: submits goes with a control"
+		case !strings.EqualFold(strings.TrimSpace(step.To), host):
+			return CodeLabelMismatch, fmt.Sprintf("%s (%q) goes to %s: say to: %q", ref, l.Label, host, host)
+		}
+		return label("link", l.Label)
+	}
+	return "", ""
+}
+
+// sameWords says a and b are the same words: spaces folded, case kept.
+func sameWords(a, b string) bool {
+	return strings.Join(strings.Fields(a), " ") == strings.Join(strings.Fields(b), " ")
 }
 
 // hasRef says ref is one of the page's fields, controls or links.

@@ -680,7 +680,7 @@ func TestActsInTheOwnersChromeRunOnTheirReadAndTheGuardComesFirst(t *testing.T) 
 	read = sc["read"].(string)
 	before := len(c.sent())
 	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read,
-		"steps": []any{map[string]any{"fill": "f2", "value": "lamp"}, map[string]any{"click": "c1"}}})
+		"steps": []any{map[string]any{"fill": "f2", "value": "lamp", "label": "Search"}, map[string]any{"click": "c1", "label": "Search"}}})
 	if code(sc) != "" || sc["steps_run"] != float64(2) {
 		t.Fatalf("act: %s", out)
 	}
@@ -726,7 +726,7 @@ func TestAnActTheChromeRefusedIsNotRunAndSaysHowManyRan(t *testing.T) {
 	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 	read := sc["read"].(string)
 	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read,
-		"steps": []any{map[string]any{"fill": "f2", "value": "lamp"}, map[string]any{"click": "c1"}, map[string]any{"fill": "f2", "value": "again"}}})
+		"steps": []any{map[string]any{"fill": "f2", "value": "lamp", "label": "Search"}, map[string]any{"click": "c1", "label": "Search"}, map[string]any{"fill": "f2", "value": "again", "label": "Search"}}})
 	_, sc = textOf(res)
 	if state != OpDone || code(sc) != "not_visible" || sc["sent"] != true || sc["steps_run"] != float64(1) {
 		t.Fatalf("second act refused: %s %v", state, sc)
@@ -751,7 +751,7 @@ func TestAnActWithNoAnswerIsUnknownAndNotSentAgain(t *testing.T) {
 		return true, plainPage("rd_1"), ""
 	}
 	c.mu.Unlock()
-	args := map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1"}}}
+	args := map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1", "label": "Search"}}}
 	state, res := c.callState(g, browseAct, args)
 	out, _ := textOf(res)
 	if state != OpUnknown || !strings.Contains(out, "isn't known") {
@@ -804,7 +804,7 @@ func TestAnApprovedActRunsOnlyOnThePageItWasReadFrom(t *testing.T) {
 	title = "Shop, changed"
 	c.mu.Unlock()
 	before := len(c.sent())
-	_, sc = c.callApproved(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1"}}})
+	_, sc = c.callApproved(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1", "label": "Search"}}})
 	if code(sc) != browser.CodePageChanged || sc["sent"] != false {
 		t.Fatalf("approved, page changed: %v", sc)
 	}
@@ -843,7 +843,7 @@ func TestADialogStopsAnActForTheOwner(t *testing.T) {
 	}
 	c.online(t)
 	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1"}}})
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1", "label": "Search"}}})
 	out, sc := textOf(res)
 	if state != OpNotSent || code(sc) != "dialog_open" || sc["sent"] != false || !strings.Contains(out, "<<<page-words:") || !strings.Contains(out, "Delete your account?") {
 		t.Fatalf("dialog: %s %s", state, out)
@@ -871,7 +871,7 @@ func TestACheckoutReadInTheOwnersChromeIsKeptAndBlocksEveryClick(t *testing.T) {
 		t.Fatalf("kept: %v %v", rec, err)
 	}
 	_, sc = c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-	if _, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != browser.CodePaymentStep {
+	if _, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1", "label": "Search"}}}); code(sc) != browser.CodePaymentStep {
 		t.Fatalf("a click on a checkout: %v", sc)
 	}
 }
@@ -1040,7 +1040,7 @@ func TestAnUnknownActNeverCarriesTheChromesDetail(t *testing.T) {
 	}
 	c.online(t)
 	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1"}}})
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": sc["read"].(string), "steps": []any{map[string]any{"click": "c1", "label": "Search"}}})
 	out, _ := textOf(res)
 	if state != OpUnknown || strings.Contains(out, "try another site") || !strings.Contains(out, chromeWhy["page_unresponsive"]) {
 		t.Fatalf("unknown act: %s %s", state, out)
