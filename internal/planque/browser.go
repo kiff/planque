@@ -101,6 +101,27 @@ type browserTool struct {
 	Required                 []string
 }
 
+// CodeSitesUnsafe: a call or a sign-in view refused on a browser grant whose
+// sites aren't ones a grant may name now: none at all, or a shared domain
+// (browser.CheckSite). A grant asked before those checks keeps its record,
+// and opens nothing until it's asked again with its sites.
+const CodeSitesUnsafe = "sites_unsafe"
+
+// grantSitesRefusal is why g's sites aren't ones a browser opens now, or "":
+// the checks an ask makes (browserAsk), made again at each use, so a grant
+// asked before them is held to them too.
+func grantSitesRefusal(g *Grant) string {
+	if g.Request.Browser == nil || len(g.Request.Browser.Sites) == 0 {
+		return "this connection names no site, and a browser reaches only the sites listed: ask for it again with its sites"
+	}
+	for _, site := range g.Request.Browser.Sites {
+		if err := browser.CheckSite(site); err != nil {
+			return err.Error() + ": ask for this connection again with that one site"
+		}
+	}
+	return ""
+}
+
 // CodePayOff: a browse_pay refused while the hosted browser doesn't pay
 // (PLANQUE_BROWSER_PAY isn't on).
 const CodePayOff = "pay_off"
@@ -542,6 +563,10 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	// (PLANQUE_BROWSER_PAY), whatever the grant asked or the approval says.
 	if tool.Tool == browsePay && !chromeGrant(g) && !s.BrowserPay {
 		return OpNotSent, browserRefusal(CodePayOff, "paying in the hosted browser is off: nothing was paid", false)
+	}
+	// The sites an ask is held to now, at each use too.
+	if why := grantSitesRefusal(g); why != "" {
+		return OpNotSent, browserRefusal(CodeSitesUnsafe, why, false)
 	}
 	// A hand-over's answer is planque's to give, from what it kept: no page,
 	// no Chrome step, so no URL to check.

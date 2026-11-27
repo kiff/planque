@@ -117,6 +117,10 @@ func (s *Server) startBrowserSignIn(w http.ResponseWriter, r *http.Request, sr s
 		writeErr(w, http.StatusConflict, "this connection is "+g.Status+"; it takes no sign-in now")
 		return
 	}
+	if why := grantSitesRefusal(g); why != "" {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": why, "code": CodeSitesUnsafe})
+		return
+	}
 	resumer, ok := s.Browser.(browser.Resumer)
 	if s.Browser == nil || !ok {
 		writeErr(w, http.StatusServiceUnavailable, "this installation's browser can't hold a sign-in view")
