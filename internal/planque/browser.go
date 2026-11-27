@@ -197,6 +197,12 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*Browse
 	if len(sites) > maxSites {
 		return nil, nil, nil, fmt.Sprintf("browser.sites lists at most %d sites", maxSites)
 	}
+	// Every browser grant names its sites: an all-sites browser is the whole
+	// public web for a page's instructions to lead the taf to, and for what it
+	// read to leave by.
+	if len(sites) == 0 {
+		return nil, nil, nil, "browser.sites is required: a browser reaches only the sites listed"
+	}
 	b.Sites = sites
 	b.Currency = strings.TrimSpace(b.Currency)
 	if b.Currency != "" && !currencyCode.MatchString(b.Currency) {
