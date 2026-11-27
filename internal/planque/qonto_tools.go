@@ -55,8 +55,8 @@ func servedOnly(server string, listed []mcpTool) []mcpTool {
 
 // qontoNotServed refuses a Qonto tool planque doesn't serve on its sign-in.
 func qontoNotServed(tool, field string) *toolRefusal {
-	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of the tools planque serves on Qonto's sign-in",
-		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business, its accounts and team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client. Everything else stays with the owner in Qonto; leave it out"}
+	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of " + strings.Join(qontoServed, ", "),
+		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business and its bank accounts with their balances and IBANs (get_organization), the team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client, by these tools: " + strings.Join(qontoServed, ", ") + ". Everything else stays with the owner in Qonto; leave it out"}
 }
 
 // qontoToolsCheck refuses, before the owner sees anything, a requested tool

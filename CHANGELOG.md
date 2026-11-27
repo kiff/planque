@@ -226,6 +226,7 @@ version headings refer to releases, not merely to merged pull requests.
 
 ### Changed
 
+- **A refusal on Qonto's sign-in names balances and the tools to use.** A taf that asks for a Qonto tool planque doesn't serve (a guessed name such as `list_bank_accounts`) is told that the business's bank accounts with their balances and IBANs are served, by `get_organization`, and every tool it may ask for, so it retries with a served one rather than telling the owner that balances can't be read.
 - **Moneybird and QuickBooks are parked until they're tested.** No account but the test accounts (`PLANQUE_MANAGED_TEST_TENANTS`) is offered either app: Moneybird's key entry (`moneybird-key@1`) is `test_only`, so it isn't listed, found or accepted, and both are exceptions to the managed sign-in in `managed_apps.json`. Neither is deleted: the entry and both guides stay, and the test accounts still reach both, which is how they get tested. **Compatibility:** no connection to either exists outside the test accounts; an operator's mark marking either on would still decide first.
 
 - **The Qonto guide opens with the five things to say before the sign-in card.** The re-test showed Coach left out the own-login and "Desktop site" tip and the list of what the connection can read; they were in the guide as tips inside longer bullets. They are now one numbered list at the top, with the read list in Qonto's own consent-page words.
