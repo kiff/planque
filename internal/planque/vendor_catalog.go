@@ -49,7 +49,7 @@ type CatalogEntry struct {
 // entryOffered says whether tenant may see and ask for e: every account for a reviewed entry, the test
 // accounts alone for a TestOnly one.
 func (s *Server) entryOffered(tenant string, e CatalogEntry) bool {
-	return !e.TestOnly || s.ManagedTestTenants[tenant]
+	return !(e.TestOnly || s.Applications[e.Application].TestOnly) || s.ManagedTestTenants[tenant]
 }
 
 var catalogID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}@[1-9][0-9]{0,8}$`)

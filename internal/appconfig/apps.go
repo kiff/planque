@@ -37,8 +37,11 @@ type Application struct {
 	VersionHeader string         `json:"version_header,omitempty"`
 	// SecretHeader names a header whose value is a credential kept with the client secret (a sandbox's
 	// access token). Only its name is public and approved with the grant; the value never leaves the store.
-	SecretHeader string            `json:"secret_header,omitempty"`
-	Snapshot     *openapi.Snapshot `json:"operations,omitempty"`
+	SecretHeader string `json:"secret_header,omitempty"`
+	// TestOnly keeps the application (a sandbox's test data) from every account but the test accounts
+	// (PLANQUE_MANAGED_TEST_TENANTS): its entries are not listed or found, and a request for it is refused.
+	TestOnly bool              `json:"test_only,omitempty"`
+	Snapshot *openapi.Snapshot `json:"operations,omitempty"`
 }
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)

@@ -182,7 +182,19 @@ func TestTheQontoSandboxIsOfferedToTestAccountsOnly(t *testing.T) {
 	if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/qonto-sandbox@1/grants", map[string]string{"agent": "agt_taf"}, nil, "k_setup"); st == 201 {
 		t.Fatalf("an account that isn't a test account asked for the Qonto sandbox: %d %v", st, out)
 	}
+	// The application is the one that is test-only: a direct request for it is refused the same way.
+	direct := func() int {
+		st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants", map[string]any{"application": "qonto_sandbox", "agent": "agt_taf",
+			"tools": []map[string]any{{"tool": "qonto_get_organization", "name": "qonto_organization", "title": "Read the organisation and its bank accounts"}}}, nil, "k_setup")
+		return st
+	}
+	if st := direct(); st != 400 {
+		t.Fatalf("an account that isn't a test account asked for the Qonto sandbox application directly: %d", st)
+	}
 	e.s.ManagedTestTenants = map[string]bool{tenant: true}
+	if st := direct(); st != 201 {
+		t.Fatalf("a test account can't ask for the Qonto sandbox application directly: %d", st)
+	}
 	if !listed() || !found() {
 		t.Fatal("a test account isn't offered the Qonto sandbox")
 	}

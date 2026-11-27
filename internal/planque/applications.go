@@ -28,7 +28,7 @@ type ApplicationApproval struct {
 
 func (s *Server) applicationRequest(ctx context.Context, tenant, grant, id string, tools []ToolRequest) (*ApplicationApproval, *APIRequest, error) {
 	app, ok := s.Applications[id]
-	if !ok || app.Validate() != nil || s.ApplicationCredentials == nil {
+	if !ok || app.Validate() != nil || s.ApplicationCredentials == nil || app.TestOnly && !s.ManagedTestTenants[tenant] {
 		return nil, nil, apiError{http.StatusBadRequest, "that registered vendor app is not configured"}
 	}
 	credentials, err := s.ApplicationCredentials.Read(ctx, id)
