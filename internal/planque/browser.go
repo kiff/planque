@@ -101,6 +101,10 @@ type browserTool struct {
 	Required                 []string
 }
 
+// CodePayOff: a browse_pay refused while the hosted browser doesn't pay
+// (PLANQUE_BROWSER_PAY isn't on).
+const CodePayOff = "pay_off"
+
 const (
 	browseOpen     = "browse_open"
 	browseRead     = "browse_read"
@@ -173,7 +177,10 @@ func browserMCPTools() []mcpTool {
 // browserAsk checks a browser grant's request and gives its tools (all of
 // them when none are named) and planque's profile for them. msg is the
 // refusal in words.
-func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
+// browserAsk checks a browser grant's ask and gives its request, tools and
+// profile. pay is whether the hosted browser pays (Server.BrowserPay): off,
+// browse_pay is neither offered nor taken there.
+func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
 	if b == nil {
 		b = &BrowserRequest{}
 	}
@@ -215,7 +222,7 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 	tools := asked
 	if len(tools) == 0 {
 		for _, t := range browserTools {
-			if t.Name == browsePay && b.Driver == DriverExtension {
+			if t.Name == browsePay && (b.Driver == DriverExtension || !pay) {
 				continue
 			}
 			// The hand-over is the owner's Chrome's, and only once it's on.
@@ -254,6 +261,11 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand bool) (*BrowserRequ
 		// Paying through the owner's Chrome stays off until the owner turns it
 		// on.
 		return nil, nil, nil, "browse_pay isn't offered with the owner's Chrome yet"
+	}
+	if pays && !pay {
+		// The hosted browser pays only once paying is turned on
+		// (PLANQUE_BROWSER_PAY).
+		return nil, nil, nil, "browse_pay isn't offered: paying in the hosted browser is off"
 	}
 	if pays {
 		if b.Currency == "" {
@@ -519,6 +531,11 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	// planque's browser or the owner's Chrome.
 	if tool.Tool == browsePay && s.ProofTestTenants[g.Tenant] {
 		return OpNotSent, browserRefusal(CodeTestTenant, "this is a test account: none of its tafs pays for anything", false)
+	}
+	// The hosted browser pays nothing while paying is off
+	// (PLANQUE_BROWSER_PAY), whatever the grant asked or the approval says.
+	if tool.Tool == browsePay && !chromeGrant(g) && !s.BrowserPay {
+		return OpNotSent, browserRefusal(CodePayOff, "paying in the hosted browser is off: nothing was paid", false)
 	}
 	// A hand-over's answer is planque's to give, from what it kept: no page,
 	// no Chrome step, so no URL to check.

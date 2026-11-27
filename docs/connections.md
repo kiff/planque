@@ -356,6 +356,13 @@ seals. planque reaches it over its API with a shared key
 key's SHA-256, `PLANQUE_WORKER_KEY_SHA256`), on a private address. An
 installation with neither lists no browser and takes no browser grant.
 
+Paying is a setting of its own: the hosted browser pays (`browse_pay`) only
+with `PLANQUE_BROWSER_PAY=on`. Unset, it opens, reads, fills and reads a
+checkout, but `browse_pay` isn't offered, a grant that asks for it is
+refused, and a call to it is refused before any browser starts (`pay_off`),
+whatever the owner approved. A click that would pay is refused by
+`browse_act` either way (`payment_step`), and downloads are denied.
+
 ```
 POST   /sessions                 {grant, state, sites} → {session}
 POST   /sessions/{id}/open       {url}                 → {page}

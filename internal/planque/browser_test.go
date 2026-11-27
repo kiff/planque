@@ -42,6 +42,8 @@ func newBrowserEnv(t *testing.T) *browserEnv {
 	})
 	be := &browserEnv{env: e, b: fakes.NewBrowser(), ev: fakes.NewEvidence()}
 	e.s.Browser, e.s.Evidence = be.b, be.ev
+	// These tests pay; paying off is tested on its own (browser_pay_off_test.go).
+	e.s.BrowserPay = true
 	return be
 }
 

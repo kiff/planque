@@ -156,6 +156,11 @@ type Server struct {
 	// (PLANQUE_MANAGED_TEST_TENANTS, ManagedTestTenantsFrom).
 	ManagedApps        map[string]bool
 	ManagedTestTenants map[string]bool
+	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
+	// on): browse_pay is offered and runs, held for the owner each time. Off
+	// (the default), the hosted browser reads, fills and clicks, but pays
+	// nothing: browse_pay is neither offered nor run.
+	BrowserPay bool
 	// ProofTestTenants are the accounts a robot test user runs
 	// (PLANQUE_PROOF_TEST_TENANTS, test_tenants.go): they take no live
 	// Stripe key, and none of their tafs pays (browse_pay).
