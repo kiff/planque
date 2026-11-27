@@ -509,6 +509,18 @@ func browserRefusal(code, why string, sent bool) map[string]any {
 	return r
 }
 
+// busyRefusal is a call refused because the account's browser is busy with
+// another session: nothing was sent, and the taf is told when to try again.
+func busyRefusal(left time.Duration) map[string]any {
+	secs := int(left.Round(time.Second) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	r := browserRefusal(browser.CodeBrowserBusy, fmt.Sprintf("this account's browser is busy with another call; try again in about %d seconds", secs), false)
+	r["structuredContent"].(map[string]any)["retry_after"] = secs
+	return r
+}
+
 // browserAnswer is a browser call's answer: the text the agent reads is
 // the JSON of what was read, which the structured content carries too.
 func browserAnswer(v map[string]any) map[string]any {
@@ -619,6 +631,13 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "the browser's sign-ins couldn't be opened", false)
 	}
+	lease, left, err := s.leaseForCall(ctx, g.Tenant, p)
+	if errors.Is(err, errBrowserBusy) {
+		return OpNotSent, busyRefusal(left)
+	} else if err != nil {
+		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
+	}
+	defer s.dropBrowserLease(ctx, lease)
 	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
@@ -942,6 +961,13 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	if err != nil {
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "the browser's sign-ins couldn't be opened", false)
 	}
+	lease, left, err := s.leaseForCall(ctx, g.Tenant, p)
+	if errors.Is(err, errBrowserBusy) {
+		return OpNotSent, busyRefusal(left)
+	} else if err != nil {
+		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
+	}
+	defer s.dropBrowserLease(ctx, lease)
 	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)

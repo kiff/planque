@@ -163,6 +163,10 @@ func TestBrowserSignInViewRefusals(t *testing.T) {
 	if _, _, err := e.kv.Delete(context.Background(), tenantPK(tenant), skBrowserSignIn(g.ID)); err != nil {
 		t.Fatal(err)
 	}
+	// So does the account's browser lease the view held, which lapses with it.
+	if _, _, err := e.kv.Delete(context.Background(), tenantPK(tenant), skBrowserLease(0)); err != nil {
+		t.Fatal(err)
+	}
 	// The taf's calls run again once the view lapsed.
 	if _, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != "" {
 		t.Errorf("a call after the lapse: %v", sc)
@@ -258,6 +262,12 @@ func TestBrowserCallAcrossDoneKeepsTheFreshSignIn(t *testing.T) {
 		}
 		done = true
 		e.b.BeforeClose = nil
+		// The call's lease on the account's browser lapsed while its session
+		// was slow to close (browser_lease.go): the view can open. What this
+		// tests is that the call still seals nothing over the fresh sign-in.
+		if _, _, err := e.s.KV.Delete(context.Background(), tenantPK(g.Tenant), skBrowserLease(0)); err != nil {
+			t.Fatal(err)
+		}
 		st, out := e.startView(g.ID, map[string]any{"url": fakes.ShopLogin})
 		if st != 200 {
 			t.Fatalf("start: %d %v", st, out)
