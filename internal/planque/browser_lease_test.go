@@ -229,3 +229,31 @@ func TestAnApprovedCallsWaitFitsInsideKIFFsForwardTimeout(t *testing.T) {
 		t.Fatalf("a %s wait and %s for the call pass KIFF's %s", browserLeaseWait, browserCallRoom, kiffForwardTimeout)
 	}
 }
+
+// The wait also ends early enough for the run to finish before the request's
+// own deadline: a request with 16 s left waits about 1 s, and one with less
+// than the run needs doesn't wait at all.
+func TestAnApprovedCallsWaitLeavesTheRunItsTime(t *testing.T) {
+	shortLeaseWaits(t, 20*time.Second)
+	s := &Server{KV: &store.Memory{}}
+	l, _, err := s.takeBrowserLease(context.Background(), "t_a", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.dropBrowserLease(context.Background(), l)
+	approved := permit.Permit{Approval: "exc_1", Expires: time.Now().Add(time.Minute)}
+	for _, c := range []struct {
+		left, most time.Duration
+	}{
+		{browserRunNeeds + time.Second, 2 * time.Second},
+		{browserRunNeeds - time.Second, 300 * time.Millisecond},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), c.left)
+		start := time.Now()
+		_, _, err := s.leaseForCall(ctx, "t_a", approved)
+		cancel()
+		if !errors.Is(err, errBrowserBusy) || time.Since(start) > c.most {
+			t.Fatalf("%s left: %v after %s", c.left, err, time.Since(start))
+		}
+	}
+}

@@ -38,6 +38,11 @@ const (
 	browserCallRoom    = 10 * time.Second
 )
 
+// browserRunNeeds is what an approved call keeps of its request's own
+// deadline for the run, when the request has one: the wait ends that much
+// before it.
+var browserRunNeeds = 15 * time.Second
+
 var (
 	// browserLeaseWait is the longest an approved call waits for the
 	// account's browser, leaving browserCallRoom of kiffForwardTimeout for
@@ -130,6 +135,11 @@ func (s *Server) leaseForCall(ctx context.Context, tenant string, p permit.Permi
 	end := s.now().Add(browserLeaseWait)
 	if exp := p.Expires; !exp.IsZero() && exp.Before(end) {
 		end = exp
+	}
+	// And never so late that the run itself can't finish before the request's
+	// own deadline, whatever its caller's timeout is.
+	if d, ok := ctx.Deadline(); ok && d.Add(-browserRunNeeds).Before(end) {
+		end = d.Add(-browserRunNeeds)
 	}
 	for s.now().Before(end) {
 		select {
