@@ -448,9 +448,17 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		// when the account holds sign-ins to two accounts at the app: with
 		// none named, planque never picks between them.
 		ReuseGrant string `json:"reuse_grant"`
+		// Session is the chat that asked for it, as the agents runtime's
+		// runner names it (never the model): kept beside the grant, outside
+		// its Request (AskedIn), so a chat's delete can end what it asked.
+		Session string `json:"session"`
 	}
 	if err := decodeStrict(body, &ask); err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if !askedInOK(ask.Session) {
+		writeErr(w, http.StatusBadRequest, askedInWant)
 		return
 	}
 	// Provider slugs are upper case: one asked in lower case is the same tool.
@@ -503,7 +511,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 			}
 		}
 		if held != nil {
-			s.reuseConnector(w, r, tenant, me.AgentID, ask.Agent, ask.AgentName, false, held, true)
+			s.reuseConnector(w, r, tenant, me.AgentID, ask.Agent, ask.AgentName, ask.Session, false, held, true)
 			return
 		}
 	}
@@ -594,7 +602,7 @@ func (s *Server) requestConnectorGrant(w http.ResponseWriter, r *http.Request, p
 		}
 	}
 	id := "grt_" + oauth.Random(12)
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name), OnDemand: onDemand,
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, VendorName: label(app.Name), OnDemand: onDemand, AskedIn: ask.Session,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: platform.URL, SignInAt: platform.URL,
 			Agent: ask.Agent, AgentName: ask.AgentName, Tools: []ToolRequest{}, AskedBy: me.AgentID, CreatedAt: s.now().UTC().Format(time.RFC3339), Kind: "connector",
 			CatalogEntry: r.PathValue("entry"), Connector: conn,

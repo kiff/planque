@@ -198,6 +198,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Browser *BrowserRequest `json:"browser"`
 		// SetupReads is for a catalog entry's first request alone.
 		SetupReads []string `json:"setup_reads"`
+		// Session is the chat that asked for it, as the agents runtime's
+		// runner names it (never the model): kept beside the grant, outside
+		// its Request (AskedIn), so a chat's delete can end what it asked.
+		Session string `json:"session"`
 	}
 	fromCatalog := entry != nil
 	if entry == nil {
@@ -213,12 +217,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			AgentName string          `json:"agent_name"`
 			Browser   *BrowserRequest `json:"browser"`
 			Tools     *[]ToolRequest  `json:"tools"`
+			Session   string          `json:"session"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.Agent, req.AgentName, req.Kind, req.Browser, req.Tools = ask.Agent, ask.AgentName, KindBrowser, ask.Browser, ask.Tools
+		req.Agent, req.AgentName, req.Kind, req.Browser, req.Tools, req.Session = ask.Agent, ask.AgentName, KindBrowser, ask.Browser, ask.Tools, ask.Session
 		if req.Tools == nil {
 			req.Tools = &[]ToolRequest{}
 		}
@@ -243,12 +248,16 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			// entry whose HTTP Basic username is it: shown on the approval
 			// as the username, never a tool's argument.
 			Login string `json:"login"`
+			// Session is the chat that asked for it, as the agents runtime's
+			// runner names it (never the model): kept beside the grant, outside
+			// its Request (AskedIn), so a chat's delete can end what it asked.
+			Session string `json:"session"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.SetupReads = ask.SetupReads
+		req.SetupReads, req.Session = ask.SetupReads, ask.Session
 		tools, prof, err := entryTools(entry, ask.Tools)
 		if err != nil {
 			s.fail(w, r, err)
@@ -261,6 +270,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		}
 		req.Agent, req.AgentName, req.Server, req.Application = ask.Agent, ask.AgentName, entry.Server, entry.Application
 		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, api, &tools, prof
+	}
+	if !askedInOK(req.Session) {
+		writeErr(w, http.StatusBadRequest, askedInWant)
+		return
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
@@ -456,7 +469,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Reuse != "" {
 		// A managed app's sign-in, reused for another taf (kiff/tafs#476, gap 2).
 		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Request.Connector != nil {
-			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Server != "" || req.API != nil || req.Kind != "" ||
+			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Session, req.Server != "" || req.API != nil || req.Kind != "" ||
 				req.Application != "" || len(req.Profile) > 0 || req.Browser != nil || len(*req.Tools) > 0, from, false)
 			return
 		}
@@ -607,7 +620,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta, AskedIn: req.Session,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, AgentName: req.AgentName, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
 			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser,
@@ -678,7 +691,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 //
 // fromCatalog answers as a catalog request does ({grant, needs_key}): the
 // app was asked for by its entry, and the account already holds its sign-in.
-func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant, fromCatalog bool) {
+func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName, askedIn string, more bool, from *Grant, fromCatalog bool) {
 	switch {
 	// A new connection on a held sign-in, by either route: only to an app
 	// the published list names (managed_apps.go).
@@ -707,7 +720,7 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	held := *from.Connector
 	held.Tools, held.Revocation = nil, nil
 	now := s.now()
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusListed, VendorName: from.VendorName, OnDemand: from.OnDemand,
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusListed, VendorName: from.VendorName, OnDemand: from.OnDemand, AskedIn: askedIn,
 		SignedIn: true, Account: from.Account, Connector: &held, HeldUntil: now.Add(holdTTL).UTC(),
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: from.Request.Server, SignInAt: from.Request.SignInAt,
 			Agent: agent, AgentName: agentName, Tools: []ToolRequest{}, AskedBy: asked, CreatedAt: now.UTC().Format(time.RFC3339), Kind: from.Request.Kind,
