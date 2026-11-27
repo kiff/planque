@@ -22,15 +22,27 @@ import (
 // is sent (browser_busy), with the seconds to wait. A call the owner
 // approved waits for it instead, up to browserLeaseWait and never past its
 // permit: asking the owner twice for one call is worse than a short wait.
+// The wait is short enough that it and the call fit inside KIFF's forward
+// timeout (kiffForwardTimeout): past that, KIFF records a call as maybe
+// sent and never sends it again, which is worse than either.
 
 // browserSessionsPerAccount is how many sessions one account's hosted
 // browser runs at once.
 const browserSessionsPerAccount = 1
 
+// kiffForwardTimeout is how long KIFF's gateway waits for a tool's answer
+// (kiff/cloud's ForwardTimeout); browserCallRoom, what an approved call
+// keeps of it for its own run after waiting for the account's browser.
+const (
+	kiffForwardTimeout = 30 * time.Second
+	browserCallRoom    = 10 * time.Second
+)
+
 var (
 	// browserLeaseWait is the longest an approved call waits for the
-	// account's browser; browserLeasePoll, how often it looks again.
-	browserLeaseWait = 60 * time.Second
+	// account's browser, leaving browserCallRoom of kiffForwardTimeout for
+	// the call itself; browserLeasePoll, how often it looks again.
+	browserLeaseWait = 20 * time.Second
 	browserLeasePoll = time.Second
 	// browserLeaseSpare is how long past its call's deadline a lease
 	// outlives a call that never freed it; browserLeaseLongest, the lease

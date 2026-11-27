@@ -304,7 +304,7 @@ is recorded from it.
 An account's hosted browser runs one session at a time: a taf's call, a pay
 or the owner's sign-in view. A call that finds it busy is refused before
 anything starts (`browser_busy`, with `retry_after` in seconds); one the
-owner approved waits for it, up to 60 seconds and never past its permit.
+owner approved waits for it, up to 20 seconds and never past its permit, so it and the call fit inside KIFF's 30-second forward timeout.
 
 Money goes only through `browse_pay`. Its profile reads the amount with
 `browse_checkout` at the call's `url` (`amount.from: "read"`, path

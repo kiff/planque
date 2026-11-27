@@ -216,3 +216,16 @@ func TestAnApprovedBrowserCallRunsOnceTheAccountsBrowserFrees(t *testing.T) {
 		t.Fatalf("an approved call on a busy account: %s (sessions %d → %d, after %s)", out, before, e.b.Sessions, time.Since(start))
 	}
 }
+
+// An approved call's wait for the account's browser, with room for the call
+// itself, stays inside KIFF's forward timeout: past it, KIFF records the call
+// as maybe sent and never sends it again, so the call must have been refused
+// as browser_busy, with nothing sent, before then.
+func TestAnApprovedCallsWaitFitsInsideKIFFsForwardTimeout(t *testing.T) {
+	if browserLeaseWait != 20*time.Second {
+		t.Fatalf("the wait is %s, not 20 s", browserLeaseWait)
+	}
+	if browserLeaseWait+browserCallRoom > kiffForwardTimeout {
+		t.Fatalf("a %s wait and %s for the call pass KIFF's %s", browserLeaseWait, browserCallRoom, kiffForwardTimeout)
+	}
+}
