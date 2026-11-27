@@ -11,20 +11,21 @@ Failure table checked against planque's answers on 2026-11-16.
 Put all five in the text of the card that asks the owner to go ahead with the
 sign-in, one a line, above its question: as written, or translated faithfully
 into the owner's language, adding and dropping nothing. Don't leave one for
-later: a reworded line ("read-only") is refused.
+later: a reworded line ("read-only") is refused. They're plain text, with no
+markup.
 
-1. **Qonto's own sign-in, no key.** You sign in on Qonto's own page; no one
+1. Qonto's own sign-in, no key. You sign in on Qonto's own page; no one
    makes or pastes a key.
-2. **An owner or admin approves planque's address first:** in Qonto, open
+2. An owner or admin approves planque's address first: in Qonto, open
    Qonto AI, then Qonto MCP, then Advanced settings, and add
-   `https://planque.kiff.dev/oauth/callback`.
-3. **Use your own Qonto login, and "Desktop site" on a phone.** If Qonto's
+   https://planque.kiff.dev/oauth/callback.
+3. Use your own Qonto login, and "Desktop site" on a phone. If Qonto's
    page offers to create a company, close it. If it shows only Apple, open
    your browser's "Desktop site" view.
-4. **Professional secrecy.** Qonto's consent page asks you to accept the
+4. Professional secrecy. Qonto's consent page asks you to accept the
    lifting of Qonto's professional secrecy for the tool you chose. It's your
    choice; without the tick, nothing is connected.
-5. **What it can read:** the account balance, IBAN, transactions, the
+5. What it can read: the account balance, IBAN, transactions, the
    business and its team; supplier invoices; receipts and other attachments;
    client invoices and credit notes; products. It can draft a client invoice,
    which you send yourself, and add or update clients. It can't finalise,

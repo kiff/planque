@@ -206,6 +206,12 @@ func TestTheToolSearchFindsAVendorsOwnSignInFirst(t *testing.T) {
 	if tools := search("q=stripe%20refunds"); own(tools, StripeEntry) != 0 || own(tools, QontoEntry) != -1 {
 		t.Fatalf("by Stripe's name: %v", tools)
 	}
+	// A proof test account connects Stripe only by a test key: its own sign-in isn't offered there; Qonto's still is.
+	e.s.ProofTestTenants = map[string]bool{tenant: true}
+	if tools := search("q=stripe%20qonto"); own(tools, StripeEntry) != -1 || own(tools, QontoEntry) != 0 {
+		t.Fatalf("a proof test account: %v", tools)
+	}
+	e.s.ProofTestTenants = nil
 	// Words that name neither, a word too short to name anything, or a next page: none.
 	for _, query := range []string{"q=invoices", "q=qo", "q=Qonto&cursor=c2"} {
 		if tools := search(query); own(tools, QontoEntry) != -1 || own(tools, StripeEntry) != -1 {

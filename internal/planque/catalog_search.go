@@ -42,9 +42,14 @@ var ownSignIns = []struct{ entry, vendor string }{{QontoEntry, qontoVendor}, {St
 // key route is only for an owner who already holds a key. Without it, a
 // search for "Qonto" found only Qonto's key entries, and Coach asked for a
 // key (a Qonto re-test, 27 Nov).
-func ownSignInsFound(q string, apps []string, states map[string]catalogEntryView) []foundTool {
+func (s *Server) ownSignInsFound(tenant, q string, apps []string, states map[string]catalogEntryView) []foundTool {
 	var found []foundTool
 	for _, o := range ownSignIns {
+		// A proof test account connects Stripe only by a test key: its own
+		// sign-in would be refused there (testTenantStripeSignIn), so it isn't offered.
+		if o.entry == StripeEntry && s.testTenantStripeSignIn(tenant, "", stripeServer) {
+			continue
+		}
 		name := strings.ToLower(o.vendor)
 		named := slices.Contains(apps, name)
 		for _, w := range strings.Fields(strings.ToLower(q)) {
@@ -147,7 +152,7 @@ func (s *Server) searchTools(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// A vendor's own sign-in first, by its name or as an app asked for.
-		tools = append(tools, ownSignInsFound(q, apps, states)...)
+		tools = append(tools, s.ownSignInsFound(tenant, q, apps, states)...)
 		if len(apps) == 0 {
 			var byApp []foundTool
 			byApp, byTool = s.reviewedTools(tenant, q, states)
