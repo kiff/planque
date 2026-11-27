@@ -23,44 +23,28 @@ card, and ask them to say yes. Don't leave one for later.
    choice; without the tick, nothing is connected.
 5. **What it can read, as Qonto's page lists it:** the account balance, IBAN,
    transactions, the business and its team; supplier invoices; receipts and
-   exporting them; client invoices and credit notes. It can create client
-   invoices and add clients. Through Qonto's own tools that write access also
-   reaches further than a draft: finalising an invoice, sending it by email or
-   as an e-invoice (an e-invoice can't be recalled), marking it paid, and
-   deleting drafts or clients. Say so, and that the Card can hold those for
-   their approval. It can't make payments, approve or refuse card
+   exporting them; client invoices and credit notes. It can draft a client
+   invoice, which they send themselves, and add or update clients. It can't
+   finalise, cancel, send or mark an invoice paid, or delete an invoice or a
+   client. It can't make payments, approve or refuse card
    and transfer requests, set trusted beneficiaries, or store their login.
 
 ## How it connects
 
 - **Qonto's own sign-in is the first route.** Catalog entry `qonto`: the
   owner signs in on Qonto's own page and approves; no key is pasted and no
-  taf sees the sign-in. Its scopes are reviewed. Planque never asks a bank for a scope that
-  moves money, so no transfer is possible on it. It reads the business, its
-  accounts, balances, IBANs, team members and transactions, clients, client and supplier invoices, products,
-  attachments and e-invoicing, and writes clients and client invoices.
-- **Before the owner signs in, tell them what Qonto needs.** Qonto doesn't
-  list planque yet, so **an owner or admin of their Qonto organisation must
-  first approve planque's address in Qonto:** Qonto AI, then Qonto MCP, then
-  Advanced settings, add `https://planque.kiff.dev/oauth/callback`. Qonto's
-  sign-in page says, until the address is approved, that it isn't on its list
-  and that Qonto hasn't verified it. Once it is approved, the sign-in goes
-  on to Qonto's consent screen, which lists what the connection can't do: no
-  payments, and no approving cards or transfers. A member who isn't
-  an owner or admin can't connect. Whether to approve it is their choice,
-  and they can remove the address in the same screen at any time. If they'd
-  rather not, nothing is connected.
-- **Tell them about professional secrecy before they sign in.** Qonto's
-  consent page also asks them to accept the lifting of Qonto's professional
-  secrecy for the tool they chose: it lets Qonto pass planque the data that
-  page lists. Whether to accept is their choice; without that tick, nothing
-  is connected.
-- **The sign-in is with the owner's own Qonto login.** A Google account that
-  isn't the one their Qonto organisation uses (a work or test address) makes
-  Qonto offer to create a company: never create one, close the page. On a
-  phone, Qonto's page may show only "Continue with Apple": open the browser's
-  "Desktop site" view, which shows Google and "another sign-in method" (email
-  and password, for an account made that way).
+  taf sees the sign-in. Its scopes are reviewed (the list above). Planque never
+  asks for a scope that moves money, so no transfer is possible on it.
+- **Before the sign-in, say the five things above.** The address approval is
+  an owner's or admin's choice, can be removed in the same screen at any
+  time, and a member who isn't an owner or admin can't connect. Until it is
+  approved, Qonto's page says the address isn't on its list and isn't
+  verified; once approved, the sign-in goes on to Qonto's consent screen. If
+  they'd rather not, or won't tick the secrecy line, nothing is connected.
+- **Own login.** A Google account that isn't the one their Qonto organisation
+  uses makes Qonto offer to create a company: never create one, close the
+  page. "Desktop site" shows Google and "another sign-in method" (email and
+  password).
 - **Do not ask for an API key.** Qonto no longer issues the login-and-secret
   key to a new developer account (its Developer Portal makes an OAuth app
   instead). The reviewed key entries `qonto-key@1` and `qonto-key@2` are only
