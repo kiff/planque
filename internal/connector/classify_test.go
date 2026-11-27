@@ -2,7 +2,11 @@ package connector
 
 import (
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/kiff/planque/deploy/guides"
 )
 
 func tool(toolkit, slug string, readOnly bool) Tool {
@@ -134,5 +138,67 @@ func TestTheReadOnlyMarkDoesntMakeAWriteVerbARead(t *testing.T) {
 		if got := Classify(tool(c.toolkit, c.slug, true)); got != c.want {
 			t.Errorf("%s marked read-only: %s, want %s", c.slug, got, c.want)
 		}
+	}
+}
+
+// Reads is the provider's mark and a read's name: a write the provider tags read-only is a write.
+func TestReadsNeedsAReadsName(t *testing.T) {
+	for _, c := range []struct {
+		toolkit, slug string
+		marked, reads bool
+	}{
+		{"notion", "NOTION_UPDATE_PAGE", true, false},
+		{"zendesk", "ZENDESK_APPLY_MACRO", true, false},
+		{"quickbooks", "QUICKBOOKS_CONVERT_PURCHASE_ORDER_TO_BILL", true, false},
+		{"notion", "NOTION_FETCH_PAGE", true, true},
+		{"notion", "NOTION_FETCH_PAGE", false, false},
+		// A name that starts with a noun is what its last verb says.
+		{"slack", "SLACK_CHAT_POST_MESSAGE", true, false},
+		{"notion", "NOTION_PAGE_CREATE", true, false},
+		{"hubspot", "HUBSPOT_CONTACTS_MERGE", true, false},
+		{"gmail", "GMAIL_SETTINGS_SEND_AS_GET", true, true},
+		{"microsoft_teams", "MICROSOFT_TEAMS_CHATS_GET_ALL_CHATS", true, true},
+		{"googlecalendar", "GOOGLECALENDAR_EVENTS_LIST", true, true},
+		{"monday", "MONDAY_BOARDS", true, true},
+		// A read verb first stays a read, whatever nouns follow it.
+		{"googlesheets", "GOOGLESHEETS_BATCH_GET", true, true},
+		{"airtable", "AIRTABLE_GET_RECORD", true, true},
+		{"reddit", "REDDIT_RETRIEVE_POST_COMMENTS", true, true},
+		{"clay", "CLAY_GET_ROUTINE_RUN_RESULTS", true, true},
+		{"mailchimp", "MAILCHIMP_GET_CAMPAIGN_SEND_CHECKLIST", true, true},
+	} {
+		if got := (Tool{Toolkit: c.toolkit, Slug: c.slug, ReadOnly: c.marked}).Reads(); got != c.reads {
+			t.Errorf("%s marked %v: reads %v, want %v", c.slug, c.marked, got, c.reads)
+		}
+	}
+}
+
+// The tools a reviewed guide marks "read" (a person checked each against the vendor's reference) stay reads under
+// Reads: the last-verb rule for a name that starts with a noun turns none of them into a write beyond what
+// Classify already does.
+func TestEveryReviewedReadStaysARead(t *testing.T) {
+	entries, err := os.ReadDir("../../deploy/guides")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, e := range entries {
+		app, ok := strings.CutSuffix(e.Name(), ".md")
+		if !ok || strings.HasPrefix(app, "_") {
+			continue
+		}
+		for _, slug := range guides.Reads(app) {
+			t2 := Tool{Toolkit: app, Slug: slug, ReadOnly: true}
+			if Classify(t2) != ClassRead {
+				continue // a held class, or a write verb first (#455): not this rule's
+			}
+			checked++
+			if !t2.Reads() {
+				t.Errorf("%s: the guide marks it read, and Reads makes it a write", slug)
+			}
+		}
+	}
+	if checked < 300 {
+		t.Fatalf("only %d reviewed reads checked", checked)
 	}
 }

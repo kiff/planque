@@ -47,6 +47,9 @@ func (w wireTool) tool() (connector.Tool, error) {
 			t.ReadOnly = !connector.MayChange(w.Slug, w.Description, schema)
 		}
 	}
+	// Nor when its name is a write (connector.Classify): the tag alone never
+	// makes UPDATE_PAGE a read.
+	t.ReadOnly = t.Reads()
 	if !pinnedVersion.MatchString(w.Version) || w.Deprecated || len(w.Description) > 20000 {
 		return connector.Tool{}, connector.ErrDefinition
 	}

@@ -56,7 +56,7 @@ func ManagedGuideApp(app connector.App, tools []connector.Tool) GuideApp {
 	g := GuideApp{Slug: app.Slug, Name: cmp.Or(app.Name, app.Slug), Connects: "sign-in", Scheme: app.AuthScheme}
 	for _, t := range tools {
 		required, optional := schemaInputs(t.InputSchema)
-		g.Tools = append(g.Tools, GuideTool{Name: t.Slug, Title: label(cmp.Or(t.Name, t.Slug)), ReadOnly: t.ReadOnly,
+		g.Tools = append(g.Tools, GuideTool{Name: t.Slug, Title: label(cmp.Or(t.Name, t.Slug)), ReadOnly: t.Reads(),
 			Access: t.Scopes, Inputs: required, Optional: optional, Returns: slices.DeleteFunc(returnsOf(t.Output), serviceNamed)})
 	}
 	slices.SortFunc(g.Tools, func(a, b GuideTool) int { return strings.Compare(a.Name, b.Name) })
