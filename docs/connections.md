@@ -380,8 +380,13 @@ be armed is closed and never runs. The browser's policy
 flag confining WebRTC to the proxy is set too, but measured alone it still
 let STUN checks out. So a page, in any frame, opens no peer connection and
 probes no address. Downloads are denied. A session unused for two minutes is ended
-by the worker. Deployed, the worker runs in a network with no route to
-planque's or anyone's private addresses: a second line behind the proxy.
+by the worker. Deployed (`deploy/browserworker/aws.sh`), a network ACL on
+the worker's subnets is the second line behind the proxy: inside the VPC it
+lets through only planque's calls to the worker's port and their replies,
+and out of it only TCP 443 to public addresses; private, link-local and
+shared ranges are denied. Each task runs one session, so a page that broke
+out of Chromium would hold no other account's session, and the image is
+rebuilt each week for the browser's security updates.
 
 The worker reports facts, in no language: each field's kind from its type
 and autocomplete (`password`; `card` for a number or a security code;
