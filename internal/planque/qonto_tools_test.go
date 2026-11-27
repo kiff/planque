@@ -211,7 +211,7 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 			"items":{"type":"array"},"settings":{"type":"object"}}}`)}
 	pinned := func(args string) (map[string]any, map[string]any) {
 		t.Helper()
-		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args))
+		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), "")
 		if why != "" {
 			t.Fatalf("%s refused: %s", args, why)
 		}
@@ -235,14 +235,14 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		`{"send_email":true}`, `{"finalize":true}`, `{"einvoicing":true}`, `{"memo":"hello"}`,
 		`[]`, `nope`,
 	} {
-		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args)); why == "" {
+		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), ""); why == "" {
 			t.Fatalf("%s was let through", args)
 		}
 	}
 	// Without the schema Qonto listed, nothing is sent: Qonto's default could finalize it.
 	for _, schema := range []string{``, `not json`, `{"type":"object"}`, `{"type":"object","properties":{}}`} {
 		noSchema := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
-		if _, _, why := qontoDraftOnly(qontoServer, noSchema, json.RawMessage(`{}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+		if _, _, why := qontoDraftOnly(qontoServer, noSchema, json.RawMessage(`{}`), ""); !strings.Contains(why, "can't keep the invoice a draft") {
 			t.Fatalf("schema %q: %q", schema, why)
 		}
 	}
@@ -253,18 +253,18 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"Status":{"type":"string"}}}}}}`,
 	} {
 		nested := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
-		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`)); why == "" || !strings.Contains(why, "draft") {
+		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`), ""); why == "" || !strings.Contains(why, "draft") {
 			t.Fatalf("nested schema %s: %q", schema, why)
 		}
 	}
 	// A schema with no top-level status to pin leaves Qonto's default to decide: refused.
 	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
-	if _, _, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "lists no status") {
+	if _, _, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`), ""); !strings.Contains(why, "lists no status") {
 		t.Fatalf("a tool without a status: %q", why)
 	}
 	// A tool that takes a status but no report_einvoicing gets only the status: nothing it would reject is added.
 	statusOnly := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"}}}`)}
-	if out, pins, why := qontoDraftOnly(qontoServer, statusOnly, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1","status":"draft"}` || len(pins) != 1 {
+	if out, pins, why := qontoDraftOnly(qontoServer, statusOnly, json.RawMessage(`{"client_id":"c1"}`), ""); why != "" || string(out) != `{"client_id":"c1","status":"draft"}` || len(pins) != 1 {
 		t.Fatalf("a tool with a status only: %s %v %s", out, pins, why)
 	}
 	// A narrowed tool (a Card fixing the client) is checked against Qonto's own schema, kept beside planque's narrowed one.
@@ -273,12 +273,12 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 	if !narrowed.narrowed() {
 		t.Fatal("the test tool isn't narrowed")
 	}
-	if out, pins, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1","items":[]}`)); why != "" || pins["status"] != "draft" || !strings.Contains(string(out), `"status":"draft"`) {
+	if out, pins, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1","items":[]}`), ""); why != "" || pins["status"] != "draft" || !strings.Contains(string(out), `"status":"draft"`) {
 		t.Fatalf("a narrowed tool: %s %v %s", out, pins, why)
 	}
 	// Narrowed, from before Qonto's schema was kept: refused, never checked against planque's names.
 	narrowed.VendorInputSchema = nil
-	if _, _, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+	if _, _, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1"}`), ""); !strings.Contains(why, "can't keep the invoice a draft") {
 		t.Fatalf("a narrowed tool without Qonto's schema: %q", why)
 	}
 	// Negative: another Qonto tool, and the same name on another server, pass as they are.
@@ -286,7 +286,7 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		server string
 		tool   GrantedTool
 	}{{qontoServer, GrantedTool{ToolRequest: ToolRequest{Tool: "create_client"}}}, {"https://mcp.vendor.example/mcp", takes}} {
-		if out, _, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`)); why != "" || string(out) != `{"status":"unpaid"}` {
+		if out, _, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`), ""); why != "" || string(out) != `{"status":"unpaid"}` {
 			t.Fatalf("%s %s: %s %s", c.server, c.tool.Tool, out, why)
 		}
 	}
@@ -317,5 +317,61 @@ func TestQontoReadsAreFoundByTheJobsWords(t *testing.T) {
 	// Another server's tool of the same name is as its server says.
 	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[0].Description; d != "Retrieve the organization." {
 		t.Fatalf("changed off Qonto's host: %q", d)
+	}
+}
+
+// The fields Qonto takes from Italian organisations only follow the
+// organisation's country, read at sign-in: an Italian one, or one planque
+// couldn't read, keeps report_einvoicing pinned to false (left out, Qonto
+// reports an Italian invoice to SdI on creation); any other leaves it out
+// and refuses payment_reporting or stamp_duty_amount.
+func TestQontoItalianOnlyFieldsFollowTheOrganisationsCountry(t *testing.T) {
+	takes := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"},
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"},"report_einvoicing":{"type":"boolean"},
+			"payment_reporting":{"type":"object"},"stamp_duty_amount":{"type":"string"}}}`)}
+	for _, country := range []string{"IT", ""} {
+		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","payment_reporting":{"conditions":"TP02"},"stamp_duty_amount":"2.00"}`), country)
+		if why != "" || pins["report_einvoicing"] != false || !strings.Contains(string(out), `"report_einvoicing":false`) ||
+			!strings.Contains(string(out), `"payment_reporting"`) || !strings.Contains(string(out), `"stamp_duty_amount"`) {
+			t.Errorf("country %q: %s %v %q", country, out, pins, why)
+		}
+	}
+	// A French organisation: report_einvoicing is left out, even when the taf set it false, and status is still pinned.
+	out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","report_einvoicing":false}`), "FR")
+	if why != "" || strings.Contains(string(out), "report_einvoicing") || pins["status"] != "draft" || len(pins) != 1 {
+		t.Errorf("FR: %s %v %q", out, pins, why)
+	}
+	for _, args := range []string{`{"client_id":"c1","payment_reporting":{"conditions":"TP02"}}`, `{"client_id":"c1","stamp_duty_amount":"2.00"}`} {
+		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), "FR"); !strings.Contains(why, "Italian organisations only") || !strings.Contains(why, "FR") {
+			t.Errorf("FR %s: %q", args, why)
+		}
+	}
+	// Left null, as Qonto's schema allows, a field is no more than left out.
+	if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","payment_reporting":null}`), "DE"); why != "" {
+		t.Errorf("DE, null: %q", why)
+	}
+	// Reporting is refused everywhere, as before.
+	if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","report_einvoicing":true}`), "FR"); why == "" {
+		t.Error("FR, report_einvoicing true: sent")
+	}
+}
+
+// The country is read from get_organization's answer as Qonto's API names it
+// (legal_country), at the top or under organization, from structuredContent
+// or the same JSON as text; anything else reads as no country.
+func TestTheOrganisationsCountryIsReadOnlyAsTwoLetters(t *testing.T) {
+	for res, want := range map[string]string{
+		`{"structuredContent":{"organization":{"legal_name":"Acme","legal_country":"it"}}}`:    "IT",
+		`{"content":[{"type":"text","text":"{\"organization\":{\"legal_country\":\"FR\"}}"}]}`: "FR",
+		`{"structuredContent":{"legal_country":"DE"}}`:                                         "DE",
+		`{"structuredContent":{"organization":{"legal_country":"Italy"}}}`:                     "",
+		`{"structuredContent":{"organization":{"legal_country":"I1"}}}`:                        "",
+		`{"structuredContent":{"organization":{"legal_country":"IT"}},"isError":true}`:         "",
+		`{"content":[{"type":"text","text":"Organization: Acme"}]}`:                            "",
+		`not json`: "",
+	} {
+		if got := organizationCountry(json.RawMessage(res)); got != want {
+			t.Errorf("%s: %q, want %q", res, got, want)
+		}
 	}
 }

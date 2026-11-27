@@ -623,6 +623,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		// Held as the other grant's: approving connects with no second sign-in.
 		g.Request.Kind = reused.Request.Kind
 		g.TokenOf, g.SignedIn, g.ClientID, g.Account, g.VendorName = tokenOwner(reused), true, reused.ClientID, reused.Account, reused.VendorName
+		g.Country = reused.Country
 	}
 	if application != nil {
 		g.VendorName = application.Definition.Name
@@ -2489,6 +2490,11 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	// from a caller's word (signedInAccount).
 	if tok.Account == "" && g.Vendor.AccountsTool != "" {
 		tok.Account, g.AccountLive = s.signedInAccount(r.Context(), g, tok.Access)
+	}
+	// Qonto: the organisation's country, read the same way, decides the
+	// fields only an Italian organisation sends (qontoDraftOnly).
+	if onHost(g.Request.Server, qontoHost) {
+		g.Country = s.signedInCountry(r.Context(), g, tok.Access)
 	}
 	if g.Reconnect {
 		// Reconnecting acts in the same vendor account, or not at all: once
