@@ -89,10 +89,13 @@ two forms, the page's own file's:
   except the services in `except` (one withdrawn later; `[]` for none).
   `named` is the apps the page speaks of by name; it allows nothing more. An
   object without `"all": true`, without its `except` list, or with any other
-  field doesn't read. This is the mode shipped, with nothing excepted:
-  blocking an app is the person's own choice, and what keeps a connection
-  safe is the person's Card, the held classes never served, and every change
-  on an app no run has proved asking the owner first.
+  field doesn't read. This is the mode shipped: blocking an app is the
+  person's own choice, and what keeps a connection safe is the person's Card,
+  the held classes never served, and every change on an app no run has proved
+  asking the owner first. Two apps are excepted, parked until they're tested:
+  Moneybird and QuickBooks. The test accounts still reach both, which is how
+  they get tested, and Moneybird's key entry is `test_only` for the same
+  reason.
 
 A request for a managed connection
 (`POST …/catalog/connector:<provider>:<app>/grants`) to an app the file
