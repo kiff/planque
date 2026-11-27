@@ -38,11 +38,12 @@ type Approval struct {
 	FixedHeaderF string
 
 	// An API key.
-	APIAsReadF   string // the description's URL, its digest, the API's base
-	KeyVaultF    string // the API's host, where the key goes
-	DiscoverAPIF string // the API's host, the taf, APIAsRead, KeyVault
-	WillGiveKeyF string // the API's host, APIAsRead
-	KeyTail      string
+	APIAsReadF    string // reviewed: the API's host; the description and its digest are in the signed request
+	APIPublishedF string // not reviewed (an api_key asked by its own URL): the API's host
+	KeyVaultF     string // the API's host, where the key goes
+	DiscoverAPIF  string // the API's host, the taf, APIAsRead, KeyVault
+	WillGiveKeyF  string // the API's host, APIAsRead
+	KeyTail       string
 
 	// Tools added to a connection.
 	FirstToolsF string // the tools

@@ -544,6 +544,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			writeErr(w, http.StatusBadRequest, msg)
 			return
 		}
+		markReviewed(api, expected)
 		// The base is the vendor's address for every message that names it.
 		server = api.Base
 	case req.Kind == KindBrowser:
@@ -1045,7 +1046,13 @@ func apiKeyText(w words.Approval, q Request, held bool, account string, catalog 
 	if f := q.API.Auth.Fixed; f != nil {
 		where += fmt.Sprintf(w.FixedHeaderF, f.Name, f.Value)
 	}
-	api := fmt.Sprintf(w.APIAsReadF, q.API.URL, q.API.Digest[:12], q.API.Base)
+	// The description and its full digest are in the signed request (Request.API), so the card names the host only.
+	listedBy := w.APIPublishedF
+	if q.API.SourceKind == "reviewed" {
+		// Only a description checked against a reviewed catalog entry is "reviewed" (SourceKind is signed).
+		listedBy = w.APIAsReadF
+	}
+	api := fmt.Sprintf(listedBy, hostOf(q.API.Base))
 	vault := fmt.Sprintf(w.KeyVaultF, hostOf(q.API.Base), where)
 	if len(q.Tools) == 0 {
 		return fmt.Sprintf(w.DiscoverAPIF, hostOf(q.API.Base), tafWords(w, q), api, vault)
@@ -4024,4 +4031,15 @@ func markEntrySetupReads(tools []ToolRequest, names []string) ([]ToolRequest, st
 		out[i].SetupReads = true
 	}
 	return out, ""
+}
+
+// markReviewed marks a key grant's API "reviewed" when its description was
+// checked against a reviewed catalog entry's digest (expected), so the card may
+// say its tools were reviewed. SourceKind is signed with the rest of the
+// request. A key asked by its own description's URL (no entry, no expected
+// digest) stays unmarked, and its card says what the published description lists.
+func markReviewed(api *APIRequest, expected string) {
+	if api != nil && expected != "" && api.SourceKind == "" {
+		api.SourceKind = "reviewed"
+	}
 }
