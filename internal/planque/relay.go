@@ -326,6 +326,10 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
 	}
 	vendorArgs = held
+	// A Qonto client invoice is created as a draft only (qonto_tools.go).
+	if vendorArgs, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs); why != "" {
+		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
+	}
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })
@@ -362,7 +366,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		if !p.Live(s.now()) {
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
 		}
-		res, err = s.MCP.CallTool(ctx, g.Request.Server, access, tool.Tool, vendorArgs)
+		res, err = s.callServed(ctx, g.Request.Server, access, tool.Tool, vendorArgs)
 		if !errors.Is(err, mcp.ErrUnauthorized) || attempt > 0 {
 			break
 		}

@@ -3,6 +3,9 @@ package planque
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -37,6 +40,11 @@ var qontoNeverServed = []string{
 	"create_card_request", "create_multi_transfer_request", "approve_request", "decline_request", "create_payment_link",
 	"remove_transaction_attachment", "export_transactions", "export_transaction_attachments", "request_attachment_upload", "upload_attachment",
 	"create_cash_flow_category", "modify_transaction_cash_flow_category", "create_product",
+	// Reads the privacy policies don't name: cards and their holders, team requests, payment links,
+	// quotes (Qonto's consent page says this connection can't read them), statements and the rest.
+	"list_cards", "list_requests", "list_payment_links", "get_payment_link", "list_quotes", "get_quote",
+	"list_statements", "get_statement", "list_reminders", "list_labels", "list_cash_flow_categories", "get_subscription", "get_qonto_public_pricing",
+	"list_user_organizations",
 	"pay_supplier_invoice", "create_transfer", // not in the reference: a tool Qonto adds isn't served
 }
 
@@ -152,5 +160,74 @@ func TestACallToAQontoToolPlanqueDoesntServeIsNotSent(t *testing.T) {
 	// Negative: the served tool goes on to the permit check, so it isn't refused as not served.
 	if got := mustJSONString(e.s.call(context.Background(), g, "clients", json.RawMessage(`{}`), "")); strings.Contains(got, CodeToolNotServed) {
 		t.Fatalf("a served Qonto tool: %s", got)
+	}
+}
+
+// Every tools/call to a vendor's MCP server goes through callServed: a new
+// path that calls s.MCP.CallTool directly would skip the Qonto filter.
+func TestEveryVendorCallGoesThroughCallServed(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") || f == "qonto_tools.go" {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "MCP.CallTool(") {
+			t.Fatalf("%s calls MCP.CallTool directly: use callServed", f)
+		}
+	}
+	e := newEnv(t)
+	if _, err := e.s.callServed(context.Background(), qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
+		t.Fatalf("callServed sent a tool planque doesn't serve: %v", err)
+	}
+}
+
+// A Qonto client invoice is created as a draft whatever the taf sets: the
+// status and e-invoicing report the tool takes are pinned, other values and
+// anything that would send or finalize are refused, and other tools pass.
+func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
+	takes := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"},
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"},"report_einvoicing":{"type":"boolean"}}}`)}
+	pinned := func(args string) map[string]any {
+		t.Helper()
+		out, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args))
+		if why != "" {
+			t.Fatalf("%s refused: %s", args, why)
+		}
+		var m map[string]any
+		_ = json.Unmarshal(out, &m)
+		return m
+	}
+	if m := pinned(`{"client_id":"c1"}`); m["status"] != "draft" || m["report_einvoicing"] != false || m["client_id"] != "c1" {
+		t.Fatalf("left out: %v", m)
+	}
+	if m := pinned(`{"client_id":"c1","status":"draft","report_einvoicing":false}`); m["status"] != "draft" || m["report_einvoicing"] != false {
+		t.Fatalf("set to the draft values: %v", m)
+	}
+	for _, args := range []string{`{"status":"unpaid"}`, `{"status":"finalized"}`, `{"Status":"unpaid"}`, `{"report_einvoicing":true}`,
+		`{"report_einvoicing":"true"}`, `{"send_email":true}`, `{"finalize":true}`, `{"submit_einvoice":true}`, `{"einvoicing":true}`, `[]`, `nope`} {
+		if _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args)); why == "" {
+			t.Fatalf("%s was let through", args)
+		}
+	}
+	// A tool that takes neither field gets neither: nothing it would reject is added.
+	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
+	if out, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1"}` {
+		t.Fatalf("a tool without the fields: %s %s", out, why)
+	}
+	// Negative: another Qonto tool, and the same name on another server, pass as they are.
+	for _, c := range []struct {
+		server string
+		tool   GrantedTool
+	}{{qontoServer, GrantedTool{ToolRequest: ToolRequest{Tool: "create_client"}}}, {"https://mcp.vendor.example/mcp", takes}} {
+		if out, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`)); why != "" || string(out) != `{"status":"unpaid"}` {
+			t.Fatalf("%s %s: %s %s", c.server, c.tool.Tool, out, why)
+		}
 	}
 }
