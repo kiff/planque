@@ -634,6 +634,22 @@ record the pause. A pause is never lifted on the same grant, not by a new
 sign-in nor by adding tools: the owner connects again, approving the
 tools' current definitions on a new grant.
 
+**When planque changes one of its own tools** (the browser's `browse_act`, say), nothing pauses, and an
+existing grant keeps the schema it was approved with. KIFF's gateway registers each of a connection's
+tools with the input schema planque listed when the connection was made, keeps it, and shows the taf that
+copy; it doesn't read planque's list again. planque checks every call against its current rules. So a
+change that adds a required argument reaches only grants connected after it. On an older grant the taf
+never sees the argument, and its calls are refused at run time: when #476 made a step carry `label`, a
+grant connected before it could only send steps that are refused as `label_mismatch`. That fails closed,
+but the owner can be asked to approve a held call that could never run. Today the remedy is to connect
+again, which registers the current schema. A refresh would take three things:
+1. KIFF re-reading planque's `tools/list` for each connection after a planque deploy.
+2. Comparing each tool's schema with the stored one.
+3. Applying the change by what it does: one that only narrows a tool (a new required argument, a removed
+   option) without asking, and one that widens what the tool can do only on the owner's approval, as a new
+   grant would. KIFF already replaces a schema this way for its own control server's tools, when a batch
+   asks it to; a grant's tools have no such path.
+
 ## Reviewed vendor catalog
 
 `PLANQUE_CATALOG_FILE` names a credential-free JSON object of reviewed
