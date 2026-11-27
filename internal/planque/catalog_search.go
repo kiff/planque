@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/kiff/planque/internal/connector"
 )
@@ -36,6 +37,16 @@ type foundTool struct {
 // sign-in, so the search finds them by the vendor's name.
 var ownSignIns = []struct{ entry, vendor string }{{QontoEntry, qontoVendor}, {StripeEntry, stripeVendor}}
 
+// vendorWord is a search word as a vendor's name: punctuation trimmed from
+// both ends, and a possessive "'s" (straight or curly) dropped.
+func vendorWord(w string) string {
+	w = strings.TrimFunc(w, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	for _, s := range []string{"'s", "\u2019s"} {
+		w = strings.TrimSuffix(w, s)
+	}
+	return w
+}
+
 // ownSignInsFound is a row for each own sign-in entry a word of q, or an app
 // in apps, names: first in the answer, ahead of the same vendor's key
 // entries, since its own sign-in is the way to connect it and the guide's
@@ -53,7 +64,9 @@ func (s *Server) ownSignInsFound(tenant, q string, apps []string, states map[str
 		name := strings.ToLower(o.vendor)
 		named := slices.Contains(apps, name)
 		for _, w := range strings.Fields(strings.ToLower(q)) {
-			if len([]rune(w)) >= 3 && strings.Contains(name, w) {
+			// The whole word is the vendor's name ("Qonto", "Qonto's", "qonto?"), never
+			// a piece of it: French "ont" or "strip" names neither.
+			if vendorWord(w) == name {
 				named = true
 			}
 		}

@@ -198,6 +198,12 @@ func TestTheToolSearchFindsAVendorsOwnSignInFirst(t *testing.T) {
 	if keys == 0 {
 		t.Fatalf("the key entries are still found, after it: %v", tools)
 	}
+	// The name with punctuation or a possessive is still the name.
+	for _, query := range []string{"q=Qonto%27s%20balance", "q=qonto%3F", "q=%22Qonto%22%20invoices", "q=Qonto%E2%80%99s%20IBAN"} {
+		if tools := search(query); own(tools, QontoEntry) != 0 {
+			t.Fatalf("%s: %v", query, tools)
+		}
+	}
 	// Asked as an app, with other words: found too, alone of the reviewed.
 	if tools := search("q=balance&apps=qonto"); own(tools, QontoEntry) != 0 {
 		t.Fatalf("with apps [qonto]: %v", tools)
@@ -213,7 +219,9 @@ func TestTheToolSearchFindsAVendorsOwnSignInFirst(t *testing.T) {
 	}
 	e.s.ProofTestTenants = nil
 	// Words that name neither, a word too short to name anything, or a next page: none.
-	for _, query := range []string{"q=invoices", "q=qo", "q=Qonto&cursor=c2"} {
+	// A word only part of a vendor's name names it not: French "ont" in "Combien de factures ont été payées ?", or "strip".
+	for _, query := range []string{"q=invoices", "q=qo", "q=Qonto&cursor=c2", "q=Combien%20de%20factures%20ont%20%C3%A9t%C3%A9%20pay%C3%A9es%20%3F",
+		"q=strip%20the%20rows", "q=str%20tri%20rip", "q=qont"} {
 		if tools := search(query); own(tools, QontoEntry) != -1 || own(tools, StripeEntry) != -1 {
 			t.Fatalf("%s: %v", query, tools)
 		}
