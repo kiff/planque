@@ -68,7 +68,7 @@ func TestAnActThatRanWithItsPageDroppedIsDoneNeverAFailure(t *testing.T) {
 	read := sc["read"].(string)
 	before := len(c.sent())
 	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read,
-		"steps": []any{map[string]any{"click": "c1"}, map[string]any{"fill": "f2", "value": "again"}}})
+		"steps": []any{map[string]any{"click": "c1", "label": "Search"}, map[string]any{"fill": "f2", "value": "again", "label": "Search"}}})
 	out, sc := textOf(res)
 	if state != OpDone || sc["steps_run"] != float64(1) || sc["steps_not_sent"] != float64(1) || sc["page_dropped"] != "page_too_large" {
 		t.Fatalf("dropped: %s %v", state, sc)
@@ -124,7 +124,7 @@ func TestAnActAnsweredPageTooLargeMayHaveRun(t *testing.T) {
 	c.online(t)
 	_, sc := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 	read := sc["read"].(string)
-	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1"}}})
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"click": "c1", "label": "Search"}}})
 	out, _ := textOf(res)
 	if state != OpUnknown || !strings.Contains(out, "Step 1 may have run") || !strings.Contains(out, "Don't repeat it") || strings.Contains(out, "failed") {
 		t.Fatalf("old build: %s %q", state, out)

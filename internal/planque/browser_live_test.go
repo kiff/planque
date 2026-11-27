@@ -55,7 +55,7 @@ func TestBrowserLiveLookUpApproveAndPayOnce(t *testing.T) {
 	}
 	page := sc["page"].(map[string]any)
 	qty, add := refByLabel(page, "fields", "Quantity"), refByLabel(page, "controls", "Add to cart")
-	out, sc = e.call(g, "browse_act", map[string]any{"url": liveItem, "read": sc["read"], "steps": []map[string]any{{"fill": qty, "value": "2"}, {"click": add}}})
+	out, sc = e.call(g, "browse_act", map[string]any{"url": liveItem, "read": sc["read"], "steps": []map[string]any{{"fill": qty, "value": "2", "label": "Quantity"}, {"click": add, "label": "Add to cart", "submits": submitsOf(page, add)}}})
 	if code(sc) != "" || sc["steps_run"] != float64(2) || !strings.Contains(out, "Your cart") {
 		t.Fatalf("add to cart: %s", out)
 	}
@@ -121,7 +121,7 @@ func TestBrowserLiveKeepsSecretsAndSites(t *testing.T) {
 		t.Fatalf("login page: %s", out)
 	}
 	pass := refByLabel(sc["page"].(map[string]any), "fields", "Password")
-	if _, sc := e.call(g, "browse_act", map[string]any{"url": liveLogin, "read": sc["read"], "steps": []map[string]any{{"fill": pass, "value": "x"}}}); code(sc) != browser.CodeSecretField {
+	if _, sc := e.call(g, "browse_act", map[string]any{"url": liveLogin, "read": sc["read"], "steps": []map[string]any{{"fill": pass, "value": "x", "label": "Password"}}}); code(sc) != browser.CodeSecretField {
 		t.Errorf("typing a password: %v", sc)
 	}
 	if _, sc := e.call(g, "browse_open", map[string]any{"url": liveOther}); code(sc) != browser.CodeSiteNotListed {
@@ -140,6 +140,17 @@ func refByLabel(page map[string]any, kind, label string) string {
 		}
 	}
 	return ""
+}
+
+// submitsOf says whether the control ref submits a form, as the read gives it.
+func submitsOf(page map[string]any, ref string) bool {
+	items, _ := page["controls"].([]any)
+	for _, it := range items {
+		if m, _ := it.(map[string]any); m["ref"] == ref {
+			return m["submits"] == true
+		}
+	}
+	return false
 }
 
 // The owner signs in to the real shop through the view planque serves:

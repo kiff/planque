@@ -307,7 +307,7 @@ func TestBrowserReadsMaskSecretsAndStayOnTheSites(t *testing.T) {
 func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"fill": "qty", "value": "2"}, {"click": "add"}}})
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"fill": "qty", "value": "2", "label": "Quantity"}, {"click": "add", "label": "Add to cart", "submits": true}}})
 	if code(sc) != "" || sc["steps_run"] != float64(2) || sc["site"] != "shop.example" {
 		t.Fatalf("act: %s", out)
 	}
@@ -327,7 +327,7 @@ func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 		code  string
 		ran   int
 	}{
-		{"placing the order after a fill", fakes.ShopCheckout, []map[string]any{{"fill": "email", "value": "a@example.com"}, {"click": "place"}}, browser.CodePaymentStep, 1},
+		{"placing the order after a fill", fakes.ShopCheckout, []map[string]any{{"fill": "email", "value": "a@example.com", "label": "Email"}, {"click": "place"}}, browser.CodePaymentStep, 1},
 		{"a submit on the payment page", fakes.ShopCheckout, []map[string]any{{"click": "apply"}}, browser.CodePaymentStep, 0},
 		{"typing a card number", fakes.ShopCheckout, []map[string]any{{"fill": "card", "value": "4000 0000 0000 0002"}}, browser.CodePaymentStep, 0},
 		{"typing a security code", fakes.ShopCheckout, []map[string]any{{"fill": "cvc", "value": "999"}}, browser.CodeSecretField, 0},
@@ -335,10 +335,10 @@ func TestBrowserActRefusesPaymentAndSecretSteps(t *testing.T) {
 		{"a ref that isn't there", fakes.ShopItem, []map[string]any{{"click": "buy_now"}}, browser.CodeRefUnknown, 0},
 		{"Commander on a French checkout", fakes.ShopCheckoutFR, []map[string]any{{"click": "cmd"}}, browser.CodePaymentStep, 0},
 		{"Jetzt kaufen on a checkout", fakes.ShopCheckoutFR, []map[string]any{{"click": "zb"}}, browser.CodePaymentStep, 0},
-		{"an unlabelled button on a checkout", fakes.ShopCheckoutFR, []map[string]any{{"fill": "email", "value": "a@example.com"}, {"click": "icon"}}, browser.CodePaymentStep, 1},
+		{"an unlabelled button on a checkout", fakes.ShopCheckoutFR, []map[string]any{{"fill": "email", "value": "a@example.com", "label": "Courriel"}, {"click": "icon"}}, browser.CodePaymentStep, 1},
 		{"a one-click Kaufen on a product page", fakes.ShopItemDE, []map[string]any{{"click": "kaufen"}}, browser.CodePaymentStep, 0},
 		{"a redirect off the sites", fakes.Away, []map[string]any{{"click": "place"}}, browser.CodeSiteNotListed, 0},
-		{"leaving the sites", fakes.Leaving, []map[string]any{{"click": "other"}}, browser.CodeSiteNotListed, 1},
+		{"leaving the sites", fakes.Leaving, []map[string]any{{"click": "other", "label": "Our partner", "to": "other.example"}}, browser.CodeSiteNotListed, 1},
 		{"a malformed step", fakes.ShopItem, []map[string]any{{"fill": "qty", "click": "add"}}, CodeBadArguments, 0},
 	} {
 		out, sc := e.call(g, "browse_act", map[string]any{"url": c.url, "read": e.b.ReadOf(c.url), "steps": c.steps})
@@ -654,7 +654,7 @@ func TestACheckoutReadCountsForFifteenMinutes(t *testing.T) {
 func TestBrowserSignInIsSealedAndDeletedOnDisconnect(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	if _, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopLogin, "read": e.b.ReadOf(fakes.ShopLogin), "steps": []map[string]any{{"fill": "user", "value": "ana@example.com"}, {"click": "signin"}}}); code(sc) != "" {
+	if _, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopLogin, "read": e.b.ReadOf(fakes.ShopLogin), "steps": []map[string]any{{"fill": "user", "value": "ana@example.com", "label": "Email"}, {"click": "signin", "label": "Sign in", "submits": true}}}); code(sc) != "" {
 		t.Fatalf("sign in: %v", sc)
 	}
 	if _, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem}); code(sc) != "" {
@@ -742,7 +742,7 @@ func TestBrowserActStepsRunOnlyOnThePageTheyWereReadFrom(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
 	before := e.b.Sent()
-	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"click": "add"}, {"click": "checkout"}}})
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"click": "add", "label": "Add to cart", "submits": true}, {"click": "checkout", "label": "Checkout", "to": "shop.example"}}})
 	if code(sc) != browser.CodePageChanged || sc["steps_run"] != float64(1) || !strings.Contains(out, "step 2") {
 		t.Fatalf("a step on a page the taf didn't read: %s", out)
 	}
@@ -751,7 +751,7 @@ func TestBrowserActStepsRunOnlyOnThePageTheyWereReadFrom(t *testing.T) {
 	}
 	// A read of another page refuses the first step, and nothing is sent.
 	before = e.b.Sent()
-	out, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopCart), "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+	out, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopCart), "steps": []map[string]any{{"fill": "qty", "value": "2", "label": "Quantity"}}})
 	if code(sc) != browser.CodePageChanged || !strings.Contains(out, "step 1") || e.b.Sent() != before {
 		t.Fatalf("a stale read: %s (sent %d)", out, e.b.Sent()-before)
 	}
@@ -760,7 +760,7 @@ func TestBrowserActStepsRunOnlyOnThePageTheyWereReadFrom(t *testing.T) {
 	if sc["read"] != e.b.ReadOf(fakes.ShopItem) {
 		t.Fatalf("browse_open's read: %v", sc["read"])
 	}
-	_, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": sc["read"], "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+	_, sc = e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": sc["read"], "steps": []map[string]any{{"fill": "qty", "value": "2", "label": "Quantity"}}})
 	if code(sc) != "" || sc["read"] != e.b.ReadOf(fakes.ShopItem) {
 		t.Fatalf("a fill keeps the read (values aren't in it): %v", sc)
 	}
@@ -790,7 +790,7 @@ func TestBrowserActRefusesAPageThatChangedAtTheSameAddress(t *testing.T) {
 			read := sc["read"]
 			e.b.Pages[fakes.ShopItem] = c.acting
 			before := e.b.Sent()
-			out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{{"fill": "qty", "value": "2"}}})
+			out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{{"fill": "qty", "value": "2", "label": "Quantity"}}})
 			if code(sc) != browser.CodePageChanged || !strings.Contains(out, "step 1") || e.b.Sent() != before {
 				t.Fatalf("a re-rendered page: %s (sent %d)", out, e.b.Sent()-before)
 			}
@@ -826,7 +826,7 @@ func TestAPayWithoutTheOwnersApprovalPaysNothing(t *testing.T) {
 func TestBrowserActWithoutAReadSaysWhereItComesFrom(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": "", "steps": []map[string]any{{"click": "add"}}})
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": "", "steps": []map[string]any{{"click": "add", "label": "Add to cart", "submits": true}}})
 	if code(sc) != browser.CodePageChanged || !strings.Contains(out, "needs the read from browse_open") || len(e.b.Steps) != 0 {
 		t.Fatalf("no read: %s", out)
 	}
@@ -868,5 +868,51 @@ func TestABrowserConnectionForAnySiteSaysSo(t *testing.T) {
 	key := connectionOf(&Grant{Request: Request{Agent: "agt_taf", API: &APIRequest{URL: "https://api.example/openapi.json"}}})
 	if key.AnySite || key.Sites != nil {
 		t.Fatalf("a key grant: %+v", key)
+	}
+}
+
+// What a held browse_act shows the owner is each step's ref named by the
+// page's own words, and those words are checked before the step runs: a step
+// that calls the shop's "Add to cart" a "Save for later", or that leaves out
+// that it submits a form, runs nothing; and a page that changes a button's
+// words between the read and the act runs nothing either (red-team, 27 Nov).
+func TestBrowserActRunsOnlyStepsNamedByThePagesWords(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	_, sc := e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem})
+	read := sc["read"]
+	for _, c := range []struct {
+		name string
+		step map[string]any
+	}{
+		{"another control's words", map[string]any{"click": "add", "label": "Save for later", "submits": true}},
+		{"a submit not said to submit", map[string]any{"click": "add", "label": "Add to cart"}},
+		{"no words at all", map[string]any{"click": "add"}},
+		{"a field under another name", map[string]any{"fill": "qty", "value": "2", "label": "Gift note"}},
+	} {
+		before := e.b.Sent()
+		out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{c.step}})
+		if code(sc) != browser.CodeLabelMismatch || sc["sent"] != false || e.b.Sent() != before || !strings.Contains(out, "step 1") {
+			t.Fatalf("%s: %s (sent %d)", c.name, out, e.b.Sent()-before)
+		}
+	}
+	// The page's own words run.
+	if out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{{"click": "add", "label": "Add to cart", "submits": true}}}); code(sc) != "" || sc["steps_run"] != float64(1) {
+		t.Fatalf("the page's words: %s", out)
+	}
+	// The button's words change between the read and the act: nothing runs.
+	item := func(button string) browser.Page {
+		return browser.Page{URL: fakes.ShopItem, Title: "Blue pen",
+			Fields:   []browser.Field{{Ref: "qty", Label: "Quantity", Kind: "number", Value: "1"}},
+			Controls: []browser.Control{{Ref: "add", Label: button, Submits: true}}}
+	}
+	e.b.Pages = map[string]browser.Page{fakes.ShopItem: item("Add to cart")}
+	_, sc = e.call(g, "browse_open", map[string]any{"url": fakes.ShopItem})
+	read = sc["read"]
+	e.b.Pages[fakes.ShopItem] = item("Buy now")
+	before := e.b.Sent()
+	out, sc := e.call(g, "browse_act", map[string]any{"url": fakes.ShopItem, "read": read, "steps": []map[string]any{{"click": "add", "label": "Add to cart", "submits": true}}})
+	if code(sc) != browser.CodePageChanged || e.b.Sent() != before {
+		t.Fatalf("a button's words changed after the read: %s (sent %d)", out, e.b.Sent()-before)
 	}
 }

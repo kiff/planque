@@ -42,7 +42,7 @@ func TestAPageThePersonMovedToNeverReachesTheTaf(t *testing.T) {
 	_, opened := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 	before := latestOf(t, c, g)
 	ops = nil
-	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1"}}})
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 	if code(sc) != browser.CodePageChanged || sc["sent"] != false {
 		t.Fatalf("the refused act: %s", out)
 	}
@@ -78,7 +78,7 @@ func TestATabGivenBackEndsTheRunsWorkThereInPlainWords(t *testing.T) {
 	c.online(t)
 	_, opened := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 	ops = nil
-	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1"}}})
+	state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 	out, sc := textOf(res)
 	if state != OpNotSent || code(sc) != "given_back" || sc["sent"] != false {
 		t.Fatalf("given back: %s %s", state, out)

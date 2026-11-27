@@ -380,3 +380,49 @@ func TestMaskKeepsOnlyKnownCuts(t *testing.T) {
 		t.Fatalf("truncated: %v", got)
 	}
 }
+
+// A step names its ref as the read does: the label (spaces folded, case
+// kept), submits: true exactly for a control that submits a form, and to: the
+// host a link goes to. Those are what a held call shows the owner, so a step
+// that names its ref otherwise, a lying taf's or a mistaken one's, runs
+// nothing (red-team, 27 Nov: a held browse_act showed its steps as refs the
+// owner couldn't read).
+func TestMatchesHoldsAStepToThePagesWordsForItsRef(t *testing.T) {
+	p := Page{URL: "https://shop.example/form", Title: "Order",
+		Fields:   []Field{{Ref: "f1", Label: "Customer name", Kind: "text"}},
+		Controls: []Control{{Ref: "c1", Label: "Submit order", Submits: true}, {Ref: "c2", Label: "Save draft"}},
+		Links:    []Link{{Ref: "l1", Label: "Partner", URL: "https://Other.example/x"}}}
+	for _, c := range []struct {
+		name string
+		step Step
+		ok   bool
+	}{
+		{"a fill with its label", Step{Fill: "f1", Value: "Test", Label: "Customer name"}, true},
+		{"spaces folded", Step{Fill: "f1", Value: "Test", Label: "  Customer\tname "}, true},
+		{"no label", Step{Fill: "f1", Value: "Test"}, false},
+		{"another field's words", Step{Fill: "f1", Value: "Test", Label: "Notes"}, false},
+		{"case kept", Step{Fill: "f1", Value: "Test", Label: "customer name"}, false},
+		{"a submit named as one", Step{Click: "c1", Label: "Submit order", Submits: true}, true},
+		{"a submit called a draft", Step{Click: "c1", Label: "Save draft", Submits: true}, false},
+		{"a submit without submits", Step{Click: "c1", Label: "Submit order"}, false},
+		{"a plain control said to submit", Step{Click: "c2", Label: "Save draft", Submits: true}, false},
+		{"a plain control", Step{Click: "c2", Label: "Save draft"}, true},
+		{"a link with its host", Step{Click: "l1", Label: "Partner", To: "other.example"}, true},
+		{"a link without its host", Step{Click: "l1", Label: "Partner"}, false},
+		{"a link to another host", Step{Click: "l1", Label: "Partner", To: "shop.example"}, false},
+		{"submits on a field", Step{Fill: "f1", Value: "x", Label: "Customer name", Submits: true}, false},
+		{"Enter on a submit names it", Step{Press: "c1", Key: "Enter", Label: "Submit order", Submits: true}, true},
+		{"a scroll to a ref names nothing", Step{Scroll: "c1"}, true},
+		{"back names nothing", Step{Back: true}, true},
+		{"a ref the page doesn't have is Refuse's", Step{Click: "zz"}, true},
+	} {
+		code, why := Matches(p, c.step)
+		if (code == "") != c.ok || (!c.ok && code != CodeLabelMismatch) {
+			t.Errorf("%s: %q %q", c.name, code, why)
+		}
+	}
+	// The refusal names the page's words, so the taf can build the step again.
+	if _, why := Matches(p, Step{Fill: "f1", Value: "Test", Label: "Notes"}); !strings.Contains(why, `"Customer name"`) {
+		t.Errorf("the words: %q", why)
+	}
+}

@@ -43,7 +43,7 @@ var conformanceKinds = []conformanceKind{
 		e := newBrowserEnv(t)
 		g := e.connect()
 		return e.env, g, "browse_act", func(op string) map[string]any {
-			return map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"fill": "qty", "value": "2"}}, IdempotencyArg: op}
+			return map[string]any{"url": fakes.ShopItem, "read": e.b.ReadOf(fakes.ShopItem), "steps": []map[string]any{{"fill": "qty", "value": "2", "label": "Quantity"}}, IdempotencyArg: op}
 		}, e.b.Sent
 	}},
 	{"managed_connector", func(t *testing.T) (*env, *Grant, string, func(string) map[string]any, func() int) {

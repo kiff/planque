@@ -56,7 +56,7 @@ func TestAHandOverAfterAClickThatNavigatesLandsOnTheReadTheClickGave(t *testing.
 	}
 
 	// The click on the start page's link navigates to the lamp's page.
-	out, sc = c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": start, "steps": []any{map[string]any{"click": "l1"}}})
+	out, sc = c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": start, "steps": []any{map[string]any{"click": "l1", "label": "Lamp", "to": "shop.example"}}})
 	if code(sc) != "" || sc["steps_run"] != float64(1) {
 		t.Fatalf("the click: %s", out)
 	}

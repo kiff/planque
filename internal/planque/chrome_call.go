@@ -469,6 +469,7 @@ var chromeWhy = map[string]string{
 // that page (withPage), so no other call is needed to get it.
 var recoverable = map[string]bool{
 	browser.CodePageChanged: true, "ref_unknown": true, "not_visible": true, "option_unknown": true, "disabled": true,
+	browser.CodeLabelMismatch: true,
 }
 
 // withPage adds the page as it reads now to res, a refusal in the owner's

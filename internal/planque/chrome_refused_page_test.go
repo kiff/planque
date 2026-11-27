@@ -63,13 +63,13 @@ func TestAnActWithItsReadLeftOutRunsOnTheTafsLatestReadOfThatPageOnly(t *testing
 		t.Fatalf("open: %v", sc)
 	}
 	// Left out, the read is the latest, and the step runs.
-	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != "" || sc["steps_run"] != float64(1) {
+	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}}); code(sc) != "" || sc["steps_run"] != float64(1) {
 		t.Fatalf("an act with its read left out, on the page read last: %s", out)
 	}
 	// The page changed since: the latest read no longer holds, so nothing runs,
 	// and the refusal carries the page as it reads now.
 	n = 2
-	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}})
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 	if code(sc) != browser.CodePageChanged || sc["sent"] != false {
 		t.Fatalf("an act left without its read on a page that changed: %s", out)
 	}
@@ -78,11 +78,11 @@ func TestAnActWithItsReadLeftOutRunsOnTheTafsLatestReadOfThatPageOnly(t *testing
 		t.Fatal("the page the refusal gave isn't the latest read")
 	}
 	// Built from it, the next one runs.
-	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != "" {
+	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1", "label": "Search 2"}}}); code(sc) != "" {
 		t.Fatalf("an act on the page the refusal gave: %s", out)
 	}
 	// Another address than the latest read's has no read to default to.
-	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/items/lamp", "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != browser.CodePageChanged {
+	if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/items/lamp", "steps": []any{map[string]any{"click": "c1", "label": "Search 2"}}}); code(sc) != browser.CodePageChanged {
 		t.Fatalf("an act left without its read on another page: %s", out)
 	}
 }
@@ -94,7 +94,7 @@ func TestANamedReadIsNeverReplacedByTheLatest(t *testing.T) {
 	c.answer = func(step map[string]any) (bool, map[string]any, string) { return true, pageN(1), "" }
 	c.online(t)
 	c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": "0123456789abcdef01234567", "steps": []any{map[string]any{"click": "c1"}}})
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": "0123456789abcdef01234567", "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 	if code(sc) != browser.CodePageChanged {
 		t.Fatalf("an act naming a read that isn't one: %s", out)
 	}
@@ -118,7 +118,7 @@ func TestAStepTheChromeRefusedComesBackWithThePageReadAgain(t *testing.T) {
 			c.online(t)
 			_, opened := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
 			ops = nil
-			state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1"}}})
+			state, res := c.callState(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 			out, sc := textOf(res)
 			if state != OpNotSent || code(sc) != refused || sc["sent"] != false || !strings.Contains(out, "Nothing was sent.") {
 				t.Fatalf("%s: %s %s", refused, state, out)
@@ -148,7 +148,7 @@ func TestARefusalNoReadGetsPastCarriesNoPage(t *testing.T) {
 		}
 		c.online(t)
 		_, opened := c.call(g, browseOpen, map[string]any{"url": "https://shop.example/"})
-		out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1"}}})
+		out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 		if code(sc) != refused || strings.Contains(out, "<<<page-words:") || sc["read"] != nil {
 			t.Fatalf("%s: %s", refused, out)
 		}
@@ -177,7 +177,7 @@ func TestEveryCodeTheChromeSendsHasPlanquesWordsNamingNoTool(t *testing.T) {
 		}
 	}
 	for c := range recoverable {
-		if !chromeNotRun[c] && c != browser.CodePageChanged {
+		if !chromeNotRun[c] && c != browser.CodePageChanged && c != browser.CodeLabelMismatch {
 			t.Errorf("%s is read again after it, but isn't a step the Chrome refused before doing anything", c)
 		}
 	}
@@ -201,7 +201,7 @@ func TestARefusalNamesTheOpenToolOfTheTafsOwnToolSet(t *testing.T) {
 	c.online(t)
 	_, opened := c.call(opens, browseOpen, map[string]any{"url": "https://shop.example/"})
 	n = 2
-	act, _ := c.call(opens, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1"}}})
+	act, _ := c.call(opens, browseAct, map[string]any{"url": "https://shop.example/", "read": opened["read"], "steps": []any{map[string]any{"click": "c1", "label": "Search 1"}}})
 	n = 3
 	hand, _ := c.call(hands, browseHand, map[string]any{"url": "https://shop.example/", "read": opened["read"], "words": "Type your search", "ref": "c1"})
 	for _, out := range []string{act, hand} {
@@ -261,7 +261,7 @@ func TestAStepIsNeverBuiltOnAReadShownWithoutItsRefs(t *testing.T) {
 				if latest.Shown == latest.Read {
 					t.Fatalf("%s made its read the one shown with refs", reader)
 				}
-				args := map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}
+				args := map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1", "label": "Search 2"}}}
 				if named {
 					args["read"] = latest.Read
 				}
@@ -273,7 +273,7 @@ func TestAStepIsNeverBuiltOnAReadShownWithoutItsRefs(t *testing.T) {
 				checkRefusedWithPage(t, out, sc, "Search 2")
 				// Shown with its refs by that refusal, the read now holds.
 				ops = nil
-				if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1"}}}); code(sc) != "" || !slices.Contains(ops, "act") {
+				if out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "steps": []any{map[string]any{"click": "c1", "label": "Search 2"}}}); code(sc) != "" || !slices.Contains(ops, "act") {
 					t.Fatalf("an act on the page the refusal showed: %s", out)
 				}
 			})
@@ -301,7 +301,7 @@ func TestAnOlderReadShownWithoutItsRefsIsNeverNamedBack(t *testing.T) {
 	// The page goes back to the state only the text read saw.
 	n = 2
 	ops = nil
-	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": unshown, "steps": []any{map[string]any{"click": "c1"}}})
+	out, sc := c.call(g, browseAct, map[string]any{"url": "https://shop.example/", "read": unshown, "steps": []any{map[string]any{"click": "c1", "label": "Search 2"}}})
 	if unshown == "" || code(sc) != browser.CodePageChanged || slices.Contains(ops, "act") {
 		t.Fatalf("an act naming an older read shown without refs: %s (sent %v)", out, ops)
 	}
@@ -337,7 +337,7 @@ func TestASignInPageIsHandedToThePersonNeverTyped(t *testing.T) {
 		t.Fatalf("a sign-in page's answer doesn't say, after its read and outside the fence, to hand the sign-in over: %q", out)
 	}
 	// Typing the password is refused, and the refusal says the same way out.
-	out, sc = c.call(opens, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"fill": "f2", "value": "hunter2"}}})
+	out, sc = c.call(opens, browseAct, map[string]any{"url": "https://shop.example/", "read": read, "steps": []any{map[string]any{"fill": "f2", "value": "hunter2", "label": "Password"}}})
 	if code(sc) != browser.CodeSecretField || !strings.Contains(out, "Hand that step to the person with "+handName) {
 		t.Fatalf("typing a password: %s", out)
 	}
@@ -375,9 +375,9 @@ func TestTheChromesOtherStepsGoAsItsActsAndTheHostedBrowserRefusesThem(t *testin
 		step map[string]any
 		act  string
 	}{
-		{map[string]any{"fill": "f1", "value": "Par", "keys": true}, `{"kind":"fill","ref":"f1","value":"Par","keys":true}`},
-		{map[string]any{"check": "f1"}, `{"kind":"check","ref":"f1"}`},
-		{map[string]any{"press": "f1", "key": "ArrowDown"}, `{"kind":"press","ref":"f1","value":"ArrowDown"}`},
+		{map[string]any{"fill": "f1", "value": "Par", "keys": true, "label": "City"}, `{"kind":"fill","ref":"f1","value":"Par","keys":true}`},
+		{map[string]any{"check": "f1", "label": "City"}, `{"kind":"check","ref":"f1"}`},
+		{map[string]any{"press": "f1", "key": "ArrowDown", "label": "City"}, `{"kind":"press","ref":"f1","value":"ArrowDown"}`},
 		{map[string]any{"scroll": "c1"}, `{"kind":"scroll","ref":"c1"}`},
 		{map[string]any{"scroll": "down"}, `{"kind":"scroll","value":"down"}`},
 		{map[string]any{"back": true}, `{"kind":"back"}`},

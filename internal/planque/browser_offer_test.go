@@ -75,7 +75,7 @@ func TestTheHostedBrowserIsOfferedOnlyToTheAccountsNamed(t *testing.T) {
 		for _, tool := range []string{"browse_open", "browse_act"} {
 			args := map[string]any{"url": fakes.ShopItem}
 			if tool == "browse_act" {
-				args["read"], args["steps"] = e.b.ReadOf(fakes.ShopItem), []map[string]any{{"click": "add"}}
+				args["read"], args["steps"] = e.b.ReadOf(fakes.ShopItem), []map[string]any{{"click": "add", "label": "Add to cart", "submits": true}}
 			}
 			if out, sc := e.call(g, tool, args); code(sc) != CodeBrowserOff || sc["sent"] != false {
 				t.Errorf("%s: %s on a grant from before: %s %v", name, tool, out, sc)

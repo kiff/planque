@@ -282,7 +282,12 @@ control's words in en, fr, de, es, it, nl or pt), and any click on a
 control of a checkout or payment page, labelled or not, since a button's
 effect can't be read from outside (`payment_step`); a fill of a password or
 code field (`secret_field`); and a ref the page doesn't have
-(`ref_unknown`). Links are followed. The steps before it ran, and the
+(`ref_unknown`). Each step names its ref by the page's own words: `label`,
+the words the read gave it, with `submits: true` for a control that submits
+a form and `to`, the host a link goes to. A held call shows them to the
+owner, so planque refuses a step whose words aren't the page's
+(`label_mismatch`): a missing or different label, a submit not said to
+submit, a link to another host. Links are followed. The steps before it ran, and the
 answer says how many. A step that takes the browser off the grant's sites
 stops it there (`site_not_listed`). A URL off the sites, a local name or an
 address written out, or a non-https URL is refused before any browser
