@@ -97,3 +97,33 @@ func TestTheHostedBrowserIsOfferedOnlyToTheAccountsNamed(t *testing.T) {
 		t.Errorf("on: a call: %v", sc)
 	}
 }
+
+// The account's connections say whether the hosted browser is offered to it,
+// and whether it pays, so Coach drafts no payment rules for a browser that
+// can't pay. Nothing about it for an account it isn't offered to.
+func TestTheConnectionsSayWhetherTheHostedBrowserPays(t *testing.T) {
+	e := newBrowserEnv(t)
+	read := func() map[string]any {
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("connections: %d %v", st, out)
+		}
+		return out
+	}
+	e.s.BrowserPay = false
+	if b, _ := read()["browser"].(map[string]any); b == nil || b["pay"] != false {
+		t.Errorf("paying off: %v", read()["browser"])
+	}
+	e.s.BrowserPay = true
+	if b, _ := read()["browser"].(map[string]any); b == nil || b["pay"] != true {
+		t.Errorf("paying on: %v", read()["browser"])
+	}
+	e.s.BrowserOffer = BrowserOffer{Tenants: map[string]bool{"tnt_other": true}}
+	if b, ok := read()["browser"]; ok {
+		t.Errorf("not offered to this account: %v", b)
+	}
+	e.s.BrowserOffer, e.s.Browser = BrowserOffer{All: true}, nil
+	if b, ok := read()["browser"]; ok {
+		t.Errorf("no worker: %v", b)
+	}
+}
