@@ -333,8 +333,15 @@ type Grant struct {
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.
-	Texts  map[string]string `json:"texts,omitempty"`
-	Digest string            `json:"digest"`
+	Texts map[string]string `json:"texts,omitempty"`
+	// AskedText and AskedTexts are Text and Texts as they were before a
+	// sign-in's callback named its account in them: kept while it waits for
+	// its confirm, so a phone that approves again with the digest it signed
+	// first is still answered (a revoke and a new link, never a dead end),
+	// and put back when that sign-in is revoked.
+	AskedText  string            `json:"asked_text,omitempty"`
+	AskedTexts map[string]string `json:"asked_texts,omitempty"`
+	Digest     string            `json:"digest"`
 	// Proposer is the agent that proposed the tools of a grant an account
 	// key asked (its taf, or the account's Setup); empty otherwise.
 	Proposer string         `json:"proposer,omitempty"`

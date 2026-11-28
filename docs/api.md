@@ -145,7 +145,9 @@ appears in) and answers
 `{status: "signed_in", account, confirm, confirm_by}` with a new code
 (the old one no longer confirms). A sign-in that names no account, words
 that don't name it, or another device, get today's answer: the sign-in is
-revoked and a new link signed. A code confirms nothing without the
+revoked and a new link signed. A phone that approves again with the digest it signed first, over the
+words as asked before the callback named the account, gets that answer too
+(the words go back to the ones asked), never a refusal. A code confirms nothing without the
 device's signature, and a reload of the page shows no code. A link someone else opens hands its code to
 their browser, never to the approver. Vendors are reached only at public
 addresses, checked when each connection is made.

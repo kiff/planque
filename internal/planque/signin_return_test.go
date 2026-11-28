@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -223,5 +224,67 @@ func TestOnlyTheWordsThatNameTheAccountResumeASignIn(t *testing.T) {
 	}
 	if namesAccount(&Grant{}, "en") != "" {
 		t.Fatal("words for a grant with no account")
+	}
+}
+
+// A phone that approves again with the digest it signed first, before the
+// callback named the account in the words, is answered as before the
+// account was named: the sign-in revoked and a new link, never a dead end
+// (409), and never a resume, since those words name no account. The words
+// go back to the ones asked, and the next sign-in names its own account.
+func TestApprovingAgainWithTheFirstDigestGetsANewLink(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	id, _ := e.request()
+	g0, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := g0.digestIn("en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": first}, e.phone, "")
+	if st != 200 {
+		t.Fatalf("approve: %d %v", st, out)
+	}
+	e.signIn(out["sign_in_url"].(string))
+	g, _ := e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusSignedIn || g.Account == "" || g.Text == g0.Text || g.AskedText != g0.Text {
+		t.Fatalf("signed in: %s %q, words %q, asked %q", g.Status, g.Account, g.Text, g.AskedText)
+	}
+	time.Sleep(1100 * time.Millisecond) // past the replay window for the same body
+	st, out = e.do("POST", "/v1/accounts/"+tenant+"/grants/"+id+"/approve", map[string]string{"digest": first}, e.phone, "")
+	if st != 200 || out["confirm"] != nil || out["sign_in_url"] == nil {
+		t.Fatalf("the first digest again: %d %v", st, out)
+	}
+	g, _ = e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusApproved || g.Text != g0.Text || g.AskedTexts != nil {
+		t.Fatalf("after the new link: %s, words %q", g.Status, g.Text)
+	}
+	// The digest of the words as asked is the grant's again.
+	if d, _ := g.digestIn("en"); d != first {
+		t.Fatal("the words asked weren't put back")
+	}
+	// Signing in again names the account in the words again.
+	e.signIn(out["sign_in_url"].(string))
+	g, _ = e.s.loadGrant(context.Background(), tenant, id)
+	if g.Status != StatusSignedIn || g.Text != namesAccount(g, "en") {
+		t.Fatalf("signed in again: %s %q", g.Status, g.Text)
+	}
+}
+
+// Words as asked are taken only while a sign-in waits for its confirm: once
+// connected, the first digest is no longer this grant's.
+func TestTheAskedWordsAreTakenOnlyWhileASignInWaits(t *testing.T) {
+	g := &Grant{Status: StatusConnected, AskedText: "asked", AskedTexts: map[string]string{"en": "asked"}, Text: "now", Texts: map[string]string{"en": "now"}}
+	request, _ := json.Marshal(g.Request)
+	sum, _ := digestV2(request, "en", "asked")
+	if _, _, ok := g.signed(sum); ok {
+		t.Fatal("the asked words were taken on a connected grant")
+	}
+	g.Status = StatusSignedIn
+	if lang, text, ok := g.signed(sum); !ok || lang != "en" || text != "asked" {
+		t.Fatalf("signed in: %q %q %v", lang, text, ok)
 	}
 }
