@@ -245,6 +245,13 @@ type Session interface {
 	Close(ctx context.Context) ([]byte, error)
 }
 
+// Looker is a session that reads the page it shows now, without acting:
+// the facts, masked, as Open returns them. A hand-over's view checks each
+// page the person lands on with it (planque's hosted_hand.go).
+type Looker interface {
+	Look(ctx context.Context) (Page, error)
+}
+
 // Resumer is a worker whose sessions outlive one planque request: the
 // sign-in view finds its session again by id on each frame and input.
 type Resumer interface {
@@ -393,7 +400,7 @@ func Mask(p Page, maxText int) Page {
 
 // cardRun is a run of 13 to 19 digits, spaces or dashes between groups
 // allowed, as a card number is written.
-var cardRun = regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`)
+var cardRun = regexp.MustCompile(`\b(?:\d[ .-]?){12,18}\d\b`)
 
 // MaskText is text with every card number in it masked to its last four
 // digits: a run of 13 to 19 digits that passes the Luhn check, with or

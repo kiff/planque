@@ -170,6 +170,16 @@ var browserTools = []browserTool{
 // handTool says t is one of the hand-over's two tools.
 func handTool(t string) bool { return t == browseHand || t == browseHandResult }
 
+// handOffered says the hand-over's tools are offered for b's driver: the
+// owner's Chrome's while ChromeHand is on, the hosted browser's while
+// HostedHand is (hosted_hand.go).
+func handOffered(b *BrowserRequest, chromeHand, hostedHand bool) bool {
+	if b.Driver == DriverExtension {
+		return chromeHand
+	}
+	return hostedHand
+}
+
 func browserToolNamed(name string) (browserTool, bool) {
 	i := slices.IndexFunc(browserTools, func(t browserTool) bool { return t.Name == name })
 	if i < 0 {
@@ -195,7 +205,7 @@ func browserMCPTools() []mcpTool {
 // browserAsk checks a browser grant's ask and gives its request, tools and
 // profile. pay is whether the hosted browser pays (Server.BrowserPay): off,
 // browse_pay is neither offered nor taken there.
-func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
+func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, hostedHand, pay bool) (*BrowserRequest, []ToolRequest, json.RawMessage, string) {
 	if b == nil {
 		b = &BrowserRequest{}
 	}
@@ -246,8 +256,9 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*Browse
 			if t.Name == browsePay && (b.Driver == DriverExtension || !pay) {
 				continue
 			}
-			// The hand-over is the owner's Chrome's, and only once it's on.
-			if handTool(t.Name) && (b.Driver != DriverExtension || !hand) {
+			// The hand-over, in the owner's Chrome or the hosted browser,
+			// only once it's on for that driver.
+			if handTool(t.Name) && !handOffered(b, hand, hostedHand) {
 				continue
 			}
 			tools = append(tools, ToolRequest{Tool: t.Name, Name: t.Name})
@@ -271,10 +282,10 @@ func browserAsk(b *BrowserRequest, asked []ToolRequest, hand, pay bool) (*Browse
 			t.Title = bt.Title
 		}
 		pays = pays || t.Tool == browsePay
-		if handTool(t.Tool) && b.Driver != DriverExtension {
-			return nil, nil, nil, t.Tool + " is the owner's Chrome's only: a hosted browser has no person to hand a step to"
-		}
-		if handTool(t.Tool) && !hand {
+		if handTool(t.Tool) && !handOffered(b, hand, hostedHand) {
+			if b.Driver != DriverExtension {
+				return nil, nil, nil, t.Tool + " isn't offered in the hosted browser yet"
+			}
 			return nil, nil, nil, t.Tool + " isn't offered yet"
 		}
 	}
@@ -591,8 +602,12 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if code, why := browser.Allowed(a.URL, sites); code != "" {
 		return OpNotSent, browserRefusal(code, why, false)
 	}
-	// The owner's sign-in view holds the browser: the taf waits.
-	if s.signingIn(ctx, g) {
+	// The owner's sign-in view, or a step handed to them, holds the
+	// browser: the taf waits.
+	if open, err := s.openSignIn(ctx, g); err == nil && open != nil {
+		if open.Hand != "" {
+			return OpNotSent, browserRefusal(CodeSigningIn, "a step is handed to the person on this connection (hand "+open.Hand+"); wait for them, and read their answer with "+grantToolName(g, browseHandResult), false)
+		}
 		return OpNotSent, browserRefusal(CodeSigningIn, "the owner is signing in to a site on this connection; try again when they're done", false)
 	}
 	for i, st := range a.Steps {
@@ -611,6 +626,9 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	}
 	if a.Offset != 0 {
 		return OpNotSent, browserRefusal(CodeBadArguments, "offset pages a read in the owner's Chrome only", false)
+	}
+	if tool.Tool == browseHand {
+		return s.hostedHand(ctx, g, p, a, sites)
 	}
 	if tool.Tool == browsePay {
 		// Before the browser opens: the checkout must have been read, so

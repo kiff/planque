@@ -20,3 +20,9 @@ func killGroup(cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+// noCoreDumps sets this process's core-file limit to zero; the browser it
+// starts inherits it.
+func noCoreDumps() error {
+	return syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{Cur: 0, Max: 0})
+}

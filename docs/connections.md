@@ -388,6 +388,32 @@ The token in the URL is the only credential, as a sign-in link's is: it
 is random, hashed at rest, bound to one grant's one open view, and spent
 by Done or the lapse.
 
+
+### "Your turn" in the hosted browser
+
+With `PLANQUE_HOSTED_HAND=on`, a hosted browser grant also gets the
+hand-over's two tools, `browse_hand` and `browse_hand_result`, as the
+owner's Chrome has them. `browse_hand {url, words, read?, ref?}` opens the
+page in the grant's browser (its sites only) and keeps that session open as
+the grant's view; it answers `{state: "handed", hand, site}` at once. A page
+that takes a payment (a card field, a payment frame, or a control that pays)
+is never handed over (`payment_step`). While the step is the person's, the
+taf's other calls on the grant are refused (`signing_in`, naming the hand).
+
+The phone asks for the view, signed, with
+`POST /v1/accounts/{tenant}/grants/{id}/hands/{hand}/view`: `{view, expires,
+site, words}`, a one-time URL to the same live view as the sign-in view's,
+until the hand-over lapses (ten minutes); a second ask makes the first URL
+useless. The view's title is the site, from the page, and the taf's words
+are shown under it in quotes. Before each of the person's inputs, on each
+frame and at Done, planque reads the page the session shows: on a page that
+takes a payment, or off the grant's sites, nothing more is sent, the view
+ends, nothing is kept, and the taf reads `declined`. Done seals what the
+site kept as the grant's sign-in, over the version the session opened
+with, and the taf reads `done`; `POST …/hands/{hand}/decline` (the app's
+Not now) ends it with nothing kept (`declined`). A view not finished in ten
+minutes reads `expired`. `browse_hand_result {hand}` gives the answer once.
+
 ### The worker
 
 The worker (`cmd/browserworker`, `internal/browserworker`) is a headless

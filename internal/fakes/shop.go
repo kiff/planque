@@ -24,6 +24,9 @@ type Shop struct {
 	Ship     [3]string
 	Paid     []string
 	PayCalls int
+	// Exp is each paid order's expiry as received: "MM / YY", or the
+	// month and year fields joined by "/".
+	Exp []string
 }
 
 // NewShop serves the shop on loopback, plain http; NewTLSShop over TLS
@@ -111,13 +114,29 @@ func (s *Shop) handler() http.Handler {
 		if r.URL.Query().Get("two") == "1" {
 			second = `<button formaction=/pay/place>Buy now</button>`
 		}
+		// ?end= picks the page after the order: "failed" (a payment that
+		// didn't go through) or "plain" (no confirmation, no reference).
+		action := "/pay/place"
+		if end := r.URL.Query().Get("end"); end != "" {
+			action += "?end=" + end
+		}
+		card := `<label>Card number <input name=cardnumber autocomplete=cc-number inputmode=numeric></label>
+<label>Expiry <input name=exp autocomplete=cc-exp></label>
+<label>Security code <input name=cvc autocomplete=cc-csc></label>`
+		switch {
+		case r.URL.Query().Get("split") == "1":
+			card = `<label>Card number <input name=cardnumber autocomplete=cc-number inputmode=numeric></label>
+<label>Month <input name=expm autocomplete=cc-exp-month maxlength=2></label>
+<label>Year <input name=expy autocomplete=cc-exp-year maxlength=2 placeholder=YY></label>
+<label>Security code <input name=cvc autocomplete=cc-csc></label>`
+		case r.URL.Query().Get("frame") == "1":
+			card = `<iframe name=__privateStripeFrame title="Secure card payment input frame" src="https://js.stripe.com/v3/elements-inner-card.html" width=400 height=60></iframe>`
+		}
 		fmt.Fprint(w, page("Checkout", `<h1>Checkout</h1><table class=order>
 <tr class=line><td>Blue pen × 2</td><td>2.50 EUR</td></tr>
 <tr><td>Total</td><td>`+s.Total+` `+s.Currency+`</td></tr></table>`+ship+`
-<form method=post action=/pay/place>
-<label>Card number <input name=cardnumber autocomplete=cc-number inputmode=numeric></label>
-<label>Expiry <input name=exp autocomplete=cc-exp></label>
-<label>Security code <input name=cvc autocomplete=cc-csc></label>
+<form method=post action=`+action+`>
+`+card+`
 <label>Name on card <input name=ccname autocomplete=cc-name></label>
 <input type=hidden name=trap autocomplete=cc-number>
 <button>Place order</button>`+second+`</form>`))
@@ -130,13 +149,39 @@ func (s *Shop) handler() http.Handler {
 			}
 			return -1
 		}, r.Form.Get("cardnumber"))
-		if len(num) < 13 || r.Form.Get("exp") == "" || r.Form.Get("cvc") == "" {
+		exp := r.Form.Get("exp")
+		if exp == "" && r.Form.Get("expm") != "" {
+			exp = r.Form.Get("expm") + "/" + r.Form.Get("expy")
+		}
+		if len(num) < 13 || exp == "" || r.Form.Get("cvc") == "" {
 			fmt.Fprint(w, page("Checkout", `<p>Your card was declined.</p><form method=post action=/pay/place><label>Card number <input name=cardnumber autocomplete=cc-number></label><button>Place order</button></form>`))
 			return
 		}
 		s.PayCalls++
 		s.Paid = append(s.Paid, num[len(num)-4:])
-		http.Redirect(w, r, "/pay/done", http.StatusSeeOther)
+		s.Exp = append(s.Exp, exp)
+		switch r.URL.Query().Get("end") {
+		case "failed":
+			http.Redirect(w, r, "/pay/failed", http.StatusSeeOther)
+		case "plain":
+			http.Redirect(w, r, "/pay/next", http.StatusSeeOther)
+		case "unprocessed", "refonly":
+			http.Redirect(w, r, "/pay/"+r.URL.Query().Get("end"), http.StatusSeeOther)
+		default:
+			http.Redirect(w, r, "/pay/done", http.StatusSeeOther)
+		}
+	})
+	mux.HandleFunc("/pay/failed", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Payment", fmt.Sprintf(`<p>Your payment didn't go through. Order A-%d was not completed.</p>`, 1000+s.PayCalls)))
+	})
+	mux.HandleFunc("/pay/unprocessed", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Order", fmt.Sprintf(`<p>Order A-%d couldn't be processed.</p>`, 1000+s.PayCalls)))
+	})
+	mux.HandleFunc("/pay/refonly", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Order", fmt.Sprintf(`<p>Order A-%d</p>`, 1000+s.PayCalls)))
+	})
+	mux.HandleFunc("/pay/next", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Next steps", `<p>We'll email you shortly.</p>`))
 	})
 	mux.HandleFunc("/pay/done", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, page("Thank you", fmt.Sprintf(`<p>Thank you. Order A-%d placed. Total %s %s.</p>`, 1000+s.PayCalls, s.Total, s.Currency)))
