@@ -280,13 +280,26 @@ The account-authenticated catalog endpoints include upstream discovery:
    browser closed before its redirect, so no callback; or a callback whose
    code never reached the app) is never stuck until its deadline. The device
    that approved signs `/approve` again, and planque asks the provider:
-   - signed in there: the grant is finished as the callback finishes it, and
-     the answer is `{status: "signed_in", confirm, confirm_by}`. The device
-     confirms with that code through `/confirm`, as with the browser's. A
-     code the callback minted before no longer confirms;
-   - not signed in there: a fresh sign-in link for the same grant,
-     `{status: "approved", sign_in_url, app_name, expires_at}`, and the unfinished
-     provider account is revoked.
+   - signed in there, to an account the provider names (read from the
+     provider, server to server): the grant is finished as the callback
+     finishes it, and its words now name that account ("You're already
+     signed in, to the account …"). The answer is `409` with code
+     `words_changed`, and no code and no link: the app reads the words again
+     and the owner approves them;
+   - those words approved, by the same device, before `confirm_by`:
+     `{status: "signed_in", account, confirm, confirm_by}`. The device
+     confirms with that code through `/confirm`. A code minted before no
+     longer confirms;
+   - anything else (not signed in there, no account named, or words that
+     don't name it): a fresh sign-in link for the same grant,
+     `{status: "approved", sign_in_url, app_name, expires_at}`, the
+     unfinished provider account revoked, and the words back to the ones
+     asked.
+
+   No code is ever answered over words that don't name the account the
+   provider says the sign-in is in, so a sign-in someone else finished with
+   their own account is never confirmed on the device alone. A callback
+   that reaches planque names the account in the words too.
 
    Another device gets 403. `DELETE …/grants/{id}` cancels a connection
    still waiting on its sign-in, as it disconnects any other.

@@ -733,6 +733,7 @@ func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a 
 	g.Approval, g.Status = &a, StatusApproved
 	g.HeldUntil = exp.UTC()
 	g.Account, g.ConfirmHash, g.ConfirmBy = "", "", time.Time{}
+	askedWordsBack(g)
 	g.event(s.now(), what)
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		_, _ = p.Revoke(r.Context(), id, auth.Account)
@@ -746,39 +747,80 @@ func (s *Server) startConnectorSignIn(w http.ResponseWriter, r *http.Request, a 
 // resumeConnectorSignIn answers the approving device asking again about a
 // sign-in under way: the provider's redirect never reached the callback
 // (its page, or the browser closing first), or the callback's never reached
-// the app, and a second approve answered 409 until the deadline passed
-// (kiff/planque#87, on the phone). planque asks the provider instead. Signed
-// in there: g is finished as the callback finishes it, and the device gets
-// the code it confirms with, as from the callback's link. Not signed in: a
-// fresh sign-in link for this same grant, and the unfinished one is revoked,
-// so no account it might still make stays live at the provider unbound.
+// the app (kiff/planque#87). The code goes to that device only over words
+// it signed that name the account the provider says the sign-in is in, as
+// for a vendor's own sign-in: never on the device alone, which would hand a
+// sign-in finished with someone else's account to whoever approves again.
+//   - Signed in at the provider while approved: planque finishes it as the
+//     callback does, naming the account in the words, and answers 409
+//     words_changed with no code and no link: the app reads the words again,
+//     and the owner's next approval of them gets the code.
+//   - Signed in here, those exact words approved before confirm_by: a new
+//     code (the old one no longer confirms).
+//   - Anything else (no account named, other words, not signed in at the
+//     provider): the unfinished sign-in is revoked at the provider and a
+//     new link given for this same grant.
+//
+// Another device is refused, and nothing changes.
 func (s *Server) resumeConnectorSignIn(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant, p connector.Provider) {
 	if g.Approval == nil || !g.Approval.SameSigner(sr.approval) {
 		writeErr(w, http.StatusForbidden, "only the device that approved this connection may finish its sign-in")
 		return
 	}
+	text := sr.approval.Text
+	if g.Status == StatusSignedIn {
+		if accountLabel(g) != "" && text != "" && text == namesAccount(g, sr.approval.Lang) && s.now().Before(g.ConfirmBy) {
+			code := oauth.Random(24)
+			sum := sha256.Sum256([]byte(code))
+			g.ConfirmHash = hex.EncodeToString(sum[:])
+			g.event(s.now(), "the approving device approved again before confirming, naming the account "+accountLabel(g)+": the sign-in was kept, with a new code for that device")
+			if err := s.saveGrant(r.Context(), g); err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "account": accountLabel(g), "confirm": code, "confirm_by": g.ConfirmBy})
+			return
+		}
+		s.restartConnectorSignIn(w, r, sr, g, p, "an unconfirmed sign-in was revoked "+sr.approval.Who()+": the words approved didn't name its account")
+		return
+	}
 	err := s.checkConnector(r.Context(), g)
 	switch {
+	case err == nil && accountLabel(g) == "":
+		// The provider names no account: nothing for the owner to see and
+		// approve, so no resume.
+		s.restartConnectorSignIn(w, r, sr, g, p, "sign-in started again "+sr.approval.Who()+": the provider named no account for the first")
 	case err == nil:
-		_, code, err := s.signedInConnector(r.Context(), g, "signed in, as the provider says: its sign-in page never came back; waiting for the approving device to confirm")
-		if err != nil {
+		if _, _, err := s.signedInConnector(r.Context(), g, "signed in, as the provider says, to the account "+accountLabel(g)+": its sign-in page never came back; the words now name that account, for the approving device to approve again"); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "confirm": code, "confirm_by": g.ConfirmBy})
+		s.fail(w, r, apiCoded{apiError{http.StatusConflict, "the sign-in finished, to the account " + accountLabel(g) + ": the words now name that account, so read them again and approve them to confirm"}, CodeWordsChanged, ""})
 	case errors.Is(err, connector.ErrAccount):
-		old := *g.Connector
-		if !s.startConnectorSignIn(w, r, sr.approval, g, p, "sign-in started again "+sr.approval.Who()+": the first never finished") {
-			return
-		}
-		if old.Account != "" && old.Account != g.Connector.Account {
-			if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
-				s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
-			}
-		}
+		s.restartConnectorSignIn(w, r, sr, g, p, "sign-in started again "+sr.approval.Who()+": the first never finished")
 	default:
 		// The provider couldn't say: nothing changed, and asking again later can.
 		s.fail(w, r, err)
+	}
+}
+
+// CodeWordsChanged: a re-approval found the sign-in finished, and the words
+// now name its account; the app reads them again, and the next approval of
+// them confirms.
+const CodeWordsChanged = "words_changed"
+
+// restartConnectorSignIn gives the approving device a new link for this
+// same grant and revokes the unfinished sign-in at the provider, so no
+// account it made stays live there unbound.
+func (s *Server) restartConnectorSignIn(w http.ResponseWriter, r *http.Request, sr signedRequest, g *Grant, p connector.Provider, what string) {
+	old := *g.Connector
+	if !s.startConnectorSignIn(w, r, sr.approval, g, p, what) {
+		return
+	}
+	if old.Account != "" && old.Account != g.Connector.Account {
+		if _, err := p.Revoke(r.Context(), s.connectorIdentity(g), old.Account); err != nil {
+			s.log().WarnContext(r.Context(), "unfinished sign-in not revoked", append([]any{slog.String("grant", g.ID)}, errAttrs(err)...)...)
+		}
 	}
 }
 
@@ -798,6 +840,9 @@ func (s *Server) signedInConnector(ctx context.Context, g *Grant, what string) (
 	sum := sha256.Sum256([]byte(code))
 	g.Account, g.ConfirmHash, g.ConfirmBy = g.Connector.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
 	g.Status = StatusSignedIn
+	// From here the words the phone signs name the account the provider
+	// says this sign-in is in, so a resume covers it (resumeConnectorSignIn).
+	nameAccountInWords(g)
 	g.HeldUntil = time.Time{}
 	g.event(s.now(), what)
 	if err := s.saveGrant(ctx, g); err != nil {

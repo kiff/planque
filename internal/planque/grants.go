@@ -1239,13 +1239,52 @@ func (g *Grant) signed(sum string) (lang, text string, ok bool) {
 // to resume a sign-in it never confirmed. An account's name inside other
 // words never stands for it; "" when g names no account.
 func namesAccount(g *Grant, lang string) string {
-	if g.Account == "" {
+	account := accountLabel(g)
+	if account == "" {
 		return ""
 	}
 	if lang == "" {
 		lang = "en"
 	}
-	return requestText(words.Approve(lang), g.Request, true, g.Account)
+	return accountWords(words.Approve(lang), g.Request, account)
+}
+
+// accountWords are q's words once its sign-in is in account, naming it. A
+// managed app's own sign-in (not one reused) gets the account's line before
+// its app's, and, with no actions asked yet, says they come next instead of
+// asking to sign in, which is done: the same sentences a reused sign-in's
+// words use, so every language has them.
+func accountWords(w words.Approval, q Request, account string) string {
+	if q.Connector == nil || q.Reuse != "" {
+		return requestText(w, q, true, account)
+	}
+	text := connectorText(w, q)
+	if len(q.Tools) == 0 {
+		text = strings.TrimSuffix(text, w.SignInThenChoose) + w.ReusedNext
+	}
+	return fmt.Sprintf(w.SignedInToF, account) + text + appWords(w, q)
+}
+
+// nameAccountInWords writes g's words to name the account it signed in to,
+// keeping the words as asked (once) for a phone that approves again with
+// the digest it signed first. Nothing when g names no account.
+func nameAccountInWords(g *Grant) {
+	account := accountLabel(g)
+	if account == "" {
+		return
+	}
+	if g.AskedTexts == nil {
+		g.AskedText, g.AskedTexts = g.Text, g.Texts
+	}
+	g.Text, g.Texts = texts(func(w words.Approval) string { return accountWords(w, g.Request, account) })
+}
+
+// askedWordsBack puts g's words back to the ones asked, when a sign-in that
+// named its account in them ends unconfirmed.
+func askedWordsBack(g *Grant) {
+	if g.AskedTexts != nil {
+		g.Text, g.Texts, g.AskedText, g.AskedTexts = g.AskedText, g.AskedTexts, "", nil
+	}
 }
 
 // grantView is a grant as planque shows it: never a secret.
@@ -2426,9 +2465,7 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
 		// The words go back to the ones asked: the account they named is
 		// no longer signed in, and the next sign-in names its own.
-		if g.AskedTexts != nil {
-			g.Text, g.Texts, g.AskedText, g.AskedTexts = g.AskedText, g.AskedTexts, "", nil
-		}
+		askedWordsBack(g)
 		g.event(s.now(), "an unconfirmed sign-in was revoked")
 	}
 	clientID := ""
@@ -2697,10 +2734,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		// is in, so an approval before the confirm (a resume, when the way
 		// back to the app was lost) covers it: never a sign-in finished with
 		// someone else's account.
-		if g.AskedTexts == nil {
-			g.AskedText, g.AskedTexts = g.Text, g.Texts
-		}
-		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account) })
+		nameAccountInWords(g)
 	}
 	g.event(s.now(), "Signed in to "+vendorName(g)+accountNote(g.Account)+"; waiting for the phone to confirm")
 	if err := s.saveGrant(r.Context(), g); err != nil {
