@@ -94,3 +94,24 @@ func TestARunClaimIsKeptOnlyAsARunsID(t *testing.T) {
 		}
 	}
 }
+
+// KIFF signs the relay's pins as strings and booleans (kiff/cloud step 3): the relay reads exactly those, and a
+// value of another kind reads as not signed. No claim at all is told apart from an empty one.
+func TestAPermitsPinsAreReadAsStringsAndBooleans(t *testing.T) {
+	got := pinsOf(map[string]json.RawMessage{
+		"status": json.RawMessage(`"draft"`), "report_einvoicing": json.RawMessage(`false`),
+		"metadata.kiff_op": json.RawMessage(`"op_1"`), "amount": json.RawMessage(`12`), "nested": json.RawMessage(`{"a":1}`),
+	})
+	want := map[string]any{"status": "draft", "report_einvoicing": false, "metadata.kiff_op": "op_1"}
+	if len(got) != len(want) {
+		t.Fatalf("pins %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %v, want %v", k, got[k], v)
+		}
+	}
+	if pinsOf(nil) != nil {
+		t.Error("no claim reads as no pins")
+	}
+}
