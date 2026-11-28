@@ -487,6 +487,7 @@ The check runs on its own worker route (`POST /health`), never as a taf's sessio
 - it takes no input, runs no step, fills and submits nothing;
 - every request that isn't a GET or HEAD is failed in the browser before it leaves (CDP `Fetch`), the page's own script, its frames and its workers included;
 - no service worker can be registered, and the page's requests bypass any;
+- no socket opens: `WebSocket` and `WebTransport` are taken away in its documents, socket addresses (`ws://`, `wss://`) are blocked on every target, and no worker can start (a socket in a worker isn't blocked by address); WebRTC is gone, as in every session;
 - the egress holds it to the one site, and downloads are denied.
 
 It follows the site's own redirects and scripts to read where a signed-out
@@ -498,7 +499,7 @@ the state it started from. A signed-out verdict is for the owner's own step;
 planque never signs in for them.
 
 Each page on the list is reviewed: opening it must change nothing on the
-account, and it's never a page that pays. A site not on the list has no check.
+account, it's never a page that pays, and its own scripts don't act on load. A site not on the list has no check.
 
 ### "Your turn" in the hosted browser
 

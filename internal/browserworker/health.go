@@ -9,10 +9,31 @@ import (
 	"github.com/kiff/planque/internal/browser"
 )
 
-// noServiceWorker takes service worker registration away from a health
-// check's documents: a service worker's own requests are outside the page's
-// interception, so none may start.
-const noServiceWorker = `(() => { try { if (navigator.serviceWorker) Object.defineProperty(navigator.serviceWorker, "register", {value: () => Promise.reject(new Error("no service workers in a health check")), configurable: false}); } catch (e) {} })();`
+// noServiceWorker takes from a health check's documents what its request
+// interception can't see: registering a service worker (whose own requests
+// are outside it), sockets (WebSocket, WebTransport), whose messages never
+// pause, and workers (Worker, SharedWorker), in which a socket isn't blocked
+// by address (measured). A check needs none of them. WebRTC is already gone (noWebRTC). Socket addresses are also
+// blocked at the network layer (socketBlock), frames and workers included.
+const noServiceWorker = `(() => {
+  const refuse = (what) => function () { throw new Error(what + " isn't allowed in a sign-in check"); };
+  try { if (navigator.serviceWorker) Object.defineProperty(navigator.serviceWorker, "register", {value: () => Promise.reject(new Error("no service workers in a sign-in check")), configurable: false}); } catch (e) {}
+  for (const name of ["WebSocket", "WebTransport", "Worker", "SharedWorker"]) {
+    try { Object.defineProperty(window, name, {value: refuse(name), configurable: false, writable: false}); } catch (e) {}
+  }
+})();`
+
+// socketBlock are the addresses a health session's targets never reach:
+// every socket, whatever its host.
+var socketBlock = []string{"ws://*", "wss://*"}
+
+// blockSockets blocks socket addresses on one of a health session's targets.
+func (s *session) blockSockets(ctx context.Context, sid string) error {
+	if err := s.c.call(ctx, sid, "Network.enable", nil, nil); err != nil {
+		return err
+	}
+	return s.c.call(ctx, sid, "Network.setBlockedURLs", map[string]any{"urls": socketBlock}, nil)
+}
 
 // healthSettle is how long a health check waits, after the page loads, for
 // a site that sends a signed-out visitor to its sign-in page by script.
@@ -105,6 +126,12 @@ func readOnlyMethod(method string) bool { return method == "GET" || method == "H
 // run: no request of a health check goes out unchecked.
 func (s *session) readOnlyTarget(ctx context.Context, p attachedTarget) bool {
 	err := s.c.call(ctx, p.SessionID, "Fetch.enable", map[string]any{"patterns": []map[string]string{{"urlPattern": "*", "requestStage": "Request"}}}, nil)
+	if err == nil {
+		err = s.blockSockets(ctx, p.SessionID)
+	}
+	if err == nil && (p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page") {
+		err = s.c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil)
+	}
 	if err == nil {
 		return true
 	}

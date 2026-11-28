@@ -235,6 +235,9 @@ func (s *session) attach(ctx context.Context, kept []byte, allowDownloads bool) 
 		if err := s.c.call(ctx, s.sid, "Network.setBypassServiceWorker", map[string]any{"bypass": true}, nil); err != nil {
 			return err
 		}
+		if err := s.blockSockets(ctx, s.sid); err != nil {
+			return err
+		}
 		s.c.handle(s.readOnly)
 		if err := s.c.call(ctx, s.sid, "Fetch.enable", map[string]any{"patterns": []map[string]string{{"urlPattern": "*", "requestStage": "Request"}}}, nil); err != nil {
 			return err

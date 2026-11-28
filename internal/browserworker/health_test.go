@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kiff/planque/internal/browser"
 )
@@ -18,9 +19,9 @@ import (
 // visitor, sent to /login otherwise (by redirect, or by script at /account-js).
 // /trap tries, on load, to post, beacon and submit a form. writes counts every
 // request it received that wasn't a GET or HEAD.
-func healthSite(t *testing.T) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
+func healthSite(t *testing.T) (*httptest.Server, *atomic.Int64, *atomic.Int64, *atomic.Int64) {
 	t.Helper()
-	var writes, workers atomic.Int64
+	var writes, workers, sockets atomic.Int64
 	mux := http.NewServeMux()
 	signedIn := func(r *http.Request) bool {
 		c, err := r.Cookie("session")
@@ -29,6 +30,13 @@ func healthSite(t *testing.T) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			writes.Add(1)
+		}
+		// A socket's opening reaches the site as a GET with an Upgrade: counted
+		// as a write, since its messages would act.
+		if r.Header.Get("Upgrade") != "" {
+			sockets.Add(1)
+			http.Error(w, "no sockets here", http.StatusBadRequest)
+			return
 		}
 		w.Header().Set("Content-Type", "text/html")
 		switch r.URL.Path {
@@ -51,19 +59,21 @@ func healthSite(t *testing.T) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
 		case "/trap":
 			fmt.Fprint(w, `<html><body><h1>Your account</h1><form id="f" method="post" action="/write"><input name="x" value="1"></form>
 <script>fetch("/write",{method:"POST",body:"x"}).catch(()=>{});navigator.sendBeacon("/write","x");
+try{const s=new WebSocket("ws://"+location.host+"/sock");s.onopen=()=>s.send("act")}catch(e){}
+try{const f=document.createElement("iframe");document.body.appendChild(f);const W=f.contentWindow.WebSocket;const s=new W("ws://"+location.host+"/sock");s.onopen=()=>s.send("act")}catch(e){}
 new Worker("/worker.js");navigator.serviceWorker&&navigator.serviceWorker.register("/sw.js").catch(()=>{});
 setTimeout(()=>document.getElementById("f").submit(),300)</script></body></html>`)
 		case "/worker.js", "/sw.js":
 			workers.Add(1)
 			w.Header().Set("Content-Type", "text/javascript")
-			fmt.Fprint(w, `fetch("/write",{method:"POST",body:"from a worker"}).catch(()=>{});`)
+			fmt.Fprint(w, `fetch("/write",{method:"POST",body:"from a worker"}).catch(()=>{});try{new WebSocket("ws://"+location.host+"/sock")}catch(e){}`)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
-	return s, &writes, &workers
+	return s, &writes, &workers, &sockets
 }
 
 // signedInState is a browser state holding the site's sign-in cookie.
@@ -81,7 +91,7 @@ func signedInState(t *testing.T, s *httptest.Server) []byte {
 // reaches the site with none of them.
 func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 	w := worker(t)
-	s, writes, workers := healthSite(t)
+	s, writes, workers, sockets := healthSite(t)
 	host := func() string { u, _ := url.Parse(s.URL); return u.Hostname() }()
 	ctx := context.Background()
 	check := func(path string, state []byte) browser.HealthResult {
@@ -107,17 +117,42 @@ func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 		t.Fatalf("sent to sign in by script: %+v", r)
 	}
 	r = check("/trap", signedInState(t, s))
-	// The dedicated worker ran (its script was fetched), and its post too was failed.
-	if workers.Load() == 0 {
-		t.Fatal("the trap's worker never started: the test proves nothing about workers")
+	// No worker started (a check has none: a socket in a worker isn't blocked
+	// by address), and no socket reached the site, the one borrowed from a
+	// blank frame included.
+	if workers.Load() != 0 {
+		t.Fatalf("a worker started in a check: %d", workers.Load())
 	}
-	if writes.Load() != 0 {
-		t.Fatalf("%d requests that write reached the site", writes.Load())
+	if writes.Load() != 0 || sockets.Load() != 0 {
+		t.Fatalf("%d requests that write and %d sockets reached the site", writes.Load(), sockets.Load())
 	}
 	if r.Blocked == 0 {
 		t.Fatalf("the trap's writes weren't failed: %+v", r)
 	}
 	if w.Open() != 0 {
 		t.Fatalf("%d sessions left open", w.Open())
+	}
+}
+
+// The trap is real: in an ordinary session (not a check), the same page's
+// socket reaches the site and its worker starts. So the check's zeros are
+// the check's.
+func TestTheHealthTrapWorksOutsideACheck(t *testing.T) {
+	w := worker(t)
+	s, _, workers, sockets := healthSite(t)
+	ctx := context.Background()
+	sess, err := w.Start(ctx, browser.Start{Grant: "grt_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close(ctx)
+	if _, err := sess.Open(ctx, s.URL+"/trap"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30 && (sockets.Load() == 0 || workers.Load() == 0); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if sockets.Load() == 0 || workers.Load() == 0 {
+		t.Fatalf("outside a check, sockets %d and workers %d: the check's test would prove nothing", sockets.Load(), workers.Load())
 	}
 }

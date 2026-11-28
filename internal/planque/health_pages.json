@@ -1,4 +1,4 @@
 {
-  "_review": "Each entry is one site's fixed page for the sign-in health check: an https URL on that site that a signed-in visitor sees and a signed-out one is sent away from. Review rule: opening the URL must change nothing on the account (no mark as read, no log out, no confirm, no unsubscribe, no one-time link), and it must not be a page that pays. The check opens it with GET only, never clicks or types, and keeps only the verdict.",
+  "_review": "Each entry is one site's fixed page for the sign-in health check: an https URL on that site that a signed-in visitor sees and a signed-out one is sent away from. Review rule: opening the URL must change nothing on the account (no mark as read, no log out, no confirm, no unsubscribe, no one-time link), and it must not be a page that pays, nor one whose own scripts act on load (a GET a script sends on load can still change something on a badly built site). The check opens it with GET only, never clicks or types, and keeps only the verdict.",
   "pages": {}
 }
