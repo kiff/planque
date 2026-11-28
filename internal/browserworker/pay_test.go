@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -76,7 +79,7 @@ func newPayRig(t *testing.T) *payRig {
 
 // approved is the pay checkout as read before the payment: the lines,
 // total and currency the owner approved.
-func (r *payRig) approved(t *testing.T) browser.Checkout {
+func (r *payRig) approved(t *testing.T, path string) browser.Checkout {
 	t.Helper()
 	w := &Local{Options: Options{AllowLocal: true, NavigateWait: 20 * time.Second}}
 	ctx := context.Background()
@@ -85,7 +88,7 @@ func (r *payRig) approved(t *testing.T) browser.Checkout {
 		t.Fatal(err)
 	}
 	defer sess.Close(ctx)
-	p, err := sess.Open(ctx, r.shop.URL+"/pay")
+	p, err := sess.Open(ctx, r.shop.URL+path)
 	if err != nil || p.Checkout == nil {
 		t.Fatalf("read the pay checkout: %+v, %v", p, err)
 	}
@@ -96,7 +99,7 @@ func (r *payRig) job(t *testing.T, path string) PayJob {
 	return PayJob{
 		Checkout: "https://shop.example" + path,
 		Merchant: "shop.example",
-		Approved: r.approved(t),
+		Approved: r.approved(t, path),
 		Delivery: testDelivery,
 		Card:     testCard,
 		Arm:      func(context.Context) error { r.armed++; return nil },
@@ -203,12 +206,25 @@ func TestPayChecksTheDeliveryAddress(t *testing.T) {
 	if res, err := r.w.Pay(context.Background(), r.job(t, "/pay?fields=1")); err != nil || res.Outcome != "ordered" {
 		t.Fatalf("the address fields: %+v, %v", res, err)
 	}
+	// Another address after the approval: as text, the address check
+	// refuses it; as fields, the checkout read carries the address, so the
+	// approved checkout differs first. Either way nothing is filled.
+	text, fields := r.job(t, "/pay"), r.job(t, "/pay?fields=1")
+	if fields.Approved.Delivery == nil || fields.Approved.Delivery.Line1 != "12 rue des Lilas" {
+		t.Fatalf("the read's delivery: %+v", fields.Approved.Delivery)
+	}
 	r.shop.Ship = [3]string{"1 avenue Foch", "75116", "Paris"}
-	for _, path := range []string{"/pay", "/pay?fields=1"} {
-		res, err := r.w.Pay(context.Background(), r.job(t, path))
-		if !errors.Is(err, cardfill.ErrAddressNotShown) || res.Outcome != "not_ordered" {
-			t.Errorf("%s with another address: %+v, %v", path, res, err)
-		}
+	if res, err := r.w.Pay(context.Background(), text); !errors.Is(err, cardfill.ErrAddressNotShown) || res.Outcome != "not_ordered" {
+		t.Errorf("text, another address: %+v, %v", res, err)
+	}
+	if res, err := r.w.Pay(context.Background(), fields); err == nil || res.Outcome != "not_ordered" {
+		t.Errorf("fields, another address: %+v, %v", res, err)
+	}
+	// The approval itself names another address than the case's: refused.
+	r.shop.Ship = [3]string{"1 avenue Foch", "75116", "Paris"}
+	wrong := r.job(t, "/pay?fields=1")
+	if res, err := r.w.Pay(context.Background(), wrong); !errors.Is(err, cardfill.ErrAddressNotShown) || res.Outcome != "not_ordered" {
+		t.Errorf("the case's address isn't the page's: %+v, %v", res, err)
 	}
 	if r.armed != 1 || r.shop.PayCalls != 1 {
 		t.Errorf("armed %d, orders %d: the other address must arm and order nothing", r.armed, r.shop.PayCalls)
@@ -327,6 +343,70 @@ func TestPayOneAtATime(t *testing.T) {
 	defer w.mu.Unlock()
 	if res, err := w.Pay(context.Background(), PayJob{}); !errors.Is(err, ErrPayBusy) || res.Outcome != "not_ordered" {
 		t.Errorf("busy: %+v, %v", res, err)
+	}
+}
+
+// The checkout read carries what a purchase case is built from: shipping
+// and tax, the merchant as its structured data names it, and the delivery
+// address from the address fields, billing ones left out; two forms that
+// disagree, or text only, give no address.
+func TestCheckoutReadForAPurchaseCase(t *testing.T) {
+	if _, err := chromePath(""); err != nil {
+		t.Skip(err)
+	}
+	shop := fakes.NewShop()
+	defer shop.Close()
+	pages := map[string]string{
+		"billing": `<table><tr class=line><td>Pen × 1</td><td>4.00 EUR</td></tr><tr><td>Total</td><td>4.00 EUR</td></tr></table>
+<meta property="og:site_name" content="Pen Shop">
+<label>Street <input autocomplete="billing address-line1" value="9 Billing St"></label>
+<label>Street <input autocomplete="shipping address-line1" value="12 rue des Lilas"></label>
+<label>Zip <input autocomplete="shipping postal-code" value="69003"></label>
+<label>City <input autocomplete="shipping address-level2" value="Lyon"></label>`,
+		"two": `<table><tr class=line><td>Pen × 1</td><td>4.00 EUR</td></tr><tr><td>Total</td><td>4.00 EUR</td></tr></table>
+<input autocomplete="address-line1" value="12 rue des Lilas"><input autocomplete="postal-code" value="69003"><input autocomplete="address-level2" value="Lyon">
+<input autocomplete="address-line1" value="1 avenue Foch"><input autocomplete="postal-code" value="75116"><input autocomplete="address-level2" value="Paris">`,
+		"microdata": `<table><tr class=line><td>Pen × 1</td><td>4.00 EUR</td></tr><tr><td>Delivery</td><td>3.90 EUR</td></tr><tr><td>Total</td><td>7.90 EUR</td></tr></table>
+<div itemscope itemtype="https://schema.org/PostalAddress"><span itemprop="streetAddress">12 rue des Lilas</span> <span itemprop="postalCode">69003</span> <span itemprop="addressLocality">Lyon</span> <meta itemprop="addressCountry" content="FR"></div>`,
+		"text": `<table><tr class=line><td>Pen × 1</td><td>4.00 EUR</td></tr><tr><td>Total incl. VAT</td><td>4.00 EUR</td></tr></table><p>Deliver to 12 rue des Lilas, 69003 Lyon</p>`,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "<!doctype html><html><head><title>Checkout</title></head><body>"+pages[strings.TrimPrefix(r.URL.Path, "/")]+"</body></html>")
+	}))
+	defer srv.Close()
+	w := &Local{Options: Options{AllowLocal: true, NavigateWait: 20 * time.Second}}
+	ctx := context.Background()
+	sess, err := w.Start(ctx, browser.Start{Grant: "grt_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close(ctx)
+	read := func(u string) browser.Checkout {
+		t.Helper()
+		p, err := sess.Open(ctx, u)
+		if err != nil || p.Checkout == nil {
+			t.Fatalf("%s: %+v, %v", u, p, err)
+		}
+		return *p.Checkout
+	}
+
+	co := read(shop.URL + "/pay?fields=1")
+	want := browser.Address{Line1: "12 rue des Lilas", PostalCode: "69003", City: "Lyon", Country: "FR"}
+	if co.Shipping != "0.00" || co.Tax != "0.42" || co.Merchant == nil || *co.Merchant != (browser.Merchant{Name: "Test Pens", Country: "FR"}) ||
+		co.Delivery == nil || *co.Delivery != want || co.Total != "2.50" || len(co.Lines) != 1 {
+		t.Errorf("the pay checkout: %+v merchant %+v delivery %+v", co, co.Merchant, co.Delivery)
+	}
+	if co := read(srv.URL + "/billing"); co.Delivery == nil || co.Delivery.Line1 != "12 rue des Lilas" || co.Merchant == nil || co.Merchant.Name != "Pen Shop" || co.Merchant.Country != "" {
+		t.Errorf("billing left out, the site name: %+v %+v", co.Delivery, co.Merchant)
+	}
+	if co := read(srv.URL + "/two"); co.Delivery != nil {
+		t.Errorf("two addresses that differ: %+v", co.Delivery)
+	}
+	if co := read(srv.URL + "/microdata"); co.Delivery == nil || *co.Delivery != want || co.Shipping != "3.90" || co.Total != "7.90" {
+		t.Errorf("microdata: %+v %+v", co, co.Delivery)
+	}
+	if co := read(srv.URL + "/text"); co.Delivery != nil || co.Tax != "" || co.Merchant != nil {
+		t.Errorf("text only, and a total that names VAT: %+v %+v", co, co.Delivery)
 	}
 }
 

@@ -921,3 +921,23 @@ func TestBrowserActRunsOnlyStepsNamedByThePagesWords(t *testing.T) {
 		t.Fatalf("a button's words changed after the read: %s (sent %d)", out, e.b.Sent()-before)
 	}
 }
+
+// A purchase case is built from the checkout read: shipping, tax, the
+// merchant and the delivery address are answered and kept with the lines
+// and total, and a pay on a checkout whose delivery address changed since
+// the read sends nothing.
+func TestBrowserCheckoutCarriesTheDeliveryAddress(t *testing.T) {
+	e := newBrowserEnv(t)
+	g := e.connect()
+	e.b.Delivery = &browser.Address{Name: "Acme SAS", Line1: "12 rue des Lilas", PostalCode: "69003", City: "Lyon", Country: "FR"}
+	out, sc := e.call(g, "browse_checkout", map[string]any{"url": fakes.ShopCheckout})
+	d, _ := sc["delivery"].(map[string]any)
+	if code(sc) != "" || d["line1"] != "12 rue des Lilas" || d["postal_code"] != "69003" || d["city"] != "Lyon" || d["country"] != "FR" {
+		t.Fatalf("checkout: %s", out)
+	}
+	e.b.Delivery = &browser.Address{Line1: "1 avenue Foch", PostalCode: "75116", City: "Paris", Country: "FR"}
+	out, sc = e.call(g, "browse_pay", map[string]any{"url": fakes.ShopCheckout, "ref": "place"})
+	if code(sc) != browser.CodeCheckoutChanged || sc["sent"] != false || len(e.b.Orders) != 0 || !strings.Contains(out, "delivery address") {
+		t.Fatalf("pay after the address changed: %s", out)
+	}
+}
