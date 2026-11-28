@@ -65,6 +65,7 @@ const (
 	CodeWaitsForKey       = "waits_for_key"          // the tool is declared, and the owner hasn't given its key yet
 	CodeWaitsForApproval  = "waits_for_approval"     // an addition's tool, declared, and the owner hasn't approved it yet
 	CodeToolNotServed     = "tool_not_served"        // a managed app's tool planque never serves (connector.NeverServed), or a broad write's operation (describer.Never)
+	CodePinMismatch       = "pin_mismatch"           // what planque pins and what KIFF signed (or the body) differ, for an account that enforces pins
 )
 
 // refusal is a call refused by planque before anything was sent: its text,
@@ -336,8 +337,15 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	// What planque set on the arguments after the permit, kept with the
 	// operation, so its record says what was sent (a draft).
 	op.Pinned = pinned
-	// What it set, against what KIFF signed, both ways: logged for now; a later step refuses a difference.
+	// What it set, against what KIFF signed, both ways: logged, and for an
+	// account that enforces pins (PLANQUE_ENFORCE_PINS), any difference
+	// refuses the call before anything is sent.
 	s.logPinDiffs(ctx, g, tool, p, vendorArgs)
+	if s.enforcesPins(g.Tenant) {
+		if why := pinRefusal(toolPins(g, tool), p, vendorArgs); why != "" {
+			return s.finish(ctx, claim, op, OpNotSent, refusal(CodePinMismatch, "Not sent: "+why+"."))
+		}
+	}
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })

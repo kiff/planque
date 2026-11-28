@@ -191,6 +191,11 @@ type Server struct {
 	ManagedApps        map[string]bool
 	ManagedExcept      map[string]bool
 	ManagedTestTenants map[string]bool
+	// EnforcePins are the accounts whose relayed calls are refused on any
+	// difference between what planque pins and what KIFF signed, or the body
+	// sent (pinRefusal): PLANQUE_ENFORCE_PINS=tenants:a,b or all. For every
+	// other account a difference is only logged. None when unset.
+	EnforcePins map[string]bool
 	// FullScopes are the accounts whose sign-in to a server planque reviewed
 	// (Qonto) asks for every scope the server lists, as for any other server:
 	// the owner's Card alone decides what a taf may do. "*" is every account
