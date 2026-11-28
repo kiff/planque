@@ -645,7 +645,7 @@ func (s *Server) approveConnector(w http.ResponseWriter, r *http.Request, sr sig
 				writeErr(w, http.StatusForbidden, errAppClosed)
 				return
 			}
-			err = s.addTools(r.Context(), g, "", sr.approval)
+			err = s.addTools(r.Context(), g, sr.approval)
 		} else {
 			// A new connection: only to an app the published list names now.
 			if !s.managedOK(w, g.Tenant, g.Request.Connector.Toolkit) {

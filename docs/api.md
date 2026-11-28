@@ -125,6 +125,8 @@ and the replay check. A phone enrolled with its own key before this signs
 without `d=` and is checked against that key, until it signs as a KIFF
 device.
 
+**Whether approving takes a sign-in** is on the grant view as `sign_in`: `"needed"` (not signed in yet, or signed out) or `"none"` (a held sign-in: tools set or added on it connect on the approval, with no link). It's absent for a key's or a browser's grant. A held sign-in is used as a call uses it: its access token is refreshed when expired, and once more when the vendor refuses it. A refresh the vendor refuses signs the grant out at once, with any addition waiting dropped, so it reads `needed` before the owner taps.
+
 **The sign-in is bound to the device that approved.** The vendor sends the
 browser back to planque, which keeps the token unused and sends that
 browser on to the owner's app (`PLANQUE_APP_RETURN`, set by the operator)
