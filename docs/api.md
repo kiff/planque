@@ -158,8 +158,10 @@ addresses, checked when each connection is made.
 fetch), the relay's audience, the account, the tool, the RFC 8785 hash of
 the arguments, and a lifetime of at most 60 seconds. Each operation runs
 at most once: a replay gets the first answer, and a call whose answer was
-lost is never sent again. The vendor's answer is kept 24 hours, then
-dropped by the hourly sweep: the operation's record keeps only its outcome
+lost is never sent again. The vendor's answer is kept 24 hours, sealed
+with planque's sealer under the account and the operation (never
+readable in the record, opened only for a replay; one that doesn't open
+is answered as its outcome alone), then dropped by the hourly sweep: the operation's record keeps only its outcome
 (done, not sent, unknown), and a later replay is told the call was answered
 once, never sent again. Answers kept before that rule are dropped or given
 their expiry by a one-time clean-up, a little at each hourly sweep;
