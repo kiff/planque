@@ -60,7 +60,10 @@ type PayWorker struct {
 	mu sync.Mutex
 }
 
-// PayJob is one payment: what KIFF's signed case says, and the card.
+// PayJob is one payment: what KIFF's signed case says, and the card. No
+// PayJob is built outside tests until the single-use card's number reaches
+// the worker alone (the threat model's T3.7): nothing in planque's own code
+// path ever holds a card number to put in one.
 type PayJob struct {
 	// Checkout is the checkout's https address, on Merchant.
 	Checkout string
@@ -177,8 +180,15 @@ func (w *PayWorker) Pay(ctx context.Context, job PayJob) (cardfill.Result, error
 	if err != nil {
 		return notOrdered(err)
 	}
+	// No crash dump: the browser's crash reporter is off, and the process
+	// may write no core file, so a crash with the card in memory leaves it
+	// nowhere on disk.
+	if err := noCoreDumps(); err != nil {
+		p.Close()
+		return notOrdered(fmt.Errorf("core dumps couldn't be turned off, so nothing was started: %w", err))
+	}
 	c, err := launchIn(context.Background(), path, addr, w.AllowLocal, w.root(), payPrefix, payPrefs,
-		"--disable-features=AutofillServerCommunication", "--incognito")
+		"--disable-features=AutofillServerCommunication", "--incognito", "--disable-crash-reporter", "--disable-breakpad")
 	if err != nil {
 		p.Close()
 		return notOrdered(err)
@@ -208,6 +218,12 @@ func (w *PayWorker) Pay(ctx context.Context, job PayJob) (cardfill.Result, error
 	payRef, err := onePay(page)
 	if err != nil {
 		return notOrdered(err)
+	}
+	// Card fields inside a payment provider's cross-site frame (a Stripe
+	// element) aren't reached yet: such a checkout is refused, never
+	// half-filled.
+	if page.PaymentFrame && !slices.ContainsFunc(page.Fields, func(f browser.Field) bool { return f.Kind == "card" }) {
+		return notOrdered(errors.New("the checkout's card fields are inside the payment provider's frame, which this worker doesn't fill yet: nothing was filled or paid"))
 	}
 
 	if err := w.fill(ctx, s, job.Card); err != nil {
@@ -241,10 +257,16 @@ func (w *PayWorker) Pay(ctx context.Context, job PayJob) (cardfill.Result, error
 		w.log().Warn("pay click: outcome unknown", slog.String("merchant", job.Merchant), slog.String("err", err.Error()))
 		return unknown(errors.New("the order was placed, but what the site did with it isn't known"))
 	}
+	// Ordered only when the page after says so: it left the checkout, and
+	// it names an order reference or confirms the order in words. A
+	// "payment failed" page, or a refused 3-D Secure, is unknown, for
+	// reconciliation to settle: the owner never reads "bought" before the
+	// money says so.
 	r := cardfill.Result{Outcome: "unknown", Confirmation: confirmation(after)}
-	if placed(after, page) {
-		r.Outcome = "ordered"
-		r.OrderRef = orderRef(after.Text)
+	if placed(after, page) && !failed(after) {
+		if ref := orderRef(after.Text); ref != "" || confirmed(after) {
+			r.Outcome, r.OrderRef = "ordered", ref
+		}
 	}
 	clean, err := r.Clean(job.Card.Number)
 	if err != nil {
@@ -343,6 +365,14 @@ const focusJS = `((tok) => {
   return document.activeElement === els[0] ? 'ok' : 'unfocused';
 })`
 
+// yearTwoJS says the visible expiry-year field takes two digits: a
+// maxlength of 2, or a placeholder of two letters (YY, AA, JJ).
+const yearTwoJS = `(() => {
+  const el = [...document.querySelectorAll('input')].find(e => e.getClientRects().length > 0 &&
+    (e.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).includes('cc-exp-year'));
+  return !!el && (el.maxLength === 2 || /^[a-z]{2}$/i.test((el.placeholder || '').trim()));
+})()`
+
 // fill types the card into the checkout's card fields: the number, the
 // expiry (one field, or month and year), the security code, and the
 // name when the page has a field for it.
@@ -387,7 +417,19 @@ func (w *PayWorker) fill(ctx context.Context, s *session, card cardfill.Card) er
 		if err := typeIn("cc-exp-month", fmt.Sprintf("%02d", card.ExpMonth), true); err != nil {
 			return err
 		}
-		if err := typeIn("cc-exp-year", fmt.Sprint(card.ExpYear), true); err != nil {
+		// Two digits where the field takes two (its maxlength, or a YY
+		// placeholder), four otherwise.
+		year := fmt.Sprint(card.ExpYear)
+		var two struct {
+			Result struct {
+				Value bool `json:"value"`
+			} `json:"result"`
+		}
+		_ = s.c.call(ctx, s.sid, "Runtime.evaluate", map[string]any{"expression": yearTwoJS, "returnByValue": true}, &two)
+		if two.Result.Value {
+			year = fmt.Sprintf("%02d", card.ExpYear%100)
+		}
+		if err := typeIn("cc-exp-year", year, true); err != nil {
 			return err
 		}
 	}
@@ -431,6 +473,20 @@ func placed(after, before browser.Page) bool {
 	}
 	return !slices.ContainsFunc(after.Fields, func(f browser.Field) bool { return f.Kind == "card" })
 }
+
+// confirmWords are a confirmation page's words, in the languages tafs
+// ships; failWords are a failure's, which win over them.
+var (
+	confirmWords = regexp.MustCompile(`(?i)\b(thank you for your (order|purchase)|order (is )?(placed|confirmed|received|complete)|your order has been (placed|received|confirmed)|merci pour votre (commande|achat)|commande (confirmée|validée|enregistrée)|vielen dank für ihre bestellung|bestellung (ist )?(eingegangen|bestätigt|abgeschlossen)|gracias por (tu|su) (pedido|compra)|pedido (confirmado|realizado|recibido)|grazie per (il tuo|l'|il vostro) ?(ordine|acquisto)|ordine (confermato|ricevuto|completato)|obrigado pela sua (encomenda|compra)|encomenda confirmada|bedankt voor je (bestelling|aankoop)|bestelling (is )?(geplaatst|ontvangen|bevestigd)|dziękujemy za (zamówienie|zakup)|zamówienie (zostało )?(przyjęte|złożone|potwierdzone))`)
+	failWords    = regexp.MustCompile(`(?i)\b(declined|refused|failed|did not go through|didn't go through|unsuccessful|try again|error|refusée?|échoué|abgelehnt|fehlgeschlagen|rechazad[ao]|fallid[ao]|rifiutat[ao]|non riuscit[ao]|recusad[ao]|mislukt|geweigerd|odrzucon[ay]|nieudan[ay])\b`)
+)
+
+// confirmed says the page after the click confirms the order in words.
+func confirmed(p browser.Page) bool { return confirmWords.MatchString(p.Title + "\n" + p.Text) }
+
+// failed says the page after the click names a failure: never ordered,
+// whatever reference or thanks it also shows.
+func failed(p browser.Page) bool { return failWords.MatchString(p.Title + "\n" + p.Text) }
 
 // sameAddress: equal once a fragment is dropped; empty is never the same.
 func sameAddress(a, b string) bool {
