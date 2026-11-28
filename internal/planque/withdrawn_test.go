@@ -25,7 +25,8 @@ func decodeOffered(raw []byte, apps map[string]appconfig.Application) (map[strin
 // Qonto connects only through its own sign-in, so its key entries are withdrawn: kept in the
 // catalog, but offered to no account, the test accounts included. Not listed, not found by the tool
 // search, and a new grant for either is refused as an entry that doesn't exist. A grant made
-// before stays as it was.
+// before stays as it was, and once it's live its entry is listed to that account under its own
+// state, never as available, so it stays among the account's own with its Disconnect.
 func TestQontoByKeyIsWithdrawn(t *testing.T) {
 	raw, err := os.ReadFile("../../deploy/catalog.json")
 	if err != nil {
@@ -57,12 +58,20 @@ func TestQontoByKeyIsWithdrawn(t *testing.T) {
 	}
 
 	e.s.CatalogEntries = shipped
-	listed := func() bool {
+	// The account's listed Qonto key rows, as "entry state".
+	listed := func() []string {
 		st, out := e.do("GET", "/v1/accounts/"+tenant+"/catalog", nil, nil, "k_setup")
 		if st != 200 {
 			t.Fatalf("catalog: %d %v", st, out)
 		}
-		return strings.Contains(mustJSONString(out), `"qonto-key@`)
+		var rows []string
+		for _, x := range out["entries"].([]any) {
+			m := x.(map[string]any)
+			if id, _ := m["entry"].(string); strings.HasPrefix(id, "qonto-key@") {
+				rows = append(rows, id+" "+m["state"].(string))
+			}
+		}
+		return rows
 	}
 	found := func() bool {
 		byApp, byTool := e.s.reviewedTools(tenant, "qonto invoices", map[string]catalogEntryView{})
@@ -70,8 +79,8 @@ func TestQontoByKeyIsWithdrawn(t *testing.T) {
 	}
 	for _, testAccount := range []bool{false, true} {
 		e.s.ManagedTestTenants = map[string]bool{tenant: testAccount}
-		if listed() {
-			t.Errorf("test account %v: Qonto's key entries are listed", testAccount)
+		if rows := listed(); len(rows) != 0 {
+			t.Errorf("test account %v: Qonto's key entries are listed with no live grant: %v", testAccount, rows)
 		}
 		if found() {
 			t.Errorf("test account %v: the tool search finds Qonto's key entries", testAccount)
@@ -89,5 +98,23 @@ func TestQontoByKeyIsWithdrawn(t *testing.T) {
 	}
 	if after.Status != before.Status || mustJSONString(after.Request) != mustJSONString(before.Request) {
 		t.Fatalf("the grant made before changed: %+v, was %+v", after, before)
+	}
+
+	// Once that grant is live, the account still sees it among its own, under its state.
+	after.Status = StatusConnected
+	if err := e.s.saveGrant(t.Context(), after); err != nil {
+		t.Fatal(err)
+	}
+	for _, testAccount := range []bool{false, true} {
+		e.s.ManagedTestTenants = map[string]bool{tenant: testAccount}
+		if rows := listed(); strings.Join(rows, ",") != "qonto-key@2 connected" {
+			t.Errorf("test account %v: a live key grant's row: %v, want qonto-key@2 connected", testAccount, rows)
+		}
+		if found() {
+			t.Errorf("test account %v: the tool search finds Qonto's key entries", testAccount)
+		}
+		if st, out := e.do("POST", "/v1/accounts/"+tenant+"/catalog/qonto-key@2/grants", map[string]any{"agent": "agt_other"}, nil, "k_setup"); st != 404 {
+			t.Errorf("test account %v: a new grant beside a live one: %d %v", testAccount, st, out)
+		}
 	}
 }

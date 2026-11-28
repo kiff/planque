@@ -292,7 +292,9 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	lang := catalogLang(r)
 	for id, e := range newestRevisions(s.catalogEntries()) {
-		if !s.entryOffered(tenant, e) {
+		// A withdrawn entry is still listed, under its own state, to an account that holds a live grant on it, so
+		// that connection stays among the account's own with its Disconnect. It's never listed as available.
+		if _, held := states[id]; !s.entryOffered(tenant, e) && !(e.Withdrawn && held) {
 			continue
 		}
 		title := e.TitleIn(lang)
