@@ -104,6 +104,11 @@ type Server struct {
 	// BrowserSessions is how many sessions one account's hosted browser
 	// runs at once (PLANQUE_BROWSER_SESSIONS, 1 to 3; 1 when unset).
 	BrowserSessions int
+	// StripeProfiles reads the seller's Stripe profile with a checkout
+	// (stripe_profile.go; PLANQUE_STRIPE_PROFILE=on); UCPGet replaces its
+	// fetch in tests.
+	StripeProfiles bool
+	UCPGet         func(ctx context.Context, host string) ([]byte, error)
 	// HostedHand offers the hand-over's two tools on the hosted browser's
 	// new connections ("Your turn" through the live view, hosted_hand.go).
 	// Off unless PLANQUE_HOSTED_HAND=on (cmd/planque).

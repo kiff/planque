@@ -132,8 +132,11 @@ func (s *Shop) handler() http.Handler {
 		case r.URL.Query().Get("frame") == "1":
 			card = `<iframe name=__privateStripeFrame title="Secure card payment input frame" src="https://js.stripe.com/v3/elements-inner-card.html" width=400 height=60></iframe>`
 		}
-		fmt.Fprint(w, page("Checkout", `<h1>Checkout</h1><table class=order>
+		fmt.Fprint(w, page("Checkout", `<script type="application/ld+json">{"@context":"https://schema.org","@type":"OnlineStore","name":"Test Pens","address":{"@type":"PostalAddress","addressCountry":"FR"}}</script>
+<h1>Checkout</h1><table class=order>
 <tr class=line><td>Blue pen × 2</td><td>2.50 EUR</td></tr>
+<tr><td>Shipping</td><td>0.00 EUR</td></tr>
+<tr><td>VAT</td><td>0.42 EUR</td></tr>
 <tr><td>Total</td><td>`+s.Total+` `+s.Currency+`</td></tr></table>`+ship+`
 <form method=post action=`+action+`>
 `+card+`
