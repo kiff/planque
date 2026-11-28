@@ -44,6 +44,14 @@ type signInRecord struct {
 	// Lease is the account's browser session the view holds
 	// (browser_lease.go), freed when the view ends.
 	Lease *browserLease `json:"lease,omitempty"`
+	// Hand is the hosted hand-over this view was opened for by the taf
+	// (hosted_hand.go), with the taf's words; empty for the owner's own
+	// sign-in view. Its view has no token until the phone asks for it.
+	Hand  string `json:"hand,omitempty"`
+	Words string `json:"words,omitempty"`
+	// From is the version of the sealed sign-ins the session opened with:
+	// Done seals over that version only, never over a newer one.
+	From int64 `json:"from,omitempty"`
 }
 
 // signInToken is the view's token, hashed, pointing at its grant.
@@ -279,14 +287,25 @@ func (s *Server) browserView(w http.ResponseWriter, r *http.Request) {
 	if rec.Site != "" {
 		title, note, hint = l.ViewTitle(rec.Site), l.ViewNote(rec.Site, minutes), "https://"+rec.Site+"/…"
 	}
+	// A hand-over shows the taf's own words, as the extension does: the
+	// step is the taf's to name, and the person's to do.
+	// The site is planque's, from the page; the words are the taf's, shown
+	// in quotes as its words (a page the taf read can steer them).
+	if rec.Hand != "" {
+		title, note = rec.Site, "“"+rec.Words+"”"
+	}
 	_ = viewTmpl.Execute(w, map[string]any{"Lang": lang, "Title": title, "Note": note, "URLHint": hint, "L": l})
 }
 
 // browserViewFrame is the browser as shown now, JPEG. Never kept.
 func (s *Server) browserViewFrame(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
-	_, sess, _, why := s.viewOf(r, r.PathValue("token"))
+	g, sess, rec, why := s.viewOf(r, r.PathValue("token"))
 	if why != "" {
+		writeErr(w, http.StatusNotFound, why)
+		return
+	}
+	if why, ended := s.handOnPaymentPage(r.Context(), g, sess, rec); ended {
 		writeErr(w, http.StatusNotFound, why)
 		return
 	}
@@ -303,9 +322,17 @@ func (s *Server) browserViewFrame(w http.ResponseWriter, r *http.Request) {
 // going to a URL, which must be on the grant's sites.
 func (s *Server) browserViewInput(w http.ResponseWriter, r *http.Request) {
 	viewHeaders(w)
-	g, sess, _, why := s.viewOf(r, r.PathValue("token"))
+	g, sess, rec, why := s.viewOf(r, r.PathValue("token"))
 	if why != "" {
 		writeErr(w, http.StatusNotFound, why)
+		return
+	}
+	// A step handed over: nothing reaches a page that pays.
+	if why, ended := s.handOnPaymentPage(r.Context(), g, sess, rec); ended {
+		writeErr(w, http.StatusNotFound, why)
+		return
+	} else if why != "" {
+		writeErr(w, http.StatusConflict, why)
 		return
 	}
 	var in browser.Input
@@ -349,6 +376,11 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, why)
 		return
 	}
+	// Done on a page that pays seals nothing: the hand-over ends put off.
+	if why, ended := s.handOnPaymentPage(r.Context(), g, sess, rec); ended {
+		writeErr(w, http.StatusNotFound, why)
+		return
+	}
 	state, err := sess.Close(r.Context())
 	_, _, _ = s.KV.Delete(r.Context(), tenantPK(g.Tenant), skBrowserSignIn(g.ID))
 	_, _, _ = s.KV.Delete(r.Context(), pkSignInToken(rec.TokenSHA256), "-")
@@ -357,6 +389,14 @@ func (s *Server) browserViewDone(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log().WarnContext(r.Context(), "a sign-in view's browser didn't hand its sign-in back", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		writeErr(w, http.StatusBadGateway, l.NotHandedBack)
+		return
+	}
+	if rec.Hand != "" {
+		s.keepBrowserState(r.Context(), g, state, &rec.From)
+		_ = s.answerHandAt(r.Context(), pkHostedHand(g.ID, rec.Hand), handDone, nil)
+		g.event(s.now(), "the person did the step handed to them at "+rec.Site+" on the phone; what the site kept is sealed for the taf's calls")
+		_ = s.saveGrant(r.Context(), g)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "words": l.DoneWords})
 		return
 	}
 	s.keepBrowserState(r.Context(), g, state, nil)

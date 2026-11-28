@@ -245,6 +245,13 @@ type Session interface {
 	Close(ctx context.Context) ([]byte, error)
 }
 
+// Looker is a session that reads the page it shows now, without acting:
+// the facts, masked, as Open returns them. A hand-over's view checks each
+// page the person lands on with it (planque's hosted_hand.go).
+type Looker interface {
+	Look(ctx context.Context) (Page, error)
+}
+
 // Resumer is a worker whose sessions outlive one planque request: the
 // sign-in view finds its session again by id on each frame and input.
 type Resumer interface {
