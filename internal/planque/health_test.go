@@ -205,9 +205,8 @@ func TestATafsOwnKeyRunsTheSignInCheck(t *testing.T) {
 	}
 }
 
-// Running a check is for the connection's own taf or the agent that asked
-// for it: another taf of the same account can read what's kept, and runs
-// nothing.
+// A connection's sign-in health is for its own taf or the agent that asked
+// for it: another taf of the same account neither runs a check nor reads one.
 func TestOnlyTheConnectionsTafOrItsAskerRunsTheCheck(t *testing.T) {
 	e, g := healthEnv(t)
 	e.signIn(g, time.Now().Add(48*time.Hour))
@@ -218,8 +217,8 @@ func TestOnlyTheConnectionsTafOrItsAskerRunsTheCheck(t *testing.T) {
 	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf2"); st != 403 || len(e.b.Checks) != 0 {
 		t.Fatalf("another taf's key ran it: %d, %d checks", st, len(e.b.Checks))
 	}
-	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf2"); st != 200 {
-		t.Fatalf("another taf's key can't read what's kept: %d", st)
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf2"); st != 403 {
+		t.Fatalf("another taf's key read whether the sign-in holds: %d", st)
 	}
 	if st, _ := e.health(g, "POST"); st != 200 || len(e.b.Checks) != 1 {
 		t.Fatalf("the agent that asked: %d", st)

@@ -106,12 +106,13 @@ func (s *Server) grantHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := r.Method == http.MethodPost
-	// Running a check (it opens a browser) is for the taf the connection is
-	// for, or the agent that asked for it (Setup, which tafs cloud's reads go
-	// through): another taf's key of the account reads what's kept, and runs
-	// nothing.
-	if run && me.AgentID != g.Request.Agent && me.AgentID != g.Request.AskedBy {
-		writeErr(w, http.StatusForbidden, "only the taf this connection is for, or the agent that asked for it, runs its sign-in check")
+	// A connection's sign-in health is for the taf the connection is for, or
+	// the agent that asked for it (Setup, which tafs cloud's reads go
+	// through): another taf's key of the account neither runs a check (it
+	// takes the connection's browser slot and may reseal its sign-in) nor
+	// reads whether that sign-in holds.
+	if me.AgentID != g.Request.Agent && me.AgentID != g.Request.AskedBy {
+		writeErr(w, http.StatusForbidden, "only the taf this connection is for, or the agent that asked for it, reads or runs its sign-in check")
 		return
 	}
 	out := make([]healthSite, 0, len(g.Request.Browser.Sites))
