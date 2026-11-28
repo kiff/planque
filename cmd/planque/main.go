@@ -435,12 +435,6 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	return srv, nil
 }
 
-// refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
-// accounts offered the Stripe refunds profile. Anything else lists none.
-// chromeHandOn reads PLANQUE_CHROME_HAND: the hand-over is on by default,
-// now that KIFF's Coach names its tools for the person's own step (kiff/agents
-// browse_hand words, tafs a-browser-taf@3). Only "off" turns it off, so a
-// typo never turns it off by accident and the env can still stop it at once.
 // browserSessionsFrom reads PLANQUE_BROWSER_SESSIONS: unset is 1, and 1 to
 // 3 are taken; anything else stops planque, so a typo never runs more.
 func browserSessionsFrom(v string) (int, error) {
@@ -455,10 +449,16 @@ func browserSessionsFrom(v string) (int, error) {
 	return n, nil
 }
 
+// chromeHandOn reads PLANQUE_CHROME_HAND: the hand-over is on by default,
+// now that KIFF's Coach names its tools for the person's own step (kiff/agents
+// browse_hand words, tafs a-browser-taf@3). Only "off" turns it off, so a
+// typo never turns it off by accident and the env can still stop it at once.
 func chromeHandOn(v string) bool {
 	return strings.TrimSpace(v) != "off"
 }
 
+// refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
+// accounts offered the Stripe refunds profile. Anything else lists none.
 func refundTenants(v string) map[string]bool {
 	list, ok := strings.CutPrefix(strings.TrimSpace(v), "tenants:")
 	if !ok {
