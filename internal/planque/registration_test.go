@@ -45,3 +45,15 @@ func TestARefusedUpdateLeavesTheGrantUnstamped(t *testing.T) {
 		t.Fatalf("stamped after a refusal: %+v, %d updated", rec, e.kiff.Patched)
 	}
 }
+
+// A tool KIFF says isn't the relay's to update (403) is said once: the grant is stamped, so no call asks again.
+func TestAnUpdateThatIsntOursIsNotAskedAgain(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	e.kiff.RefusePatch = 403
+	e.s.refreshRegistration(context.Background(), g)
+	var rec registrationRecord
+	if _, err := getDoc(context.Background(), e.s.KV, tenantPK(tenant), skRegistration(g.ID), &rec); err != nil || rec.Version != kiffRegistration {
+		t.Fatalf("not stamped after 403: %+v, %v", rec, err)
+	}
+}

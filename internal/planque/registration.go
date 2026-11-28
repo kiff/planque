@@ -57,6 +57,10 @@ func (s *Server) refreshRegistration(ctx context.Context, g *Grant) {
 		case err == nil:
 		case errors.As(err, &a) && a.Status == http.StatusNotFound:
 			// The tool isn't connected in KIFF any more: nothing to update.
+		case errors.As(err, &a) && a.Status == http.StatusForbidden:
+			// KIFF says the tool isn't this relay's to update (an owner's own connection by that name): that won't
+			// change, so it's said once and not asked again on every call.
+			s.log().WarnContext(ctx, "registration update not ours", slog.String("grant", g.ID), slog.String("tool", t.Name))
 		case errors.As(err, &a) && (a.Status == http.StatusConflict || a.Status == http.StatusUnprocessableEntity):
 			s.log().WarnContext(ctx, "registration update refused", slog.String("grant", g.ID), slog.String("tool", t.Name), slog.String("why", a.Msg))
 			done = false
