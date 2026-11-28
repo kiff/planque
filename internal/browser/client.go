@@ -82,7 +82,7 @@ func (c *Client) Start(ctx context.Context, start Start) (Session, error) {
 	var out struct {
 		Session string `json:"session"`
 	}
-	in := map[string]any{"grant": start.Grant, "sites": start.Sites}
+	in := map[string]any{"grant": start.Grant, "sites": start.Sites, "downloads": start.Downloads}
 	if len(start.State) > 0 {
 		in["state"] = json.RawMessage(start.State)
 	}
@@ -121,6 +121,14 @@ func (r *remote) Look(ctx context.Context) (Page, error) {
 	}
 	err := r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/page", nil, &out)
 	return Mask(out.Page, 0), err
+}
+
+func (r *remote) Downloads(ctx context.Context) ([]Download, error) {
+	var out struct {
+		Downloads []Download `json:"downloads"`
+	}
+	err := r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/downloads", nil, &out)
+	return out.Downloads, err
 }
 
 func (r *remote) Frame(ctx context.Context) ([]byte, error) {
