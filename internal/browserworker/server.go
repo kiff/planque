@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /sessions/{id}/input", s.keyed(s.input))
 	mux.HandleFunc("POST /sessions/{id}/frame", s.keyed(s.frame))
 	mux.HandleFunc("POST /sessions/{id}/page", s.keyed(s.look))
+	mux.HandleFunc("POST /sessions/{id}/downloads", s.keyed(s.downloads))
 	mux.HandleFunc("DELETE /sessions/{id}", s.keyed(s.close))
 	return mux
 }
@@ -116,6 +117,8 @@ type startBody struct {
 	Grant string          `json:"grant"`
 	State json.RawMessage `json:"state,omitempty"`
 	Sites []string        `json:"sites,omitempty"`
+	// Downloads lets the session's pages give files (browser.Downloader).
+	Downloads bool `json:"downloads,omitempty"`
 }
 
 func (s *Server) start(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +127,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	sess, err := s.Local.Start(r.Context(), browser.Start{Grant: in.Grant, State: in.State, Sites: in.Sites})
+	sess, err := s.Local.Start(r.Context(), browser.Start{Grant: in.Grant, State: in.State, Sites: in.Sites, Downloads: in.Downloads})
 	if errors.Is(err, ErrBusy) {
 		writeErr(w, http.StatusServiceUnavailable, ErrBusy.Error())
 		return
@@ -308,6 +311,27 @@ func (s *Server) look(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"page": p})
+}
+
+// downloads hands over the files the session's pages gave since the last
+// ask, each taken or refused.
+func (s *Server) downloads(w http.ResponseWriter, r *http.Request) {
+	h, ok := s.take(w, r)
+	if !ok {
+		return
+	}
+	defer s.release(h)
+	d, ok := h.sess.(browser.Downloader)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "this session takes no downloads")
+		return
+	}
+	list, err := d.Downloads(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"downloads": list})
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {

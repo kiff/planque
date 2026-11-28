@@ -1,7 +1,11 @@
 package browser
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"hash/crc32"
 	"strings"
 	"testing"
 )
@@ -432,5 +436,87 @@ func TestMatchesHoldsAStepToThePagesWordsForItsRef(t *testing.T) {
 	// The refusal names the page's words, so the taf can build the step again.
 	if _, why := Matches(p, Step{Fill: "f1", Value: "Test", Label: "Notes"}); !strings.Contains(why, `"Customer name"`) {
 		t.Errorf("the words: %q", why)
+	}
+}
+
+// A download's type is read from its bytes, and its name is kept safe.
+func TestDownloadTypeAndName(t *testing.T) {
+	cases := map[string]struct {
+		b    []byte
+		want string
+		err  error
+	}{
+		"pdf":        {[]byte("%PDF-1.7\n%%EOF"), TypePDF, nil},
+		"pdf script": {[]byte("%PDF-1.7\n<< /JS (x) >>"), "", ErrDownloadActive},
+		"pdf launch": {[]byte("%PDF-1.7\n<< /S /Launch >>"), "", ErrDownloadActive},
+		"pdf embed":  {[]byte("%PDF-1.7\n<< /EmbeddedFile 1 0 R >>"), "", ErrDownloadActive},
+		"csv":        {[]byte("a,b\n1,2\n"), TypeCSV, nil},
+		"csv semi":   {[]byte("\xef\xbb\xbfdate;montant\n2026-11-01;12,50\n"), TypeCSV, nil},
+		"html":       {[]byte("<html><script>x</script></html>"), "", ErrDownloadType},
+		"binary":     {[]byte("MZ\x90\x00\x03\x00"), "", ErrDownloadType},
+		"fake png":   {[]byte("\x89PNG\r\n\x1a\nnot really"), "", ErrDownloadType},
+		"empty":      {nil, "", ErrDownloadType},
+	}
+	for name, c := range cases {
+		got, err := TypeOf(c.b)
+		if got != c.want || !errors.Is(err, c.err) {
+			t.Errorf("%s: %q, %v", name, got, err)
+		}
+	}
+	for in, want := range map[string]string{
+		"../../etc/passwd.pdf":    "passwd.pdf",
+		`C:\\Users\\x\\inv 1.PDF`: "inv 1.PDF.pdf",
+		"facture<script>.pdf":     "facture_script_.pdf",
+		"":                        "download.pdf",
+	} {
+		if got := DownloadName(in, TypePDF); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A PDF can't hide what the check looks for: escaped names are decoded, and
+// compressed object streams and encryption are refused; an image declaring
+// more than MaxPixels is refused before it's decoded.
+func TestDownloadChecksCantBeSidestepped(t *testing.T) {
+	for name, b := range map[string]string{
+		"escaped name":  "%PDF-1.7\n<< /S /Java#53cript /J#53 (x) >>",
+		"object stream": "%PDF-1.7\n1 0 obj << /Type /ObjStm /N 3 /Filter /FlateDecode >> stream\nx\nendstream",
+		"encrypted":     "%PDF-1.7\ntrailer << /Encrypt 5 0 R >>",
+	} {
+		if _, err := TypeOf([]byte(b)); !errors.Is(err, ErrDownloadActive) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// A PNG header declaring 100,000 x 100,000 pixels, and nothing behind it.
+	var b bytes.Buffer
+	b.WriteString("\x89PNG\r\n\x1a\n")
+	ihdr := []byte{0, 0, 0x86, 0xa0, 0, 0, 0x86, 0xa0, 8, 6, 0, 0, 0}
+	binary.Write(&b, binary.BigEndian, uint32(len(ihdr)))
+	chunk := append([]byte("IHDR"), ihdr...)
+	b.Write(chunk)
+	binary.Write(&b, binary.BigEndian, crc32.ChecksumIEEE(chunk))
+	if _, err := TypeOf(b.Bytes()); !errors.Is(err, ErrDownloadPixels) {
+		t.Errorf("a bomb's header: %v", err)
+	}
+}
+
+// A CSV cell a spreadsheet would run as a formula is flagged.
+func TestCSVFormulas(t *testing.T) {
+	for in, want := range map[string]bool{
+		"a,b\n1,2\n":                                      false,
+		"a,b\n=HYPERLINK(\"x\"),2\n":                      true,
+		"a;b\n1;@SUM(A1)\n":                               true,
+		"a,b\n\"+cmd\",2\n":                               true,
+		"date,amount\n2026-11-01,5\n":                     false,
+		"date,amount\n2026-11-01,-12.50\n2026-11-02,+3\n": false,
+		"a,b\r\n1,2\r\n":                                  false,
+		"a;b\r\n1;-1 234,56\r\n":                          false,
+		"a,b\n-2+3,1\n":                                   true,
+		"a,b\n+cmd|x,1\n":                                 true,
+	} {
+		if got := CSVFormulas([]byte(in)); got != want {
+			t.Errorf("%q: %v", in, got)
+		}
 	}
 }
