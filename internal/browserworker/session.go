@@ -457,13 +457,26 @@ func (s *session) Do(ctx context.Context, step browser.Step) (browser.Page, erro
 	return s.page(ctx)
 }
 
-// Look is the page as it is now, read without acting (browser.Looker).
+// Look is the page as it is now, read without acting (browser.Looker). A
+// page still loading isn't read: its next page may not be the one shown,
+// so the caller sends nothing until it settles.
 func (s *session) Look(ctx context.Context) (browser.Page, error) {
 	if s.closed {
 		return browser.Page{}, errors.New("the session is closed")
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.wait)
 	defer cancel()
+	var ev struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := s.c.call(ctx, s.sid, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &ev); err != nil {
+		return browser.Page{}, err
+	}
+	if ev.Result.Value != "complete" {
+		return browser.Page{}, errors.New("the page is still loading")
+	}
 	return s.page(ctx)
 }
 
