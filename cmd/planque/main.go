@@ -394,6 +394,9 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		BrowserDownloads: refundTenants(os.Getenv("PLANQUE_BROWSER_DOWNLOADS")),
 		// The accounts whose calls are refused on a pin difference: tenants:a,b, or all.
 		EnforcePins: tenantsOrAll(os.Getenv("PLANQUE_ENFORCE_PINS")),
+		// The accounts whose sign-ins ask a reviewed server (Qonto) for every
+		// scope it lists: tenants:a,b, or all.
+		FullScopes: tenantsOrAll(os.Getenv("PLANQUE_FULL_SCOPES")),
 		// The seller's Stripe profile read with a checkout, when on.
 		StripeProfiles: os.Getenv("PLANQUE_STRIPE_PROFILE") == "on",
 		// A sealed fill in the owner's Chrome, off unless turned on.

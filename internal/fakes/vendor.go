@@ -32,6 +32,8 @@ type Vendor struct {
 	CallDelay    time.Duration // a slow tools/call
 	AdvertiseIss bool          // authorization_response_iss_parameter_supported
 	Account      string        // named in the token response
+	// Scope, when set, is the scope the token response names as granted.
+	Scope string
 	// UnnamedAccount leaves the account out of the token response, as
 	// Stripe's MCP sign-in does; its accounts tool still lists it.
 	UnnamedAccount bool
@@ -237,6 +239,9 @@ func (v *Vendor) issue(w http.ResponseWriter, r *http.Request) {
 	answer := map[string]any{"access_token": a, "token_type": "bearer", "expires_in": int(ttl.Seconds()), "refresh_token": rt, "account": v.Account}
 	if v.UnnamedAccount {
 		delete(answer, "account")
+	}
+	if v.Scope != "" {
+		answer["scope"] = v.Scope
 	}
 	writeJSON(w, 200, answer)
 }

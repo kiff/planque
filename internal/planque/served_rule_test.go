@@ -35,7 +35,7 @@ func TestTheTestAccountsGetTheWholeLiveListOnceSwitchedOn(t *testing.T) {
 	s.LiveListTest = true
 	check("tnt_test", true)
 	check("tnt_any", false)
-	if r := s.servedRule("tnt_test", qontoServer); r != "live" {
+	if r := s.servedRule("tnt_test", qontoServer); !strings.HasPrefix(r, "live:") {
 		t.Fatalf("a test account's rule: %q", r)
 	}
 	if r := s.servedRule("tnt_any", qontoServer); !strings.HasPrefix(r, "qonto:") {
@@ -154,7 +154,7 @@ func catalogNames(t *testing.T, e *env, id string) []string {
 // On Qonto's own host: a sign-in listed before list_bank_accounts was served
 // offers it on its next catalog read, and still never send_client_invoice;
 // with the live list switched on for a test account, it offers all three,
-// stamped "live".
+// stamped "live:…" (the whole list, less the bank's own approvals).
 func TestAQontoCatalogIsListedAgainUnderTheRuleOfTheDay(t *testing.T) {
 	e := newEnv(t)
 	g := qontoListedGrant(t, e)
@@ -168,7 +168,7 @@ func TestAQontoCatalogIsListedAgainUnderTheRuleOfTheDay(t *testing.T) {
 	if got := catalogNames(t, e, g.ID); !slices.Equal(got, []string{"list_bank_accounts", "list_clients", "send_client_invoice"}) {
 		t.Fatalf("the live list for a test account: %v", got)
 	}
-	if g, _ = e.s.loadGrant(context.Background(), tenant, g.ID); g.CatalogRule != "live" {
+	if g, _ = e.s.loadGrant(context.Background(), tenant, g.ID); !strings.HasPrefix(g.CatalogRule, "live:") {
 		t.Fatalf("kept under %q", g.CatalogRule)
 	}
 }

@@ -196,6 +196,11 @@ type Server struct {
 	// sent (pinRefusal): PLANQUE_ENFORCE_PINS=tenants:a,b or all. For every
 	// other account a difference is only logged. None when unset.
 	EnforcePins map[string]bool
+	// FullScopes are the accounts whose sign-in to a server planque reviewed
+	// (Qonto) asks for every scope the server lists, as for any other server:
+	// the owner's Card alone decides what a taf may do. "*" is every account
+	// (PLANQUE_FULL_SCOPES=tenants:a,b or all). None when unset.
+	FullScopes map[string]bool
 	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
 	// on): browse_pay is offered and runs, held for the owner each time. Off
 	// (the default), the hosted browser reads, fills and clicks, but pays

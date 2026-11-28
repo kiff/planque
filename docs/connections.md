@@ -49,7 +49,29 @@ description. The grant stays pending.
 (`scopes_supported`), except at a server it reviewed. Qonto's sign-in asks
 only for reading the business, its clients, its invoices and their
 e-invoicing state, and writing clients and client invoices. It never asks
-for transfers, cards, bank accounts, direct debits, team or members.
+for transfers, cards, bank accounts, direct debits, team or members. An
+account on `PLANQUE_FULL_SCOPES` (`tenants:a,b`, or `all`; none when unset)
+asks Qonto, as any server, for every scope it lists, and its grants get
+Qonto's whole live tool list: the owner's Card alone decides what a taf may
+do, with money, delete and irreversible actions closed until the owner opens
+them. An account goes on the list only once KIFF's K4 is on for it. Qonto's tools
+that approve or decline a request at the bank (`approve_request`,
+`decline_request`) are never served, on any account, the whole live list
+included: approving at the bank is the account holder's own act, under the
+bank's own authentication. tafs prepares a transfer or card request, and
+Qonto's own approval finishes it.
+
+**What was granted.** A vendor's token answer may name the scope it granted.
+planque keeps those names (never the token) on the grant, as
+`granted_scopes`, read with the account's key. At Qonto, a token that holds
+anything beyond what this sign-in asked for (granted equals requested) is
+refused: at sign-in, and at every refresh, for the stored token and the
+refresh answer alike. The token is revoked where the vendor offers revocation and never
+kept, and the owner reads why, naming what was granted. Qonto names no
+revocation endpoint, so the reason asks the owner to remove the connection in
+Qonto too. A sign-in is then failed, and a refresh signs the grant out with the
+cause `scope_wider`, for the owner to sign in again. An answer that names no
+scope grants what was asked (RFC 6749 §5.1).
 
 Reference: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
 
