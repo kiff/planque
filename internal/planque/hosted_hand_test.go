@@ -184,3 +184,48 @@ func TestHostedHandOverIsOffByDefault(t *testing.T) {
 		t.Fatalf("asking for it: %d %v", st, out)
 	}
 }
+
+// tafs cloud lists the hand-overs still waiting, with the account's key:
+// the grant, its agent, the hand, the site, the words and the times, no
+// URL or token; done, put off and lapsed ones aren't listed.
+func TestWaitingHandOversAreListed(t *testing.T) {
+	e, g := newHandEnv(t)
+	list := func() []any {
+		t.Helper()
+		st, out := e.do("GET", "/v1/accounts/"+tenant+"/hands", nil, nil, "k_setup")
+		if st != 200 {
+			t.Fatalf("list: %d %v", st, out)
+		}
+		hands, _ := out["hands"].([]any)
+		return hands
+	}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/hands", nil, nil, ""); st == 200 {
+		t.Fatal("listed with no key")
+	}
+	if got := list(); len(got) != 0 {
+		t.Fatalf("none yet: %v", got)
+	}
+	_, sc := e.call(g, browseHand, map[string]any{"url": fakes.ShopLogin, "words": "Sign in here"})
+	hand := sc["hand"].(string)
+	got := list()
+	if len(got) != 1 {
+		t.Fatalf("one waiting: %v", got)
+	}
+	h := got[0].(map[string]any)
+	if h["grant"] != g.ID || h["agent"] != g.Request.Agent || h["hand"] != hand || h["site"] != "shop.example" || h["words"] != "Sign in here" || h["since"] == "" || h["expires"] == "" || h["view"] != nil {
+		t.Fatalf("the hand: %v", h)
+	}
+	if st, _ := e.handView(g, hand, "decline"); st != 200 {
+		t.Fatal("decline")
+	}
+	if got := list(); len(got) != 0 {
+		t.Fatalf("after Not now: %v", got)
+	}
+	e.call(g, browseHand, map[string]any{"url": fakes.ShopLogin, "words": "Sign in here"})
+	later := time.Now().Add(signInViewTTL + time.Minute)
+	e.s.Now = func() time.Time { return later }
+	defer func() { e.s.Now = nil }()
+	if got := list(); len(got) != 0 {
+		t.Fatalf("lapsed: %v", got)
+	}
+}
