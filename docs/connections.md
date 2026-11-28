@@ -472,6 +472,34 @@ is random, hashed at rest, bound to one grant's one open view, and spent
 by Done or the lapse.
 
 
+### Sign-in health checks in the hosted browser
+
+To warn the owner before a saved sign-in stops working, tafs cloud asks planque
+to check a hosted-browser connection (`POST …/grants/{id}/health`, on demand,
+for the connections its tafs use). For each site with a reviewed fixed page
+(`internal/planque/health_pages.json`), planque opens that one page with the
+saved sign-in, at most once a day, and keeps only the verdict (`signed_in`,
+`signed_out` or `unknown`) and when it checked. With it, it gives when the site
+set the sign-in to end, the latest expiry of the site's cookies. Nothing of the
+page is kept, no picture is taken, and nothing goes to a model.
+
+The check runs on its own worker route (`POST /health`), never as a taf's session:
+- it takes no input, runs no step, fills and submits nothing;
+- every request that isn't a GET or HEAD is failed in the browser before it leaves (CDP `Fetch`), the page's own script, its frames and its workers included;
+- no service worker can be registered, and the page's requests bypass any;
+- the egress holds it to the one site, and downloads are denied.
+
+It follows the site's own redirects and scripts to read where a signed-out
+visitor is sent. A page asking for a password reads `signed_out`; the fixed
+page's own address with none reads `signed_in`; anything else reads `unknown`,
+and a check that can't run or tell waits six hours. A signed-in check's cookies,
+which many sites rotate on each visit, are sealed as a session's are, only over
+the state it started from. A signed-out verdict is for the owner's own step;
+planque never signs in for them.
+
+Each page on the list is reviewed: opening it must change nothing on the
+account, and it's never a page that pays. A site not on the list has no check.
+
 ### "Your turn" in the hosted browser
 
 With `PLANQUE_HOSTED_HAND=on`, a hosted browser grant also gets the

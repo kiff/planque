@@ -276,6 +276,64 @@ type Start struct {
 	Downloads bool
 }
 
+// A sign-in health check opens one fixed page of a site with the grant's
+// sign-ins and reads only whether they still hold. It takes no input, fills
+// and submits nothing, and every request that isn't a GET or HEAD is failed
+// before it leaves the browser, the page's own script included; the egress
+// holds it to the one site, and downloads are denied. Nothing of the page is
+// kept: only the verdict.
+type HealthCheck struct {
+	Grant string `json:"grant"`
+	// State is the grant's sealed sign-ins, opened, as a session starts with.
+	State []byte `json:"state"`
+	// Site is the one site the check may reach; URL the fixed page on it.
+	Site string `json:"site"`
+	URL  string `json:"url"`
+}
+
+// A health check's verdicts.
+const (
+	HealthSignedIn  = "signed_in"
+	HealthSignedOut = "signed_out"
+	HealthUnknown   = "unknown"
+)
+
+// HealthResult is a check's verdict, and how many requests the page tried
+// that weren't a GET or HEAD (each failed, never sent).
+type HealthResult struct {
+	Verdict string `json:"verdict"`
+	Blocked int    `json:"blocked,omitempty"`
+	// State is the session's cookies after a signed-in check, for planque to
+	// seal as a session's are (a site may rotate the sign-in on each visit).
+	// None for any other verdict.
+	State []byte `json:"state,omitempty"`
+}
+
+// HealthChecker runs sign-in health checks (the worker's HealthCheck).
+type HealthChecker interface {
+	Health(ctx context.Context, check HealthCheck) (HealthResult, error)
+}
+
+// HealthVerdict reads a check's verdict from the page it ended on: signed
+// out where the page asks for a password; signed in where it's the fixed
+// page's own address (host and path) and asks for none; otherwise unknown.
+func HealthVerdict(fixed string, p Page) string {
+	for _, f := range p.Fields {
+		if f.Kind == "password" {
+			return HealthSignedOut
+		}
+	}
+	want, err1 := url.Parse(fixed)
+	got, err2 := url.Parse(p.URL)
+	if err1 != nil || err2 != nil || !strings.EqualFold(want.Hostname(), got.Hostname()) {
+		return HealthUnknown
+	}
+	if strings.TrimSuffix(want.Path, "/") == strings.TrimSuffix(got.Path, "/") {
+		return HealthSignedIn
+	}
+	return HealthUnknown
+}
+
 // Worker drives a real browser, in a session per call, and keeps nothing
 // between sessions.
 type Worker interface {

@@ -58,6 +58,10 @@ type Browser struct {
 	// Pages, when set, replace a URL's page: a test re-renders a page at the
 	// same address (a form whose fields change between a read and a step).
 	Pages map[string]browser.Page
+	// Checks are the sign-in health checks run, in order; HealthDown makes
+	// the next ones fail as a worker that couldn't start would.
+	Checks     []browser.HealthCheck
+	HealthDown bool
 	// held are the open sessions by id, for Resume.
 	held map[string]*browserSession
 	seq  int
@@ -417,4 +421,25 @@ func (b *Browser) StepsJSON() string {
 	defer b.mu.Unlock()
 	raw, _ := json.Marshal(b.Steps)
 	return string(raw)
+}
+
+// Health is a sign-in health check on the shop: signed in when the state
+// holds the shop's sign-in ("signed-in"), which comes back rotated
+// ("signed-in-rotated", as a site that renews it on each visit), signed out
+// otherwise. Nothing is clicked or sent.
+func (b *Browser) Health(_ context.Context, check browser.HealthCheck) (browser.HealthResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.HealthDown || b.Down {
+		return browser.HealthResult{}, errors.New("the browser worker is down")
+	}
+	b.Checks = append(b.Checks, check)
+	if !strings.Contains(string(check.State), "signed-in") {
+		return browser.HealthResult{Verdict: browser.HealthSignedOut}, nil
+	}
+	rotated := strings.Replace(string(check.State), "signed-in", "signed-in-rotated", 1)
+	if strings.Contains(string(check.State), "signed-in-rotated") {
+		rotated = string(check.State)
+	}
+	return browser.HealthResult{Verdict: browser.HealthSignedIn, State: []byte(rotated)}, nil
 }

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
@@ -102,6 +103,12 @@ func (l *Local) forget(id string) {
 // Start begins a session: a proxy bound to the sites, a fresh browser
 // behind it, downloads denied, and the kept cookies restored.
 func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session, error) {
+	return l.start(ctx, start, false)
+}
+
+// start launches a session; a health session (health) fails every request
+// that isn't a GET or HEAD before it leaves the browser (health.go).
+func (l *Local) start(ctx context.Context, start browser.Start, health bool) (*session, error) {
 	path, err := chromePath(l.Chrome)
 	if err != nil {
 		return nil, err
@@ -133,7 +140,7 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 		l.forget(id)
 		return nil, err
 	}
-	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger, id: id, owner: l}
+	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger, id: id, owner: l, health: health}
 	if s.wait == 0 {
 		s.wait = 20 * time.Second
 	}
@@ -160,6 +167,10 @@ type session struct {
 	logger  *slog.Logger
 	// dl holds the files the session's pages gave, when downloads are on.
 	dl *downloads
+	// health: a sign-in health check's session (health.go). blocked counts
+	// the requests it failed for not being a GET or HEAD.
+	health  bool
+	blocked atomic.Int64
 }
 
 // state is a session's storage state: its cookies, as the browser gives
@@ -213,6 +224,22 @@ func (s *session) attach(ctx context.Context, kept []byte, allowDownloads bool) 
 	// the page's script doesn't run in it. Every child target (frames,
 	// frames in frames, workers) is attached with its debugger paused, gets
 	// the same script, and only then runs: no frame's script sees WebRTC.
+	if s.health {
+		// Before anything loads: every request of the page, and of each
+		// child target as it attaches (armChild), goes through readOnly. No
+		// service worker can be registered (the profile is fresh, so none is
+		// there to begin with), and the page's requests bypass any.
+		if err := s.c.call(ctx, s.sid, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil); err != nil {
+			return err
+		}
+		if err := s.c.call(ctx, s.sid, "Network.setBypassServiceWorker", map[string]any{"bypass": true}, nil); err != nil {
+			return err
+		}
+		s.c.handle(s.readOnly)
+		if err := s.c.call(ctx, s.sid, "Fetch.enable", map[string]any{"patterns": []map[string]string{{"urlPattern": "*", "requestStage": "Request"}}}, nil); err != nil {
+			return err
+		}
+	}
 	s.c.handle(s.armChild)
 	if err := s.c.call(ctx, s.sid, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}, nil); err != nil {
 		return err
@@ -272,6 +299,9 @@ func (s *session) armChild(m cdpMessage) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if s.health && !s.readOnlyTarget(ctx, p) {
+		return
+	}
 	armTarget(ctx, s.c, p, s.log())
 }
 
