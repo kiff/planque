@@ -1528,12 +1528,8 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
-	if g.Request.API == nil && g.CatalogRule != s.servedRule(g.Tenant, g.Request.Server) {
-		if err := s.relistCatalog(r.Context(), g); err != nil {
-			s.log().WarnContext(r.Context(), "catalog not listed again", slog.String("grant", g.ID), slog.String("error", err.Error()))
-			writeErr(w, http.StatusServiceUnavailable, "this grant's tools couldn't be read again from "+hostOf(g.Request.Server)+" since what planque serves there changed; try again")
-			return
-		}
+	if !s.currentCatalog(w, r, g) {
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
 }
@@ -1548,17 +1544,36 @@ func catalogOf(listed []mcpTool) []CatalogTool {
 	return out
 }
 
+// currentCatalog makes g's catalog the one planque's served rule gives now:
+// one kept under an earlier rule is listed again (relistCatalog) before it's
+// read or chosen from. False when that failed, and it has answered 503:
+// never a stale catalog.
+func (s *Server) currentCatalog(w http.ResponseWriter, r *http.Request, g *Grant) bool {
+	if g.Request.Connector != nil || g.Request.API != nil || len(g.Catalog) == 0 || g.CatalogRule == s.servedRule(g.Tenant, g.Request.Server) {
+		return true
+	}
+	// A sign-in that can't be used (signed out, revoked) is answered as any
+	// read with it would be, never "try again", which wouldn't help.
+	access, _, err := s.accessToken(r.Context(), g, 0)
+	if err != nil {
+		s.fail(w, r, err)
+		return false
+	}
+	if err := s.relistCatalog(r.Context(), g, access); err != nil {
+		s.log().WarnContext(r.Context(), "catalog not listed again", slog.String("grant", g.ID), slog.String("error", err.Error()))
+		writeErr(w, http.StatusServiceUnavailable, "this grant's tools couldn't be read again from "+hostOf(g.Request.Server)+" since what planque serves there changed; try again")
+		return false
+	}
+	return true
+}
+
 // relistCatalog reads g's tools again with its own sign-in, for a catalog
 // kept under an earlier served rule: a tool planque serves since is in it,
 // and one it no longer serves is out. Only the catalog the asking agent
 // chooses from changes: the tools the owner approved (Tools) don't, and a
 // newly served one still needs the owner's approval to be added. Kept when
 // the grant hasn't changed meanwhile; else this answer alone is fresh.
-func (s *Server) relistCatalog(ctx context.Context, g *Grant) error {
-	access, _, err := s.accessToken(ctx, g, 0)
-	if err != nil {
-		return err
-	}
+func (s *Server) relistCatalog(ctx context.Context, g *Grant, access string) error {
 	listed, _, err := s.vendorTools(ctx, g, access)
 	if err != nil {
 		return err
@@ -1733,6 +1748,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		// approves once: never a request for the write alone (the Eval's
 		// four approvals for one sheet).
 		writeErr(w, http.StatusConflict, askedAtOnce)
+		return
+	}
+	// Chosen from the catalog planque's served rule gives now, never one kept
+	// under an earlier rule.
+	if !s.currentCatalog(w, r, g) {
 		return
 	}
 	// What it has: on a connected grant, its tools; while an addition waits,

@@ -2,6 +2,11 @@ package planque
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -88,5 +93,125 @@ func TestACatalogKeptUnderAnEarlierRuleIsListedAgainOnItsNextRead(t *testing.T) 
 	e.vendor.Close()
 	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id+"/catalog", nil, nil, "k_setup"); st != 503 || out["tools"] != nil {
 		t.Fatalf("a re-listing that failed: %d %v", st, out)
+	}
+}
+
+// qontoAtFake sends what planque asks of Qonto's MCP host to the test's fake
+// vendor, so a grant on Qonto's server name lists the tools the fake lists.
+type qontoAtFake struct{ fake *url.URL }
+
+func (q qontoAtFake) RoundTrip(r *http.Request) (*http.Response, error) {
+	if onHost(r.URL.String(), qontoHost) {
+		r = r.Clone(r.Context())
+		r.URL.Scheme, r.URL.Host, r.Host = q.fake.Scheme, q.fake.Host, q.fake.Host
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// A listed grant on Qonto's own host, with Qonto's tool names, as listed
+// before a change to what planque serves.
+func qontoListedGrant(t *testing.T, e *env) *Grant {
+	t.Helper()
+	e.vendor.ChangeTools = func([]map[string]any) []map[string]any {
+		tool := func(name string, readOnly bool) map[string]any {
+			return map[string]any{"name": name, "description": name, "inputSchema": map[string]any{"type": "object"},
+				"annotations": map[string]any{"readOnlyHint": readOnly}}
+		}
+		return []map[string]any{tool("list_clients", true), tool("list_bank_accounts", true), tool("send_client_invoice", false)}
+	}
+	fake, err := url.Parse(e.vendor.MCPURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.s.MCP.HTTP = &http.Client{Transport: qontoAtFake{fake}}
+	id := e.listedGrant()
+	g, err := e.s.loadGrant(context.Background(), tenant, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Request.Server = qontoServer
+	g.Catalog, g.CatalogRule = []CatalogTool{{Name: "list_clients"}}, "qonto:000000000000"
+	if err := e.s.saveGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	return g
+}
+
+func catalogNames(t *testing.T, e *env, id string) []string {
+	t.Helper()
+	st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+id+"/catalog", nil, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("catalog: %d %v", st, out)
+	}
+	var names []string
+	for _, x := range out["tools"].([]any) {
+		names = append(names, x.(map[string]any)["name"].(string))
+	}
+	slices.Sort(names)
+	return names
+}
+
+// On Qonto's own host: a sign-in listed before list_bank_accounts was served
+// offers it on its next catalog read, and still never send_client_invoice;
+// with the live list switched on for a test account, it offers all three,
+// stamped "live".
+func TestAQontoCatalogIsListedAgainUnderTheRuleOfTheDay(t *testing.T) {
+	e := newEnv(t)
+	g := qontoListedGrant(t, e)
+	if got := catalogNames(t, e, g.ID); !slices.Equal(got, []string{"list_bank_accounts", "list_clients"}) {
+		t.Fatalf("under qontoServed: %v", got)
+	}
+	if g, _ = e.s.loadGrant(context.Background(), tenant, g.ID); !strings.HasPrefix(g.CatalogRule, "qonto:") || g.CatalogRule == "qonto:000000000000" {
+		t.Fatalf("kept under %q", g.CatalogRule)
+	}
+	e.s.ManagedTestTenants, e.s.LiveListTest = map[string]bool{tenant: true}, true
+	if got := catalogNames(t, e, g.ID); !slices.Equal(got, []string{"list_bank_accounts", "list_clients", "send_client_invoice"}) {
+		t.Fatalf("the live list for a test account: %v", got)
+	}
+	if g, _ = e.s.loadGrant(context.Background(), tenant, g.ID); g.CatalogRule != "live" {
+		t.Fatalf("kept under %q", g.CatalogRule)
+	}
+}
+
+// Add-tools chooses from the catalog of the day too: a stale catalog is
+// listed again before the tools asked for are checked against it.
+func TestAddToolsChoosesFromTheCatalogOfTheDay(t *testing.T) {
+	e := newEnv(t)
+	g := qontoListedGrant(t, e)
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/tools",
+		map[string]any{"tools": []any{map[string]any{"tool": "list_bank_accounts", "title": "List bank accounts", "read_only": true}}}, nil, "k_setup")
+	if st != 200 {
+		t.Fatalf("a tool served since the grant was listed: %d %v", st, out)
+	}
+}
+
+// A signed-out grant whose catalog is stale answers as a signed-out read
+// would, never 503 "try again", which wouldn't help.
+func TestAStaleCatalogOnASignedOutGrantSaysItsSignedOut(t *testing.T) {
+	e := newEnv(t)
+	g := qontoListedGrant(t, e)
+	g.Reconnect = true
+	if err := e.s.saveGrant(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/catalog", nil, nil, "k_setup"); st == 200 || st == 503 {
+		t.Fatalf("a signed-out grant's stale catalog: %d %v", st, out)
+	}
+}
+
+// Turned off again: a tool approved under the live list stays approved but
+// is no longer served, so nothing is sent to it.
+func TestTurningTheLiveListOffStopsWhatOnlyItServed(t *testing.T) {
+	e := newEnv(t)
+	e.s.ManagedTestTenants, e.s.LiveListTest = map[string]bool{tenant: true}, true
+	if !e.s.served(tenant, qontoServer, "send_client_invoice") {
+		t.Fatal("not served with the live list on")
+	}
+	e.s.LiveListTest = false
+	if e.s.served(tenant, qontoServer, "send_client_invoice") {
+		t.Fatal("still served with the live list off")
+	}
+	if _, err := e.s.callServed(context.Background(), tenant, qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
+		t.Fatalf("sent with the live list off: %v", err)
 	}
 }
