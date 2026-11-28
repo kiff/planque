@@ -656,15 +656,22 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
 	}
 	defer s.dropBrowserLease(context.WithoutCancel(ctx), lease)
+	started := time.Now()
 	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
 	}
 	defer s.endSession(ctx, g, sess, from)
+	startMS := time.Since(started).Milliseconds()
 	if !p.Live(s.now()) {
 		return OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true)
 	}
+	opened := time.Now()
 	page, err := sess.Open(ctx, a.URL)
+	// The start time, measured: the session's start and the first page's
+	// load, per call, for the log's own query (browser batch 1).
+	s.log().InfoContext(ctx, "browser session timing", slog.String("grant", g.ID), slog.String("tool", tool.Tool),
+		slog.Int64("start_ms", startMS), slog.Int64("open_ms", time.Since(opened).Milliseconds()), slog.Int("sessions", s.browserSessions()))
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the page couldn't be opened: "+err.Error(), false)
 	}
