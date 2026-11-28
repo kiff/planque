@@ -25,6 +25,10 @@ type Browser struct {
 	Total string
 	// Currency is the shop's; a test sets another to pay in it.
 	Currency string
+	// Files are what the next Downloads hands over (and then forgets), for a
+	// session started with downloads on; StartedWithDownloads counts them.
+	Files                []browser.Download
+	StartedWithDownloads int
 	// Delivery is the delivery address the checkout shows, nil for none;
 	// a test changes it between a read and a pay.
 	Delivery *browser.Address
@@ -166,7 +170,10 @@ func (b *Browser) Start(_ context.Context, start browser.Start) (browser.Session
 	b.Sessions++
 	b.States = append(b.States, start.State)
 	b.seq++
-	s := &browserSession{b: b, id: fmt.Sprintf("fake_%d", b.seq), grant: start.Grant, sites: start.Sites, state: start.State}
+	s := &browserSession{b: b, id: fmt.Sprintf("fake_%d", b.seq), grant: start.Grant, sites: start.Sites, state: start.State, downloads: start.Downloads}
+	if start.Downloads {
+		b.StartedWithDownloads++
+	}
 	if b.held == nil {
 		b.held = map[string]*browserSession{}
 	}
@@ -195,6 +202,7 @@ type browserSession struct {
 	opened        bool
 	closed        bool
 	typedPassword bool
+	downloads     bool
 }
 
 func (s *browserSession) Open(_ context.Context, u string) (browser.Page, error) {
@@ -270,6 +278,19 @@ func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page,
 }
 
 func (s *browserSession) ID() string { return s.id }
+
+// Downloads hands over the browser's Files, once, to a session started with
+// downloads on; none otherwise.
+func (s *browserSession) Downloads(context.Context) ([]browser.Download, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if !s.downloads {
+		return nil, nil
+	}
+	out := s.b.Files
+	s.b.Files = nil
+	return out, nil
+}
 
 // Look is the page the session shows now.
 func (s *browserSession) Look(context.Context) (browser.Page, error) {

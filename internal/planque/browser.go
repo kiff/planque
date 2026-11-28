@@ -487,6 +487,9 @@ func (s *Server) dropBrowser(ctx context.Context, g *Grant) []string {
 			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
 		}
 	}
+	if err := s.dropBrowserFiles(ctx, g); err != nil {
+		problems = append(problems, "the browser's downloaded files weren't deleted: "+err.Error())
+	}
 	if s.Evidence != nil {
 		if err := s.Evidence.Drop(ctx, g.Tenant, g.ID); err != nil {
 			problems = append(problems, "the browser's screenshots weren't deleted: "+err.Error())
@@ -664,7 +667,7 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 		return OpNotSent, browserRefusal(CodeRecordUnavailable, "planque could not read this account's browser sessions", false)
 	}
 	defer s.dropBrowserLease(context.WithoutCancel(ctx), lease)
-	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites})
+	sess, err := s.Browser.Start(ctx, browser.Start{Grant: g.ID, State: stateBefore, Sites: sites, Downloads: tool.Tool == browseAct && s.downloadsOn(g.Tenant)})
 	if err != nil {
 		return OpNotSent, browserRefusal(browser.CodeBrowserDown, "the browser couldn't be started: "+err.Error(), false)
 	}
@@ -971,8 +974,25 @@ func (s *Server) browseAct(ctx context.Context, g *Grant, p permit.Permit, sess 
 			return OpDone, res
 		}
 	}
-	return OpDone, browserAnswer(map[string]any{"site": browser.Site(page.URL), "steps_run": ran, "read": browser.Read(page), "page": browser.Mask(page, maxPageText),
-		"evidence": s.keepEvidence(ctx, g, p.Op, sess, before, page)})
+	answer := map[string]any{"site": browser.Site(page.URL), "steps_run": ran, "read": browser.Read(page), "page": browser.Mask(page, maxPageText),
+		"evidence": s.keepEvidence(ctx, g, p.Op, sess, before, page)}
+	// The files the steps' pages gave, kept in the grant's store, listed as
+	// data: the account's hosted browser takes them only when on.
+	if d, ok := sess.(browser.Downloader); ok && !chromeSess(sess) && s.downloadsOn(g.Tenant) {
+		if list, err := d.Downloads(ctx); err != nil {
+			s.log().WarnContext(ctx, "a step's downloads weren't read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		} else if len(list) > 0 {
+			answer["downloads"] = s.keepDownloads(ctx, g, browser.Site(page.URL), list)
+			_ = s.saveGrant(ctx, g)
+		}
+	}
+	return OpDone, browserAnswer(answer)
+}
+
+// chromeSess says sess is the owner's Chrome's, which keeps its own files.
+func chromeSess(sess browser.Session) bool {
+	_, ok := sess.(*chromeSession)
+	return ok
 }
 
 // ranNoPage is the answer to a step the owner's Chrome ran and whose page was
