@@ -17,13 +17,46 @@ import (
 )
 
 // kiffConnection is t as KIFF's gateway registers it: relayed to g, with
-// transport as the gateway's credential.
-func kiffConnection(g *Grant, t GrantedTool, transport string) kiff.Connection {
+// transport as the gateway's credential, and app as the app it belongs to.
+func kiffConnection(g *Grant, t GrantedTool, transport, app string) kiff.Connection {
 	return kiff.Connection{Name: t.Name, Title: t.Title, URL: g.Audience, Tool: t.Name,
 		Description: t.Description, AmountArg: t.AmountArg, AmountUnit: t.AmountUnit, AmountScale: t.AmountScale,
 		AmountPath: t.AmountPath, AmountFormat: t.AmountFormat, ResourcePath: t.ResourcePath,
 		IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
-		ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, AmountLookup: t.AmountLookup, VendorTool: t.Tool}
+		ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, AmountLookup: t.AmountLookup, VendorTool: t.Tool,
+		App: app, DestructiveHint: t.DestructiveHint}
+}
+
+// appSlug is the app g's tools belong to, as KIFF's class tables name it (K4):
+// Qonto's or Stripe's own server, or one of their entries, by its name; a
+// managed app by its toolkit; a reviewed catalog entry by its vendor. A
+// lowercase slug, or "" when planque can't name the app.
+func (s *Server) appSlug(g *Grant) string {
+	name := grantVendor(g, entryOf(g))
+	if name == "" && g.Request.Connector != nil {
+		name = g.Request.Connector.Toolkit
+	}
+	if name == "" {
+		name = s.entryVendor(entryOf(g))
+	}
+	return slugOf(name)
+}
+
+// slugOf is name as a lowercase slug ("Google Sheets" is "google-sheets"),
+// or "" when it holds anything but letters, digits, spaces, dashes and
+// underscores.
+func slugOf(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.NewReplacer(" ", "-", "_", "-").Replace(s)
+	if s == "" || len(s) > 64 || s[0] == '-' {
+		return ""
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return ""
+		}
+	}
+	return s
 }
 
 // declares says g's tools are declared to KIFF when it's asked for: a key
@@ -87,7 +120,7 @@ func (s *Server) declare(ctx context.Context, g *Grant) (refused string) {
 	}
 	var done, titles []string
 	for _, t := range tools {
-		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport)); err != nil {
+		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport, s.appSlug(g))); err != nil {
 			for _, name := range done {
 				_ = s.KIFF.Disconnect(ctx, key, name)
 			}
@@ -210,7 +243,7 @@ func (s *Server) declareAddition(ctx context.Context, g *Grant) {
 	}
 	var done, titles []string
 	for _, t := range added {
-		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport)); err != nil {
+		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport, s.appSlug(g))); err != nil {
 			for _, name := range done {
 				_ = s.KIFF.Disconnect(ctx, key, name)
 			}
@@ -352,7 +385,7 @@ func (s *Server) declareFirst(ctx context.Context, g *Grant) {
 	}
 	var done, titles []string
 	for _, t := range tools {
-		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport)); err != nil {
+		if err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport, s.appSlug(g))); err != nil {
 			for _, name := range done {
 				_ = s.KIFF.Disconnect(ctx, key, name)
 			}
