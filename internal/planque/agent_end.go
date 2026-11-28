@@ -203,17 +203,14 @@ func (s *Server) endAgent(w http.ResponseWriter, r *http.Request) {
 		g.Pending, g.PendingTransport = nil, ""
 		g.HeldUntil, g.ConfirmHash, g.ConfirmBy, g.Renewal = time.Time{}, "", time.Time{}, nil
 		what := "ended with its taf: removed by a person who manages the account's tafs"
+		// What it did with the sign-in or key reads as the owner's
+		// Disconnect writes it (signInEnded).
+		ended := signInEnded(g, g.SignedIn || was == StatusConnected)
 		switch {
 		case was == StatusFailed:
 			what += "; it had failed, nothing was in use"
-		case g.keptFor > 0:
-			what += "; the sign-in stays, another taf's connection uses it"
-		case g.revokedShared:
-			what += "; the sign-in it shared was revoked, no other connection used it"
-		case g.TokenOf != "":
-			what += "; the sign-in it used stays with the connection it came from"
-		case g.Request.Kind == KindAPIKey:
-			what += "; key deleted"
+		case ended != "":
+			what += "; " + ended
 		case g.SignedIn || was == StatusConnected:
 			what += "; token deleted"
 		}

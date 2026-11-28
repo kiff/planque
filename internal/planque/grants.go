@@ -1237,7 +1237,15 @@ type grantView struct {
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
-	Text        string `json:"text"`
+	// VendorRevoke is what disconnecting does at the vendor (vendorRevokeOf):
+	// "revoked", "revoke_requested" (a managed sign-in: disabled at once, its
+	// revocation at the vendor asked of the connection platform, which never
+	// says it's done), "not_revoked" (a sign-in at a vendor that publishes no
+	// way to revoke one, as Qonto) or "key_stays" (a key the owner made, which
+	// only the owner can delete there). Empty for a browser or a connection with
+	// nothing held at a vendor. The apps pick their disconnect words from it.
+	VendorRevoke string `json:"vendor_revoke,omitempty"`
+	Text         string `json:"text"`
 	// Terms are each tool's exact terms, for the owner who opens Details:
 	// the text names the tools in words (kiff/tafs#138, item 52).
 	Terms []string `json:"terms,omitempty"`
@@ -1343,7 +1351,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), VendorRevoke: vendorRevokeOf(g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -3587,18 +3595,9 @@ func (s *Server) endGrant(ctx context.Context, g *Grant, said, by string) error 
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	g.Pending, g.PendingTransport = nil, ""
 	what := said + ": token deleted"
-	switch {
-	case g.keptFor > 0:
-		what = said + ": the sign-in stays, another taf's connection uses it"
-	case g.revokedShared && g.Request.Kind == KindAPIKey:
-		what = said + ": the key it shared was deleted, no other connection used it"
-	case g.revokedShared:
-		what = said + ": the sign-in it shared was revoked, no other connection used it"
-	case g.TokenOf != "":
-		what = said + ": the sign-in it used stays with the connection it came from"
-	case g.Request.Kind == KindAPIKey:
-		what = said + ": key deleted"
-	case g.Request.Kind == KindBrowser:
+	if ended := signInEnded(g, true); ended != "" {
+		what = said + ": " + ended
+	} else if g.Request.Kind == KindBrowser {
 		what = said + ": the browser's sign-ins and screenshots deleted"
 	}
 	if g.Request.API != nil {
@@ -4025,6 +4024,65 @@ func label(s string) string {
 		return ""
 	}
 	return s
+}
+
+// What disconnecting does at the vendor (grantView.VendorRevoke).
+const (
+	revokeAtVendor   = "revoked"
+	revokeRequested  = "revoke_requested"
+	revokeNotOffered = "not_revoked"
+	revokeKeyStays   = "key_stays"
+)
+
+// vendorRevokeOf says what disconnecting g does at its vendor: a sign-in is
+// revoked there when the vendor's OAuth metadata names a revocation endpoint
+// (oauth.Client.Revoke), and only deleted here when it names none; a key the
+// owner made stays valid there until the owner deletes it; a managed sign-in
+// is disabled at its connection platform at once (revokeConnector), and its
+// revocation at the vendor is asked of the platform, which does it later and
+// never says it's done, so it's requested, never "revoked". A browser, or a
+// grant that holds nothing at a vendor, says nothing.
+func vendorRevokeOf(g *Grant) string {
+	switch {
+	case g.Request.Kind == KindAPIKey:
+		return revokeKeyStays
+	case g.Request.Kind == KindBrowser:
+		return ""
+	case g.Request.Connector != nil:
+		return revokeRequested
+	case g.Vendor.Token == "":
+		return ""
+	case g.Vendor.Revocation == "":
+		return revokeNotOffered
+	}
+	return revokeAtVendor
+}
+
+// signInEnded says what ending g did with the sign-in or key it held, for
+// its disconnect record, the same whichever door ended it (the owner's
+// Disconnect, or its taf's end): kept for another connection, revoked, or
+// only deleted here, and then what stays at the vendor. "" when g held
+// none of these, and the caller says what it held. held: whether g held a
+// sign-in of its own, so one that never signed in isn't said deleted.
+func signInEnded(g *Grant, held bool) string {
+	notOffered := vendorRevokeOf(g) == revokeNotOffered
+	switch {
+	case g.keptFor > 0:
+		return "the sign-in stays, another taf's connection uses it"
+	case g.revokedShared && g.Request.Kind == KindAPIKey:
+		return "the key it shared was deleted here, no other connection used it; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case g.revokedShared && notOffered:
+		return "the sign-in it shared was deleted here, no other connection used it; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	case g.revokedShared:
+		return "the sign-in it shared was revoked, no other connection used it"
+	case g.TokenOf != "":
+		return "the sign-in it used stays with the connection it came from"
+	case g.Request.Kind == KindAPIKey:
+		return "key deleted here; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case notOffered && held:
+		return "token deleted here; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	}
+	return ""
 }
 
 // vendorName is the vendor as the owner reads it: its own name, else the
