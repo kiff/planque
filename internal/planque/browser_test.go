@@ -941,3 +941,48 @@ func TestBrowserCheckoutCarriesTheDeliveryAddress(t *testing.T) {
 		t.Fatalf("pay after the address changed: %s", out)
 	}
 }
+
+// A browser connection says its way: the owner's Chrome as driver
+// "extension", planque's hosted browser with no driver. Nothing else of the
+// Chrome is said.
+func TestTheConnectionsSayABrowserConnectionsWay(t *testing.T) {
+	c := newChromeRig(t)
+	c.grant(t)  // the owner's Chrome
+	c.connect() // planque's hosted browser
+	_, out := c.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_setup")
+	drivers, seen := map[any]int{}, 0
+	for _, raw := range out["connections"].([]any) {
+		v := raw.(map[string]any)
+		if v["kind"] != KindBrowser {
+			continue
+		}
+		seen++
+		drivers[v["driver"]]++
+		for k := range v {
+			if strings.Contains(k, "chrome") && k != "chrome_name" {
+				t.Fatalf("a connection says %q of the Chrome: %v", k, v)
+			}
+		}
+		if v["driver"] == DriverExtension && v["chrome_name"] == nil {
+			t.Fatalf("the Chrome connection has no name: %v", v)
+		}
+	}
+	if seen != 2 || drivers[DriverExtension] != 1 || drivers[nil] != 1 {
+		t.Fatalf("drivers: %v (of %d browser connections)", drivers, seen)
+	}
+}
+
+// A Chrome's name, as another reader shows it, keeps the owner's words and
+// drops the characters that could reorder or hide them.
+func TestAChromesNameIsShownWithoutFormatCharacters(t *testing.T) {
+	for in, want := range map[string]string{
+		"Ana's MacBook":                  "Ana's MacBook",
+		"Ana\u202eKOOBCAM":               "AnaKOOBCAM",
+		"Work\u200b Chrome\u2066x\u2069": "Work Chromex",
+		"":                               "",
+	} {
+		if got := shownName(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}

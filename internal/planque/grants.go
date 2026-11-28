@@ -3894,6 +3894,13 @@ type connection struct {
 	// is never read as "any site".
 	Sites   []string `json:"sites,omitempty"`
 	AnySite bool     `json:"any_site,omitempty"`
+	// Driver is a browser connection's way, as its grant says it:
+	// "extension" for the owner's own Chrome, absent for planque's hosted
+	// browser. ChromeName is that Chrome's name as planque keeps it (a
+	// label: capped, no control or direction characters), for the owner to
+	// tell their Chromes apart; nothing else of the Chrome is said.
+	Driver     string `json:"driver,omitempty"`
+	ChromeName string `json:"chrome_name,omitempty"`
 }
 
 func connectionOf(g *Grant) connection {
@@ -3922,6 +3929,9 @@ func connectionOf(g *Grant) connection {
 			c.Sites = slices.Clone(b.Sites)
 		} else {
 			c.AnySite = true
+		}
+		if b := g.Request.Browser; b != nil && b.Driver == DriverExtension {
+			c.Driver, c.ChromeName = DriverExtension, shownName(b.ChromeName)
 		}
 	}
 	return c
@@ -4083,6 +4093,18 @@ const MaxLabel = 100
 
 // label is a vendor-given name for people, on one line and bounded; "" when
 // it has a control character or is too long, so the caller's fallback shows.
+// shownName is a kept label as another reader shows it: a label still, with
+// no format character (a direction mark, a zero-width joiner) that could
+// reorder or hide the words around it.
+func shownName(s string) string {
+	return label(strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s))
+}
+
 func label(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || len([]rune(s)) > MaxLabel || strings.ContainsFunc(s, unicode.IsControl) {
