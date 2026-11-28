@@ -74,12 +74,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,6 +140,10 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	appReturn := os.Getenv("PLANQUE_APP_RETURN")
 	if u, err := url.Parse(appReturn); appReturn == "" || err != nil || u.Scheme == "" {
 		return nil, errors.New("PLANQUE_APP_RETURN is required: the owner's app, which confirms each sign-in")
+	}
+	browserSessions, err := browserSessionsFrom(os.Getenv("PLANQUE_BROWSER_SESSIONS"))
+	if err != nil {
+		return nil, err
 	}
 	region := cmp.Or(os.Getenv("AWS_REGION"), "eu-west-1")
 	creds := awsapi.FromEnv
@@ -382,6 +388,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		HostedHand: os.Getenv("PLANQUE_HOSTED_HAND") == "on",
 		// Paying in the hosted browser: on only when set to on.
 		BrowserPay: strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_PAY")) == "on",
+		// Sessions per account in the hosted browser: 1 to 3, 1 unset.
+		BrowserSessions: browserSessions,
 		// The accounts whose hosted browser keeps downloads, listed.
 		BrowserDownloads: refundTenants(os.Getenv("PLANQUE_BROWSER_DOWNLOADS")),
 		// The seller's Stripe profile read with a checkout, when on.
@@ -427,8 +435,20 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	return srv, nil
 }
 
-// refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
-// accounts offered the Stripe refunds profile. Anything else lists none.
+// browserSessionsFrom reads PLANQUE_BROWSER_SESSIONS: unset is 1, and 1 to
+// 3 are taken; anything else stops planque, so a typo never runs more.
+func browserSessionsFrom(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 3 {
+		return 0, fmt.Errorf("PLANQUE_BROWSER_SESSIONS is %q: sessions per account are 1, 2 or 3", v)
+	}
+	return n, nil
+}
+
 // chromeHandOn reads PLANQUE_CHROME_HAND: the hand-over is on by default,
 // now that KIFF's Coach names its tools for the person's own step (kiff/agents
 // browse_hand words, tafs a-browser-taf@3). Only "off" turns it off, so a
@@ -437,6 +457,8 @@ func chromeHandOn(v string) bool {
 	return strings.TrimSpace(v) != "off"
 }
 
+// refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
+// accounts offered the Stripe refunds profile. Anything else lists none.
 func refundTenants(v string) map[string]bool {
 	list, ok := strings.CutPrefix(strings.TrimSpace(v), "tenants:")
 	if !ok {
