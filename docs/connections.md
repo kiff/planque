@@ -397,7 +397,11 @@ refused.
 
 Before KIFF decides a `browse_pay`, its gateway sends the pay with its own
 header `KIFF-Checkout-Describe` (the pay's operation), under KIFF's permit
-for `<op>:describe`. planque answers `browser_block {block, sig}` from the
+for `<op>:describe`, with the argument `checkout_describe` set to the same
+operation inside the permit's arguments. A describe without that argument,
+or with another operation, is refused. So is the argument without the header,
+before anything runs. A planque that doesn't describe refuses the argument as
+unknown, so a describe can never run as a pay. planque answers `browser_block {block, sig}` from the
 checkout it read and kept at `browse_checkout`. The block is
 `planque/checkout/v1`, with the account, the operation, the grant, the site,
 the URL, `ref` (the control that pays), the lines, total and currency,

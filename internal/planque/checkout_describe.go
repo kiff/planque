@@ -86,6 +86,8 @@ func (s *Server) describeCheckout(ctx context.Context, g *Grant, p permit.Permit
 	switch {
 	case op == "\x00bad":
 		return OpNotSent, browserRefusal(CodeBadArguments, "the checkout describe header doesn't read", false)
+	case a.CheckoutDescribe != op:
+		return OpNotSent, browserRefusal(CodeBadArguments, "a pay's describe carries checkout_describe, the pay's op, as its header does", false)
 	case p.Op != op+":describe":
 		return OpNotSent, browserRefusal(CodePermitInvalid, "the describe's permit isn't for this pay's describe", false)
 	case s.ChromeSigner == nil:

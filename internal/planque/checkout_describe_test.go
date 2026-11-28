@@ -24,6 +24,13 @@ func (e *browserEnv) describePay(g *Grant, header, op string, args map[string]an
 	h := http.Header{}
 	h.Set(CheckoutDescribeHeader, header)
 	args[IdempotencyArg] = op
+	// The describe's argument is the header's op, unless the case sets it
+	// (nil leaves it out).
+	if v, set := args["checkout_describe"]; !set {
+		args["checkout_describe"] = header
+	} else if v == nil {
+		delete(args, "checkout_describe")
+	}
 	raw := mustJSON(args)
 	ctx := withCheckoutHeader(context.Background(), h)
 	return textOf(e.s.call(ctx, g, browsePay, raw, e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: browsePay, Sub: g.Request.Agent, Op: op, Args: raw})))
@@ -58,6 +65,15 @@ func TestAPayIsDescribedFromItsKeptRead(t *testing.T) {
 	} {
 		if _, sc := e.describePay(g, c[0], c[1], map[string]any{"url": fakes.ShopCheckout, "ref": "place"}); code(sc) == "" {
 			t.Errorf("%s: described", name)
+		}
+	}
+	// Without its argument, or with another op's: refused (fail closed).
+	for name, c := range map[string]struct {
+		op  string
+		arg any
+	}{"no argument": {"op_pay81", nil}, "another op's": {"op_pay82", "op_pay9"}, "empty": {"op_pay83", ""}} {
+		if _, sc := e.describePay(g, c.op, c.op+":describe", map[string]any{"url": fakes.ShopCheckout, "ref": "place", "checkout_describe": c.arg}); code(sc) != CodeBadArguments || sc["browser_block"] != nil {
+			t.Errorf("%s: %v", name, sc)
 		}
 	}
 	if _, sc := e.describePay(g, "op_pay5", "op_pay5:describe", map[string]any{"url": fakes.ShopCheckout}); sc["browser_block"] != nil {
@@ -110,10 +126,17 @@ func TestAPayIsDescribedFromItsKeptRead(t *testing.T) {
 	if _, sc := e.describePay(g, "op_pay7", "op_pay7:describe", map[string]any{"url": fakes.ShopCheckout, "ref": "place"}); code(sc) != browser.CodeOutcomeUnknown {
 		t.Errorf("unknown: %v", sc)
 	}
+	// The argument without the header: refused, before any browser, and
+	// nothing is paid.
+	payArgs := map[string]any{"url": fakes.ShopCheckout, "ref": "place", "checkout_describe": "op_pay10", IdempotencyArg: "op_pay10"}
+	raw = mustJSON(payArgs)
+	if out, sc := textOf(e.s.call(context.Background(), g, browsePay, raw, e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: browsePay, Sub: g.Request.Agent, Op: "op_pay10", Args: raw}))); code(sc) != CodeBadArguments || e.b.Sessions != sessions || len(e.b.Orders) != 0 {
+		t.Errorf("the argument without the header: %s", out)
+	}
 	// Only browse_pay describes.
 	h := http.Header{}
 	h.Set(CheckoutDescribeHeader, "op_x")
-	args := map[string]any{"url": fakes.ShopCheckout, IdempotencyArg: "op_x:describe"}
+	args := map[string]any{"url": fakes.ShopCheckout, "checkout_describe": "op_x", IdempotencyArg: "op_x:describe"}
 	raw = mustJSON(args)
 	if out, sc := textOf(e.s.call(withCheckoutHeader(context.Background(), h), g, "browse_checkout", raw, e.kiff.Mint(fakes.Permit{Audience: g.Audience, Tenant: tenant, Tool: "browse_checkout", Sub: g.Request.Agent, Op: "op_x:describe", Args: raw}))); code(sc) != CodeBadArguments || !strings.Contains(out, "only browse_pay") {
 		t.Errorf("another tool: %s", out)
