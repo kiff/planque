@@ -56,12 +56,69 @@ func (s *Server) answerExpired(op operation) bool {
 
 // dropAnswer replaces op's kept answer with the outcome alone.
 func dropAnswer(op *operation) {
+	isError := op.ResultIsError
+	if op.SealedResult == nil {
+		var was struct {
+			IsError bool `json:"isError"`
+		}
+		_ = json.Unmarshal(op.Result, &was)
+		isError = was.IsError
+	}
+	op.Result, _ = json.Marshal(answerGone(isError))
+	op.SealedResult, op.ResultIsError = nil, false
+	op.ResultUntil, op.AnswerDropped = time.Time{}, true
+}
+
+// maxSealedResult bounds a sealed answer: stored as base64 (4/3 its size),
+// it stays well under DynamoDB's 400 KB item with the record's other
+// fields. A larger one is kept as the too-large stand-in.
+const maxSealedResult = 240 << 10
+
+// answerBinding is what a kept answer is sealed under: its account and its
+// operation, so it opens for no other record.
+func answerBinding(claim store.Item) map[string]string {
+	return map[string]string{"tenant": strings.TrimPrefix(claim.PK, "TENANT#"), "op": claim.SK, "kind": "answer"}
+}
+
+// sealAnswer seals op's kept answer in place: Result goes, SealedResult
+// and ResultIsError hold it. A seal that fails (KMS throttled or down)
+// keeps the outcome alone, never the answer readable; the call's own
+// answer, already in hand, is unchanged.
+func (s *Server) sealAnswer(ctx context.Context, claim store.Item, op *operation) {
+	if op.State != OpDone || len(op.Result) == 0 || op.ResultUntil.IsZero() {
+		return
+	}
 	var was struct {
 		IsError bool `json:"isError"`
 	}
 	_ = json.Unmarshal(op.Result, &was)
-	op.Result, _ = json.Marshal(answerGone(was.IsError))
-	op.ResultUntil, op.AnswerDropped = time.Time{}, true
+	sealed, err := s.Sealer.Seal(ctx, op.Result, answerBinding(claim))
+	switch {
+	case err != nil:
+		s.log().WarnContext(ctx, "answer not sealed: kept as its outcome", slog.String("op", claim.SK), slog.String("err", err.Error()))
+		dropAnswer(op)
+	case len(sealed) > maxSealedResult:
+		op.Result, _ = json.Marshal(toolResult("Answered once; the answer was too large to keep. Nothing new was sent; read again with a new call.", false))
+		op.ResultUntil = time.Time{}
+	default:
+		op.SealedResult, op.ResultIsError, op.Result = sealed, was.IsError, nil
+	}
+}
+
+// openAnswer is op's kept answer for a replay: opened from its seal, or as
+// kept before answers were sealed. One that doesn't open is a plain miss,
+// the outcome alone, never an error that says why.
+func (s *Server) openAnswer(ctx context.Context, it store.Item, op operation) json.RawMessage {
+	if op.SealedResult == nil {
+		return op.Result
+	}
+	plain, err := s.Sealer.Open(ctx, op.SealedResult, answerBinding(it))
+	if err != nil {
+		s.log().WarnContext(ctx, "a kept answer didn't open: its outcome is answered", slog.String("op", it.SK), slog.String("err", err.Error()))
+		dropAnswer(&op)
+		return op.Result
+	}
+	return plain
 }
 
 // SweepAnswers drops every kept answer past answerTTL from its record. It
