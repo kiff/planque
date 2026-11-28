@@ -61,13 +61,19 @@ func TestARowNamesTheOtherLiveGrantsOnItsSignIn(t *testing.T) {
 		t.Fatalf("the second's row: %v (present %t)", ids, ok)
 	}
 
-	// A single grant's answer says the same, from its own read.
-	st, one := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, nil, "k_setup")
-	if st != 200 {
-		t.Fatalf("get: %d %v", st, one)
-	}
-	if ids, _, ok := sharesOf(t, one); !ok || len(ids) != 1 || ids[0] != second {
-		t.Fatalf("the single answer: %v (present %t)", ids, ok)
+	// A single grant's answer, which a taf's own key can read, names no other
+	// taf's grant: only the phone's signed list does.
+	for _, key := range []string{"k_setup", "k_taf"} {
+		st, one := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+first.ID, nil, nil, key)
+		if st != 200 {
+			t.Fatalf("get with %s: %d %v", key, st, one)
+		}
+		if _, ok := one["shares_sign_in"]; ok {
+			t.Fatalf("a single answer to %s names the grants on its sign-in: %v", key, one["shares_sign_in"])
+		}
+		if s := mustJSONString(one); strings.Contains(s, second) {
+			t.Fatalf("a single answer to %s names another grant: %s", key, s)
+		}
 	}
 
 	// The second ended: the first's sign-in is its own again, an empty list.

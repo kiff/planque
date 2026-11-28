@@ -1409,8 +1409,9 @@ type grantView struct {
 	UsedBy []string `json:"used_by"`
 	// SharesSignIn are the account's other live grants on this connection's
 	// sign-in (pending ones included), worked out as removal works them out:
-	// removing this one keeps the sign-in while any of them is live. An empty
-	// list when none; absent when planque couldn't read the account's grants,
+	// removing this one keeps the sign-in while any of them is live. Only on
+	// the phone's signed list, never on an answer a taf's own key can read,
+	// since it names other tafs. An empty list when none; absent otherwise,
 	// so a reader takes the sign-in as shared.
 	SharesSignIn *[]sharedSignIn `json:"shares_sign_in,omitempty"`
 	// Reconnect, on a signed-out managed connection: "fresh" when signing in
@@ -1600,14 +1601,7 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.expire(r.Context(), g)
-	v := s.view(r, g)
-	if all, err := s.accountGrants(r.Context(), tenant); err == nil {
-		shared := sharedSignInsOf(g, all)
-		v.SharesSignIn = &shared
-	} else {
-		s.log().WarnContext(r.Context(), "the account's grants couldn't be read for a shared sign-in", slog.String("grant", g.ID), slog.String("err", err.Error()))
-	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, s.view(r, g))
 }
 
 // catalog is what the vendor's server lists, for the agent choosing the
