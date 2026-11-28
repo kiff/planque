@@ -2,6 +2,7 @@ package browser
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -432,5 +433,41 @@ func TestMatchesHoldsAStepToThePagesWordsForItsRef(t *testing.T) {
 	// The refusal names the page's words, so the taf can build the step again.
 	if _, why := Matches(p, Step{Fill: "f1", Value: "Test", Label: "Notes"}); !strings.Contains(why, `"Customer name"`) {
 		t.Errorf("the words: %q", why)
+	}
+}
+
+// A download's type is read from its bytes, and its name is kept safe.
+func TestDownloadTypeAndName(t *testing.T) {
+	cases := map[string]struct {
+		b    []byte
+		want string
+		err  error
+	}{
+		"pdf":        {[]byte("%PDF-1.7\n%%EOF"), TypePDF, nil},
+		"pdf script": {[]byte("%PDF-1.7\n<< /JS (x) >>"), "", ErrDownloadActive},
+		"pdf launch": {[]byte("%PDF-1.7\n<< /S /Launch >>"), "", ErrDownloadActive},
+		"pdf embed":  {[]byte("%PDF-1.7\n<< /EmbeddedFile 1 0 R >>"), "", ErrDownloadActive},
+		"csv":        {[]byte("a,b\n1,2\n"), TypeCSV, nil},
+		"csv semi":   {[]byte("\xef\xbb\xbfdate;montant\n2026-11-01;12,50\n"), TypeCSV, nil},
+		"html":       {[]byte("<html><script>x</script></html>"), "", ErrDownloadType},
+		"binary":     {[]byte("MZ\x90\x00\x03\x00"), "", ErrDownloadType},
+		"fake png":   {[]byte("\x89PNG\r\n\x1a\nnot really"), "", ErrDownloadType},
+		"empty":      {nil, "", ErrDownloadType},
+	}
+	for name, c := range cases {
+		got, err := TypeOf(c.b)
+		if got != c.want || !errors.Is(err, c.err) {
+			t.Errorf("%s: %q, %v", name, got, err)
+		}
+	}
+	for in, want := range map[string]string{
+		"../../etc/passwd.pdf":    "passwd.pdf",
+		`C:\\Users\\x\\inv 1.PDF`: "inv 1.PDF.pdf",
+		"facture<script>.pdf":     "facture_script_.pdf",
+		"":                        "download.pdf",
+	} {
+		if got := DownloadName(in, TypePDF); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
 	}
 }

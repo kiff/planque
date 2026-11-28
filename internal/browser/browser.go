@@ -219,6 +219,9 @@ type Start struct {
 	Grant string
 	State []byte
 	Sites []string
+	// Downloads lets the session's pages give files (Downloader): saved,
+	// never opened, typed and capped. Off, downloads are denied.
+	Downloads bool
 }
 
 // Worker drives a real browser, in a session per call, and keeps nothing
