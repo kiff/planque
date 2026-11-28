@@ -504,11 +504,16 @@ func TestDownloadChecksCantBeSidestepped(t *testing.T) {
 // A CSV cell a spreadsheet would run as a formula is flagged.
 func TestCSVFormulas(t *testing.T) {
 	for in, want := range map[string]bool{
-		"a,b\n1,2\n":                  false,
-		"a,b\n=HYPERLINK(\"x\"),2\n":  true,
-		"a;b\n1;@SUM(A1)\n":           true,
-		"a,b\n\"+cmd\",2\n":           true,
-		"date,amount\n2026-11-01,5\n": false,
+		"a,b\n1,2\n":                                      false,
+		"a,b\n=HYPERLINK(\"x\"),2\n":                      true,
+		"a;b\n1;@SUM(A1)\n":                               true,
+		"a,b\n\"+cmd\",2\n":                               true,
+		"date,amount\n2026-11-01,5\n":                     false,
+		"date,amount\n2026-11-01,-12.50\n2026-11-02,+3\n": false,
+		"a,b\r\n1,2\r\n":                                  false,
+		"a;b\r\n1;-1 234,56\r\n":                          false,
+		"a,b\n-2+3,1\n":                                   true,
+		"a,b\n+cmd|x,1\n":                                 true,
 	} {
 		if got := CSVFormulas([]byte(in)); got != want {
 			t.Errorf("%q: %v", in, got)

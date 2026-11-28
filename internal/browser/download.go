@@ -139,18 +139,34 @@ func imageFits(b []byte, config func(io.Reader) (image.Config, error)) error {
 	return nil
 }
 
-// CSVFormulas says a CSV has a cell a spreadsheet would run as a formula.
+// CSVFormulas says a CSV has a cell a spreadsheet would run as a formula:
+// one starting with =, @, a tab or a carriage return, or with + or - and
+// not a plain number (a negative amount such as -12.50 isn't one). Line
+// ends (CRLF) aren't cells.
 func CSVFormulas(b []byte) bool {
 	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSuffix(line, "\r")
 		for _, cell := range strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ';' }) {
 			cell = strings.TrimLeft(cell, " \"")
-			if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+			if cell == "" {
+				continue
+			}
+			switch cell[0] {
+			case '=', '@', '\t', '\r':
 				return true
+			case '+', '-':
+				if !plainNumber.MatchString(strings.TrimRight(cell, " \"")) {
+					return true
+				}
 			}
 		}
 	}
 	return false
 }
+
+// plainNumber is a signed decimal amount, as a CSV writes one: -12.50,
+// +3, -1 234,56.
+var plainNumber = regexp.MustCompile(`^[+-]\d[\d .,]*$`)
 
 func csvText(b []byte) bool {
 	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")) // a byte-order mark
