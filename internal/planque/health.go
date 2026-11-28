@@ -65,6 +65,10 @@ type healthRecord struct {
 	// sign-in (the owner's, after a signed-out verdict) makes a check due
 	// again at once, whatever the day's limit.
 	StateVer int64 `json:"state_ver,omitempty"`
+	// ExpiresAt is when the site set the checked sign-in to end (cookieEnd
+	// of the state the verdict is about), kept so an answer with no check
+	// due never opens the saved sign-in.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // healthSite is one site's answer: its verdict and when it was checked,
@@ -142,21 +146,25 @@ func (s *Server) siteHealth(ctx context.Context, g *Grant, site string, run bool
 	}
 	now := s.now()
 	kept := err == nil
-	state, from, serr := s.openBrowserState(ctx, g)
+	// The saved sign-in is opened (unsealed) only for a check that runs: an
+	// answer from what's kept reads its version alone.
+	ver, verr := s.browserStateVersion(ctx, g)
 	due := !kept || (rec.RetryAt.IsZero() && !now.Before(rec.CheckedAt.Add(healthEvery))) || (!rec.RetryAt.IsZero() && !now.Before(rec.RetryAt)) ||
-		(serr == nil && from != rec.StateVer)
-	if run && due && serr == nil {
-		rec = s.runHealth(ctx, g, site, page, state, from)
-		kept = true
-		if st, _, err := s.openBrowserState(ctx, g); err == nil {
-			state = st
+		(verr == nil && ver != rec.StateVer)
+	if run && due && verr == nil {
+		if state, from, err := s.openBrowserState(ctx, g); err == nil {
+			rec = s.runHealth(ctx, g, site, page, state, from)
+			kept = true
+			ver = rec.StateVer
 		}
 	}
 	if kept {
 		out.Verdict, out.CheckedAt = rec.Verdict, &rec.CheckedAt
-	}
-	if exp, ok := cookieEnd(state, site); ok {
-		out.ExpiresAt = &exp
+		// The end the site set, for the sign-in the verdict is about: none
+		// once the owner has signed in again since.
+		if rec.ExpiresAt != nil && verr == nil && ver == rec.StateVer {
+			out.ExpiresAt = rec.ExpiresAt
+		}
 	}
 	return out
 }
@@ -166,6 +174,10 @@ func (s *Server) siteHealth(ctx context.Context, g *Grant, site string, run bool
 // keeps "unknown" and waits healthBackoff. A signed-in check's cookies are
 // sealed as a session's are, only over the state it started from.
 func (s *Server) runHealth(ctx context.Context, g *Grant, site string, page HealthPage, state []byte, from int64) healthRecord {
+	// The check runs to its end, and is kept, even when the caller stops
+	// waiting (a scheduler's own timeout): bounded by its lease instead.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), healthLease)
+	defer cancel()
 	now := s.now().UTC()
 	rec := healthRecord{Verdict: browser.HealthUnknown, CheckedAt: now}
 	checker, ok := s.Browser.(browser.HealthChecker)
@@ -195,15 +207,19 @@ func (s *Server) runHealth(ctx context.Context, g *Grant, site string, page Heal
 			s.keepBrowserState(ctx, g, res.State, &from)
 			// The verdict is about the sign-in as resealed, so the reseal
 			// doesn't make the next ask due again.
-			if _, ver, err := s.openBrowserState(ctx, g); err == nil {
+			if ver, err := s.browserStateVersion(ctx, g); err == nil {
 				from = ver
 			}
+			state = res.State
 		}
 		if err == nil && res.Blocked > 0 {
 			s.log().InfoContext(ctx, "sign-in check failed requests that would write", slog.String("grant", g.ID), slog.String("site", site), slog.Int("blocked", res.Blocked))
 		}
 	}
 	rec.StateVer = from
+	if exp, ok := cookieEnd(state, site); ok {
+		rec.ExpiresAt = &exp
+	}
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skHealth(g.ID, site), TTL: now.Add(healthEvery + healthBackoff + time.Hour).Unix()}, rec, store.Cond{}); err != nil {
 		s.log().WarnContext(ctx, "sign-in check not kept", slog.String("grant", g.ID), slog.String("site", site), slog.String("err", err.Error()))
 	}
