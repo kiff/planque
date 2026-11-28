@@ -137,7 +137,7 @@ func (l *Local) Start(ctx context.Context, start browser.Start) (browser.Session
 	if s.wait == 0 {
 		s.wait = 20 * time.Second
 	}
-	if err := s.attach(ctx, start.State); err != nil {
+	if err := s.attach(ctx, start.State, start.Downloads); err != nil {
 		s.end()
 		return nil, err
 	}
@@ -158,6 +158,8 @@ type session struct {
 	closed  bool
 	grantID string
 	logger  *slog.Logger
+	// dl holds the files the session's pages gave, when downloads are on.
+	dl *downloads
 }
 
 // state is a session's storage state: its cookies, as the browser gives
@@ -166,8 +168,14 @@ type state struct {
 	Cookies []json.RawMessage `json:"cookies"`
 }
 
-func (s *session) attach(ctx context.Context, kept []byte) error {
-	if err := s.c.call(ctx, "", "Browser.setDownloadBehavior", map[string]any{"behavior": "deny"}, nil); err != nil {
+func (s *session) attach(ctx context.Context, kept []byte, allowDownloads bool) error {
+	if allowDownloads {
+		// Saved into the session's own profile, named by the browser's id
+		// for each, never opened; deleted with the profile.
+		if err := s.startDownloads(ctx); err != nil {
+			return err
+		}
+	} else if err := s.c.call(ctx, "", "Browser.setDownloadBehavior", map[string]any{"behavior": "deny"}, nil); err != nil {
 		return err
 	}
 	var created struct {
@@ -189,8 +197,10 @@ func (s *session) attach(ctx context.Context, kept []byte) error {
 			return err
 		}
 	}
-	if err := s.c.call(ctx, s.sid, "Page.setDownloadBehavior", map[string]any{"behavior": "deny"}, nil); err != nil {
-		return err
+	if !allowDownloads {
+		if err := s.c.call(ctx, s.sid, "Page.setDownloadBehavior", map[string]any{"behavior": "deny"}, nil); err != nil {
+			return err
+		}
 	}
 	// WebRTC's UDP goes around an HTTP proxy, and the browser's policy flag
 	// alone still lets STUN checks out (measured): every document the
