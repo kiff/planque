@@ -350,6 +350,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/connections", s.accountConnections)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/files/{file}", s.grantFile)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/evidence/{ref}", s.grantEvidence)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/hands", s.accountHands)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/sessions/{session}/agents", s.sessionAgents)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedAs(kindSafe, capExport, s.export))

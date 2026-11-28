@@ -368,7 +368,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &planque.Server{
+	srv := &planque.Server{
 		ProofState:         proofState,
 		ManagedTestTenants: testTenants,
 		ProofTestTenants:   proofTenants,
@@ -427,7 +427,12 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		DescriberServers:       describerServers,
 		Applications:           applications,
 		ApplicationCredentials: applicationCredentials,
-	}, nil
+	}
+	// The evidence pictures, sealed in planque's table: on only when set.
+	if os.Getenv("PLANQUE_EVIDENCE") == "on" {
+		srv.Evidence = srv.SealedEvidence()
+	}
+	return srv, nil
 }
 
 // refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the

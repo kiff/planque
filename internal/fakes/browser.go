@@ -29,6 +29,9 @@ type Browser struct {
 	// session started with downloads on; StartedWithDownloads counts them.
 	Files                []browser.Download
 	StartedWithDownloads int
+	// ScreenshotPNG, when set, is every screenshot: a real PNG, for a store
+	// that checks its bytes.
+	ScreenshotPNG []byte
 	// Delivery is the delivery address the checkout shows, nil for none;
 	// a test changes it between a read and a pay.
 	Delivery *browser.Address
@@ -303,6 +306,9 @@ func (s *browserSession) Look(context.Context) (browser.Page, error) {
 }
 
 func (s *browserSession) Screenshot(context.Context) ([]byte, error) {
+	if s.b.ScreenshotPNG != nil {
+		return s.b.ScreenshotPNG, nil
+	}
 	return []byte("\x89PNG " + s.page.URL), nil
 }
 
