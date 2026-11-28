@@ -353,6 +353,18 @@ and deleted on disconnect. planque never stores or logs a password: in the
 live view, what the owner types goes to the browser through planque's
 memory as an act, and is kept nowhere.
 
+### Evidence pictures
+
+With `PLANQUE_EVIDENCE=on`, a hosted browser's write keeps a picture of the
+page after it with the operation, sealed under the grant as a download is,
+for 30 days, and deleted sooner with the grant or the account. No picture is
+taken on a page that pays, or while a card, password or code field holds
+anything: the page's read says whether a secret field is filled, never
+what it holds. The owner's apps read a picture with
+`GET /v1/accounts/{tenant}/grants/{id}/evidence/{ref}`, with the account's
+key. The owner's Chrome takes none (its own masked pictures are the
+extension's).
+
 ### Downloads into the grant's store
 
 For the accounts `PLANQUE_BROWSER_DOWNLOADS=tenants:…` lists, a

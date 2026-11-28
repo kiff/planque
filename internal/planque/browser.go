@@ -816,6 +816,11 @@ func (s *Server) keepEvidence(ctx context.Context, g *Grant, op string, sess bro
 		// The owner's Chrome takes no screenshots (tafs Privacy).
 		return ev
 	}
+	// Never on a page that pays, nor while a card, password or code field
+	// holds anything (T3.2).
+	if !browser.Pictured(after) {
+		return ev
+	}
 	png, err := sess.Screenshot(ctx)
 	if err != nil {
 		s.log().WarnContext(ctx, "no screenshot", slog.String("grant", g.ID), slog.String("op", op), slog.String("err", err.Error()))
