@@ -355,7 +355,7 @@ for k in ("PLANQUE_BROWSER_URL","PLANQUE_BROWSER_KEY","PLANQUE_BROWSER_PAY","PLA
     if now.get(k) and not v.get(k): v[k]=now[k]
 if os.environ.get("PLANQUE_CHROME_RELAY") == "off":
     v.pop("PLANQUE_CHROME_STEP_KEY", None); v.pop("PLANQUE_CHROME_WS_ENDPOINT", None)
-for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED","PLANQUE_LIVE_GSI"):
+for k in ("PLANQUE_DIGEST","PLANQUE_WINDOW_REQUIRED","PLANQUE_COMPUTER_WINDOW_REQUIRED","PLANQUE_LIVE_GSI","PLANQUE_LIVE_LIST"):
     if os.environ.get(k) or now.get(k): v[k]=os.environ.get(k) or now[k]
 print(json.dumps({"Variables": v}))' "$1" "$TABLE" "$ALIAS"
   fi

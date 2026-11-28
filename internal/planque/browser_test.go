@@ -711,7 +711,7 @@ func TestBrowserDownIsRefusedNotSent(t *testing.T) {
 func TestBrowserToolsAreListedAtTheRelay(t *testing.T) {
 	e := newBrowserEnv(t)
 	g := e.connect()
-	tools := relayTools(g)
+	tools := (&Server{}).relayTools(g)
 	if len(tools) != 5 {
 		t.Fatalf("listed: %d", len(tools))
 	}

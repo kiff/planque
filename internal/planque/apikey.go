@@ -571,7 +571,7 @@ func (s *Server) signInWorks(ctx context.Context, g *Grant) ([]mcpTool, error) {
 			if err != nil {
 				return nil, nil
 			}
-			return servedOnly(g.Request.Server, listed), nil
+			return s.servedFor(g.Tenant, g.Request.Server, listed), nil
 		}
 		if attempt > 0 {
 			return nil, errSignInRefused
@@ -599,7 +599,7 @@ func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mc
 		if err == nil {
 			s.keepVendorTools(ctx, g, listed)
 		}
-		return servedOnly(g.Request.Server, listed), server, err
+		return s.servedFor(g.Tenant, g.Request.Server, listed), server, err
 	}
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
 	if err != nil {

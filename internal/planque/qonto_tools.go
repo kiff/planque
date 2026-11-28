@@ -3,6 +3,8 @@ package planque
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -43,6 +45,45 @@ var qontoServed = []string{
 	"create_client_invoice", "create_client", "update_client",
 }
 
+// servesAll says planque passes the vendor's whole live list through for
+// tenant's grants on server: a test account's (PLANQUE_MANAGED_TEST_TENANTS),
+// once PLANQUE_LIVE_LIST=test is set, which waits for KIFF's Card to decide
+// each call's class there (step 9 of the policy move, brought forward for
+// test accounts). Every other account, and Qonto's host until then, keeps
+// qontoServed. Off any server planque filters, every tool is served anyway.
+func (s *Server) servesAll(tenant, server string) bool {
+	return s.LiveListTest && s.ManagedTestTenants[tenant] && onHost(server, qontoHost)
+}
+
+// served says planque serves tool on server for tenant's grants.
+func (s *Server) served(tenant, server, tool string) bool {
+	return s.servesAll(tenant, server) || qontoServedOn(server, tool)
+}
+
+// servedFor is servedOnly for tenant: the whole list where servesAll.
+func (s *Server) servedFor(tenant, server string, listed []mcpTool) []mcpTool {
+	if s.servesAll(tenant, server) {
+		return listed
+	}
+	return servedOnly(server, listed)
+}
+
+// servedRule names the rule tenant's tools on server are filtered by: the
+// whole live list ("live") where servesAll; on Qonto's MCP host, the tools in
+// qontoServed, as a short digest; on any other server, none, since every tool
+// there is served. A grant's stored catalog keeps it (Grant.CatalogRule), so a
+// change to what's served reaches grants listed before it.
+func (s *Server) servedRule(tenant, server string) string {
+	if s.servesAll(tenant, server) {
+		return "live"
+	}
+	if !onHost(server, qontoHost) {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(qontoServed, ",")))
+	return "qonto:" + hex.EncodeToString(sum[:6])
+}
+
 // qontoServedOn says whether planque serves tool on server: on Qonto's MCP
 // host only the tools in qontoServed; on any other server, any tool (each
 // still under the owner's approval and KIFF's permit).
@@ -68,9 +109,9 @@ func qontoNotServed(tool, field string) *toolRefusal {
 
 // qontoToolsCheck refuses, before the owner sees anything, a requested tool
 // planque doesn't serve on Qonto's sign-in.
-func qontoToolsCheck(server string, tools []ToolRequest, field string) *toolRefusal {
+func (s *Server) toolsCheck(tenant, server string, tools []ToolRequest, field string) *toolRefusal {
 	for _, t := range tools {
-		if !qontoServedOn(server, t.Tool) {
+		if !s.served(tenant, server, t.Tool) {
 			return qontoNotServed(t.Tool, field)
 		}
 	}
@@ -84,8 +125,8 @@ var errNotServed = errors.New("planque doesn't serve this tool on Qonto's sign-i
 // callServed is every tools/call planque sends to a vendor's MCP server, the
 // relay's, a describing tool's and a sign-in's account read alike: a tool it
 // doesn't serve on that server is never sent, whoever asks.
-func (s *Server) callServed(ctx context.Context, server, access, tool string, args json.RawMessage) (json.RawMessage, error) {
-	if !qontoServedOn(server, tool) {
+func (s *Server) callServed(ctx context.Context, tenant, server, access, tool string, args json.RawMessage) (json.RawMessage, error) {
+	if !s.served(tenant, server, tool) {
 		return nil, errNotServed
 	}
 	return s.MCP.CallTool(ctx, server, access, tool, args)
@@ -202,7 +243,7 @@ func (s *Server) signedInCountry(ctx context.Context, g *Grant, access string) s
 	if s.MCP == nil {
 		return ""
 	}
-	res, err := s.callServed(ctx, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
+	res, err := s.callServed(ctx, g.Tenant, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
 	if err != nil {
 		s.log().WarnContext(ctx, "the sign-in's organisation couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "couldn't read the organisation's country")

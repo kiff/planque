@@ -402,7 +402,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(req.Server, *req.Tools, "tools"); r != nil {
+	if r := s.toolsCheck(tenant, req.Server, *req.Tools, "tools"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -1237,7 +1237,15 @@ type grantView struct {
 	// StatusWords is Status in the owner's words, so every app shows the
 	// same line for a connection and none keeps its own.
 	StatusWords string `json:"status_words"`
-	Text        string `json:"text"`
+	// VendorRevoke is what disconnecting does at the vendor (vendorRevokeOf):
+	// "revoked", "revoke_requested" (a managed sign-in: disabled at once, its
+	// revocation at the vendor asked of the connection platform, which never
+	// says it's done), "not_revoked" (a sign-in at a vendor that publishes no
+	// way to revoke one, as Qonto) or "key_stays" (a key the owner made, which
+	// only the owner can delete there). Empty for a browser or a connection with
+	// nothing held at a vendor. The apps pick their disconnect words from it.
+	VendorRevoke string `json:"vendor_revoke,omitempty"`
+	Text         string `json:"text"`
 	// Terms are each tool's exact terms, for the owner who opens Details:
 	// the text names the tools in words (kiff/tafs#138, item 52).
 	Terms []string `json:"terms,omitempty"`
@@ -1343,7 +1351,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 		asked = words.Pick("", r.Header.Get("Accept-Language"))
 	}
 	lang, text := g.shown(asked)
-	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
+	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), VendorRevoke: vendorRevokeOf(g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand}
@@ -1529,7 +1537,61 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
+	if !s.currentCatalog(w, r, g) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+}
+
+// catalogOf is a vendor's served tools as a grant's catalog keeps them.
+func catalogOf(listed []mcpTool) []CatalogTool {
+	var out []CatalogTool
+	for _, t := range listed {
+		out = append(out, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
+	}
+	return out
+}
+
+// currentCatalog makes g's catalog the one planque's served rule gives now:
+// one kept under an earlier rule is listed again (relistCatalog) before it's
+// read or chosen from. False when that failed, and it has answered 503:
+// never a stale catalog.
+func (s *Server) currentCatalog(w http.ResponseWriter, r *http.Request, g *Grant) bool {
+	if g.Request.Connector != nil || g.Request.API != nil || len(g.Catalog) == 0 || g.CatalogRule == s.servedRule(g.Tenant, g.Request.Server) {
+		return true
+	}
+	// A sign-in that can't be used (signed out, revoked) is answered as any
+	// read with it would be, never "try again", which wouldn't help.
+	access, _, err := s.accessToken(r.Context(), g, 0)
+	if err != nil {
+		s.fail(w, r, err)
+		return false
+	}
+	if err := s.relistCatalog(r.Context(), g, access); err != nil {
+		s.log().WarnContext(r.Context(), "catalog not listed again", slog.String("grant", g.ID), slog.String("error", err.Error()))
+		writeErr(w, http.StatusServiceUnavailable, "this grant's tools couldn't be read again from "+hostOf(g.Request.Server)+" since what planque serves there changed; try again")
+		return false
+	}
+	return true
+}
+
+// relistCatalog reads g's tools again with its own sign-in, for a catalog
+// kept under an earlier served rule: a tool planque serves since is in it,
+// and one it no longer serves is out. Only the catalog the asking agent
+// chooses from changes: the tools the owner approved (Tools) don't, and a
+// newly served one still needs the owner's approval to be added. Kept when
+// the grant hasn't changed meanwhile; else this answer alone is fresh.
+func (s *Server) relistCatalog(ctx context.Context, g *Grant, access string) error {
+	listed, _, err := s.vendorTools(ctx, g, access)
+	if err != nil {
+		return err
+	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().InfoContext(ctx, "catalog listed again, not kept", slog.String("grant", g.ID), slog.String("error", err.Error()))
+	}
+	return nil
 }
 
 // liveCatalog says g is a vendor's own MCP server connected with tools of
@@ -1560,7 +1622,7 @@ func (s *Server) liveCatalog(w http.ResponseWriter, r *http.Request, g *Grant) {
 		writeErr(w, http.StatusBadGateway, "couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 		return
 	}
-	listed = servedOnly(g.Request.Server, listed)
+	listed = s.servedFor(g.Tenant, g.Request.Server, listed)
 	tools := make([]CatalogTool, 0, len(listed))
 	for _, t := range listed {
 		tools = append(tools, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
@@ -1697,6 +1759,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, askedAtOnce)
 		return
 	}
+	// Chosen from the catalog planque's served rule gives now, never one kept
+	// under an earlier rule.
+	if !s.currentCatalog(w, r, g) {
+		return
+	}
 	// What it has: on a connected grant, its tools; while an addition waits,
 	// the tools it had before it (the addition is revised).
 	var has []ToolRequest
@@ -1744,7 +1811,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(g.Request.Server, req.Tools, "tool"); r != nil {
+	if r := s.toolsCheck(g.Tenant, g.Request.Server, req.Tools, "tool"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -2880,11 +2947,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	g.VendorName = s.serverVendorName(g, server)
-	g.Catalog = nil
-	for _, t := range listed {
-		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
-	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
 	return s.saveGrant(ctx, g)
@@ -3542,18 +3605,9 @@ func (s *Server) endGrant(ctx context.Context, g *Grant, said, by string) error 
 	g.Status, g.Transport, g.Transports, g.Connected, g.Declared = StatusDisconnected, "", nil, nil, false
 	g.Pending, g.PendingTransport = nil, ""
 	what := said + ": token deleted"
-	switch {
-	case g.keptFor > 0:
-		what = said + ": the sign-in stays, another taf's connection uses it"
-	case g.revokedShared && g.Request.Kind == KindAPIKey:
-		what = said + ": the key it shared was deleted, no other connection used it"
-	case g.revokedShared:
-		what = said + ": the sign-in it shared was revoked, no other connection used it"
-	case g.TokenOf != "":
-		what = said + ": the sign-in it used stays with the connection it came from"
-	case g.Request.Kind == KindAPIKey:
-		what = said + ": key deleted"
-	case g.Request.Kind == KindBrowser:
+	if ended := signInEnded(g, true); ended != "" {
+		what = said + ": " + ended
+	} else if g.Request.Kind == KindBrowser {
 		what = said + ": the browser's sign-ins and screenshots deleted"
 	}
 	if g.Request.API != nil {
@@ -3980,6 +4034,65 @@ func label(s string) string {
 		return ""
 	}
 	return s
+}
+
+// What disconnecting does at the vendor (grantView.VendorRevoke).
+const (
+	revokeAtVendor   = "revoked"
+	revokeRequested  = "revoke_requested"
+	revokeNotOffered = "not_revoked"
+	revokeKeyStays   = "key_stays"
+)
+
+// vendorRevokeOf says what disconnecting g does at its vendor: a sign-in is
+// revoked there when the vendor's OAuth metadata names a revocation endpoint
+// (oauth.Client.Revoke), and only deleted here when it names none; a key the
+// owner made stays valid there until the owner deletes it; a managed sign-in
+// is disabled at its connection platform at once (revokeConnector), and its
+// revocation at the vendor is asked of the platform, which does it later and
+// never says it's done, so it's requested, never "revoked". A browser, or a
+// grant that holds nothing at a vendor, says nothing.
+func vendorRevokeOf(g *Grant) string {
+	switch {
+	case g.Request.Kind == KindAPIKey:
+		return revokeKeyStays
+	case g.Request.Kind == KindBrowser:
+		return ""
+	case g.Request.Connector != nil:
+		return revokeRequested
+	case g.Vendor.Token == "":
+		return ""
+	case g.Vendor.Revocation == "":
+		return revokeNotOffered
+	}
+	return revokeAtVendor
+}
+
+// signInEnded says what ending g did with the sign-in or key it held, for
+// its disconnect record, the same whichever door ended it (the owner's
+// Disconnect, or its taf's end): kept for another connection, revoked, or
+// only deleted here, and then what stays at the vendor. "" when g held
+// none of these, and the caller says what it held. held: whether g held a
+// sign-in of its own, so one that never signed in isn't said deleted.
+func signInEnded(g *Grant, held bool) string {
+	notOffered := vendorRevokeOf(g) == revokeNotOffered
+	switch {
+	case g.keptFor > 0:
+		return "the sign-in stays, another taf's connection uses it"
+	case g.revokedShared && g.Request.Kind == KindAPIKey:
+		return "the key it shared was deleted here, no other connection used it; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case g.revokedShared && notOffered:
+		return "the sign-in it shared was deleted here, no other connection used it; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	case g.revokedShared:
+		return "the sign-in it shared was revoked, no other connection used it"
+	case g.TokenOf != "":
+		return "the sign-in it used stays with the connection it came from"
+	case g.Request.Kind == KindAPIKey:
+		return "key deleted here; it stays valid at " + vendorName(g) + " until the owner deletes it there"
+	case notOffered && held:
+		return "token deleted here; " + vendorName(g) + " offers no revocation, so the sign-in ends there only when the owner removes tafs's access there"
+	}
+	return ""
 }
 
 // vendorName is the vendor as the owner reads it: its own name, else the

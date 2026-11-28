@@ -35,7 +35,7 @@ func TestTheAgentIsGivenArgumentNamesItsModelTakes(t *testing.T) {
 		g.Tools = append(g.Tools, GrantedTool{ToolRequest: ToolRequest{Name: o.Name, Tool: o.Name}, InputSchema: o.InputSchema})
 	}
 	bracketed := 0
-	for _, tool := range relayTools(g) {
+	for _, tool := range (&Server{}).relayTools(g) {
 		var schema struct {
 			Properties map[string]any `json:"properties"`
 			Required   []string       `json:"required"`
