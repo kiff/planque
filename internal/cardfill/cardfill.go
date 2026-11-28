@@ -99,10 +99,10 @@ type Hit struct {
 	What  string // "card number" or "a card's last eight"; never the digits
 }
 
-var digitRun = regexp.MustCompile(`(?:\d[ -]?){12,18}\d`)
+var digitRun = regexp.MustCompile(`(?:\d[ .-]?){12,18}\d`)
 
 // Canary scans text, named where, for any Luhn-valid run of 13 to 19
-// digits (spaces and dashes allowed, as a card number is written) and for
+// digits (spaces, dashes or dots allowed, as a card number is written) and for
 // the last eight digits of any of cards. It returns what it found, never
 // the digits.
 func Canary(where, text string, cards ...string) []Hit {

@@ -396,7 +396,7 @@ func Mask(p Page, maxText int) Page {
 
 // cardRun is a run of 13 to 19 digits, spaces or dashes between groups
 // allowed, as a card number is written.
-var cardRun = regexp.MustCompile(`\b(?:\d[ -]?){12,18}\d\b`)
+var cardRun = regexp.MustCompile(`\b(?:\d[ .-]?){12,18}\d\b`)
 
 // MaskText is text with every card number in it masked to its last four
 // digits: a run of 13 to 19 digits that passes the Luhn check, with or
