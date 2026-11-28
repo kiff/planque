@@ -3,9 +3,11 @@ package planque
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
@@ -229,4 +231,48 @@ func (s *Server) handOnPaymentPage(ctx context.Context, g *Grant, sess browser.S
 	g.event(s.now(), "a step handed to the person ended at a page that takes a payment (or off the connection's sites); nothing was typed there and nothing was kept")
 	_ = s.saveGrant(ctx, g)
 	return "This page takes a payment, and a step handed to you can't be done on it. The view has ended and nothing was kept; the taf is told you put it off.", true
+}
+
+// waitingHand is one hosted hand-over still waiting for the person, as
+// tafs cloud lists it in Needs you: no URL and no token, since the view is
+// the phone's signed ask, made fresh on each open.
+type waitingHand struct {
+	Grant   string `json:"grant"`
+	Agent   string `json:"agent"`
+	Hand    string `json:"hand"`
+	Site    string `json:"site"`
+	Words   string `json:"words"`
+	Since   string `json:"since"`
+	Expires string `json:"expires"`
+}
+
+// accountHands answers GET /v1/accounts/{tenant}/hands, with the account's
+// key as /connections: the hosted hand-overs still waiting for the person,
+// none done, put off or lapsed.
+func (s *Server) accountHands(w http.ResponseWriter, r *http.Request) {
+	tenant := r.PathValue("tenant")
+	if _, err := s.agentKey(r, tenant); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	items, err := s.KV.Query(r.Context(), tenantPK(tenant), "BROWSER_SIGNIN#")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := []waitingHand{}
+	now := s.now()
+	for _, it := range items {
+		var rec signInRecord
+		if json.Unmarshal(it.Doc, &rec) != nil || rec.Hand == "" || !now.Before(rec.Expires) {
+			continue
+		}
+		g, err := s.loadGrant(r.Context(), tenant, strings.TrimPrefix(it.SK, "BROWSER_SIGNIN#"))
+		if err != nil || g.Status != StatusConnected {
+			continue
+		}
+		out = append(out, waitingHand{Grant: g.ID, Agent: g.Request.Agent, Hand: rec.Hand, Site: rec.Site, Words: rec.Words,
+			Since: rec.OpenedAt.UTC().Format(time.RFC3339), Expires: rec.Expires.UTC().Format(time.RFC3339)})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"hands": out})
 }
