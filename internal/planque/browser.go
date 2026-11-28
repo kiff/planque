@@ -558,6 +558,11 @@ type browserArgs struct {
 	// which hand-over browse_hand_result reads.
 	Words string `json:"words"`
 	Hand  string `json:"hand"`
+	// CheckoutDescribe is the gateway's describe of a pay, inside the
+	// permit's arguments: the pay's op, equal to the describe header
+	// (checkout_describe.go). A planque without describes refuses it as an
+	// unknown argument, so a describe never runs as a pay.
+	CheckoutDescribe string `json:"checkout_describe"`
 	// unshown: the read named came with no refs (browse_read's), so planque
 	// set it aside; never an argument.
 	unshown bool
@@ -573,6 +578,11 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&a); err != nil {
 		return OpNotSent, browserRefusal(CodeBadArguments, "the arguments aren't this tool's: "+err.Error(), false)
+	}
+	// A describe's argument without the gateway's describe header is never
+	// run: not as a pay, not as anything else.
+	if a.CheckoutDescribe != "" && checkoutHeaderFrom(ctx) == "" {
+		return OpNotSent, browserRefusal(CodeBadArguments, "checkout_describe comes only with the gateway's describe: nothing was run", false)
 	}
 	// The hosted browser runs only for an account it's offered to
 	// (PLANQUE_BROWSER_OFFER), a grant from before included: nothing opens.
@@ -632,6 +642,14 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	}
 	if tool.Tool == browseHand {
 		return s.hostedHand(ctx, g, p, a, sites)
+	}
+	// The gateway's describe of a pay (checkout_describe.go): answered from
+	// the kept read, and nothing more.
+	if op := checkoutHeaderFrom(ctx); op != "" {
+		if tool.Tool != browsePay {
+			return OpNotSent, browserRefusal(CodeBadArguments, "only browse_pay describes a checkout", false)
+		}
+		return s.describeCheckout(ctx, g, p, a, op)
 	}
 	if tool.Tool == browsePay {
 		// Before the browser opens: the checkout must have been read, so

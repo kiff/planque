@@ -393,6 +393,27 @@ that host is the merchant's site. A profile in live mode, two that differ, or
 anything else, give none. A pay whose checkout now names another profile is
 refused.
 
+### A pay described for KIFF's purchase case
+
+Before KIFF decides a `browse_pay`, its gateway sends the pay with its own
+header `KIFF-Checkout-Describe` (the pay's operation), under KIFF's permit
+for `<op>:describe`, with the argument `checkout_describe` set to the same
+operation inside the permit's arguments. A describe without that argument,
+or with another operation, is refused. So is the argument without the header,
+before anything runs. A planque that doesn't describe refuses the argument as
+unknown, so a describe can never run as a pay. planque answers `browser_block {block, sig}` from the
+checkout it read and kept at `browse_checkout`. The block is
+`planque/checkout/v1`, with the account, the operation, the grant, the site,
+the URL, `ref` (the control that pays), the lines, total and currency,
+shipping, tax, merchant, delivery address, `stripe_profile` and
+`stripe_profile_from`, and `read_at`. It's signed with planque's describe key
+under its own label, so it never passes for a sealed fill's block. No
+browser starts and nothing reaches the site; the taf is told nothing. A pay
+with no kept read, one read too long ago, or one whose earlier pay ended
+unknown gets no block, and KIFF opens no case. Which way it pays (token or
+card fill) is the case's, decided by KIFF; the pay itself is still checked
+against the same record.
+
 ### The live sign-in view
 
 A site's sign-in is the owner's own. From the connection in the app, the
