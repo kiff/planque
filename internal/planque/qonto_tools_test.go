@@ -106,12 +106,12 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
 		t.Fatalf("served tools refused: %+v", r)
 	}
-	// A taf that guessed a tool name reads, in the refusal, that balances are
-	// served and by which tool, and every tool it may ask for, so it retries
-	// with a served one rather than telling the owner balances can't be read.
+	// A taf that guessed a tool name reads, in the refusal, every tool it may
+	// ask for, and that bank accounts and their balances aren't served: never
+	// that get_organization gives them, which Qonto says it doesn't.
 	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools")
-	if r == nil || !strings.Contains(r.Msg, "balances") || !strings.Contains(r.Msg, "get_organization") {
-		t.Fatalf("the refusal doesn't name balances and get_organization: %+v", r)
+	if r == nil || !strings.Contains(r.Msg, "Accounts, balances and IBANs aren't among them") || strings.Contains(r.Msg, "balances and IBANs (get_organization)") {
+		t.Fatalf("the refusal says balances are served: %+v", r)
 	}
 	for _, name := range qontoServed {
 		if !strings.Contains(r.Msg, name) || !strings.Contains(r.Want, name) {
@@ -292,30 +292,14 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 	}
 }
 
-// A served read's description says what it gives where Qonto's doesn't, so a
-// catalog search by the job's words finds it: "balance" finds get_organization
-// (the Qonto re-test, 27 Nov). Never on another server, never twice, and the
-// list given is untouched.
-func TestQontoReadsAreFoundByTheJobsWords(t *testing.T) {
+// A served tool's description is Qonto's own. planque once added to
+// get_organization's that it gives each bank account's balance and IBAN; Qonto
+// says it gives the organization only, and planque doesn't serve the bank
+// accounts. Nothing is added, on Qonto's host or any other.
+func TestQontoDescriptionsAreQontosOwn(t *testing.T) {
 	listed := []mcpTool{{Name: "get_organization", Description: "Retrieve the organization."}, {Name: "list_transactions", Description: "List transactions."}}
 	got := servedOnly(qontoServer, listed)
-	if len(got) != 2 || !strings.Contains(strings.ToLower(got[0].Description), "balance") || !strings.Contains(got[0].Description, "IBAN") ||
-		!strings.HasPrefix(got[0].Description, "Retrieve the organization. ") {
-		t.Fatalf("get_organization's description: %q", got[0].Description)
-	}
-	if got[1].Description != "List transactions." {
-		t.Fatalf("another read's description changed: %q", got[1].Description)
-	}
-	if listed[0].Description != "Retrieve the organization." {
-		t.Fatalf("servedOnly changed the list it was given: %q", listed[0].Description)
-	}
-	// Qonto's own words already say it: nothing is added.
-	own := []mcpTool{{Name: "get_organization", Description: "The organization and each account's Balance."}}
-	if d := servedOnly(qontoServer, own)[0].Description; d != own[0].Description {
-		t.Fatalf("added to a description that already says it: %q", d)
-	}
-	// Another server's tool of the same name is as its server says.
-	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[0].Description; d != "Retrieve the organization." {
-		t.Fatalf("changed off Qonto's host: %q", d)
+	if len(got) != 2 || got[0].Description != "Retrieve the organization." || got[1].Description != "List transactions." {
+		t.Fatalf("a served description changed: %+v", got)
 	}
 }
