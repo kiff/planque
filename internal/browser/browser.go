@@ -95,6 +95,12 @@ type Checkout struct {
 	// (billing ones left out) or its structured address; nil when the
 	// page has neither, or two that differ.
 	Delivery *Address `json:"delivery,omitempty"`
+	// StripeProfile is the seller's Stripe profile, as the merchant's own
+	// UCP profile on StripeProfileFrom (the checkout page's host) names
+	// it: what a shared payment token is scoped to. Set by planque, never
+	// by a page's read.
+	StripeProfile     string `json:"stripe_profile,omitempty"`
+	StripeProfileFrom string `json:"stripe_profile_from,omitempty"`
 }
 
 // Merchant is the shop as its page names itself. Country is a two-letter
@@ -136,7 +142,7 @@ type Line struct {
 // the same shipping, tax, merchant and delivery address.
 func (c Checkout) Same(o Checkout) bool {
 	if c.Total != o.Total || c.Currency != o.Currency || len(c.Lines) != len(o.Lines) ||
-		c.Shipping != o.Shipping || c.Tax != o.Tax || deref(c.Merchant) != deref(o.Merchant) || deref(c.Delivery) != deref(o.Delivery) {
+		c.Shipping != o.Shipping || c.Tax != o.Tax || c.StripeProfile != o.StripeProfile || deref(c.Merchant) != deref(o.Merchant) || deref(c.Delivery) != deref(o.Delivery) {
 		return false
 	}
 	for i := range c.Lines {

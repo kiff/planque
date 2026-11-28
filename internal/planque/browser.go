@@ -715,6 +715,8 @@ func (s *Server) browseCheckout(ctx context.Context, g *Grant, u, site string, p
 		return OpDone, browserAnswer(map[string]any{"site": site, "url": page.URL, "lines": co.Lines, "currency": co.Currency,
 			"why": "an earlier pay on this checkout ended without a known outcome, so it is not given a total again: check the account before a new call"})
 	}
+	// The seller's Stripe profile, from its own site, for a token purchase.
+	s.withStripeProfile(ctx, co, page.URL)
 	rec := checkoutRecord{Site: site, Checkout: *co, ReadAt: s.now().UTC()}
 	it := store.Item{PK: tenantPK(g.Tenant), SK: skCheckout(g.ID, u), Ver: 1, TTL: s.now().Add(checkoutKept).Unix()}
 	if err := putDoc(ctx, s.KV, it, rec, store.Cond{}); err != nil {
@@ -740,6 +742,9 @@ func checkoutAnswer(site, u string, co browser.Checkout) map[string]any {
 	}
 	if co.Delivery != nil {
 		a["delivery"] = co.Delivery
+	}
+	if co.StripeProfile != "" {
+		a["stripe_profile"], a["stripe_profile_from"] = co.StripeProfile, co.StripeProfileFrom
 	}
 	return a
 }
@@ -1005,6 +1010,9 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return OpNotSent, browserRefusal(code, "the checkout redirected: "+why, false)
 	}
 	co := page.Checkout
+	if co != nil {
+		s.withStripeProfile(ctx, co, page.URL)
+	}
 	switch {
 	case co == nil || co.Total == "" || co.Currency == "":
 		return OpNotSent, browserRefusal(browser.CodeTotalUnread, "no total and currency can be read on the checkout now", false)
@@ -1060,6 +1068,8 @@ func changedPart(was, now browser.Checkout) string {
 		return "shipping"
 	case was.Tax != now.Tax:
 		return "tax"
+	case was.StripeProfile != now.StripeProfile:
+		return "seller's Stripe profile"
 	}
 	return ""
 }

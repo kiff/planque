@@ -381,6 +381,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		ChromeHand: chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
 		// Paying in the hosted browser: on only when set to on.
 		BrowserPay: strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_PAY")) == "on",
+		// The seller's Stripe profile read with a checkout, when on.
+		StripeProfiles: os.Getenv("PLANQUE_STRIPE_PROFILE") == "on",
 		// A sealed fill in the owner's Chrome, off unless turned on.
 		SealedFill:   os.Getenv("PLANQUE_SEALED_FILL") == "on",
 		ChromeSigner: chromeSigner,

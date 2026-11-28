@@ -353,6 +353,18 @@ and deleted on disconnect. planque never stores or logs a password: in the
 live view, what the owner types goes to the browser through planque's
 memory as an act, and is kept nowhere.
 
+### The seller's Stripe profile
+
+With `PLANQUE_STRIPE_PROFILE=on`, a hosted `browse_checkout` also reads the
+merchant's UCP profile at `https://<the checkout page's host>/.well-known/ucp`
+(public addresses only, no redirect, at most 64 KB), and answers the test-mode
+`business_profile` its `com.stripe.payments` handler names as
+`stripe_profile`, with `stripe_profile_from`, the host it was read on. KIFF
+signs it into a token purchase's case (`merchant.stripe_profile`) only when
+that host is the merchant's site. A profile in live mode, two that differ, or
+anything else, give none. A pay whose checkout now names another profile is
+refused.
+
 ### The live sign-in view
 
 A site's sign-in is the owner's own. From the connection in the app, the

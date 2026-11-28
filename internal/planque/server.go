@@ -101,6 +101,11 @@ type Server struct {
 	// connection approved before keeps its tools. On in production unless
 	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
+	// StripeProfiles reads the seller's Stripe profile with a checkout
+	// (stripe_profile.go; PLANQUE_STRIPE_PROFILE=on); UCPGet replaces its
+	// fetch in tests.
+	StripeProfiles bool
+	UCPGet         func(ctx context.Context, host string) ([]byte, error)
 	// SealedFill takes a sealed fill in the owner's Chrome: the gateway's
 	// describe of it, and its act with the phone's release (chrome_sealed.go).
 	// Off unless PLANQUE_SEALED_FILL=on (cmd/planque); off, every sealed step
