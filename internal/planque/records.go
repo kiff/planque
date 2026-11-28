@@ -408,6 +408,10 @@ type Grant struct {
 	// Catalog is what the vendor's MCP server listed, once signed in, for
 	// a grant asked for with no tools: what the asking agent chooses from.
 	Catalog []CatalogTool `json:"catalog,omitempty"`
+	// CatalogRule is the served rule Catalog was filtered by
+	// (servedRule): a catalog read that finds another lists the tools again,
+	// so a tool planque serves since is in it.
+	CatalogRule string `json:"catalog_rule,omitempty"`
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
 	Transport string `json:"transport,omitempty"`

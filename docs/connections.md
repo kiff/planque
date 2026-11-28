@@ -85,6 +85,21 @@ locations, argument schema and request-body form. Descriptions and titles
 are excluded. Argument names, including an argument named `description`,
 and schema constants remain part of the fingerprint.
 
+## What Qonto's sign-in serves
+
+On Qonto's MCP host, planque serves the tools it names in `qontoServed` (`qonto_tools.go`) and no
+other: a tool it doesn't serve isn't listed, can't be asked for, and is never called. **The test
+accounts' grants get Qonto's whole live list** once `PLANQUE_LIVE_LIST=test` is set
+(`servesAll`). That's step 9 of the policy move, brought forward for the test accounts: KIFF's Card
+decides each call's class there, so it's set only once that's live for them. Off, or for any other
+account, nothing changes.
+
+A grant's catalog keeps the rule it was filtered by (`catalog_rule`). A catalog read that finds
+another, after `qontoServed` changed or the switch was turned, lists the tools again with the
+grant's own sign-in before answering (`relistCatalog`), and refuses (503) if it can't, never
+answering a stale list. Only the catalog to choose from changes: the tools the owner approved stay
+as they are.
+
 ## Qonto by key
 
 **Withdrawn.** Qonto connects only through its own sign-in, so both key entries, `qonto-key@1`

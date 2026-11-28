@@ -25,7 +25,7 @@ func TestTheVendorAndItsToolsKeepTheirNames(t *testing.T) {
 		t.Fatalf("KIFF got the tool titled %q", c.Title)
 	}
 	got, _ := e.s.loadGrant(context.Background(), tenant, g.ID)
-	for _, tool := range relayTools(got) {
+	for _, tool := range (&Server{}).relayTools(got) {
 		if tool.Name == "create_refund" && tool.Title != "Refund a charge" {
 			t.Fatalf("the relay lists it titled %q", tool.Title)
 		}
