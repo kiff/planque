@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 )
@@ -104,10 +105,17 @@ func (s *Server) callServed(ctx context.Context, server, access, tool string, ar
 //   - a status or report_einvoicing the schema declares below the top level
 //     is refused, since it can't be pinned when the taf leaves it out;
 //   - a status or report_einvoicing the schema takes is pinned to draft and
-//     false, and returned as pinned, for the operation's record.
+//     false, and returned as pinned, for the operation's record;
+//   - the fields Qonto takes from Italian organisations only (qontoItalianOnly)
+//     follow the organisation's country, read at sign-in (Grant.Country): for
+//     another country, a call that sets payment_reporting or
+//     stamp_duty_amount is refused, and report_einvoicing is left out, not
+//     pinned, as Qonto asks of a non-Italian organisation. For Italy, or a
+//     country planque couldn't read, report_einvoicing is pinned to false:
+//     left out, an Italian organisation's invoice goes to SdI on creation.
 //
 // Other tools and servers pass as they are.
-func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json.RawMessage, map[string]any, string) {
+func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage, country string) (json.RawMessage, map[string]any, string) {
 	if !onHost(server, qontoHost) || tool.Tool != "create_client_invoice" {
 		return args, nil, ""
 	}
@@ -150,11 +158,21 @@ func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json
 	if why := draftOnlyTree(in); why != "" {
 		return nil, nil, why
 	}
+	// Another country's organisation sends none of the Italian-only fields.
+	elsewhere := country != "" && country != "IT"
+	if elsewhere {
+		for _, k := range qontoItalianOnly {
+			if v, ok := in[k]; ok && v != nil && k != "report_einvoicing" {
+				return nil, nil, k + " is for Italian organisations only, and this Qonto organisation's country is " + country + ", so it isn't sent; leave it out"
+			}
+		}
+		delete(in, "report_einvoicing")
+	}
 	pinned := map[string]any{}
 	if _, ok := schema.Properties["status"]; ok {
 		in["status"], pinned["status"] = "draft", "draft"
 	}
-	if _, ok := schema.Properties["report_einvoicing"]; ok {
+	if _, ok := schema.Properties["report_einvoicing"]; ok && !elsewhere {
 		in["report_einvoicing"], pinned["report_einvoicing"] = false, false
 	}
 	out, err := json.Marshal(in)
@@ -165,6 +183,82 @@ func qontoDraftOnly(server string, tool GrantedTool, args json.RawMessage) (json
 		pinned = nil
 	}
 	return out, pinned, ""
+}
+
+// qontoItalianOnly are the arguments of Qonto's create_client_invoice its
+// own descriptions say only an Italian organisation includes ("Non-Italian
+// organizations should not include this property").
+var qontoItalianOnly = []string{"report_einvoicing", "payment_reporting", "stamp_duty_amount"}
+
+// qontoOrganizationTool is Qonto's read of the signed-in organisation.
+const qontoOrganizationTool = "get_organization"
+
+// signedInCountry is the organisation's country a Qonto sign-in is for,
+// read with Qonto's own get_organization, once, by planque itself, right
+// after the owner signed in, with the new token: never a caller's word.
+// "" when it can't be read or names no country, and the draft pin then
+// stays as for an Italian organisation. The read is on the grant's record.
+func (s *Server) signedInCountry(ctx context.Context, g *Grant, access string) string {
+	if s.MCP == nil {
+		return ""
+	}
+	res, err := s.callServed(ctx, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
+	if err != nil {
+		s.log().WarnContext(ctx, "the sign-in's organisation couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
+		g.event(s.now(), "couldn't read the organisation's country")
+		return ""
+	}
+	country := organizationCountry(res)
+	if country == "" {
+		g.event(s.now(), "read the organisation; it named no country")
+		return ""
+	}
+	g.event(s.now(), "read the organisation's country: "+country)
+	return country
+}
+
+// organizationCountry reads get_organization's answer, its
+// structuredContent or else the same JSON as its text: the organisation's
+// legal_country, at the top or under organization, as two letters. "" for
+// an error, another shape, or anything that isn't a country code.
+func organizationCountry(res json.RawMessage) string {
+	type org struct {
+		Country      string `json:"legal_country"`
+		Organization *struct {
+			Country string `json:"legal_country"`
+		} `json:"organization"`
+	}
+	var out struct {
+		Structured *org `json:"structuredContent"`
+		Content    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if json.Unmarshal(res, &out) != nil || out.IsError {
+		return ""
+	}
+	found := []*org{out.Structured}
+	for _, c := range out.Content {
+		var t org
+		if c.Type == "text" && json.Unmarshal([]byte(c.Text), &t) == nil {
+			found = append(found, &t)
+		}
+	}
+	for _, o := range found {
+		if o == nil {
+			continue
+		}
+		c := o.Country
+		if c == "" && o.Organization != nil {
+			c = o.Organization.Country
+		}
+		if c = strings.ToUpper(strings.TrimSpace(c)); len(c) == 2 && c[0] >= 'A' && c[0] <= 'Z' && c[1] >= 'A' && c[1] <= 'Z' {
+			return c
+		}
+	}
+	return ""
 }
 
 // draftOnlyTree refuses, anywhere in v, what would make a Qonto client

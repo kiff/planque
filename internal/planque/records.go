@@ -341,6 +341,12 @@ type Grant struct {
 	// AccountLive is the account's mode, where the vendor's own list of
 	// the sign-in's accounts said it (Stripe's livemode); nil when unsaid.
 	AccountLive *bool `json:"account_live,omitempty"`
+	// Country is the organisation's country (ISO 3166 alpha-2) as the
+	// vendor names it, read by planque itself right after the owner signed
+	// in (Qonto's get_organization, signedInCountry); "" when unread. It
+	// decides the fields only one country's organisations may send
+	// (qontoDraftOnly).
+	Country string `json:"country,omitempty"`
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
 	VendorName string `json:"vendor_name,omitempty"`
