@@ -334,6 +334,8 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	// What planque set on the arguments after the permit, kept with the
 	// operation, so its record says what was sent (a draft).
 	op.Pinned = pinned
+	// What it set, against what KIFF signed, both ways: logged for now; a later step refuses a difference.
+	s.logPinDiffs(ctx, g, tool, p, vendorArgs)
 
 	if g.Request.Connector != nil {
 		state, res := s.callConnector(ctx, g, tool, vendorArgs, func() bool { return p.Live(s.now()) })

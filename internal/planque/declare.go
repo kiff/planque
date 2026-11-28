@@ -24,7 +24,7 @@ func kiffConnection(g *Grant, t GrantedTool, transport, app string) kiff.Connect
 		AmountPath: t.AmountPath, AmountFormat: t.AmountFormat, ResourcePath: t.ResourcePath,
 		IdempotencyArg: IdempotencyArg, ReadOnly: t.ReadOnly, Mode: "relay", Audience: g.Audience, Credential: transport,
 		ResourceArg: t.ResourceArg, UnitLookup: t.UnitLookup, AmountLookup: t.AmountLookup, VendorTool: t.Tool,
-		App: app, DestructiveHint: t.DestructiveHint}
+		App: app, DestructiveHint: t.DestructiveHint, VendorPins: toolPins(g, t)}
 }
 
 // appSlug is the app g's tools belong to, as KIFF's class tables name it (K4):
