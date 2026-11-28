@@ -1215,6 +1215,20 @@ func (g *Grant) signed(sum string) (lang, text string, ok bool) {
 	return "", "", false
 }
 
+// namesAccount is g's words in lang as they name the account it signed in
+// to: what an approval must have signed, exactly, for the approving device
+// to resume a sign-in it never confirmed. An account's name inside other
+// words never stands for it; "" when g names no account.
+func namesAccount(g *Grant, lang string) string {
+	if g.Account == "" {
+		return ""
+	}
+	if lang == "" {
+		lang = "en"
+	}
+	return requestText(words.Approve(lang), g.Request, true, g.Account)
+}
+
 // grantView is a grant as planque shows it: never a secret.
 type grantView struct {
 	ID string `json:"id"`
@@ -2368,7 +2382,7 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
-	if g.Status == StatusSignedIn && g.Account != "" && text != "" && strings.Contains(text, g.Account) &&
+	if g.Status == StatusSignedIn && g.Account != "" && text != "" && text == namesAccount(g, sr.approval.Lang) &&
 		g.Approval != nil && g.Approval.SameSigner(sr.approval) && s.now().Before(g.ConfirmBy) {
 		// The device that approved approves again while the sign-in waits for
 		// its confirm (the way back to the app never reached it), and the words

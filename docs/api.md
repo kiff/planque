@@ -135,10 +135,13 @@ own app), a computer by the same page without the try. The page can't be
 framed. The device that approved signs
 `POST …/grants/{id}/confirm` with that code within 60 minutes; only then
 are the tools registered. When the bank names the account signed in to
-(Qonto: the organisation's legal name, from the read planque already
-makes there), the approval's words name it too. If that code never
+(Qonto: the organisation's legal name, its country and the last four
+characters of its id, "Acme SAS · FR · …9f2c", from the read planque
+already makes there), the approval's words name it too. If that code never
 reached the device, the same device approving those words again, before
-the 60 minutes end, keeps the sign-in and answers
+the 60 minutes end, keeps the sign-in (only when what it signed is exactly
+those words in its language, never other words the account's name
+appears in) and answers
 `{status: "signed_in", account, confirm, confirm_by}` with a new code
 (the old one no longer confirms). A sign-in that names no account, words
 that don't name it, or another device, get today's answer: the sign-in is

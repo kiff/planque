@@ -268,7 +268,7 @@ func (s *Server) signedInOrganization(ctx context.Context, g *Grant, access stri
 		g.event(s.now(), "couldn't read the organisation's country")
 		return "", ""
 	}
-	country, name = organizationCountry(res), organizationName(res)
+	country, name = organizationCountry(res), qontoAccount(organizationName(res), organizationCountry(res), organizationID(res))
 	if country == "" {
 		g.event(s.now(), "read the organisation; it named no country")
 	} else {
@@ -386,6 +386,82 @@ func nestedDraftField(node json.RawMessage) string {
 		return ""
 	}
 	return walk(v)
+}
+
+// qontoAccount is the account a Qonto sign-in is named by: the
+// organisation's name, then its country and the last four characters of
+// its id when Qonto sent them ("Acme SAS · FR · …9f2c"), so two
+// organisations with one legal name read apart. "" with no name.
+func qontoAccount(name, country, id string) string {
+	if name == "" {
+		return ""
+	}
+	parts := []string{name}
+	if country != "" {
+		parts = append(parts, country)
+	}
+	if len(id) >= 4 {
+		parts = append(parts, "…"+id[len(id)-4:])
+	}
+	return strings.Join(parts, " · ")
+}
+
+// organizationID reads get_organization's answer as organizationName does:
+// the organisation's id, letters, digits and dashes only, else "".
+func organizationID(res json.RawMessage) string {
+	type withID struct {
+		ID           string `json:"id"`
+		Organization *struct {
+			ID string `json:"id"`
+		} `json:"organization"`
+	}
+	var out struct {
+		Structured *withID `json:"structuredContent"`
+		Content    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if json.Unmarshal(res, &out) != nil || out.IsError {
+		return ""
+	}
+	found := []*withID{out.Structured}
+	for _, c := range out.Content {
+		var t withID
+		if c.Type == "text" && json.Unmarshal([]byte(c.Text), &t) == nil {
+			found = append(found, &t)
+		}
+	}
+	for _, o := range found {
+		if o == nil {
+			continue
+		}
+		for _, id := range []string{o.ID, func() string {
+			if o.Organization != nil {
+				return o.Organization.ID
+			}
+			return ""
+		}()} {
+			if plainID(id) {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
+// plainID is an id fit to show a part of: 4 to 64 letters, digits or dashes.
+func plainID(id string) bool {
+	if len(id) < 4 || len(id) > 64 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // organizationName reads get_organization's answer, as organizationCountry

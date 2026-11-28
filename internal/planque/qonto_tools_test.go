@@ -383,3 +383,33 @@ func TestTheOrganisationsNameIsReadAsALabel(t *testing.T) {
 		}
 	}
 }
+
+// A Qonto sign-in's account reads apart from another organisation with the
+// same legal name: its country and the end of its id beside the name, each
+// only when Qonto sent it; no name, no account.
+func TestAQontoAccountCarriesItsCountryAndTheEndOfItsID(t *testing.T) {
+	res := json.RawMessage(`{"structuredContent":{"organization":{"id":"0b1c2d3e-aaaa-bbbb-cccc-000000009f2c","legal_name":"Acme SAS","legal_country":"FR"}}}`)
+	if got := qontoAccount(organizationName(res), organizationCountry(res), organizationID(res)); got != "Acme SAS · FR · …9f2c" {
+		t.Fatalf("account: %q", got)
+	}
+	for _, c := range []struct{ name, country, id, want string }{
+		{"Acme SAS", "", "", "Acme SAS"},
+		{"Acme SAS", "IT", "", "Acme SAS · IT"},
+		{"", "FR", "abcd1234", ""},
+	} {
+		if got := qontoAccount(c.name, c.country, c.id); got != c.want {
+			t.Errorf("%+v: %q", c, got)
+		}
+	}
+	for res, want := range map[string]string{
+		`{"structuredContent":{"id":"org-1234"}}`:                                       "org-1234",
+		`{"content":[{"type":"text","text":"{\"organization\":{\"id\":\"x9y8z7\"}}"}]}`: "x9y8z7",
+		`{"structuredContent":{"organization":{"id":"a b<c>"}}}`:                        "",
+		`{"structuredContent":{"organization":{"id":"abc"}}}`:                           "",
+		`{"structuredContent":{"id":"org-1234"},"isError":true}`:                        "",
+	} {
+		if got := organizationID(json.RawMessage(res)); got != want {
+			t.Errorf("%s: %q, want %q", res, got, want)
+		}
+	}
+}
