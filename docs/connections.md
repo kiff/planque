@@ -54,7 +54,12 @@ account on `PLANQUE_FULL_SCOPES` (`tenants:a,b`, or `all`; none when unset)
 asks Qonto, as any server, for every scope it lists, and its grants get
 Qonto's whole live tool list: the owner's Card alone decides what a taf may
 do, with money, delete and irreversible actions closed until the owner opens
-them. An account goes on the list only once KIFF's K4 is on for it.
+them. An account goes on the list only once KIFF's K4 is on for it. Qonto's tools
+that approve or decline a request at the bank (`approve_request`,
+`decline_request`) are never served, on any account, the whole live list
+included: approving at the bank is the account holder's own act, under the
+bank's own authentication. tafs prepares a transfer or card request, and
+Qonto's own approval finishes it.
 
 **What was granted.** A vendor's token answer may name the scope it granted.
 planque keeps those names (never the token) on the grant, as

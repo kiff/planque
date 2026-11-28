@@ -189,3 +189,37 @@ func TestABankRefreshChecksTheStoredToken(t *testing.T) {
 		t.Fatalf("grant: %s %q %q", now.Status, now.SignedOutCause, now.Reason)
 	}
 }
+
+// The bank's own approvals are never served, on any account, the whole
+// live list included: tafs prepares a transfer or card request, and Qonto's
+// own approval finishes it, whatever a Card opens.
+func TestQontoBankApprovalsAreNeverServed(t *testing.T) {
+	s := &Server{FullScopes: map[string]bool{"t_full": true}, LiveListTest: true, ManagedTestTenants: map[string]bool{"t_test": true}}
+	listed := []mcpTool{{Name: "list_transactions"}, {Name: "approve_request"}, {Name: "decline_request"}, {Name: "create_multi_transfer_request"}}
+	for _, tenant := range []string{"t_full", "t_test", "t_other"} {
+		for _, tool := range qontoBankApproval {
+			if s.served(tenant, qontoServer, tool) {
+				t.Fatalf("%s: %s served", tenant, tool)
+			}
+		}
+		for _, got := range s.servedFor(tenant, qontoServer, listed) {
+			if slices.Contains(qontoBankApproval, got.Name) {
+				t.Fatalf("%s: %s listed", tenant, got.Name)
+			}
+		}
+	}
+	// The whole list keeps preparing a request, for Qonto's approval to finish.
+	if got := s.servedFor("t_full", qontoServer, listed); len(got) != 2 || got[1].Name != "create_multi_transfer_request" {
+		t.Fatalf("the whole list: %v", got)
+	}
+	// Off Qonto's host, a tool of that name is another vendor's, served as any.
+	if !s.served("t_other", "https://tools.example/mcp", "approve_request") {
+		t.Fatal("another vendor's approve_request refused")
+	}
+	// Each name is one Qonto has: a typo would leave the real one served.
+	for _, name := range qontoBankApproval {
+		if !slices.Contains(qontoReference, name) {
+			t.Fatalf("%s isn't in Qonto's reference", name)
+		}
+	}
+}

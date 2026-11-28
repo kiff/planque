@@ -57,15 +57,30 @@ func (s *Server) servesAll(tenant, server string) bool {
 	return onHost(server, qontoHost) && (s.fullScopesFor(tenant) || s.LiveListTest && s.ManagedTestTenants[tenant])
 }
 
-// served says planque serves tool on server for tenant's grants.
-func (s *Server) served(tenant, server, tool string) bool {
-	return s.servesAll(tenant, server) || qontoServedOn(server, tool)
+// qontoBankApproval are Qonto's tools that approve or decline a request at
+// the bank (a transfer, a card, a multi-transfer): the provider's own
+// approval, which tafs never gives for the owner, whatever a Card opens.
+// They're a vendor fact, not a class an owner can open: never served, never
+// listed, never registered with KIFF, on any account, the whole live list
+// included. Preparing a request (create_multi_transfer_request,
+// create_card_request) stays a tool, for Qonto's own approval to finish.
+var qontoBankApproval = []string{"approve_request", "decline_request"}
+
+// bankApproval says tool on server is one planque never serves (qontoBankApproval).
+func bankApproval(server, tool string) bool {
+	return onHost(server, qontoHost) && slices.Contains(qontoBankApproval, tool)
 }
 
-// servedFor is servedOnly for tenant: the whole list where servesAll.
+// served says planque serves tool on server for tenant's grants.
+func (s *Server) served(tenant, server, tool string) bool {
+	return !bankApproval(server, tool) && (s.servesAll(tenant, server) || qontoServedOn(server, tool))
+}
+
+// servedFor is servedOnly for tenant: the whole live list where servesAll,
+// less the bank's own approvals.
 func (s *Server) servedFor(tenant, server string, listed []mcpTool) []mcpTool {
 	if s.servesAll(tenant, server) {
-		return listed
+		return slices.DeleteFunc(slices.Clone(listed), func(t mcpTool) bool { return bankApproval(server, t.Name) })
 	}
 	return servedOnly(server, listed)
 }
@@ -77,7 +92,10 @@ func (s *Server) servedFor(tenant, server string, listed []mcpTool) []mcpTool {
 // change to what's served reaches grants listed before it.
 func (s *Server) servedRule(tenant, server string) string {
 	if s.servesAll(tenant, server) {
-		return "live"
+		// The whole list less the bank's approvals: a catalog listed before
+		// they were left out is listed again.
+		sum := sha256.Sum256([]byte(strings.Join(qontoBankApproval, ",")))
+		return "live:" + hex.EncodeToString(sum[:6])
 	}
 	if !onHost(server, qontoHost) {
 		return ""
