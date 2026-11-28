@@ -40,15 +40,22 @@ type CatalogEntry struct {
 	VersionHeader string            `json:"version_header,omitempty"`
 	// TestOnly keeps an entry (a sandbox's test data) from every account but the test accounts
 	// (PLANQUE_MANAGED_TEST_TENANTS): not listed, not found, and its grant not accepted.
-	TestOnly          bool            `json:"test_only,omitempty"`
+	TestOnly bool `json:"test_only,omitempty"`
+	// Withdrawn keeps an entry from every account, the test accounts included: not listed, not
+	// found, and a new grant for it not accepted. The entry stays, so a grant made before keeps
+	// working until it's ended. For a way to connect an app that is no longer offered.
+	Withdrawn         bool            `json:"withdrawn,omitempty"`
 	DescriptionSHA256 string          `json:"description_sha256,omitempty"`
 	Tools             []ToolRequest   `json:"tools"`
 	Profile           json.RawMessage `json:"profile"`
 }
 
 // entryOffered says whether tenant may see and ask for e: every account for a reviewed entry, the test
-// accounts alone for a TestOnly one.
+// accounts alone for a TestOnly one, and no account for a Withdrawn one.
 func (s *Server) entryOffered(tenant string, e CatalogEntry) bool {
+	if e.Withdrawn {
+		return false
+	}
 	return !(e.TestOnly || s.Applications[e.Application].TestOnly) || s.ManagedTestTenants[tenant]
 }
 
@@ -285,7 +292,9 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	lang := catalogLang(r)
 	for id, e := range newestRevisions(s.catalogEntries()) {
-		if !s.entryOffered(tenant, e) {
+		// A withdrawn entry is still listed, under its own state, to an account that holds a live grant on it, so
+		// that connection stays among the account's own with its Disconnect. It's never listed as available.
+		if _, held := states[id]; !s.entryOffered(tenant, e) && !(e.Withdrawn && held) {
 			continue
 		}
 		title := e.TitleIn(lang)

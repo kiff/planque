@@ -1,6 +1,6 @@
 # Qonto
 
-Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
+Checked: 2026-11-28 · Sources: planque's reviewed entries `qonto-key@1`,
 `qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)) and
 `qonto-sandbox@1`, Qonto's published invoicing API description, and
 Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
@@ -49,12 +49,11 @@ markup.
   uses makes Qonto offer to create a company: never create one, close the
   page. "Desktop site" shows Google and "another sign-in method" (email and
   password).
-- **Do not ask for an API key.** Qonto no longer issues the login-and-secret
-  key to a new developer account (its Developer Portal makes an OAuth app
-  instead). The reviewed key entries `qonto-key@1` and `qonto-key@2` are only
-  for an owner who already holds such a key (`<organisation login>:<secret
-  key>`); never propose them to anyone else, and never tell an owner to make
-  a key.
+- **Do not ask for an API key.** Qonto connects only through its own
+  sign-in. The key entries `qonto-key@1` and `qonto-key@2` are withdrawn:
+  they aren't listed, found or accepted for any account. Never propose a
+  key, and never tell an owner to make one. A connection made by key before
+  keeps working until it's ended.
 - **The sandbox twin, for test data:** `qonto-sandbox@1`, planque's own
   OAuth client on Qonto's sandbox, offered to test accounts only. It reads
   the business and its accounts, and a bank account's transactions. The

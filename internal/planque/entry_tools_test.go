@@ -20,7 +20,7 @@ func qontoKeyEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := DecodeCatalog(conf, shippedApps(t))
+	entries, err := decodeOffered(conf, shippedApps(t))
 	if err != nil {
 		t.Fatal(err)
 	}
