@@ -189,3 +189,18 @@ func TestANewSignInMakesTheCheckDueAgain(t *testing.T) {
 		t.Fatalf("the reseal made it due: %d checks", len(e.b.Checks))
 	}
 }
+
+// kiff/agents' scheduler runs the check at a taf's firing with the taf's own
+// KIFF key (no standing credential): a taf's key of the account is taken as
+// the account's own is; a key of another account isn't.
+func TestATafsOwnKeyRunsTheSignInCheck(t *testing.T) {
+	e, g := healthEnv(t)
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf")
+	if st != 200 || siteOf(t, out)["verdict"] != browser.HealthSignedIn || len(e.b.Checks) != 1 {
+		t.Fatalf("the taf's own key: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_other"); st == 200 {
+		t.Fatal("another account's key ran a check")
+	}
+}
