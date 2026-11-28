@@ -198,6 +198,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		Browser *BrowserRequest `json:"browser"`
 		// SetupReads is for a catalog entry's first request alone.
 		SetupReads []string `json:"setup_reads"`
+		// Session is the chat that asked for it, as the agents runtime's
+		// runner names it (never the model): kept beside the grant, outside
+		// its Request (AskedIn), so a chat's delete can end what it asked.
+		Session string `json:"session"`
 	}
 	fromCatalog := entry != nil
 	if entry == nil {
@@ -213,12 +217,13 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			AgentName string          `json:"agent_name"`
 			Browser   *BrowserRequest `json:"browser"`
 			Tools     *[]ToolRequest  `json:"tools"`
+			Session   string          `json:"session"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.Agent, req.AgentName, req.Kind, req.Browser, req.Tools = ask.Agent, ask.AgentName, KindBrowser, ask.Browser, ask.Tools
+		req.Agent, req.AgentName, req.Kind, req.Browser, req.Tools, req.Session = ask.Agent, ask.AgentName, KindBrowser, ask.Browser, ask.Tools, ask.Session
 		if req.Tools == nil {
 			req.Tools = &[]ToolRequest{}
 		}
@@ -243,12 +248,16 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			// entry whose HTTP Basic username is it: shown on the approval
 			// as the username, never a tool's argument.
 			Login string `json:"login"`
+			// Session is the chat that asked for it, as the agents runtime's
+			// runner names it (never the model): kept beside the grant, outside
+			// its Request (AskedIn), so a chat's delete can end what it asked.
+			Session string `json:"session"`
 		}
 		if err := decodeStrict(body, &ask); err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		req.SetupReads = ask.SetupReads
+		req.SetupReads, req.Session = ask.SetupReads, ask.Session
 		tools, prof, err := entryTools(entry, ask.Tools)
 		if err != nil {
 			s.fail(w, r, err)
@@ -261,6 +270,10 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		}
 		req.Agent, req.AgentName, req.Server, req.Application = ask.Agent, ask.AgentName, entry.Server, entry.Application
 		req.Kind, req.API, req.Tools, req.Profile = entry.Kind, api, &tools, prof
+	}
+	if !askedInOK(req.Session) {
+		writeErr(w, http.StatusBadRequest, askedInWant)
+		return
 	}
 	if req.Tools == nil {
 		writeErr(w, http.StatusBadRequest, "tools is required: the server's tools for the taf, or [] to connect first and see what it offers")
@@ -389,7 +402,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(req.Server, *req.Tools, "tools"); r != nil {
+	if r := s.toolsCheck(tenant, req.Server, *req.Tools, "tools"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -456,7 +469,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 	if req.Reuse != "" {
 		// A managed app's sign-in, reused for another taf (kiff/tafs#476, gap 2).
 		if from, err := s.loadGrant(r.Context(), tenant, req.Reuse); err == nil && from.Request.Connector != nil {
-			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Server != "" || req.API != nil || req.Kind != "" ||
+			s.reuseConnector(w, r, tenant, me.AgentID, req.Agent, req.AgentName, req.Session, req.Server != "" || req.API != nil || req.Kind != "" ||
 				req.Application != "" || len(req.Profile) > 0 || req.Browser != nil || len(*req.Tools) > 0, from, false)
 			return
 		}
@@ -607,7 +620,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta,
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusPending, Vendor: meta, AskedIn: req.Session,
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: server, SignInAt: meta.Issuer,
 			Agent: req.Agent, AgentName: req.AgentName, Tools: tools, AskedBy: asked, CreatedAt: s.now().UTC().Format(time.RFC3339),
 			Kind: req.Kind, API: api, Reuse: req.Reuse, Application: application, Profile: req.Profile, Browser: req.Browser,
@@ -623,6 +636,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		// Held as the other grant's: approving connects with no second sign-in.
 		g.Request.Kind = reused.Request.Kind
 		g.TokenOf, g.SignedIn, g.ClientID, g.Account, g.VendorName = tokenOwner(reused), true, reused.ClientID, reused.Account, reused.VendorName
+		g.Country = reused.Country
 	}
 	if application != nil {
 		g.VendorName = application.Definition.Name
@@ -678,7 +692,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 //
 // fromCatalog answers as a catalog request does ({grant, needs_key}): the
 // app was asked for by its entry, and the account already holds its sign-in.
-func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName string, more bool, from *Grant, fromCatalog bool) {
+func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, asked, agent, agentName, askedIn string, more bool, from *Grant, fromCatalog bool) {
 	switch {
 	// A new connection on a held sign-in, by either route: only to an app
 	// the published list names (managed_apps.go).
@@ -707,7 +721,7 @@ func (s *Server) reuseConnector(w http.ResponseWriter, r *http.Request, tenant, 
 	held := *from.Connector
 	held.Tools, held.Revocation = nil, nil
 	now := s.now()
-	g := &Grant{ID: id, Tenant: tenant, Status: StatusListed, VendorName: from.VendorName, OnDemand: from.OnDemand,
+	g := &Grant{ID: id, Tenant: tenant, Status: StatusListed, VendorName: from.VendorName, OnDemand: from.OnDemand, AskedIn: askedIn,
 		SignedIn: true, Account: from.Account, Connector: &held, HeldUntil: now.Add(holdTTL).UTC(),
 		Request: Request{Version: "planque.grant.v1", Grant: id, Tenant: tenant, Server: from.Request.Server, SignInAt: from.Request.SignInAt,
 			Agent: agent, AgentName: agentName, Tools: []ToolRequest{}, AskedBy: asked, CreatedAt: now.UTC().Format(time.RFC3339), Kind: from.Request.Kind,
@@ -1523,7 +1537,61 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
+	if !s.currentCatalog(w, r, g) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+}
+
+// catalogOf is a vendor's served tools as a grant's catalog keeps them.
+func catalogOf(listed []mcpTool) []CatalogTool {
+	var out []CatalogTool
+	for _, t := range listed {
+		out = append(out, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
+	}
+	return out
+}
+
+// currentCatalog makes g's catalog the one planque's served rule gives now:
+// one kept under an earlier rule is listed again (relistCatalog) before it's
+// read or chosen from. False when that failed, and it has answered 503:
+// never a stale catalog.
+func (s *Server) currentCatalog(w http.ResponseWriter, r *http.Request, g *Grant) bool {
+	if g.Request.Connector != nil || g.Request.API != nil || len(g.Catalog) == 0 || g.CatalogRule == s.servedRule(g.Tenant, g.Request.Server) {
+		return true
+	}
+	// A sign-in that can't be used (signed out, revoked) is answered as any
+	// read with it would be, never "try again", which wouldn't help.
+	access, _, err := s.accessToken(r.Context(), g, 0)
+	if err != nil {
+		s.fail(w, r, err)
+		return false
+	}
+	if err := s.relistCatalog(r.Context(), g, access); err != nil {
+		s.log().WarnContext(r.Context(), "catalog not listed again", slog.String("grant", g.ID), slog.String("error", err.Error()))
+		writeErr(w, http.StatusServiceUnavailable, "this grant's tools couldn't be read again from "+hostOf(g.Request.Server)+" since what planque serves there changed; try again")
+		return false
+	}
+	return true
+}
+
+// relistCatalog reads g's tools again with its own sign-in, for a catalog
+// kept under an earlier served rule: a tool planque serves since is in it,
+// and one it no longer serves is out. Only the catalog the asking agent
+// chooses from changes: the tools the owner approved (Tools) don't, and a
+// newly served one still needs the owner's approval to be added. Kept when
+// the grant hasn't changed meanwhile; else this answer alone is fresh.
+func (s *Server) relistCatalog(ctx context.Context, g *Grant, access string) error {
+	listed, _, err := s.vendorTools(ctx, g, access)
+	if err != nil {
+		return err
+	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().InfoContext(ctx, "catalog listed again, not kept", slog.String("grant", g.ID), slog.String("error", err.Error()))
+	}
+	return nil
 }
 
 // liveCatalog says g is a vendor's own MCP server connected with tools of
@@ -1554,7 +1622,7 @@ func (s *Server) liveCatalog(w http.ResponseWriter, r *http.Request, g *Grant) {
 		writeErr(w, http.StatusBadGateway, "couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 		return
 	}
-	listed = servedOnly(g.Request.Server, listed)
+	listed = s.servedFor(g.Tenant, g.Request.Server, listed)
 	tools := make([]CatalogTool, 0, len(listed))
 	for _, t := range listed {
 		tools = append(tools, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
@@ -1691,6 +1759,11 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, askedAtOnce)
 		return
 	}
+	// Chosen from the catalog planque's served rule gives now, never one kept
+	// under an earlier rule.
+	if !s.currentCatalog(w, r, g) {
+		return
+	}
 	// What it has: on a connected grant, its tools; while an addition waits,
 	// the tools it had before it (the addition is revised).
 	var has []ToolRequest
@@ -1738,7 +1811,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(g.Request.Server, req.Tools, "tool"); r != nil {
+	if r := s.toolsCheck(g.Tenant, g.Request.Server, req.Tools, "tool"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -2498,6 +2571,11 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if tok.Account == "" && g.Vendor.AccountsTool != "" {
 		tok.Account, g.AccountLive = s.signedInAccount(r.Context(), g, tok.Access)
 	}
+	// Qonto: the organisation's country, read the same way, decides the
+	// fields only an Italian organisation sends (qontoDraftOnly).
+	if onHost(g.Request.Server, qontoHost) {
+		g.Country = s.signedInCountry(r.Context(), g, tok.Access)
+	}
 	if g.Reconnect {
 		// Reconnecting acts in the same vendor account, or not at all: once
 		// the vendor named the grant's account, a sign-in that names another,
@@ -2859,11 +2937,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	g.VendorName = s.serverVendorName(g, server)
-	g.Catalog = nil
-	for _, t := range listed {
-		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
-	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
 	return s.saveGrant(ctx, g)

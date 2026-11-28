@@ -51,6 +51,11 @@ type Server struct {
 	// instead of the LIVE# rows. Off until the index exists
 	// (PLANQUE_LIVE_GSI=on).
 	LiveIndex bool
+	// LiveListTest passes a vendor's whole live tool list through for the
+	// test accounts' grants (PLANQUE_LIVE_LIST=test), for KIFF's Card to
+	// decide each call's class: servesAll. Off, every account keeps the
+	// tools planque serves by name.
+	LiveListTest bool
 	// BaseURL is where planque is reached publicly, without a trailing
 	// slash: the vendor redirects the owner back to BaseURL/oauth/callback.
 	BaseURL string
@@ -318,6 +323,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/agents/{agent}/end", s.endAgent)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/connections", s.accountConnections)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/sessions/{session}/agents", s.sessionAgents)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedAs(kindSafe, capExport, s.export))
 	// Deleting the account (kiff/tafs#185): everything planque keeps for it.
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}", s.eraseAccount)

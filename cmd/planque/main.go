@@ -370,6 +370,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		OwnClientTenants:   ownTenants,
 		DigestV2:           os.Getenv("PLANQUE_DIGEST") == "v2",
 		LiveIndex:          os.Getenv("PLANQUE_LIVE_GSI") == "on",
+		LiveListTest:       os.Getenv("PLANQUE_LIVE_LIST") == "test",
 		Browser:            browserWorker,
 		BrowserOffer:       browserOffer,
 		ChromeBuilds:       chromeBuilds,

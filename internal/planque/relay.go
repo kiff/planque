@@ -129,7 +129,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 	case "ping":
 		rpcResult(w, req.ID, map[string]any{})
 	case "tools/list":
-		rpcResult(w, req.ID, map[string]any{"tools": relayTools(g)})
+		rpcResult(w, req.ID, map[string]any{"tools": s.relayTools(g)})
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -149,10 +149,10 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 
 // relayTools lists the granted tools with planque's operation argument,
 // which KIFF fills and binds into the permit.
-func relayTools(g *Grant) []mcp.Tool {
+func (s *Server) relayTools(g *Grant) []mcp.Tool {
 	out := make([]mcp.Tool, 0, len(g.Tools)+len(g.Pending))
 	for _, t := range g.inKIFF() {
-		if !qontoServedOn(g.Request.Server, t.Tool) {
+		if !s.served(g.Tenant, g.Request.Server, t.Tool) {
 			continue // never served on Qonto's sign-in, so never listed (qonto_tools.go)
 		}
 		var schema map[string]any
@@ -198,7 +198,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	}
 	// Approved before planque stopped serving it on Qonto's sign-in: never
 	// sent, whatever the grant holds (qonto_tools.go).
-	if !qontoServedOn(g.Request.Server, g.Tools[i].Tool) {
+	if !s.served(g.Tenant, g.Request.Server, g.Tools[i].Tool) {
 		return refusal(CodeToolNotServed, "Not sent: planque doesn't serve "+g.Tools[i].Tool+" on Qonto's sign-in. Everything outside its list stays with the owner in Qonto.")
 	}
 	// Declared before its key: nothing is usable until the owner gives the
@@ -328,7 +328,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	vendorArgs = held
 	// A Qonto client invoice is created as a draft only (qonto_tools.go).
 	var pinned map[string]any
-	if vendorArgs, pinned, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs); why != "" {
+	if vendorArgs, pinned, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs, g.Country); why != "" {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
 	}
 	// What planque set on the arguments after the permit, kept with the
@@ -370,7 +370,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 		if !p.Live(s.now()) {
 			return s.finish(ctx, claim, op, OpNotSent, toolResult("Not sent: the permit expired before the call could be sent.", true))
 		}
-		res, err = s.callServed(ctx, g.Request.Server, access, tool.Tool, vendorArgs)
+		res, err = s.callServed(ctx, g.Tenant, g.Request.Server, access, tool.Tool, vendorArgs)
 		if !errors.Is(err, mcp.ErrUnauthorized) || attempt > 0 {
 			break
 		}

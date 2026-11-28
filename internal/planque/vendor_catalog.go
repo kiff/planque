@@ -40,15 +40,22 @@ type CatalogEntry struct {
 	VersionHeader string            `json:"version_header,omitempty"`
 	// TestOnly keeps an entry (a sandbox's test data) from every account but the test accounts
 	// (PLANQUE_MANAGED_TEST_TENANTS): not listed, not found, and its grant not accepted.
-	TestOnly          bool            `json:"test_only,omitempty"`
+	TestOnly bool `json:"test_only,omitempty"`
+	// Withdrawn keeps an entry from every account, the test accounts included: not listed, not
+	// found, and a new grant for it not accepted. The entry stays, so a grant made before keeps
+	// working until it's ended. For a way to connect an app that is no longer offered.
+	Withdrawn         bool            `json:"withdrawn,omitempty"`
 	DescriptionSHA256 string          `json:"description_sha256,omitempty"`
 	Tools             []ToolRequest   `json:"tools"`
 	Profile           json.RawMessage `json:"profile"`
 }
 
 // entryOffered says whether tenant may see and ask for e: every account for a reviewed entry, the test
-// accounts alone for a TestOnly one.
+// accounts alone for a TestOnly one, and no account for a Withdrawn one.
 func (s *Server) entryOffered(tenant string, e CatalogEntry) bool {
+	if e.Withdrawn {
+		return false
+	}
 	return !(e.TestOnly || s.Applications[e.Application].TestOnly) || s.ManagedTestTenants[tenant]
 }
 
@@ -285,7 +292,9 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	lang := catalogLang(r)
 	for id, e := range newestRevisions(s.catalogEntries()) {
-		if !s.entryOffered(tenant, e) {
+		// A withdrawn entry is still listed, under its own state, to an account that holds a live grant on it, so
+		// that connection stays among the account's own with its Disconnect. It's never listed as available.
+		if _, held := states[id]; !s.entryOffered(tenant, e) && !(e.Withdrawn && held) {
 			continue
 		}
 		title := e.TitleIn(lang)
@@ -400,8 +409,12 @@ func (s *Server) vendorCatalog(w http.ResponseWriter, r *http.Request) {
 }
 
 // entryStates is each catalog entry the tenant has a connection to, with its
-// state (connected, or needs_reconnect) and the grant that says so: the
-// catalog and the tool search mark an app the same way.
+// state and the grant that says so: the catalog and the tool search mark an
+// app the same way. connected, else needs_reconnect, else signed_in: a
+// sign-in planque holds that no taf's tools are in KIFF for yet (listed, its
+// confirm still to come, or reused while its tools wait for the owner). The
+// owner's list shows signed_in under their own apps, so a sign-in nothing uses
+// can always be found and disconnected.
 func (s *Server) entryStates(ctx context.Context, tenant string) (map[string]catalogEntryView, error) {
 	items, err := s.liveGrants(ctx, tenant)
 	if err != nil {
@@ -424,18 +437,25 @@ func (s *Server) entryStates(ctx context.Context, tenant string) (map[string]cat
 			state = "connected"
 		case g.Status == StatusNeedsReconnect:
 			state = "needs_reconnect"
+		case g.Status == StatusListed || g.Status == StatusSignedIn || g.Status == StatusPending && g.SignedIn:
+			state = "signed_in"
 		}
 		if state == "" {
 			continue
 		}
-		previous := states[entry]
-		if previous.State == "connected" || previous.State == state && previous.Grant < g.ID {
+		// The strongest state stands, and between two the same, the older grant.
+		previous, had := states[entry]
+		if had && (entryStateRank[previous.State] > entryStateRank[state] ||
+			previous.State == state && previous.Grant < g.ID) {
 			continue
 		}
 		states[entry] = catalogEntryView{State: state, Grant: g.ID}
 	}
 	return states, nil
 }
+
+// entryStateRank orders an app's states when it has more than one connection.
+var entryStateRank = map[string]int{"signed_in": 1, "needs_reconnect": 2, "connected": 3}
 
 func (s *Server) requestCatalogGrant(w http.ResponseWriter, r *http.Request) {
 	// Authenticate before revealing whether the entry exists.

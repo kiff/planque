@@ -571,7 +571,7 @@ func (s *Server) signInWorks(ctx context.Context, g *Grant) ([]mcpTool, error) {
 			if err != nil {
 				return nil, nil
 			}
-			return servedOnly(g.Request.Server, listed), nil
+			return s.servedFor(g.Tenant, g.Request.Server, listed), nil
 		}
 		if attempt > 0 {
 			return nil, errSignInRefused
@@ -592,9 +592,14 @@ func (s *Server) vendorTools(ctx context.Context, g *Grant, access string) ([]mc
 		return browserMCPTools(), mcp.Server{Name: browserVendorName(g.Request.Browser)}, nil
 	}
 	if g.Request.API == nil {
-		// On Qonto's sign-in, only the tools planque serves (qonto_tools.go).
+		// The vendor's own list is kept as sent (vendor_tools.go); on
+		// Qonto's sign-in, only the tools planque serves go on
+		// (qonto_tools.go).
 		listed, server, err := s.MCP.ListTools(ctx, g.Request.Server, access)
-		return servedOnly(g.Request.Server, listed), server, err
+		if err == nil {
+			s.keepVendorTools(ctx, g, listed)
+		}
+		return s.servedFor(g.Tenant, g.Request.Server, listed), server, err
 	}
 	snap, err := s.loadSnapshot(ctx, g.Tenant, g.ID)
 	if err != nil {

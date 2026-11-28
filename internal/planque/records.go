@@ -320,7 +320,13 @@ type Grant struct {
 	// ever. Zero once Registering ends.
 	RegisterBy time.Time `json:"register_by,omitempty"`
 	Request    Request   `json:"request"`
-	Text       string    `json:"text"`
+	// AskedIn is the chat that asked for it (a request's `session`, as the
+	// agents runtime's runner names it): kept beside the request, never in
+	// it, so it's in no request served and no digest signed. A chat's delete
+	// reads it (sessionAgents) to end what that chat asked for. Cleared when
+	// the grant is saved ended (saveGrant).
+	AskedIn string `json:"asked_in,omitempty"`
+	Text    string `json:"text"`
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.
@@ -335,6 +341,12 @@ type Grant struct {
 	// AccountLive is the account's mode, where the vendor's own list of
 	// the sign-in's accounts said it (Stripe's livemode); nil when unsaid.
 	AccountLive *bool `json:"account_live,omitempty"`
+	// Country is the organisation's country (ISO 3166 alpha-2) as the
+	// vendor names it, read by planque itself right after the owner signed
+	// in (Qonto's get_organization, signedInCountry); "" when unread. It
+	// decides the fields only one country's organisations may send
+	// (qontoDraftOnly).
+	Country string `json:"country,omitempty"`
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
 	VendorName string `json:"vendor_name,omitempty"`
@@ -396,6 +408,10 @@ type Grant struct {
 	// Catalog is what the vendor's MCP server listed, once signed in, for
 	// a grant asked for with no tools: what the asking agent chooses from.
 	Catalog []CatalogTool `json:"catalog,omitempty"`
+	// CatalogRule is the served rule Catalog was filtered by
+	// (servedRule): a catalog read that finds another lists the tools again,
+	// so a tool planque serves since is in it.
+	CatalogRule string `json:"catalog_rule,omitempty"`
 	// Transport is the SHA-256 of the credential KIFF's gateway presents
 	// to the relay. The credential itself is only at KIFF.
 	Transport string `json:"transport,omitempty"`
@@ -608,6 +624,12 @@ func (s *Server) loadGrant(ctx context.Context, tenant, id string) (*Grant, erro
 // harmless, since the sweep checks the grant itself, but it would wait there
 // for days.
 func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
+	// An ended grant keeps no chat (AskedIn), whichever door ended it (the
+	// owner's Disconnect, a taf's end, a chat's delete or a superseding grant),
+	// and neither does one that failed.
+	if g.Status == StatusDisconnected || g.Status == StatusFailed {
+		g.AskedIn = ""
+	}
 	c := store.Cond{Ver: &g.ver}
 	if g.ver == 0 {
 		c = store.Cond{NotExists: true}

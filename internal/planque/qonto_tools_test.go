@@ -17,6 +17,8 @@ import (
 var qontoReference = []string{
 	"get_organization", "list_user_organizations", "list_memberships", "get_authenticated_membership", "create_membership", "list_teams", "create_team", "list_labels",
 	"list_cards", "create_card", "update_card", "change_card_status",
+	// In Qonto's live list stored on a sign-in (28 Nov): the bank accounts, read-only.
+	"list_bank_accounts",
 	"list_transactions", "get_transaction", "export_transactions", "list_statements", "get_statement", "get_attachment", "list_transaction_attachments",
 	"remove_transaction_attachment", "export_transaction_attachments", "request_attachment_upload", "upload_attachment",
 	"list_cash_flow_categories", "create_cash_flow_category", "modify_transaction_cash_flow_category",
@@ -99,19 +101,24 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 		}
 	}
 
-	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "send_client_invoice"}}, "tools"); r == nil ||
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "send_client_invoice"}}, "tools"); r == nil ||
 		r.Code != refToolNotServed || r.Tool != "send_client_invoice" || r.Field != "tools" || !strings.Contains(r.Msg, "Everything else stays with the owner in Qonto") {
 		t.Fatalf("refusal: %+v", r)
 	}
-	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
 		t.Fatalf("served tools refused: %+v", r)
 	}
-	// A taf that guessed a tool name reads, in the refusal, that balances are
-	// served and by which tool, and every tool it may ask for, so it retries
-	// with a served one rather than telling the owner balances can't be read.
-	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools")
-	if r == nil || !strings.Contains(r.Msg, "balances") || !strings.Contains(r.Msg, "get_organization") {
-		t.Fatalf("the refusal doesn't name balances and get_organization: %+v", r)
+	// The bank accounts and their balances are served by list_bank_accounts,
+	// which Qonto's live list marks read-only (28 Nov). A taf that guessed
+	// another name reads, in the refusal, that list_bank_accounts gives them,
+	// never get_organization, which gives the business's identity only.
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools"); r != nil {
+		t.Fatalf("list_bank_accounts refused: %+v", r)
+	}
+	r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "get_account_balance"}}, "tools")
+	if r == nil || !strings.Contains(r.Msg, "(list_bank_accounts)") || !strings.Contains(r.Msg, "identity (get_organization)") ||
+		strings.Contains(r.Msg, "balances and IBANs (get_organization)") || strings.Contains(r.Msg, "aren't among them") {
+		t.Fatalf("the refusal doesn't name list_bank_accounts for balances: %+v", r)
 	}
 	for _, name := range qontoServed {
 		if !strings.Contains(r.Msg, name) || !strings.Contains(r.Want, name) {
@@ -163,7 +170,7 @@ func TestACallToAQontoToolPlanqueDoesntServeIsNotSent(t *testing.T) {
 		t.Fatalf("the vendor ran %d calls", n)
 	}
 	var listed []string
-	for _, tool := range relayTools(g) {
+	for _, tool := range (&Server{}).relayTools(g) {
 		listed = append(listed, tool.Name)
 	}
 	if !slices.Equal(listed, []string{"clients"}) {
@@ -195,7 +202,7 @@ func TestEveryVendorCallGoesThroughCallServed(t *testing.T) {
 		}
 	}
 	e := newEnv(t)
-	if _, err := e.s.callServed(context.Background(), qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
+	if _, err := e.s.callServed(context.Background(), tenant, qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
 		t.Fatalf("callServed sent a tool planque doesn't serve: %v", err)
 	}
 }
@@ -211,7 +218,7 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 			"items":{"type":"array"},"settings":{"type":"object"}}}`)}
 	pinned := func(args string) (map[string]any, map[string]any) {
 		t.Helper()
-		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args))
+		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), "")
 		if why != "" {
 			t.Fatalf("%s refused: %s", args, why)
 		}
@@ -235,14 +242,14 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		`{"send_email":true}`, `{"finalize":true}`, `{"einvoicing":true}`, `{"memo":"hello"}`,
 		`[]`, `nope`,
 	} {
-		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args)); why == "" {
+		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), ""); why == "" {
 			t.Fatalf("%s was let through", args)
 		}
 	}
 	// Without the schema Qonto listed, nothing is sent: Qonto's default could finalize it.
 	for _, schema := range []string{``, `not json`, `{"type":"object"}`, `{"type":"object","properties":{}}`} {
 		noSchema := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
-		if _, _, why := qontoDraftOnly(qontoServer, noSchema, json.RawMessage(`{}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+		if _, _, why := qontoDraftOnly(qontoServer, noSchema, json.RawMessage(`{}`), ""); !strings.Contains(why, "can't keep the invoice a draft") {
 			t.Fatalf("schema %q: %q", schema, why)
 		}
 	}
@@ -253,18 +260,18 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"Status":{"type":"string"}}}}}}`,
 	} {
 		nested := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(schema)}
-		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`)); why == "" || !strings.Contains(why, "draft") {
+		if _, _, why := qontoDraftOnly(qontoServer, nested, json.RawMessage(`{}`), ""); why == "" || !strings.Contains(why, "draft") {
 			t.Fatalf("nested schema %s: %q", schema, why)
 		}
 	}
 	// A schema with no top-level status to pin leaves Qonto's default to decide: refused.
 	plain := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"}}}`)}
-	if _, _, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "lists no status") {
+	if _, _, why := qontoDraftOnly(qontoServer, plain, json.RawMessage(`{"client_id":"c1"}`), ""); !strings.Contains(why, "lists no status") {
 		t.Fatalf("a tool without a status: %q", why)
 	}
 	// A tool that takes a status but no report_einvoicing gets only the status: nothing it would reject is added.
 	statusOnly := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"}, InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"}}}`)}
-	if out, pins, why := qontoDraftOnly(qontoServer, statusOnly, json.RawMessage(`{"client_id":"c1"}`)); why != "" || string(out) != `{"client_id":"c1","status":"draft"}` || len(pins) != 1 {
+	if out, pins, why := qontoDraftOnly(qontoServer, statusOnly, json.RawMessage(`{"client_id":"c1"}`), ""); why != "" || string(out) != `{"client_id":"c1","status":"draft"}` || len(pins) != 1 {
 		t.Fatalf("a tool with a status only: %s %v %s", out, pins, why)
 	}
 	// A narrowed tool (a Card fixing the client) is checked against Qonto's own schema, kept beside planque's narrowed one.
@@ -273,12 +280,12 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 	if !narrowed.narrowed() {
 		t.Fatal("the test tool isn't narrowed")
 	}
-	if out, pins, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1","items":[]}`)); why != "" || pins["status"] != "draft" || !strings.Contains(string(out), `"status":"draft"`) {
+	if out, pins, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1","items":[]}`), ""); why != "" || pins["status"] != "draft" || !strings.Contains(string(out), `"status":"draft"`) {
 		t.Fatalf("a narrowed tool: %s %v %s", out, pins, why)
 	}
 	// Narrowed, from before Qonto's schema was kept: refused, never checked against planque's names.
 	narrowed.VendorInputSchema = nil
-	if _, _, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1"}`)); !strings.Contains(why, "can't keep the invoice a draft") {
+	if _, _, why := qontoDraftOnly(qontoServer, narrowed, json.RawMessage(`{"client_id":"c1"}`), ""); !strings.Contains(why, "can't keep the invoice a draft") {
 		t.Fatalf("a narrowed tool without Qonto's schema: %q", why)
 	}
 	// Negative: another Qonto tool, and the same name on another server, pass as they are.
@@ -286,36 +293,76 @@ func TestAQontoInvoiceIsCreatedOnlyAsADraft(t *testing.T) {
 		server string
 		tool   GrantedTool
 	}{{qontoServer, GrantedTool{ToolRequest: ToolRequest{Tool: "create_client"}}}, {"https://mcp.vendor.example/mcp", takes}} {
-		if out, _, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`)); why != "" || string(out) != `{"status":"unpaid"}` {
+		if out, _, why := qontoDraftOnly(c.server, c.tool, json.RawMessage(`{"status":"unpaid"}`), ""); why != "" || string(out) != `{"status":"unpaid"}` {
 			t.Fatalf("%s %s: %s %s", c.server, c.tool.Tool, out, why)
 		}
 	}
 }
 
-// A served read's description says what it gives where Qonto's doesn't, so a
-// catalog search by the job's words finds it: "balance" finds get_organization
-// (the Qonto re-test, 27 Nov). Never on another server, never twice, and the
-// list given is untouched.
-func TestQontoReadsAreFoundByTheJobsWords(t *testing.T) {
+// A served tool's description is Qonto's own. planque once added to
+// get_organization's that it gives each bank account's balance and IBAN; Qonto
+// says it gives the organization only, and planque doesn't serve the bank
+// accounts. Nothing is added, on Qonto's host or any other.
+func TestQontoDescriptionsAreQontosOwn(t *testing.T) {
 	listed := []mcpTool{{Name: "get_organization", Description: "Retrieve the organization."}, {Name: "list_transactions", Description: "List transactions."}}
 	got := servedOnly(qontoServer, listed)
-	if len(got) != 2 || !strings.Contains(strings.ToLower(got[0].Description), "balance") || !strings.Contains(got[0].Description, "IBAN") ||
-		!strings.HasPrefix(got[0].Description, "Retrieve the organization. ") {
-		t.Fatalf("get_organization's description: %q", got[0].Description)
+	if len(got) != 2 || got[0].Description != "Retrieve the organization." || got[1].Description != "List transactions." {
+		t.Fatalf("a served description changed: %+v", got)
 	}
-	if got[1].Description != "List transactions." {
-		t.Fatalf("another read's description changed: %q", got[1].Description)
+}
+
+// The fields Qonto takes from Italian organisations only follow the
+// organisation's country, read at sign-in: an Italian one, or one planque
+// couldn't read, keeps report_einvoicing pinned to false (left out, Qonto
+// reports an Italian invoice to SdI on creation); any other leaves it out
+// and refuses payment_reporting or stamp_duty_amount.
+func TestQontoItalianOnlyFieldsFollowTheOrganisationsCountry(t *testing.T) {
+	takes := GrantedTool{ToolRequest: ToolRequest{Tool: "create_client_invoice"},
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"status":{"type":"string"},"report_einvoicing":{"type":"boolean"},
+			"payment_reporting":{"type":"object"},"stamp_duty_amount":{"type":"string"}}}`)}
+	for _, country := range []string{"IT", ""} {
+		out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","payment_reporting":{"conditions":"TP02"},"stamp_duty_amount":"2.00"}`), country)
+		if why != "" || pins["report_einvoicing"] != false || !strings.Contains(string(out), `"report_einvoicing":false`) ||
+			!strings.Contains(string(out), `"payment_reporting"`) || !strings.Contains(string(out), `"stamp_duty_amount"`) {
+			t.Errorf("country %q: %s %v %q", country, out, pins, why)
+		}
 	}
-	if listed[0].Description != "Retrieve the organization." {
-		t.Fatalf("servedOnly changed the list it was given: %q", listed[0].Description)
+	// A French organisation: report_einvoicing is left out, even when the taf set it false, and status is still pinned.
+	out, pins, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","report_einvoicing":false}`), "FR")
+	if why != "" || strings.Contains(string(out), "report_einvoicing") || pins["status"] != "draft" || len(pins) != 1 {
+		t.Errorf("FR: %s %v %q", out, pins, why)
 	}
-	// Qonto's own words already say it: nothing is added.
-	own := []mcpTool{{Name: "get_organization", Description: "The organization and each account's Balance."}}
-	if d := servedOnly(qontoServer, own)[0].Description; d != own[0].Description {
-		t.Fatalf("added to a description that already says it: %q", d)
+	for _, args := range []string{`{"client_id":"c1","payment_reporting":{"conditions":"TP02"}}`, `{"client_id":"c1","stamp_duty_amount":"2.00"}`} {
+		if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(args), "FR"); !strings.Contains(why, "Italian organisations only") || !strings.Contains(why, "FR") {
+			t.Errorf("FR %s: %q", args, why)
+		}
 	}
-	// Another server's tool of the same name is as its server says.
-	if d := servedOnly("https://mcp.vendor.example/mcp", listed)[0].Description; d != "Retrieve the organization." {
-		t.Fatalf("changed off Qonto's host: %q", d)
+	// Left null, as Qonto's schema allows, a field is no more than left out.
+	if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","payment_reporting":null}`), "DE"); why != "" {
+		t.Errorf("DE, null: %q", why)
+	}
+	// Reporting is refused everywhere, as before.
+	if _, _, why := qontoDraftOnly(qontoServer, takes, json.RawMessage(`{"client_id":"c1","report_einvoicing":true}`), "FR"); why == "" {
+		t.Error("FR, report_einvoicing true: sent")
+	}
+}
+
+// The country is read from get_organization's answer as Qonto's API names it
+// (legal_country), at the top or under organization, from structuredContent
+// or the same JSON as text; anything else reads as no country.
+func TestTheOrganisationsCountryIsReadOnlyAsTwoLetters(t *testing.T) {
+	for res, want := range map[string]string{
+		`{"structuredContent":{"organization":{"legal_name":"Acme","legal_country":"it"}}}`:    "IT",
+		`{"content":[{"type":"text","text":"{\"organization\":{\"legal_country\":\"FR\"}}"}]}`: "FR",
+		`{"structuredContent":{"legal_country":"DE"}}`:                                         "DE",
+		`{"structuredContent":{"organization":{"legal_country":"Italy"}}}`:                     "",
+		`{"structuredContent":{"organization":{"legal_country":"I1"}}}`:                        "",
+		`{"structuredContent":{"organization":{"legal_country":"IT"}},"isError":true}`:         "",
+		`{"content":[{"type":"text","text":"Organization: Acme"}]}`:                            "",
+		`not json`: "",
+	} {
+		if got := organizationCountry(json.RawMessage(res)); got != want {
+			t.Errorf("%s: %q, want %q", res, got, want)
+		}
 	}
 }
