@@ -172,12 +172,11 @@ func (s *Server) sweepCards(ctx context.Context) (int, error) {
 	if s.Issuing == nil {
 		return 0, nil
 	}
+	// Every page is read; on an error the cards read so far are still
+	// swept, and the error is reported.
 	active, err := s.Issuing.Active(ctx, 100)
-	if err != nil {
-		return 0, err
-	}
 	now, canceled := s.now(), 0
-	var first error
+	first := err
 	for _, card := range active {
 		var rec issuedCard
 		_, err := getDoc(ctx, s.KV, pkIssuing, skIssuedCard(card.ID), &rec)

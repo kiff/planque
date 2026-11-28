@@ -409,3 +409,39 @@ func TestCheckoutReadForAPurchaseCase(t *testing.T) {
 		t.Errorf("text only, and a total that names VAT: %+v %+v", co, co.Delivery)
 	}
 }
+
+// "ordered" only when the page after says so: a failure page, even with a
+// reference on it, and a page with no confirmation or reference are
+// unknown, for reconciliation to settle.
+func TestPayOrderedOnlyWhenThePageConfirmsIt(t *testing.T) {
+	r := newPayRig(t)
+	for path, want := range map[string]string{"/pay?end=failed": "unknown", "/pay?end=plain": "unknown", "/pay?end=unprocessed": "unknown", "/pay?end=refonly": "unknown", "/pay": "ordered"} {
+		res, err := r.w.Pay(context.Background(), r.job(t, path))
+		if res.Outcome != want || (want == "ordered") != (err == nil) {
+			t.Errorf("%s: %+v, %v; want %s", path, res, err, want)
+		}
+	}
+}
+
+// An expiry year field that takes two digits gets two.
+func TestPayTypesTheYearAsTheFieldTakesIt(t *testing.T) {
+	r := newPayRig(t)
+	if res, err := r.w.Pay(context.Background(), r.job(t, "/pay?split=1")); err != nil || res.Outcome != "ordered" {
+		t.Fatalf("split expiry: %+v, %v", res, err)
+	}
+	if _, err := r.w.Pay(context.Background(), r.job(t, "/pay")); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.shop.Exp) != 2 || r.shop.Exp[0] != "12/34" || r.shop.Exp[1] != "12 / 34" {
+		t.Errorf("expiries received: %q", r.shop.Exp)
+	}
+}
+
+// Card fields inside a provider's frame aren't filled: refused, with why.
+func TestPayRefusesCardFieldsInAProvidersFrame(t *testing.T) {
+	r := newPayRig(t)
+	res, err := r.w.Pay(context.Background(), r.job(t, "/pay?frame=1"))
+	if res.Outcome != "not_ordered" || err == nil || !strings.Contains(err.Error(), "payment provider's frame") || r.armed != 0 || r.shop.PayCalls != 0 {
+		t.Errorf("frame: %+v, %v", res, err)
+	}
+}
