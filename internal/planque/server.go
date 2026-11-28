@@ -101,6 +101,11 @@ type Server struct {
 	// connection approved before keeps its tools. On in production unless
 	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
+	// StripeProfiles reads the seller's Stripe profile with a checkout
+	// (stripe_profile.go; PLANQUE_STRIPE_PROFILE=on); UCPGet replaces its
+	// fetch in tests.
+	StripeProfiles bool
+	UCPGet         func(ctx context.Context, host string) ([]byte, error)
 	// HostedHand offers the hand-over's two tools on the hosted browser's
 	// new connections ("Your turn" through the live view, hosted_hand.go).
 	// Off unless PLANQUE_HOSTED_HAND=on (cmd/planque).
