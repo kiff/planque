@@ -320,7 +320,13 @@ type Grant struct {
 	// ever. Zero once Registering ends.
 	RegisterBy time.Time `json:"register_by,omitempty"`
 	Request    Request   `json:"request"`
-	Text       string    `json:"text"`
+	// AskedIn is the chat that asked for it (a request's `session`, as the
+	// agents runtime's runner names it): kept beside the request, never in
+	// it, so it's in no request served and no digest signed. A chat's delete
+	// reads it (sessionAgents) to end what that chat asked for. Cleared when
+	// the grant is saved ended (saveGrant).
+	AskedIn string `json:"asked_in,omitempty"`
+	Text    string `json:"text"`
 	// Texts are Text in every language planque speaks, by language, written
 	// with it: what the owner's phone shows, and signs with digest_v 2. A
 	// grant made before has none, and is shown in English.
@@ -608,6 +614,12 @@ func (s *Server) loadGrant(ctx context.Context, tenant, id string) (*Grant, erro
 // harmless, since the sweep checks the grant itself, but it would wait there
 // for days.
 func (s *Server) saveGrant(ctx context.Context, g *Grant) error {
+	// An ended grant keeps no chat (AskedIn), whichever door ended it (the
+	// owner's Disconnect, a taf's end, a chat's delete or a superseding grant),
+	// and neither does one that failed.
+	if g.Status == StatusDisconnected || g.Status == StatusFailed {
+		g.AskedIn = ""
+	}
 	c := store.Cond{Ver: &g.ver}
 	if g.ver == 0 {
 		c = store.Cond{NotExists: true}
