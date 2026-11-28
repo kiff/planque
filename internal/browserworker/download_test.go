@@ -181,3 +181,33 @@ func TestADownloadOffTheSitesNeverArrives(t *testing.T) {
 		t.Error("the egress refused nothing: the off-site file wasn't asked for")
 	}
 }
+
+// A secret field says whether it holds anything, never what: the shop's
+// sign-in has its password typed in, so no picture of it is taken.
+func TestASecretFieldSaysItsFilledNeverWhat(t *testing.T) {
+	w, s := worker(t), shop(t)
+	ctx := context.Background()
+	sess, err := w.Start(ctx, browser.Start{Grant: "grt_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close(ctx)
+	p, err := sess.Open(ctx, s.URL+"/login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw := find(p.Fields, "Password")
+	if pw == nil || !pw.Filled || !pw.Masked || pw.Value != "" {
+		t.Fatalf("the password field: %+v", pw)
+	}
+	if browser.Pictured(p) {
+		t.Error("a picture would be taken with the password typed in")
+	}
+	item, err := sess.Open(ctx, s.URL+"/item/pen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !browser.Pictured(item) {
+		t.Error("the item page wasn't pictured")
+	}
+}

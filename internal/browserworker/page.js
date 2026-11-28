@@ -43,7 +43,10 @@
       const k = kindOf(el);
       const f = {ref: ref(el, 'f'), label: name(el), kind: k};
       if (secret(k)) {
+        // Whether it holds anything, never what: no picture is taken while
+        // a card, password or code field holds a value.
         f.masked = true;
+        if ((el.value || '') !== '') f.filled = true;
       } else if (el.tagName === 'SELECT') {
         f.value = clean(el.value);
         f.options = [...el.options].map(o => clean(o.textContent)).slice(0, 50);

@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -34,8 +35,11 @@ const browserFileChunk = 256 << 10
 
 // browserFile is a downloaded file's record: what it is, not its bytes.
 type browserFile struct {
-	ID     string    `json:"id"`
-	Grant  string    `json:"grant"`
+	ID    string `json:"id"`
+	Grant string `json:"grant"`
+	// Kind is what it is: browser_file (a download) or evidence (a
+	// picture of a page after a write).
+	Kind   string    `json:"kind,omitempty"`
 	Name   string    `json:"name"`
 	Type   string    `json:"type"`
 	Size   int       `json:"size"`
@@ -55,7 +59,11 @@ func skBrowserFileChunk(grant, id string, n int) string {
 }
 
 func browserFileBinding(g *Grant, id string, n int) map[string]string {
-	return map[string]string{"tenant": g.Tenant, "grant": g.ID, "kind": "browser_file", "file": id, "chunk": strconv.Itoa(n)}
+	return blobBinding(g.Tenant, g.ID, "browser_file", id, n)
+}
+
+func blobBinding(tenant, grant, kind, id string, n int) map[string]string {
+	return map[string]string{"tenant": tenant, "grant": grant, "kind": kind, "file": id, "chunk": strconv.Itoa(n)}
 }
 
 // downloadsOn says the account's hosted browser takes downloads.
@@ -107,21 +115,29 @@ func (s *Server) keepDownloads(ctx context.Context, g *Grant, site string, list 
 // putBrowserFile seals data in chunks under the grant, then its record;
 // nothing is left of it if any part fails.
 func (s *Server) putBrowserFile(ctx context.Context, g *Grant, f *browserFile, data []byte) error {
+	f.Kind = "browser_file"
+	return s.putBlob(ctx, g.Tenant, f, data)
+}
+
+// putBlob seals data in chunks under f's grant, bound to its kind, then
+// f's record, all with browserFileKept's TTL; nothing is left of it if any
+// part fails.
+func (s *Server) putBlob(ctx context.Context, tenant string, f *browserFile, data []byte) error {
 	ttl := f.At.Add(browserFileKept).Unix()
 	f.Chunks = (len(data) + browserFileChunk - 1) / browserFileChunk
 	for n := 0; n < f.Chunks; n++ {
 		part := data[n*browserFileChunk : min((n+1)*browserFileChunk, len(data))]
-		sealed, err := s.Sealer.Seal(ctx, part, browserFileBinding(g, f.ID, n))
+		sealed, err := s.Sealer.Seal(ctx, part, blobBinding(tenant, f.Grant, f.Kind, f.ID, n))
 		if err == nil {
-			err = putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skBrowserFileChunk(g.ID, f.ID, n), Ver: 1, TTL: ttl}, browserFileChunkRecord{Sealed: sealed}, store.Cond{NotExists: true})
+			err = putDoc(ctx, s.KV, store.Item{PK: tenantPK(tenant), SK: skBrowserFileChunk(f.Grant, f.ID, n), Ver: 1, TTL: ttl}, browserFileChunkRecord{Sealed: sealed}, store.Cond{NotExists: true})
 		}
 		if err != nil {
-			s.dropBrowserFile(ctx, g.Tenant, g.ID, f.ID, n)
+			s.dropBrowserFile(ctx, tenant, f.Grant, f.ID, n)
 			return err
 		}
 	}
-	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skBrowserFile(g.ID, f.ID), Ver: 1, TTL: ttl}, f, store.Cond{NotExists: true}); err != nil {
-		s.dropBrowserFile(ctx, g.Tenant, g.ID, f.ID, f.Chunks)
+	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(tenant), SK: skBrowserFile(f.Grant, f.ID), Ver: 1, TTL: ttl}, f, store.Cond{NotExists: true}); err != nil {
+		s.dropBrowserFile(ctx, tenant, f.Grant, f.ID, f.Chunks)
 		return err
 	}
 	return nil
@@ -156,13 +172,23 @@ func (s *Server) dropBrowserFiles(ctx context.Context, g *Grant) error {
 // errFileGone: no such file under the grant, or past its time.
 var errFileGone = errors.New("no such file")
 
-// openBrowserFile is a kept file and its bytes, checked against its digest.
+// openBrowserFile is a kept download and its bytes, checked against its
+// digest.
 func (s *Server) openBrowserFile(ctx context.Context, g *Grant, id string) (browserFile, []byte, error) {
+	return s.openBlob(ctx, g, id, "browser_file")
+}
+
+// openBlob is a kept blob of kind and its bytes, checked against its
+// digest.
+func (s *Server) openBlob(ctx context.Context, g *Grant, id, kind string) (browserFile, []byte, error) {
 	var f browserFile
 	if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skBrowserFile(g.ID, id), &f); errors.Is(err, errNotFound) {
 		return f, nil, errFileGone
 	} else if err != nil {
 		return f, nil, err
+	}
+	if cmp.Or(f.Kind, "browser_file") != kind {
+		return f, nil, errFileGone
 	}
 	if !s.now().Before(f.At.Add(browserFileKept)) {
 		return f, nil, errFileGone
@@ -173,7 +199,7 @@ func (s *Server) openBrowserFile(ctx context.Context, g *Grant, id string) (brow
 		if _, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skBrowserFileChunk(g.ID, id, n), &part); err != nil {
 			return f, nil, errFileGone
 		}
-		b, err := s.Sealer.Open(ctx, part.Sealed, browserFileBinding(g, id, n))
+		b, err := s.Sealer.Open(ctx, part.Sealed, blobBinding(g.Tenant, g.ID, cmp.Or(f.Kind, "browser_file"), id, n))
 		if err != nil {
 			return f, nil, err
 		}
