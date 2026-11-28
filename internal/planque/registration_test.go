@@ -3,6 +3,7 @@ package planque
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // A grant registered before KIFF read its tools' app, hint and pins is updated in KIFF in place, once: every tool,
@@ -33,16 +34,42 @@ func TestAnOlderRegistrationIsUpdatedInPlaceOnce(t *testing.T) {
 	}
 }
 
-// KIFF refusing an update (it never lowers a tool's class) leaves the grant unstamped, so the refusal shows again;
-// the call it ran in isn't stopped.
-func TestARefusedUpdateLeavesTheGrantUnstamped(t *testing.T) {
+// KIFF refusing an update for good (it never lowers a tool's class) is final for the tool: one PATCH, stamped, and no
+// later call sends another.
+func TestARefusedUpdateIsSentOnce(t *testing.T) {
 	e := newEnv(t)
 	g := e.connect()
 	e.kiff.RefusePatch = 409
+	for range 3 {
+		e.s.refreshRegistration(context.Background(), g)
+	}
+	if e.kiff.PatchTries != len(g.Tools) {
+		t.Fatalf("%d PATCHes for %d tools over three calls, want one each", e.kiff.PatchTries, len(g.Tools))
+	}
+	var rec registrationRecord
+	if _, err := getDoc(context.Background(), e.s.KV, tenantPK(tenant), skRegistration(g.ID), &rec); err != nil || rec.Version != kiffRegistration {
+		t.Fatalf("not stamped after a final refusal: %+v, %v", rec, err)
+	}
+}
+
+// A transient failure (KIFF down) leaves the older version and waits registrationRetry: calls within it send
+// nothing, and the first after it tries again.
+func TestATransientFailureWaitsBeforeTryingAgain(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	e.kiff.RefusePatch = 503
+	e.s.refreshRegistration(context.Background(), g)
+	e.s.refreshRegistration(context.Background(), g)
+	if e.kiff.PatchTries != len(g.Tools) {
+		t.Fatalf("%d PATCHes within the wait, want %d", e.kiff.PatchTries, len(g.Tools))
+	}
+	e.kiff.RefusePatch = 0
+	later := time.Now().Add(registrationRetry + time.Minute)
+	e.s.Now = func() time.Time { return later }
 	e.s.refreshRegistration(context.Background(), g)
 	var rec registrationRecord
-	if _, err := getDoc(context.Background(), e.s.KV, tenantPK(tenant), skRegistration(g.ID), &rec); err == nil || e.kiff.Patched != 0 {
-		t.Fatalf("stamped after a refusal: %+v, %d updated", rec, e.kiff.Patched)
+	if _, err := getDoc(context.Background(), e.s.KV, tenantPK(tenant), skRegistration(g.ID), &rec); err != nil || rec.Version != kiffRegistration || e.kiff.Patched != len(g.Tools) {
+		t.Fatalf("after the wait: %+v, %v, %d updated", rec, err, e.kiff.Patched)
 	}
 }
 

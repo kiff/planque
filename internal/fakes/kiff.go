@@ -85,7 +85,9 @@ type KIFF struct {
 	// RefusePatch, when set, is the status every one is answered with instead.
 	Patched     int
 	RefusePatch int
-	HTTP        *http.Client
+	// PatchTries counts every PATCH asked, taken or refused.
+	PatchTries int
+	HTTP       *http.Client
 }
 
 // Device is a person's device, as KIFF keeps it.
@@ -547,6 +549,7 @@ func (k *KIFF) patch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "no such tool"})
 		return
 	}
+	k.PatchTries++
 	if k.RefusePatch != 0 {
 		writeJSON(w, k.RefusePatch, map[string]string{"error": "refused"})
 		return
