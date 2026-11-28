@@ -346,7 +346,7 @@ type Grant struct {
 	AccountLive *bool `json:"account_live,omitempty"`
 	// Country is the organisation's country (ISO 3166 alpha-2) as the
 	// vendor names it, read by planque itself right after the owner signed
-	// in (Qonto's get_organization, signedInCountry); "" when unread. It
+	// in (Qonto's get_organization, signedInOrganization); "" when unread. It
 	// decides the fields only one country's organisations may send
 	// (qontoDraftOnly).
 	Country string `json:"country,omitempty"`

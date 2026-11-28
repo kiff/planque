@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -911,12 +912,28 @@ func (s *Server) page(w http.ResponseWriter, lang string, status int, title, msg
 func (s *Server) returnToApp(w http.ResponseWriter, r *http.Request, lang string, l words.Lines, a *Approval, app string, u *url.URL) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
+	if a != nil && a.Platform == "android" {
+		// Chrome on Android drops a server redirect to an app when no tap is
+		// behind it, as after the owner left the tab to confirm in their
+		// bank's own app (seen live: the code never reached tafs, four times).
+		// So the page tries the app's link once at load and keeps a button
+		// that always opens it: a tap is the gesture. It's this answer alone
+		// (the vendor's code is spent, so a reload shows no code), and the
+		// code confirms nothing without the approving device's signature.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src '"+openScriptHash+"'; frame-ancestors 'none'")
+		w.WriteHeader(http.StatusOK)
+		_ = openTmpl.Execute(w, map[string]any{"Lang": lang, "Title": l.SignedIn, "Message": l.SignedInOpen(app),
+			"Open": l.OpenTafs, "Link": template.URL(u.String()), "Try": true})
+		return
+	}
 	if a != nil && phonePlatforms[a.Platform] {
 		http.Redirect(w, r, u.String(), http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
 	w.WriteHeader(http.StatusOK)
 	// u is planque's own PLANQUE_APP_RETURN with the code added, never a
 	// caller's: its scheme (tafs:) is let through as is.
@@ -929,7 +946,18 @@ var openTmpl = template.Must(template.New("o").Parse(`<!doctype html><html lang=
 <style>body{font:17px/1.5 -apple-system,system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;color:#1d1d1f}
 a{display:inline-block;margin-top:8px;padding:12px 22px;border-radius:10px;background:#1d1d1f;color:#fff;text-decoration:none;font-weight:600}
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{background:#eee;color:#111}}</style>
-<h1>{{.Title}}</h1><p>{{.Message}}</p><p><a href="{{.Link}}">{{.Open}}</a></p>`))
+<h1>{{.Title}}</h1><p>{{.Message}}</p><p><a id="open" href="{{.Link}}">{{.Open}}</a></p>{{if .Try}}<script>` + openScript + `</script>{{end}}`))
+
+// openScript follows the page's own button once at load: where the browser
+// lets a page open an app without a tap, that's enough; where it doesn't,
+// the button stays for the owner's tap. It reads nothing but the button's link.
+const openScript = `location.href=document.getElementById("open").href;`
+
+// openScriptHash is openScript's CSP hash, so the page runs it and nothing else.
+var openScriptHash = func() string {
+	sum := sha256.Sum256([]byte(openScript))
+	return "sha256-" + base64.StdEncoding.EncodeToString(sum[:])
+}()
 
 var pageTmpl = template.Must(template.New("p").Parse(`<!doctype html><html lang="{{.Lang}}"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · planque</title>
