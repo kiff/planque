@@ -248,6 +248,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	} else if done > 0 {
 		s.log().InfoContext(r.Context(), "sweep deleted chrome screenshots left", slog.Int("cleanups", done))
 	}
+	// Purchase cards past their case, or that planque has no record of.
+	if canceled, err := s.sweepCards(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: purchase cards not all checked", slog.String("err", err.Error()))
+	} else if canceled > 0 {
+		s.log().InfoContext(r.Context(), "sweep canceled purchase cards", slog.Int("canceled", canceled))
+	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))

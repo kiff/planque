@@ -26,6 +26,7 @@ import (
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/device"
 	"github.com/kiff/planque/internal/door"
+	"github.com/kiff/planque/internal/issuing"
 	"github.com/kiff/planque/internal/kiff"
 	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
@@ -71,6 +72,9 @@ type Server struct {
 	MCP      *mcp.Client
 	// REST reaches an API-key grant's vendor (kiff/planque#64).
 	REST *rest.Client
+	// Issuing makes a purchase's single-use card through Stripe Issuing, in
+	// test mode only (thune_cards.go); nil, no card is made.
+	Issuing *issuing.Client
 	// TelegramBase is the Telegram Bot API; empty, Telegram's own.
 	TelegramBase string
 	// Browser drives a browser grant's browser (kiff/planque#86); nil, no
