@@ -61,6 +61,8 @@ func healthSite(t *testing.T) (*httptest.Server, *atomic.Int64, *atomic.Int64, *
 <script>fetch("/write",{method:"POST",body:"x"}).catch(()=>{});navigator.sendBeacon("/write","x");
 try{const s=new WebSocket("ws://"+location.host+"/sock");s.onopen=()=>s.send("act")}catch(e){}
 try{const f=document.createElement("iframe");document.body.appendChild(f);const W=f.contentWindow.WebSocket;const s=new W("ws://"+location.host+"/sock");s.onopen=()=>s.send("act")}catch(e){}
+try{const f=document.createElement("iframe");document.body.appendChild(f);new f.contentWindow.Worker("/worker.js")}catch(e){}
+try{const f=document.createElement("iframe");document.body.appendChild(f);new f.contentWindow.Worker(URL.createObjectURL(new Blob(['fetch("/write",{method:"POST"}).catch(()=>{});try{new WebSocket("ws://'+location.host+'/sock")}catch(e){}'])))}catch(e){}
 new Worker("/worker.js");navigator.serviceWorker&&navigator.serviceWorker.register("/sw.js").catch(()=>{});
 setTimeout(()=>document.getElementById("f").submit(),300)</script></body></html>`)
 		case "/worker.js", "/sw.js":

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
@@ -125,6 +126,16 @@ func readOnlyMethod(method string) bool { return method == "GET" || method == "H
 // under the same rule before it runs. One that can't be is closed, never
 // run: no request of a health check goes out unchecked.
 func (s *session) readOnlyTarget(ctx context.Context, p attachedTarget) bool {
+	// A worker, however it was made (a constructor borrowed from a blank
+	// frame included), is closed before it runs: it attaches paused, and a
+	// socket in a worker isn't blocked by address. A check needs none.
+	if strings.Contains(p.TargetInfo.Type, "worker") {
+		s.log().Info("a health check's worker closed before it ran", slog.String("type", p.TargetInfo.Type))
+		if err := s.c.call(ctx, "", "Target.closeTarget", map[string]any{"targetId": p.TargetInfo.TargetID}, nil); err != nil {
+			_ = s.c.call(ctx, "", "Target.detachFromTarget", map[string]any{"sessionId": p.SessionID}, nil)
+		}
+		return false
+	}
 	err := s.c.call(ctx, p.SessionID, "Fetch.enable", map[string]any{"patterns": []map[string]string{{"urlPattern": "*", "requestStage": "Request"}}}, nil)
 	if err == nil {
 		err = s.blockSockets(ctx, p.SessionID)
