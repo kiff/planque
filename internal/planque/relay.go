@@ -439,6 +439,7 @@ func (s *Server) finish(ctx context.Context, claim store.Item, op operation, sta
 		s.log().ErrorContext(ctx, "answer not kept", slog.String("op", claim.SK), slog.String("err", err.Error()))
 		dropAnswer(&op)
 	}
+	s.sealAnswer(ctx, claim, &op)
 	it := claim
 	it.Ver, it.Lease = claim.Ver+1, 0
 	if err := putDoc(ctx, s.KV, it, op, store.Cond{Ver: &claim.Ver}); err != nil {
@@ -457,7 +458,7 @@ func (s *Server) recorded(ctx context.Context, g *Grant, it store.Item, op opera
 		if s.answerExpired(op) {
 			dropAnswer(&op)
 		}
-		return op.Result
+		return s.openAnswer(ctx, it, op)
 	}
 	if it.Lease > s.now().UnixMilli() {
 		return toolResult("This call is in progress. Nothing new was sent; ask again shortly.", true)

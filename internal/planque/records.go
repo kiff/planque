@@ -548,6 +548,14 @@ type operation struct {
 	// ResultUntil is when a vendor's answer in Result expires (answerTTL):
 	// past it, Result keeps only the outcome.
 	ResultUntil time.Time `json:"result_until,omitzero"`
+	// SealedResult is a vendor's kept answer, sealed under the account and
+	// this operation (sealAnswer): with full scopes it can carry IBANs,
+	// balances and client records, so it's never kept readable. Result is
+	// then empty, and ResultIsError says whether the answer was an error,
+	// for the outcome said in its place once it's gone. Opened only on a
+	// replay (recorded).
+	SealedResult  []byte `json:"sealed_result,omitempty"`
+	ResultIsError bool   `json:"result_is_error,omitempty"`
 	// AnswerDropped says Result is the outcome alone: the answer is gone.
 	AnswerDropped   bool                  `json:"answer_dropped,omitempty"`
 	Profile         json.RawMessage       `json:"profile,omitempty"`
