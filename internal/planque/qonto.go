@@ -79,22 +79,29 @@ func directEntryFor(toolkit string) string {
 	return ""
 }
 
-// widerThanAsked is what a bank's token answer granted beyond the reviewed
-// list planque asked for (qontoScopes), for a sign-in on Qonto's host: a
-// token for a bank never carries what moves money, whatever the vendor's
-// consent page showed or granted. An answer that names no scope grants what
-// was asked (RFC 6749 §5.1), so it's nothing wider. Another vendor: nil.
-func widerThanAsked(server, granted string) []string {
-	if !onHost(server, qontoHost) {
+// widerThanAsked is what a bank's token answer granted beyond what planque
+// asked for (the scopes on the grant's sign-in, g.Vendor.Scopes), for a
+// sign-in on Qonto's host: granted equals requested, so a token never holds
+// more than planque asked, whatever the vendor's consent page showed. An
+// answer that names no scope grants what was asked (RFC 6749 §5.1), so it's
+// nothing wider. Another vendor: nil, until it's checked the same way.
+func widerThanAsked(g *Grant, granted string) []string {
+	if !onHost(g.Request.Server, qontoHost) && !onHost(g.Vendor.Resource, qontoHost) {
 		return nil
 	}
 	var extra []string
 	for _, name := range scopeNames(granted) {
-		if !slices.Contains(qontoScopes, name) {
+		if !slices.Contains(g.Vendor.Scopes, name) {
 			extra = append(extra, name)
 		}
 	}
 	return extra
+}
+
+// fullScopesFor reports whether tenant's sign-ins ask for every scope a
+// server lists, Qonto's included (FullScopes).
+func (s *Server) fullScopesFor(tenant string) bool {
+	return s.FullScopes[tenant] || s.FullScopes["*"]
 }
 
 // scopeNames are a token answer's scope names, space-separated as OAuth

@@ -585,7 +585,9 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 			meta.AccountField = stripeAccountField
 			meta.AccountsTool = stripeAccountsTool
 		}
-		reviewScopes(server, &meta)
+		if !s.fullScopesFor(tenant) {
+			reviewScopes(server, &meta)
+		}
 	}
 	asked := me.AgentID
 	header := ""
@@ -2558,7 +2560,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	// token is revoked where the vendor can, never kept, and the sign-in is
 	// refused, saying so.
 	if err == nil {
-		if extra := widerThanAsked(g.Request.Server, tok.Scope); len(extra) > 0 {
+		if extra := widerThanAsked(g, tok.Scope); len(extra) > 0 {
 			s.revokeTokenPair(r.Context(), eg, tok)
 			why := widerWhy(g, extra)
 			if renew {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -232,10 +233,16 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 		s.releaseLease(ctx, it, ver)
 		return "", 0, errors.New("the refreshed token is for another vendor account")
 	}
-	// A refresh that grants a bank more than planque asked for ends the
-	// sign-in: both tokens are revoked where the vendor can, the stored one
-	// is dropped, and the owner signs in again (widerThanAsked).
-	if extra := widerThanAsked(g.Request.Server, next.Scope); len(extra) > 0 {
+	// A refresh answer that names no scope keeps the one granted before
+	// (RFC 6749 §6), so what the token holds stays known.
+	if next.Scope == "" {
+		next.Scope = tok.Scope
+	}
+	// A bank's token holding more than planque asked for ends the sign-in,
+	// whether the stored token or the refresh answer says so: both tokens
+	// are revoked where the vendor can, the stored one is dropped, and the
+	// owner signs in again (widerThanAsked).
+	if extra := scopeNames(strings.Join(append(widerThanAsked(g, tok.Scope), widerThanAsked(g, next.Scope)...), " ")); len(extra) > 0 {
 		s.revokeTokenPair(ctx, g, next)
 		s.revokeTokenPair(ctx, g, tok)
 		s.dropToken(ctx, g)

@@ -11,25 +11,54 @@ import (
 	"time"
 )
 
-// What a bank's token answer granted beyond the reviewed list: only for a
-// sign-in on Qonto's host, any name not on the list, once each; an answer
-// that names no scope grants what was asked.
-func TestWhatABankGrantedBeyondTheList(t *testing.T) {
-	asked := strings.Join(qontoScopes, " ")
+// What a bank's token answer granted beyond what planque asked for: only
+// for a sign-in on Qonto's host, any name the sign-in didn't ask for, once
+// each, whether it asked for the reviewed list or for all Qonto lists; an
+// answer that names no scope grants what was asked.
+func TestWhatABankGrantedBeyondWhatWasAsked(t *testing.T) {
+	grant := func(server string, asked []string) *Grant {
+		g := &Grant{}
+		g.Request.Server, g.Vendor.Scopes = server, asked
+		return g
+	}
+	reviewed, all := strings.Join(qontoScopes, " "), strings.Join(qontoListed, " ")
 	for _, c := range []struct {
-		server, granted string
-		want            []string
+		g       *Grant
+		granted string
+		want    []string
 	}{
-		{qontoServer, asked, nil},
-		{qontoServer, "", nil},
-		{qontoServer, "offline_access organization.read", nil},
-		{qontoServer, asked + " request_transfers.write card.write request_transfers.write", []string{"request_transfers.write", "card.write"}},
-		{"https://MCP.qonto.com/mcp/", "organization.read payment_link.write", []string{"payment_link.write"}},
-		{"https://mcp.stripe.com", "anything at_all", nil},
+		{grant(qontoServer, qontoScopes), reviewed, nil},
+		{grant(qontoServer, qontoScopes), "", nil},
+		{grant(qontoServer, qontoScopes), "offline_access organization.read", nil},
+		{grant(qontoServer, qontoScopes), reviewed + " request_transfers.write card.write request_transfers.write", []string{"request_transfers.write", "card.write"}},
+		{grant("https://MCP.qonto.com/mcp/", qontoScopes), "organization.read payment_link.write", []string{"payment_link.write"}},
+		// Asked for all Qonto lists: all of it is as asked, and a name it doesn't list isn't.
+		{grant(qontoServer, qontoListed), all, nil},
+		{grant(qontoServer, qontoListed), all + " admin.everything", []string{"admin.everything"}},
+		{grant("https://mcp.stripe.com", []string{"a"}), "anything at_all", nil},
 	} {
-		if got := widerThanAsked(c.server, c.granted); !slices.Equal(got, c.want) {
-			t.Errorf("%s %q: %v, want %v", c.server, c.granted, got, c.want)
+		if got := widerThanAsked(c.g, c.granted); !slices.Equal(got, c.want) {
+			t.Errorf("%s asked %d, granted %q: %v, want %v", c.g.Request.Server, len(c.g.Vendor.Scopes), c.granted, got, c.want)
 		}
+	}
+}
+
+// An account on PLANQUE_FULL_SCOPES asks Qonto for every scope it lists, as
+// any server is asked; another account, and every account with it unset,
+// keeps the reviewed list.
+func TestFullScopesAskQontoForEverything(t *testing.T) {
+	s := &Server{FullScopes: map[string]bool{"t_full": true}}
+	if !s.fullScopesFor("t_full") || s.fullScopesFor("t_other") || (&Server{}).fullScopesFor("t_full") {
+		t.Fatal("full scopes for the wrong accounts")
+	}
+	if !(&Server{FullScopes: map[string]bool{"*": true}}).fullScopesFor("anyone") {
+		t.Fatal("all doesn't cover every account")
+	}
+	// Its grants on Qonto's host get Qonto's whole live tool list, for the
+	// Card to decide; another account keeps the reviewed tools, and another
+	// host is unchanged.
+	if !s.servesAll("t_full", qontoServer) || s.servesAll("t_other", qontoServer) || s.servesAll("t_full", "https://mcp.stripe.com") {
+		t.Fatal("the whole live list for the wrong accounts or hosts")
 	}
 }
 
@@ -52,15 +81,15 @@ func (e *env) signInExpectingFailure(link string) {
 	}
 }
 
-// asQonto makes the grant id a sign-in to Qonto's server, as a direct
-// Qonto entry is, while the fake vendor answers it.
+// asQonto makes the grant id a sign-in to Qonto's server that asked for the
+// reviewed list, as a direct Qonto entry does, while the fake vendor answers it.
 func (e *env) asQonto(id string) {
 	e.t.Helper()
 	g, err := e.s.loadGrant(context.Background(), tenant, id)
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	g.Request.Server = qontoServer
+	g.Request.Server, g.Vendor.Scopes = qontoServer, slices.Clone(qontoScopes)
 	if err := e.s.saveGrant(context.Background(), g); err != nil {
 		e.t.Fatal(err)
 	}
@@ -135,5 +164,28 @@ func TestABankRefreshGrantedMoreSignsOut(t *testing.T) {
 	}
 	if _, _, err := e.s.openToken(ctx, now); !errors.Is(err, errNotFound) {
 		t.Fatalf("the token was kept: %v", err)
+	}
+}
+
+// The stored token is checked at refresh too, not only the refresh answer:
+// a token granted more at sign-in (before the check) is caught at its next
+// refresh even when the refresh answer names no scope.
+func TestABankRefreshChecksTheStoredToken(t *testing.T) {
+	e := newEnv(t)
+	g := e.connect()
+	e.asQonto(g.ID)
+	g, _ = e.s.loadGrant(context.Background(), tenant, g.ID)
+	ctx := context.Background()
+	e.vendor.Expire()
+	tok, it, _ := e.s.openToken(ctx, g)
+	tok.Expiry, tok.Scope = time.Now().Add(-time.Second), "organization.read card.write"
+	_ = e.s.storeToken(ctx, g, tok, &it.Ver)
+	e.vendor.Scope = "" // the refresh answer names none
+	if _, _, err := e.s.accessToken(ctx, g, 0); err == nil {
+		t.Fatal("a stored token holding more was refreshed and used")
+	}
+	now, _ := e.s.loadGrant(ctx, tenant, g.ID)
+	if now.Status != StatusNeedsReconnect || now.SignedOutCause != CauseScopeWider || !strings.Contains(now.Reason, "card.write") {
+		t.Fatalf("grant: %s %q %q", now.Status, now.SignedOutCause, now.Reason)
 	}
 }

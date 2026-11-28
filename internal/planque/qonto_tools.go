@@ -52,7 +52,9 @@ var qontoServed = []string{
 // test accounts). Every other account, and Qonto's host until then, keeps
 // qontoServed. Off any server planque filters, every tool is served anyway.
 func (s *Server) servesAll(tenant, server string) bool {
-	return s.LiveListTest && s.ManagedTestTenants[tenant] && onHost(server, qontoHost)
+	// An account on PLANQUE_FULL_SCOPES gets the whole list too: its sign-in
+	// asked for every scope, and its Card alone decides what a taf may do.
+	return onHost(server, qontoHost) && (s.fullScopesFor(tenant) || s.LiveListTest && s.ManagedTestTenants[tenant])
 }
 
 // served says planque serves tool on server for tenant's grants.
