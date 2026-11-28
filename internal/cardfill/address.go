@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"unicode"
+
+	"github.com/kiff/planque/internal/browser"
 )
 
 // Card is the one card a payment fills: an issued card for that one case,
@@ -26,16 +28,8 @@ func (Card) String() string { return "card(hidden)" }
 func (Card) GoString() string { return "card(hidden)" }
 
 // Address is the delivery address the case signs (contracts/purchase.json,
-// case.delivery).
-type Address struct {
-	Name       string `json:"name"`
-	Line1      string `json:"line1"`
-	Line2      string `json:"line2"`
-	PostalCode string `json:"postal_code"`
-	City       string `json:"city"`
-	Region     string `json:"region"`
-	Country    string `json:"country"`
-}
+// case.delivery): the browser's.
+type Address = browser.Address
 
 // ErrAddressNotShown refuses a checkout whose delivery address isn't the
 // case's: nothing is filled or clicked.

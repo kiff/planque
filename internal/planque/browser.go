@@ -720,7 +720,28 @@ func (s *Server) browseCheckout(ctx context.Context, g *Grant, u, site string, p
 	if err := putDoc(ctx, s.KV, it, rec, store.Cond{}); err != nil {
 		return OpDone, browserRefusal(CodeRecordUnavailable, "the checkout was read but couldn't be kept for a pay", true)
 	}
-	return OpDone, browserAnswer(map[string]any{"site": site, "url": page.URL, "lines": co.Lines, "total": co.Total, "currency": co.Currency})
+	return OpDone, browserAnswer(checkoutAnswer(site, page.URL, *co))
+}
+
+// checkoutAnswer is a read checkout as answered, and as KIFF builds a
+// purchase case from it: the lines and total, and the shipping, tax,
+// merchant and delivery address the page states (each left out when it
+// states none).
+func checkoutAnswer(site, u string, co browser.Checkout) map[string]any {
+	a := map[string]any{"site": site, "url": u, "lines": co.Lines, "total": co.Total, "currency": co.Currency}
+	if co.Shipping != "" {
+		a["shipping"] = co.Shipping
+	}
+	if co.Tax != "" {
+		a["tax"] = co.Tax
+	}
+	if co.Merchant != nil {
+		a["merchant"] = co.Merchant
+	}
+	if co.Delivery != nil {
+		a["delivery"] = co.Delivery
+	}
+	return a
 }
 
 // armPay marks the checkout unknown for unknownKept, as a conditional write on
@@ -989,7 +1010,10 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 		return OpNotSent, browserRefusal(browser.CodeTotalUnread, "no total and currency can be read on the checkout now", false)
 	case co.Currency != currency:
 		return OpNotSent, browserRefusal(browser.CodeCurrencyOther, "the checkout is in "+co.Currency+"; this connection pays in "+currency+" only", false)
-	case !co.Same(rec.Checkout):
+	case co.Same(rec.Checkout):
+	case changedPart(rec.Checkout, *co) != "":
+		return OpNotSent, browserRefusal(browser.CodeCheckoutChanged, "the checkout's "+changedPart(rec.Checkout, *co)+" isn't what was read and approved: read it again", false)
+	default:
 		return OpNotSent, browserRefusal(browser.CodeCheckoutChanged, fmt.Sprintf("the checkout isn't what was read and approved (%s %s for %d lines; now %s %s for %d lines): read it again",
 			rec.Checkout.Total, rec.Checkout.Currency, len(rec.Checkout.Lines), co.Total, co.Currency, len(co.Lines)), false)
 	}
@@ -1021,6 +1045,23 @@ func (s *Server) browsePay(ctx context.Context, g *Grant, p permit.Permit, a bro
 	_, _, _ = s.KV.Delete(ctx, tenantPK(g.Tenant), skCheckout(g.ID, a.URL))
 	return OpDone, browserAnswer(map[string]any{"site": rec.Site, "lines": co.Lines, "total": co.Total, "currency": co.Currency,
 		"confirmation": noteOf(after), "evidence": s.keepEvidence(ctx, g, p.Op, sess, page, after)})
+}
+
+// changedPart names the purchase part (delivery address, merchant,
+// shipping or tax) that differs between two checkouts, or "" when only
+// their lines, total or currency do.
+func changedPart(was, now browser.Checkout) string {
+	switch {
+	case !(browser.Checkout{Delivery: was.Delivery}).Same(browser.Checkout{Delivery: now.Delivery}):
+		return "delivery address"
+	case !(browser.Checkout{Merchant: was.Merchant}).Same(browser.Checkout{Merchant: now.Merchant}):
+		return "merchant"
+	case was.Shipping != now.Shipping:
+		return "shipping"
+	case was.Tax != now.Tax:
+		return "tax"
+	}
+	return ""
 }
 
 // sameAddress reports whether a and b are the same page's address: equal

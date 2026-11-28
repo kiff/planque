@@ -111,8 +111,11 @@ func (s *Shop) handler() http.Handler {
 		if r.URL.Query().Get("two") == "1" {
 			second = `<button formaction=/pay/place>Buy now</button>`
 		}
-		fmt.Fprint(w, page("Checkout", `<h1>Checkout</h1><table class=order>
+		fmt.Fprint(w, page("Checkout", `<script type="application/ld+json">{"@context":"https://schema.org","@type":"OnlineStore","name":"Test Pens","address":{"@type":"PostalAddress","addressCountry":"FR"}}</script>
+<h1>Checkout</h1><table class=order>
 <tr class=line><td>Blue pen × 2</td><td>2.50 EUR</td></tr>
+<tr><td>Shipping</td><td>0.00 EUR</td></tr>
+<tr><td>VAT</td><td>0.42 EUR</td></tr>
 <tr><td>Total</td><td>`+s.Total+` `+s.Currency+`</td></tr></table>`+ship+`
 <form method=post action=/pay/place>
 <label>Card number <input name=cardnumber autocomplete=cc-number inputmode=numeric></label>

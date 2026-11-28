@@ -25,6 +25,9 @@ type Browser struct {
 	Total string
 	// Currency is the shop's; a test sets another to pay in it.
 	Currency string
+	// Delivery is the delivery address the checkout shows, nil for none;
+	// a test changes it between a read and a pay.
+	Delivery *browser.Address
 	// Sessions is how many sessions were started.
 	Sessions int
 	// Steps are every step run, in order, with the page it ran on.
@@ -119,7 +122,7 @@ func (b *Browser) page(u string) (browser.Page, bool) {
 				{Ref: "cvc", Label: "Security code", Kind: "code", Value: "123"},
 				{Ref: "coupon", Label: "Coupon", Kind: "text"}},
 			Controls: []browser.Control{{Ref: "apply", Label: "Apply coupon", Submits: true}, {Ref: "place", Label: "Place order", Submits: true, PlacesOrder: true}},
-			Checkout: &browser.Checkout{Lines: lines, Total: b.Total, Currency: b.Currency}}, true
+			Checkout: &browser.Checkout{Lines: lines, Total: b.Total, Currency: b.Currency, Delivery: b.Delivery}}, true
 	case ShopDone:
 		return browser.Page{URL: u, Title: "Thank you", Text: "Order 1001 placed. Total " + b.Total + " " + b.Currency + "."}, true
 	case ShopLogin:
