@@ -194,7 +194,7 @@ func (s *Server) eraseFinished(w http.ResponseWriter, r *http.Request, sr signed
 	}
 	ops := 0
 	for _, g := range drop {
-		for _, prefix := range []string{"OP#" + g.ID + "#", "SNAPSHOT#" + g.ID + "#", skVendorTools(g.ID)} {
+		for _, prefix := range []string{"OP#" + g.ID + "#", "SNAPSHOT#" + g.ID + "#", skVendorTools(g.ID), skRegistration(g.ID)} {
 			rows, err := s.KV.Query(ctx, tenantPK(sr.tenant), prefix)
 			if err != nil {
 				s.fail(w, r, err)

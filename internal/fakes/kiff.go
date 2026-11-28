@@ -81,7 +81,11 @@ type KIFF struct {
 	down    bool                  // the halt routes don't answer
 	conns   map[string]Connection // tenant/name → connection
 	appLast map[string]string
-	HTTP    *http.Client
+	// Patched counts the relay-owned updates taken (PATCH /v1/connections/{name});
+	// RefusePatch, when set, is the status every one is answered with instead.
+	Patched     int
+	RefusePatch int
+	HTTP        *http.Client
 }
 
 // Device is a person's device, as KIFF keeps it.
@@ -263,6 +267,7 @@ func (k *KIFF) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/connections", k.connect)
 	mux.HandleFunc("GET /v1/connections", k.list)
 	mux.HandleFunc("DELETE /v1/connections/{name}", k.remove)
+	mux.HandleFunc("PATCH /v1/connections/{name}", k.patch)
 	// Test-only: an agent's tools/call through the gateway.
 	mux.HandleFunc("POST /fake/call", k.callHTTP)
 	mux.HandleFunc("POST /fake/forward", k.forwardHTTP)
@@ -516,6 +521,39 @@ func (k *KIFF) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(k.conns, key)
+	w.WriteHeader(204)
+}
+
+// patch takes a relay's update of a tool's own fields: its app, destructive
+// hint and pins, nothing else, as the gateway's PATCH does.
+func (k *KIFF) patch(w http.ResponseWriter, r *http.Request) {
+	me, ok := k.who(r)
+	if !ok || !k.canManage(me) {
+		writeJSON(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+	var u kiff.Update
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if dec.Decode(&u) != nil || u.VendorPins == nil {
+		writeJSON(w, 400, map[string]string{"error": "app, destructive_hint and vendor_pins, nothing else"})
+		return
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	key := me.TenantID + "/" + r.PathValue("name")
+	c, ok := k.conns[key]
+	if !ok {
+		writeJSON(w, 404, map[string]string{"error": "no such tool"})
+		return
+	}
+	if k.RefusePatch != 0 {
+		writeJSON(w, k.RefusePatch, map[string]string{"error": "refused"})
+		return
+	}
+	c.App, c.DestructiveHint, c.VendorPins = u.App, u.DestructiveHint, u.VendorPins
+	k.conns[key] = c
+	k.Patched++
 	w.WriteHeader(204)
 }
 

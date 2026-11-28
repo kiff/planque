@@ -281,6 +281,26 @@ type Connection struct {
 	VendorPins []Pin `json:"vendor_pins,omitempty"`
 }
 
+// Update is what a relay may change on a tool it registered (PATCH): only
+// the fields it owns, always all three, so the update says the whole of
+// them and nothing is left unchanged by omission.
+type Update struct {
+	App             string `json:"app"`
+	DestructiveHint bool   `json:"destructive_hint"`
+	VendorPins      []Pin  `json:"vendor_pins"`
+}
+
+// UpdateConnection updates a registered tool's relay-owned fields in place,
+// so a grant made before KIFF read them picks them up without registering
+// again (which KIFF refuses for a name already connected).
+func (c *Client) UpdateConnection(ctx context.Context, key, name string, u Update) error {
+	if u.VendorPins == nil {
+		u.VendorPins = []Pin{}
+	}
+	_, err := c.do(ctx, http.MethodPatch, c.Gateway+"/v1/connections/"+url.PathEscape(name), key, u, nil)
+	return err
+}
+
 // Pin is one value planque sets in the vendor's body: a dotted path to a
 // string or a boolean, or a marker (the permit's op) with no value.
 type Pin struct {

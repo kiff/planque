@@ -226,6 +226,8 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	if code, why := s.haltRefusal(ctx, g.Tenant, p.Subject, p.IssuedAt); why != "" {
 		return refused(code, why)
 	}
+	// A grant registered before KIFF read its tools' app, hint and pins is updated in place, once; never in the way.
+	s.refreshRegistration(ctx, g)
 	// A narrowed write defined before planque checked its fields is checked
 	// once, here, so an action naming a field its operation doesn't take is
 	// refused by planque, not sent for the vendor to reject on every call.
