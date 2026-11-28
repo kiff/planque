@@ -176,5 +176,6 @@ func takeDownload(d *download, path string) browser.Download {
 		return browser.Download{Name: name, Size: len(b), Refused: err.Error()}
 	}
 	sum := sha256.Sum256(b)
-	return browser.Download{Name: browser.DownloadName(d.name, typ), Type: typ, Size: len(b), SHA256: hex.EncodeToString(sum[:]), Data: b}
+	return browser.Download{Name: browser.DownloadName(d.name, typ), Type: typ, Size: len(b), SHA256: hex.EncodeToString(sum[:]), Data: b,
+		Formulas: typ == browser.TypeCSV && browser.CSVFormulas(b)}
 }

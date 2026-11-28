@@ -156,7 +156,7 @@ func TestADownloadOffTheSitesNeverArrives(t *testing.T) {
 	}
 	site, other := dlTLSSite(t), dlTLSSite(t)
 	w := &Local{Options: Options{AllowLocal: true, NavigateWait: 20 * time.Second,
-		Map: map[string]string{"files.example:443": site.Listener.Addr().String(), "other.example:443": other.Listener.Addr().String()},
+		Map:     map[string]string{"files.example:443": site.Listener.Addr().String(), "other.example:443": other.Listener.Addr().String()},
 		Resolve: func(context.Context, string) ([]netip.Addr, error) { return nil, errors.New("no resolver in tests") }}}
 	ctx := context.Background()
 	sess, err := w.Start(ctx, browser.Start{Grant: "grt_test", Downloads: true, Sites: []string{"files.example"}})
