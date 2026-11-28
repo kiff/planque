@@ -363,6 +363,14 @@ func (s *Server) browserViewInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// Text typed into a page that turned into a payment page as it landed
+	// (an in-page step adding card fields) ends the hand-over at once.
+	if in.Kind == "type" {
+		if why, ended := s.handOnPaymentPage(r.Context(), g, sess, rec); ended {
+			writeErr(w, http.StatusNotFound, why)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
