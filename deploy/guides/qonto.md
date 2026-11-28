@@ -25,7 +25,8 @@ markup.
 4. Professional secrecy. Qonto's consent page asks you to accept the
    lifting of Qonto's professional secrecy for the tool you chose. It's your
    choice; without the tick, nothing is connected.
-5. What it can read: transactions, the business and its team; supplier
+5. What it can read: the bank accounts, with balances and IBANs where your
+   Qonto access shows them; transactions, the business and its team; supplier
    invoices; receipts and other attachments;
    client invoices and credit notes; products. It can draft a client invoice,
    which you send yourself, and add or update clients. It can't finalise,

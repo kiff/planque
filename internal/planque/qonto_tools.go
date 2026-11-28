@@ -31,6 +31,11 @@ var qontoServed = []string{
 	"get_organization", "get_authenticated_membership", "list_memberships", "list_teams",
 	"list_transactions", "get_transaction", "get_attachment", "list_transaction_attachments",
 	"list_clients", "get_client",
+	// The bank accounts, with their balances and IBANs where the member's own
+	// Qonto access shows them. get_organization gives the business's identity
+	// only, and names this read for balances; Qonto's live list (28 Nov) marks
+	// it read-only, with only page and per_page as input.
+	"list_bank_accounts",
 	"list_client_invoices", "get_client_invoice", "list_credit_notes", "get_credit_note", "list_supplier_invoices", "get_supplier_invoice", "list_products",
 	// Writes: a client invoice, always as a draft (qontoDraftOnly), and a
 	// client added or updated.
@@ -57,7 +62,7 @@ func servedOnly(server string, listed []mcpTool) []mcpTool {
 // qontoNotServed refuses a Qonto tool planque doesn't serve on its sign-in.
 func qontoNotServed(tool, field string) *toolRefusal {
 	return &toolRefusal{Code: refToolNotServed, Tool: tool, Field: field, Want: "one of " + strings.Join(qontoServed, ", "),
-		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business's identity (get_organization), the team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client, by these tools: " + strings.Join(qontoServed, ", ") + ". Accounts, balances and IBANs aren't among them. Everything else stays with the owner in Qonto; leave it out"}
+		Msg: tool + " isn't served on Qonto's sign-in: planque serves only the business's identity (get_organization), its bank accounts with their balances and IBANs where the member's Qonto access shows them (list_bank_accounts), the team, transactions and attachments, clients, invoices and credit notes, supplier invoices and products, drafting a client invoice, and adding or updating a client, by these tools: " + strings.Join(qontoServed, ", ") + ". Everything else stays with the owner in Qonto; leave it out"}
 }
 
 // qontoToolsCheck refuses, before the owner sees anything, a requested tool

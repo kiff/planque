@@ -17,6 +17,8 @@ import (
 var qontoReference = []string{
 	"get_organization", "list_user_organizations", "list_memberships", "get_authenticated_membership", "create_membership", "list_teams", "create_team", "list_labels",
 	"list_cards", "create_card", "update_card", "change_card_status",
+	// In Qonto's live list stored on a sign-in (28 Nov): the bank accounts, read-only.
+	"list_bank_accounts",
 	"list_transactions", "get_transaction", "export_transactions", "list_statements", "get_statement", "get_attachment", "list_transaction_attachments",
 	"remove_transaction_attachment", "export_transaction_attachments", "request_attachment_upload", "upload_attachment",
 	"list_cash_flow_categories", "create_cash_flow_category", "modify_transaction_cash_flow_category",
@@ -106,12 +108,17 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
 		t.Fatalf("served tools refused: %+v", r)
 	}
-	// A taf that guessed a tool name reads, in the refusal, every tool it may
-	// ask for, and that bank accounts and their balances aren't served: never
-	// that get_organization gives them, which Qonto says it doesn't.
-	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools")
-	if r == nil || !strings.Contains(r.Msg, "Accounts, balances and IBANs aren't among them") || strings.Contains(r.Msg, "balances and IBANs (get_organization)") {
-		t.Fatalf("the refusal says balances are served: %+v", r)
+	// The bank accounts and their balances are served by list_bank_accounts,
+	// which Qonto's live list marks read-only (28 Nov). A taf that guessed
+	// another name reads, in the refusal, that list_bank_accounts gives them,
+	// never get_organization, which gives the business's identity only.
+	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools"); r != nil {
+		t.Fatalf("list_bank_accounts refused: %+v", r)
+	}
+	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "get_account_balance"}}, "tools")
+	if r == nil || !strings.Contains(r.Msg, "(list_bank_accounts)") || !strings.Contains(r.Msg, "identity (get_organization)") ||
+		strings.Contains(r.Msg, "balances and IBANs (get_organization)") || strings.Contains(r.Msg, "aren't among them") {
+		t.Fatalf("the refusal doesn't name list_bank_accounts for balances: %+v", r)
 	}
 	for _, name := range qontoServed {
 		if !strings.Contains(r.Msg, name) || !strings.Contains(r.Want, name) {
