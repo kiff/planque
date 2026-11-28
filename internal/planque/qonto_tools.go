@@ -254,28 +254,27 @@ var qontoItalianOnly = []string{"report_einvoicing", "payment_reporting", "stamp
 // qontoOrganizationTool is Qonto's read of the signed-in organisation.
 const qontoOrganizationTool = "get_organization"
 
-// signedInCountry is the organisation's country a Qonto sign-in is for,
-// read with Qonto's own get_organization, once, by planque itself, right
-// after the owner signed in, with the new token: never a caller's word.
-// "" when it can't be read or names no country, and the draft pin then
-// stays as for an Italian organisation. The read is on the grant's record.
-func (s *Server) signedInCountry(ctx context.Context, g *Grant, access string) string {
+// signedInOrganization reads, once, with the new sign-in's own token, the
+// organisation it covers: its country (the fields only an Italian
+// organisation sends, qontoDraftOnly) and its name, the account the owner
+// sees named in the approval's words ("signed in, to the account Acme").
+func (s *Server) signedInOrganization(ctx context.Context, g *Grant, access string) (country, name string) {
 	if s.MCP == nil {
-		return ""
+		return "", ""
 	}
 	res, err := s.callServed(ctx, g.Tenant, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
 	if err != nil {
 		s.log().WarnContext(ctx, "the sign-in's organisation couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "couldn't read the organisation's country")
-		return ""
+		return "", ""
 	}
-	country := organizationCountry(res)
+	country, name = organizationCountry(res), organizationName(res)
 	if country == "" {
 		g.event(s.now(), "read the organisation; it named no country")
-		return ""
+	} else {
+		g.event(s.now(), "read the organisation's country: "+country)
 	}
-	g.event(s.now(), "read the organisation's country: "+country)
-	return country
+	return country, name
 }
 
 // organizationCountry reads get_organization's answer, its
@@ -387,4 +386,52 @@ func nestedDraftField(node json.RawMessage) string {
 		return ""
 	}
 	return walk(v)
+}
+
+// organizationName reads get_organization's answer, as organizationCountry
+// does: the organisation's legal_name (else name), at the top or under
+// organization, trimmed, as a label. "" for an error or another shape.
+func organizationName(res json.RawMessage) string {
+	type named struct {
+		Legal string `json:"legal_name"`
+		Name  string `json:"name"`
+	}
+	type org struct {
+		named
+		Organization *named `json:"organization"`
+	}
+	var out struct {
+		Structured *org `json:"structuredContent"`
+		Content    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if json.Unmarshal(res, &out) != nil || out.IsError {
+		return ""
+	}
+	found := []*org{out.Structured}
+	for _, c := range out.Content {
+		var t org
+		if c.Type == "text" && json.Unmarshal([]byte(c.Text), &t) == nil {
+			found = append(found, &t)
+		}
+	}
+	for _, o := range found {
+		if o == nil {
+			continue
+		}
+		for _, n := range []*named{&o.named, o.Organization} {
+			if n == nil {
+				continue
+			}
+			for _, v := range []string{n.Legal, n.Name} {
+				if l := label(v); l != "" {
+					return l
+				}
+			}
+		}
+	}
+	return ""
 }

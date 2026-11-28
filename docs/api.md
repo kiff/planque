@@ -128,9 +128,22 @@ device.
 **The sign-in is bound to the device that approved.** The vendor sends the
 browser back to planque, which keeps the token unused and sends that
 browser on to the owner's app (`PLANQUE_APP_RETURN`, set by the operator)
-with a one-time code. The device that approved signs
+with a one-time code: an iPhone or iPad by a redirect, an Android phone
+by a page with an Open tafs button that also tries the app once at load
+(Chrome drops a redirect to an app with no tap behind it, after a bank's
+own app), a computer by the same page without the try. The page can't be
+framed. The device that approved signs
 `POST …/grants/{id}/confirm` with that code within 60 minutes; only then
-are the tools registered. A link someone else opens hands its code to
+are the tools registered. When the bank names the account signed in to
+(Qonto: the organisation's legal name, from the read planque already
+makes there), the approval's words name it too. If that code never
+reached the device, the same device approving those words again, before
+the 60 minutes end, keeps the sign-in and answers
+`{status: "signed_in", account, confirm, confirm_by}` with a new code
+(the old one no longer confirms). A sign-in that names no account, words
+that don't name it, or another device, get today's answer: the sign-in is
+revoked and a new link signed. A code confirms nothing without the
+device's signature, and a reload of the page shows no code. A link someone else opens hands its code to
 their browser, never to the approver. Vendors are reached only at public
 addresses, checked when each connection is made.
 

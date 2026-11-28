@@ -2368,6 +2368,25 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		writeJSON(w, http.StatusOK, s.view(r, g))
 		return
 	}
+	if g.Status == StatusSignedIn && g.Account != "" && text != "" && strings.Contains(text, g.Account) &&
+		g.Approval != nil && g.Approval.SameSigner(sr.approval) && s.now().Before(g.ConfirmBy) {
+		// The device that approved approves again while the sign-in waits for
+		// its confirm (the way back to the app never reached it), and the words
+		// it signed name the account the sign-in is in: the sign-in is kept,
+		// and a new one-use code goes to that device in this signed answer.
+		// The old code no longer confirms. With no account named, or another
+		// signer, the sign-in is revoked and a new link given, as before.
+		code := oauth.Random(24)
+		sum := sha256.Sum256([]byte(code))
+		g.ConfirmHash = hex.EncodeToString(sum[:])
+		g.event(s.now(), "the approving device approved again before confirming, naming the account "+g.Account+": the sign-in was kept, with a new code for that device")
+		if err := s.saveGrant(r.Context(), g); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": g.Status, "account": g.Account, "confirm": code, "confirm_by": g.ConfirmBy})
+		return
+	}
 	if g.Status == StatusSignedIn {
 		// A new link replaces a sign-in nobody confirmed: its token goes.
 		s.revoke(r.Context(), g)
@@ -2598,7 +2617,12 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	// Qonto: the organisation's country, read the same way, decides the
 	// fields only an Italian organisation sends (qontoDraftOnly).
 	if onHost(g.Request.Server, qontoHost) {
-		g.Country = s.signedInCountry(r.Context(), g, tok.Access)
+		var org string
+		g.Country, org = s.signedInOrganization(r.Context(), g, tok.Access)
+		// Qonto's token answer names no account: the organisation does.
+		if tok.Account == "" {
+			tok.Account = org
+		}
 	}
 	if g.Reconnect {
 		// Reconnecting acts in the same vendor account, or not at all: once
@@ -2630,6 +2654,13 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	sum := sha256.Sum256([]byte(code))
 	g.Account, g.ConfirmHash, g.ConfirmBy = tok.Account, hex.EncodeToString(sum[:]), s.now().Add(signInTTL).UTC()
 	g.Status = StatusSignedIn
+	if g.Account != "" {
+		// From here the words the phone signs name the account the sign-in
+		// is in, so an approval before the confirm (a resume, when the way
+		// back to the app was lost) covers it: never a sign-in finished with
+		// someone else's account.
+		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account) })
+	}
 	g.event(s.now(), "Signed in to "+vendorName(g)+accountNote(g.Account)+"; waiting for the phone to confirm")
 	if err := s.saveGrant(r.Context(), g); err != nil {
 		s.revoke(r.Context(), g)

@@ -55,20 +55,26 @@ func (e *env) signInAt(t *testing.T, link string, lang string) (*http.Response, 
 	return resp, string(b), callback
 }
 
-var openLink = regexp.MustCompile(`<a href="([^"]+)">`)
+var openLink = regexp.MustCompile(`<a id="open" href="([^"]+)">`)
 
 // A finished sign-in goes back to the app the way the approving device's
-// browser can take it: a phone's or tablet's by a redirect its browser
-// session catches, as before, byte for byte; a computer's, or one whose
-// platform KIFF didn't name, by a page with an Open tafs link, since a
-// desktop browser drops a redirect to an app with no click behind it. Both
+// browser can take it: an iPhone's or iPad's by a redirect its browser
+// session catches, as before, byte for byte; an Android phone's by a page
+// with an Open tafs link that also tries it once at load (28 Nov: after the
+// owner confirmed in their bank's own app, Chrome dropped the redirect, four
+// times); a computer's, or one whose platform KIFF didn't name, by the same
+// page without the try, since a desktop browser drops a redirect to an app
+// with no click behind it. Both
 // are never cached nor sent onward, and the link works only once: a second
 // visit shows no link (17 Nov: Windows' Chrome dropped the redirect).
 func TestASignInReturnsToTheAppTheWayItsDeviceCanTakeIt(t *testing.T) {
 	for _, tc := range []struct {
 		platform string
 		redirect bool
-	}{{"ios", true}, {"ipados", true}, {"android", true}, {"windows", false}, {"macos", false}, {"linux", false}, {"", false}} {
+		// tries: the page also follows its own link once at load (Android,
+		// whose browser drops a redirect to an app with no tap behind it).
+		tries bool
+	}{{"ios", true, false}, {"ipados", true, false}, {"android", false, true}, {"windows", false, false}, {"macos", false, false}, {"linux", false, false}, {"", false, false}} {
 		t.Run(cmp.Or(tc.platform, "unnamed"), func(t *testing.T) {
 			e := newEnv(t)
 			e.enrol()
@@ -106,8 +112,12 @@ func TestASignInReturnsToTheAppTheWayItsDeviceCanTakeIt(t *testing.T) {
 				if !strings.HasPrefix(back, e.app.URL+"/signed-in?") {
 					t.Fatalf("the link goes to %q", back)
 				}
-				if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") || strings.Contains(page, "<script") {
-					t.Errorf("CSP %q, or a script on the page", csp)
+				csp := resp.Header.Get("Content-Security-Policy")
+				if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") || resp.Header.Get("X-Frame-Options") != "DENY" {
+					t.Errorf("CSP %q, frames %q", csp, resp.Header.Get("X-Frame-Options"))
+				}
+				if tc.tries != strings.Contains(page, "<script>"+openScript+"</script>") || tc.tries != strings.Contains(csp, "'"+openScriptHash+"'") {
+					t.Errorf("the load-time try: want %v; CSP %q\n%s", tc.tries, csp, page)
 				}
 			}
 			for _, k := range []string{"tenant=", "grant=" + id, "confirm="} {

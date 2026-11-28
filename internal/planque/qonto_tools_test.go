@@ -366,3 +366,20 @@ func TestTheOrganisationsCountryIsReadOnlyAsTwoLetters(t *testing.T) {
 		}
 	}
 }
+
+// The organisation's name is read from the same answer: legal_name, else
+// name, at the top or under organization, as a label; anything else, none.
+func TestTheOrganisationsNameIsReadAsALabel(t *testing.T) {
+	for res, want := range map[string]string{
+		`{"structuredContent":{"organization":{"legal_name":"Acme SAS","legal_country":"FR"}}}`: "Acme SAS",
+		`{"content":[{"type":"text","text":"{\"organization\":{\"name\":\"Acme\"}}"}]}`:         "Acme",
+		`{"structuredContent":{"legal_name":"  Kiff Agents  "}}`:                                "Kiff Agents",
+		`{"structuredContent":{"organization":{"legal_name":"a\nb"}}}`:                          "",
+		`{"structuredContent":{"organization":{"legal_name":"Acme"}},"isError":true}`:           "",
+		`not json`: "",
+	} {
+		if got := organizationName(json.RawMessage(res)); got != want {
+			t.Errorf("%s: %q, want %q", res, got, want)
+		}
+	}
+}
