@@ -18,7 +18,9 @@ import (
 func TestAPinThatDoesNotHoldIsRefused(t *testing.T) {
 	want := []kiff.Pin{{Path: "status", Value: "draft"}}
 	body := json.RawMessage(`{"status":"draft"}`)
-	signed := func(pins map[string]any) permit.Permit { return permit.Permit{Op: "op_1", PinsSigned: true, Pins: pins} }
+	signed := func(pins map[string]any) permit.Permit {
+		return permit.Permit{Op: "op_1", PinsSigned: true, Pins: pins}
+	}
 	for _, c := range []struct {
 		name string
 		want []kiff.Pin
