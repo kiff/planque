@@ -38,6 +38,12 @@ const pkIssuing = "ISSUING"
 
 func skIssuedCard(id string) string { return "CARD#" + id }
 
+// skCaseCard is a case version's card record, by the case: one card per
+// case version.
+func skCaseCard(tenant, caseID string, version int) string {
+	return fmt.Sprintf("CASECARD#%s#%s#%d", tenant, caseID, version)
+}
+
 // cardKept is how long a card's record stays after its case ends: long
 // enough for reconciliation to tie Stripe's events to the case.
 const cardKept = 30 * 24 * time.Hour
@@ -79,6 +85,12 @@ type purchaseCase struct {
 		Categories []string `json:"categories"`
 		Uses       int      `json:"uses"`
 	} `json:"grant"`
+	// Merchant's stripe_profile is the seller's Stripe profile a shared
+	// payment token is issued to (path token), as KIFF signed it.
+	Merchant struct {
+		Site          string `json:"site"`
+		StripeProfile string `json:"stripe_profile"`
+	} `json:"merchant"`
 }
 
 // merchantCode is a merchant category code: four digits. Stripe's controls
@@ -153,7 +165,12 @@ func (s *Server) issueCard(ctx context.Context, tenant, token string, caseJSON [
 	}
 	rec := issuedCard{Card: card.ID, Tenant: tenant, Case: c.ID, Version: c.Version, Permit: p.ID, Ends: c.Expires.UTC(), Made: now.UTC()}
 	it := store.Item{PK: pkIssuing, SK: skIssuedCard(card.ID), TTL: c.Expires.Add(cardKept).Unix()}
-	if err := putDoc(ctx, s.KV, it, rec, store.Cond{}); err != nil {
+	err = putDoc(ctx, s.KV, it, rec, store.Cond{})
+	if err == nil {
+		// The case's card, by case and version: what its token is made from.
+		err = putDoc(ctx, s.KV, store.Item{PK: pkIssuing, SK: skCaseCard(tenant, c.ID, c.Version), TTL: it.TTL}, rec, store.Cond{})
+	}
+	if err != nil {
 		if cerr := s.Issuing.Cancel(ctx, card.ID); cerr != nil {
 			s.log().ErrorContext(ctx, "issuing: a card without a record could not be canceled", slog.String("card", card.ID), slog.String("case", c.ID), slog.String("err", cerr.Error()))
 		}

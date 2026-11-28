@@ -277,9 +277,43 @@ func (r stripeCard) card() Card {
 	return c
 }
 
+// PreviewVersion is the Stripe-Version of the private preview that makes a
+// PaymentMethod from an Issuing card (and issues a shared payment token).
+const PreviewVersion = "2026-04-22.preview"
+
+// PaymentMethod makes a card PaymentMethod (pm_…) from Issuing card id, in
+// the same account, without the card's number or code ever being read: what
+// a shared payment token is issued from (path a). It needs the private
+// preview.
+func (cl *Client) PaymentMethod(ctx context.Context, id string) (string, error) {
+	f := url.Values{}
+	f.Set("type", "card")
+	f.Set("card[issuing_card]", id)
+	var pm struct {
+		ID       string `json:"id"`
+		Type     string `json:"type"`
+		Livemode bool   `json:"livemode"`
+	}
+	if err := cl.doWith(ctx, http.MethodPost, "/v1/payment_methods", f, "thune-pm-"+id, PreviewVersion, &pm); err != nil {
+		return "", err
+	}
+	if pm.Livemode {
+		return "", ErrLiveKey
+	}
+	if !strings.HasPrefix(pm.ID, "pm_") || pm.Type != "card" {
+		return "", errors.New("issuing: Stripe's answer isn't a card PaymentMethod")
+	}
+	return pm.ID, nil
+}
+
 // do sends one request. Stripe's error message is passed on, never the
 // request's form (which carries nothing secret, but stays out of logs).
 func (cl *Client) do(ctx context.Context, method, path string, form url.Values, idem string, out any) error {
+	return cl.doWith(ctx, method, path, form, idem, "", out)
+}
+
+// doWith is do with a Stripe-Version, when given.
+func (cl *Client) doWith(ctx context.Context, method, path string, form url.Values, idem, version string, out any) error {
 	var body io.Reader
 	if form != nil {
 		body = strings.NewReader(form.Encode())
@@ -294,6 +328,9 @@ func (cl *Client) do(ctx context.Context, method, path string, form url.Values, 
 	}
 	if idem != "" {
 		req.Header.Set("Idempotency-Key", idem)
+	}
+	if version != "" {
+		req.Header.Set("Stripe-Version", version)
 	}
 	resp, err := cl.HTTP.Do(req)
 	if err != nil {
