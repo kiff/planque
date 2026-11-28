@@ -191,6 +191,11 @@ type Server struct {
 	ManagedApps        map[string]bool
 	ManagedExcept      map[string]bool
 	ManagedTestTenants map[string]bool
+	// EnforcePins are the accounts whose relayed calls are refused on any
+	// difference between what planque pins and what KIFF signed, or the body
+	// sent (pinRefusal): PLANQUE_ENFORCE_PINS=tenants:a,b or all. For every
+	// other account a difference is only logged. None when unset.
+	EnforcePins map[string]bool
 	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
 	// on): browse_pay is offered and runs, held for the owner each time. Off
 	// (the default), the hosted browser reads, fills and clicks, but pays

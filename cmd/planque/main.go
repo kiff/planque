@@ -392,6 +392,8 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		BrowserSessions: browserSessions,
 		// The accounts whose hosted browser keeps downloads, listed.
 		BrowserDownloads: refundTenants(os.Getenv("PLANQUE_BROWSER_DOWNLOADS")),
+		// The accounts whose calls are refused on a pin difference: tenants:a,b, or all.
+		EnforcePins: tenantsOrAll(os.Getenv("PLANQUE_ENFORCE_PINS")),
 		// The seller's Stripe profile read with a checkout, when on.
 		StripeProfiles: os.Getenv("PLANQUE_STRIPE_PROFILE") == "on",
 		// A sealed fill in the owner's Chrome, off unless turned on.
@@ -455,6 +457,16 @@ func browserSessionsFrom(v string) (int, error) {
 // typo never turns it off by accident and the env can still stop it at once.
 func chromeHandOn(v string) bool {
 	return strings.TrimSpace(v) != "off"
+}
+
+// tenantsOrAll reads a list of accounts: "all" is every account ("*"),
+// tenants:<id>[,<id>] the accounts listed; anything else lists none, so a
+// typo turns nothing on.
+func tenantsOrAll(v string) map[string]bool {
+	if strings.TrimSpace(v) == "all" {
+		return map[string]bool{"*": true}
+	}
+	return refundTenants(v)
 }
 
 // refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the

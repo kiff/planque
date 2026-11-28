@@ -113,6 +113,31 @@ func valueAt(m map[string]any, path string) (any, bool) {
 	return cur, true
 }
 
+// pinRefusal is why a call whose pins don't hold is refused, for an account
+// that enforces pins: a tool with pins whose permit carries none signed, or
+// any difference pinDiffs finds (pinned here and not signed, signed with
+// another value, the body not carrying the pinned value, or signed and not
+// pinned here). Paths only, never a value. "" when nothing is pinned on
+// either side, or every pin holds.
+func pinRefusal(want []kiff.Pin, p permit.Permit, body json.RawMessage) string {
+	if len(want) == 0 && len(p.Pins) == 0 {
+		return ""
+	}
+	if !p.PinsSigned {
+		return "the tool's pinned values weren't signed by KIFF"
+	}
+	if d := pinDiffs(want, p, body); len(d) > 0 {
+		return "the pinned values don't hold (" + strings.Join(d, "; ") + ")"
+	}
+	return ""
+}
+
+// enforcesPins reports whether tenant's calls are refused on any pin
+// difference (EnforcePins; "*" is every account).
+func (s *Server) enforcesPins(tenant string) bool {
+	return s.EnforcePins[tenant] || s.EnforcePins["*"]
+}
+
 // logPinDiffs logs, for one call, each difference between what planque pins
 // and what KIFF signed (pinDiffs), or that KIFF signed no pins for a tool
 // that has some. Paths only, never a value. It decides nothing yet.

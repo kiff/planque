@@ -578,7 +578,10 @@ type Permit struct {
 	Approval string
 	// Run is the kiff/agents run the call was made in (claim "run"), as
 	// KIFF signs it from the caller's KIFF-Run header; "" for none.
-	Run      string
+	Run string
+	// Pins, when not nil, are signed in the permit's tool-call detail
+	// ("pins"), as KIFF's gateway signs them (step 3).
+	Pins     map[string]any
 	Args     json.RawMessage
 	IssuedAt time.Time
 	Lifetime time.Duration
@@ -620,6 +623,14 @@ func (k *KIFF) Mint(p Permit) string {
 	}
 	if p.Run != "" {
 		claims["authorization_details"].([]map[string]string)[0]["run"] = p.Run
+	}
+	if p.Pins != nil {
+		detail := map[string]any{}
+		for k, v := range claims["authorization_details"].([]map[string]string)[0] {
+			detail[k] = v
+		}
+		detail["pins"] = p.Pins
+		claims["authorization_details"] = []map[string]any{detail}
 	}
 	h, _ := json.Marshal(map[string]string{"alg": "Ed25519", "typ": "kiff-permit+jwt", "kid": k.KID})
 	c, _ := json.Marshal(claims)
