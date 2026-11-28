@@ -61,6 +61,10 @@ type healthRecord struct {
 	Verdict   string    `json:"verdict"`
 	CheckedAt time.Time `json:"checked_at"`
 	RetryAt   time.Time `json:"retry_at,omitzero"`
+	// StateVer is the saved sign-in's version the verdict is about: a new
+	// sign-in (the owner's, after a signed-out verdict) makes a check due
+	// again at once, whatever the day's limit.
+	StateVer int64 `json:"state_ver,omitempty"`
 }
 
 // healthSite is one site's answer: its verdict and when it was checked,
@@ -125,8 +129,9 @@ func (s *Server) siteHealth(ctx context.Context, g *Grant, site string, run bool
 	}
 	now := s.now()
 	kept := err == nil
-	due := !kept || (rec.RetryAt.IsZero() && !now.Before(rec.CheckedAt.Add(healthEvery))) || (!rec.RetryAt.IsZero() && !now.Before(rec.RetryAt))
 	state, from, serr := s.openBrowserState(ctx, g)
+	due := !kept || (rec.RetryAt.IsZero() && !now.Before(rec.CheckedAt.Add(healthEvery))) || (!rec.RetryAt.IsZero() && !now.Before(rec.RetryAt)) ||
+		(serr == nil && from != rec.StateVer)
 	if run && due && serr == nil {
 		rec = s.runHealth(ctx, g, site, page, state, from)
 		kept = true
@@ -175,11 +180,17 @@ func (s *Server) runHealth(ctx context.Context, g *Grant, site string, page Heal
 		}
 		if err == nil && res.Verdict == browser.HealthSignedIn && len(res.State) > 0 {
 			s.keepBrowserState(ctx, g, res.State, &from)
+			// The verdict is about the sign-in as resealed, so the reseal
+			// doesn't make the next ask due again.
+			if _, ver, err := s.openBrowserState(ctx, g); err == nil {
+				from = ver
+			}
 		}
 		if err == nil && res.Blocked > 0 {
 			s.log().InfoContext(ctx, "sign-in check failed requests that would write", slog.String("grant", g.ID), slog.String("site", site), slog.Int("blocked", res.Blocked))
 		}
 	}
+	rec.StateVer = from
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skHealth(g.ID, site), TTL: now.Add(healthEvery + healthBackoff + time.Hour).Unix()}, rec, store.Cond{}); err != nil {
 		s.log().WarnContext(ctx, "sign-in check not kept", slog.String("grant", g.ID), slog.String("site", site), slog.String("err", err.Error()))
 	}

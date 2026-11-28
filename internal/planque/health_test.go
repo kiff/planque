@@ -168,3 +168,24 @@ func TestASignInChecksVerdictGoesWithItsConnection(t *testing.T) {
 		t.Fatalf("left after the connection went: %d", len(items))
 	}
 }
+
+// A signed-out verdict is about the sign-in it checked: once the owner signs
+// in again, the next ask checks at once, not a day later. A sign-in that
+// hasn't changed waits its day, as before.
+func TestANewSignInMakesTheCheckDueAgain(t *testing.T) {
+	e, g := healthEnv(t)
+	if _, out := e.health(g, "POST"); siteOf(t, out)["verdict"] != browser.HealthSignedOut {
+		t.Fatalf("no sign-in yet: %v", out)
+	}
+	if _, out := e.health(g, "POST"); siteOf(t, out)["verdict"] != browser.HealthSignedOut || len(e.b.Checks) != 0 {
+		t.Fatalf("again with nothing changed: %v, %d checks", out, len(e.b.Checks))
+	}
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	if _, out := e.health(g, "POST"); siteOf(t, out)["verdict"] != browser.HealthSignedIn || len(e.b.Checks) != 1 {
+		t.Fatalf("after the owner signed in: %v, %d checks", out, len(e.b.Checks))
+	}
+	// The check's own reseal of the rotated sign-in doesn't make it due again.
+	if e.health(g, "POST"); len(e.b.Checks) != 1 {
+		t.Fatalf("the reseal made it due: %d checks", len(e.b.Checks))
+	}
+}
