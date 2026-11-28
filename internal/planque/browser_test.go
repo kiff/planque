@@ -941,3 +941,30 @@ func TestBrowserCheckoutCarriesTheDeliveryAddress(t *testing.T) {
 		t.Fatalf("pay after the address changed: %s", out)
 	}
 }
+
+// A browser connection says its way: the owner's Chrome as driver
+// "extension", planque's hosted browser with no driver. Nothing else of the
+// Chrome is said.
+func TestTheConnectionsSayABrowserConnectionsWay(t *testing.T) {
+	c := newChromeRig(t)
+	c.grant(t)  // the owner's Chrome
+	c.connect() // planque's hosted browser
+	_, out := c.do("GET", "/v1/accounts/"+tenant+"/connections", nil, nil, "k_setup")
+	drivers, seen := map[any]int{}, 0
+	for _, raw := range out["connections"].([]any) {
+		v := raw.(map[string]any)
+		if v["kind"] != KindBrowser {
+			continue
+		}
+		seen++
+		drivers[v["driver"]]++
+		for k := range v {
+			if strings.Contains(k, "chrome") {
+				t.Fatalf("a connection says %q of the Chrome: %v", k, v)
+			}
+		}
+	}
+	if seen != 2 || drivers[DriverExtension] != 1 || drivers[nil] != 1 {
+		t.Fatalf("drivers: %v (of %d browser connections)", drivers, seen)
+	}
+}

@@ -3863,6 +3863,10 @@ type connection struct {
 	// is never read as "any site".
 	Sites   []string `json:"sites,omitempty"`
 	AnySite bool     `json:"any_site,omitempty"`
+	// Driver is a browser connection's way, as its grant says it:
+	// "extension" for the owner's own Chrome, absent for planque's hosted
+	// browser. Nothing else of the Chrome is said.
+	Driver string `json:"driver,omitempty"`
 }
 
 func connectionOf(g *Grant) connection {
@@ -3891,6 +3895,9 @@ func connectionOf(g *Grant) connection {
 			c.Sites = slices.Clone(b.Sites)
 		} else {
 			c.AnySite = true
+		}
+		if b := g.Request.Browser; b != nil && b.Driver == DriverExtension {
+			c.Driver = DriverExtension
 		}
 	}
 	return c
