@@ -2924,6 +2924,16 @@ func readOnlyHint(t mcpTool) bool {
 	return hints.ReadOnly && !connector.MayChange(t.Name, t.Description, t.InputSchema)
 }
 
+// destructiveHint is the vendor's own MCP destructiveHint for t: true only
+// when its server says so. KIFF raises a tool's class on it, never lowers.
+func destructiveHint(t mcpTool) bool {
+	var hints struct {
+		Destructive bool `json:"destructiveHint"`
+	}
+	_ = json.Unmarshal(t.Annotations, &hints)
+	return hints.Destructive
+}
+
 func notReadOnly(g *Grant, tool string) string {
 	return tool + " isn't read-only at " + hostOf(g.Request.Server) + ": the vendor doesn't mark it so, or it can change things (a GraphQL or custom document, a raw request), so it can't be granted as a read"
 }
@@ -2985,7 +2995,7 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	}
 	var done, titles []string
 	for _, t := range g.Tools {
-		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport))
+		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport, s.appSlug(g)))
 		if err != nil {
 			return s.undo(ctx, g, done, "KIFF did not register "+t.Name+": "+err.Error())
 		}
@@ -3023,7 +3033,7 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 		title = label(listed[i].Label())
 	}
 	gt := GrantedTool{ToolRequest: t, Title: title, Description: listed[i].Description, InputSchema: listed[i].InputSchema,
-		VendorSchemaSHA256: vendorSchemaSHA256(listed[i].InputSchema)}
+		VendorSchemaSHA256: vendorSchemaSHA256(listed[i].InputSchema), DestructiveHint: destructiveHint(listed[i])}
 	if g.Request.Connector != nil {
 		for _, definition := range g.Request.Connector.Tools {
 			if definition.Alias() == t.Tool {
@@ -3140,7 +3150,7 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 	}
 	var done, titles []string
 	for _, t := range added {
-		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport))
+		err := s.KIFF.Connect(ctx, key, kiffConnection(g, t, transport, s.appSlug(g)))
 		if err != nil {
 			return back(done, "KIFF did not register "+t.Name+": "+err.Error())
 		}

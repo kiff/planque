@@ -5,6 +5,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+- **Each tool KIFF registers names its app and carries the vendor's destructive hint.** A tool's registration in KIFF's gateway now sends `app`, the app it belongs to as a lowercase slug ("qonto", "stripe", a managed app's toolkit such as "gmail"; left out when planque can't name it), and `destructive_hint`, the vendor's own MCP `destructiveHint` for the tool as its server listed it (left out when false). KIFF classes each call by its app's reviewed table and raises a class on the hint, never lowers it. **Compatibility:** KIFF's gateway refuses fields it doesn't know, so this deploys only after the gateway that takes `app` and `destructive_hint`.
+
 - **A grant's catalog follows a change to what planque serves.** A grant keeps the rule its catalog was filtered by (`catalog_rule`). A catalog read that finds another lists the tools again with the grant's own sign-in, keeps that list and answers it, so a Qonto sign-in made before `list_bank_accounts` was served now offers it. The tools the owner approved don't change. A listing that fails is refused (503), never answered stale.
 
 - **The test accounts can get a vendor's whole live list on Qonto's sign-in** (`PLANQUE_LIVE_LIST=test`, off by default). Their grants are listed, asked for and called with every tool Qonto lists, for KIFF's Card to decide each call's class. That's step 9 of the policy move, for the test accounts only, set once the Card's category rule is live for them. Every other account keeps `qontoServed`.

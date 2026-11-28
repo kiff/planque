@@ -247,6 +247,9 @@ type GrantedTool struct {
 	// found every field it names there: set at its first call once checked,
 	// so a tool defined before the check (kiff/planque#61) is checked too.
 	FieldsChecked bool `json:"fields_checked,omitempty"`
+	// DestructiveHint is the vendor's destructiveHint for the tool when it
+	// was granted, sent to KIFF with its registration (K4).
+	DestructiveHint bool `json:"destructive_hint,omitempty"`
 }
 
 // CatalogTool is one tool the vendor's server lists: its own words and
