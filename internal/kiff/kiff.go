@@ -268,6 +268,13 @@ type Connection struct {
 	// VendorTool is the tool's own name at its vendor ("create_refund"),
 	// which KIFF's held-call words name it by.
 	VendorTool string `json:"vendor_tool,omitempty"`
+	// App is the app the tool belongs to, as a lowercase slug ("qonto"):
+	// KIFF classes its calls by that app's reviewed table (K4). Empty when
+	// planque can't name it, and then it isn't sent.
+	App string `json:"app,omitempty"`
+	// DestructiveHint is the vendor's own destructiveHint for the tool, as
+	// its server listed it. KIFF only ever raises a tool's class on it.
+	DestructiveHint bool `json:"destructive_hint,omitempty"`
 }
 
 // UnitLookup is the read KIFF's gateway makes before deciding a call: Tool
