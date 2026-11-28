@@ -139,7 +139,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request) {
 			rpcError(w, http.StatusOK, req.ID, -32602, "invalid params")
 			return
 		}
-		res := s.call(withSealedHeaders(r.Context(), r.Header), g, p.Name, p.Arguments, r.Header.Get(permit.Header))
+		res := s.call(withCheckoutHeader(withSealedHeaders(r.Context(), r.Header), r.Header), g, p.Name, p.Arguments, r.Header.Get(permit.Header))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})
 	default:

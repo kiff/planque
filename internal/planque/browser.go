@@ -630,6 +630,14 @@ func (s *Server) callBrowser(ctx context.Context, g *Grant, tool GrantedTool, p 
 	if tool.Tool == browseHand {
 		return s.hostedHand(ctx, g, p, a, sites)
 	}
+	// The gateway's describe of a pay (checkout_describe.go): answered from
+	// the kept read, and nothing more.
+	if op := checkoutHeaderFrom(ctx); op != "" {
+		if tool.Tool != browsePay {
+			return OpNotSent, browserRefusal(CodeBadArguments, "only browse_pay describes a checkout", false)
+		}
+		return s.describeCheckout(ctx, g, p, a, op)
+	}
 	if tool.Tool == browsePay {
 		// Before the browser opens: the checkout must have been read, so
 		// the total KIFF counted is the one the page showed then.
