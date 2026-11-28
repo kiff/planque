@@ -328,7 +328,7 @@ func (s *Server) call(ctx context.Context, g *Grant, name string, raw json.RawMe
 	vendorArgs = held
 	// A Qonto client invoice is created as a draft only (qonto_tools.go).
 	var pinned map[string]any
-	if vendorArgs, pinned, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs); why != "" {
+	if vendorArgs, pinned, why = qontoDraftOnly(g.Request.Server, tool, vendorArgs, g.Country); why != "" {
 		return s.finish(ctx, claim, op, OpNotSent, toolResult("Refused by planque: "+why+". Nothing was sent.", true))
 	}
 	// What planque set on the arguments after the permit, kept with the
