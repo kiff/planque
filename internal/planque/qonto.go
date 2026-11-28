@@ -1,6 +1,7 @@
 package planque
 
 import (
+	"context"
 	"net/url"
 	"slices"
 	"strings"
@@ -76,4 +77,60 @@ func directEntryFor(toolkit string) string {
 		return QontoEntry
 	}
 	return ""
+}
+
+// widerThanAsked is what a bank's token answer granted beyond what planque
+// asked for (the scopes on the grant's sign-in, g.Vendor.Scopes), for a
+// sign-in on Qonto's host: granted equals requested, so a token never holds
+// more than planque asked, whatever the vendor's consent page showed. An
+// answer that names no scope grants what was asked (RFC 6749 §5.1), so it's
+// nothing wider. Another vendor: nil, until it's checked the same way.
+func widerThanAsked(g *Grant, granted string) []string {
+	if !onHost(g.Request.Server, qontoHost) && !onHost(g.Vendor.Resource, qontoHost) {
+		return nil
+	}
+	var extra []string
+	for _, name := range scopeNames(granted) {
+		if !slices.Contains(g.Vendor.Scopes, name) {
+			extra = append(extra, name)
+		}
+	}
+	return extra
+}
+
+// fullScopesFor reports whether tenant's sign-ins ask for every scope a
+// server lists, Qonto's included (FullScopes).
+func (s *Server) fullScopesFor(tenant string) bool {
+	return s.FullScopes[tenant] || s.FullScopes["*"]
+}
+
+// scopeNames are a token answer's scope names, space-separated as OAuth
+// writes them, once each; nil for none.
+func scopeNames(scope string) []string {
+	var names []string
+	for _, name := range strings.Fields(scope) {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// widerWhy is the reason a wider grant was refused, for the owner and KIFF:
+// the vendor, the names it granted beyond the list, and where to end it too.
+func widerWhy(g *Grant, extra []string) string {
+	return vendorName(g) + " granted more than was asked for (" + strings.Join(extra, ", ") +
+		"), so the sign-in was refused and its access wasn't kept. Remove the connection in " + vendorName(g) + "'s settings too."
+}
+
+// revokeTokenPair revokes a token answer's refresh and access tokens where
+// the vendor offers revocation, best effort: the token is never kept either
+// way. Qonto's metadata names no revocation endpoint, so there the owner
+// removes it in Qonto (widerWhy says so).
+func (s *Server) revokeTokenPair(ctx context.Context, g *Grant, tok oauth.Token) {
+	for _, t := range []struct{ tok, hint string }{{tok.Refresh, "refresh_token"}, {tok.Access, "access_token"}} {
+		if t.tok != "" {
+			_ = s.revokeToken(ctx, g, t.tok, t.hint)
+		}
+	}
 }

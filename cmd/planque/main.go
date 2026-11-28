@@ -392,6 +392,9 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		BrowserSessions: browserSessions,
 		// The accounts whose hosted browser keeps downloads, listed.
 		BrowserDownloads: refundTenants(os.Getenv("PLANQUE_BROWSER_DOWNLOADS")),
+		// The accounts whose sign-ins ask a reviewed server (Qonto) for every
+		// scope it lists: tenants:a,b, or all.
+		FullScopes: fullScopesFrom(os.Getenv("PLANQUE_FULL_SCOPES")),
 		// The seller's Stripe profile read with a checkout, when on.
 		StripeProfiles: os.Getenv("PLANQUE_STRIPE_PROFILE") == "on",
 		// A sealed fill in the owner's Chrome, off unless turned on.
@@ -455,6 +458,16 @@ func browserSessionsFrom(v string) (int, error) {
 // typo never turns it off by accident and the env can still stop it at once.
 func chromeHandOn(v string) bool {
 	return strings.TrimSpace(v) != "off"
+}
+
+// fullScopesFrom reads PLANQUE_FULL_SCOPES: "all" is every account ("*"),
+// tenants:<id>[,<id>] the accounts listed; anything else lists none, so a
+// typo keeps the reviewed scopes.
+func fullScopesFrom(v string) map[string]bool {
+	if strings.TrimSpace(v) == "all" {
+		return map[string]bool{"*": true}
+	}
+	return refundTenants(v)
 }
 
 // refundTenants reads PLANQUE_STRIPE_REFUNDS=tenants:<id>[,<id>]: the
