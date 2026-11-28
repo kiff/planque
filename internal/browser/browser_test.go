@@ -520,3 +520,25 @@ func TestCSVFormulas(t *testing.T) {
 		}
 	}
 }
+
+// No picture on a page that pays, nor while a card, password or code field
+// holds anything; an empty one doesn't stop it.
+func TestPicturedFollowsT32(t *testing.T) {
+	signIn := Page{Fields: []Field{{Ref: "u", Kind: "email"}, {Ref: "p", Kind: "password", Masked: true}}}
+	if !Pictured(signIn) {
+		t.Error("an empty password field stopped the picture")
+	}
+	signIn.Fields[1].Filled = true
+	if Pictured(signIn) {
+		t.Error("a picture with a password typed in")
+	}
+	if Pictured(Page{Fields: []Field{{Ref: "c", Kind: "card"}}}) {
+		t.Error("a picture of a page that pays (a card field)")
+	}
+	if Pictured(Page{Controls: []Control{{Ref: "b", Label: "Place order"}}}) {
+		t.Error("a picture of a page with a control that pays")
+	}
+	if !Pictured(Page{Title: "Your cart"}) {
+		t.Error("an ordinary page wasn't pictured")
+	}
+}

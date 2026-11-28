@@ -53,6 +53,8 @@ type Field struct {
 	Value   string   `json:"value,omitempty"`
 	Options []string `json:"options,omitempty"`
 	Masked  bool     `json:"masked,omitempty"`
+	// Filled: a secret field holds a value (never which).
+	Filled bool `json:"filled,omitempty"`
 }
 
 // Control is a button or a submit, with a stable ref.
@@ -521,6 +523,21 @@ var payWords = regexp.MustCompile(`(?i)\b(` +
 // Pays says the control places an order or pays: the worker read it from
 // the page, or its words say so.
 func Pays(c Control) bool { return c.PlacesOrder || payWords.MatchString(c.Label) }
+
+// Pictured says a picture of p may be taken (the threat model's T3.2): not
+// on a page that pays, and not while a card, password or code field holds
+// anything.
+func Pictured(p Page) bool {
+	if Payment(p) {
+		return false
+	}
+	for _, f := range p.Fields {
+		if Secret(f) && f.Filled {
+			return false
+		}
+	}
+	return true
+}
 
 // Payment says p is a payment page: it has a card or security-code field,
 // embeds a payment frame, or has a control whose words place an order.
