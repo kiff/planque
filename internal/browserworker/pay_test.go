@@ -335,7 +335,7 @@ func TestPayOneAtATime(t *testing.T) {
 // unknown, for reconciliation to settle.
 func TestPayOrderedOnlyWhenThePageConfirmsIt(t *testing.T) {
 	r := newPayRig(t)
-	for path, want := range map[string]string{"/pay?end=failed": "unknown", "/pay?end=plain": "unknown", "/pay": "ordered"} {
+	for path, want := range map[string]string{"/pay?end=failed": "unknown", "/pay?end=plain": "unknown", "/pay?end=unprocessed": "unknown", "/pay?end=refonly": "unknown", "/pay": "ordered"} {
 		res, err := r.w.Pay(context.Background(), r.job(t, path))
 		if res.Outcome != want || (want == "ordered") != (err == nil) {
 			t.Errorf("%s: %+v, %v; want %s", path, res, err, want)

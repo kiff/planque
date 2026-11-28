@@ -257,16 +257,15 @@ func (w *PayWorker) Pay(ctx context.Context, job PayJob) (cardfill.Result, error
 		w.log().Warn("pay click: outcome unknown", slog.String("merchant", job.Merchant), slog.String("err", err.Error()))
 		return unknown(errors.New("the order was placed, but what the site did with it isn't known"))
 	}
-	// Ordered only when the page after says so: it left the checkout, and
-	// it names an order reference or confirms the order in words. A
+	// Ordered only when the page after says so: it left the checkout, names
+	// no failure, and confirms the order in words (a reference alone isn't
+	// enough: "Order 123 couldn't be processed" names one). A
 	// "payment failed" page, or a refused 3-D Secure, is unknown, for
 	// reconciliation to settle: the owner never reads "bought" before the
 	// money says so.
 	r := cardfill.Result{Outcome: "unknown", Confirmation: confirmation(after)}
-	if placed(after, page) && !failed(after) {
-		if ref := orderRef(after.Text); ref != "" || confirmed(after) {
-			r.Outcome, r.OrderRef = "ordered", ref
-		}
+	if placed(after, page) && !failed(after) && confirmed(after) {
+		r.Outcome, r.OrderRef = "ordered", orderRef(after.Text)
 	}
 	clean, err := r.Clean(job.Card.Number)
 	if err != nil {
@@ -477,8 +476,8 @@ func placed(after, before browser.Page) bool {
 // confirmWords are a confirmation page's words, in the languages tafs
 // ships; failWords are a failure's, which win over them.
 var (
-	confirmWords = regexp.MustCompile(`(?i)\b(thank you for your (order|purchase)|order (is )?(placed|confirmed|received|complete)|your order has been (placed|received|confirmed)|merci pour votre (commande|achat)|commande (confirmée|validée|enregistrée)|vielen dank für ihre bestellung|bestellung (ist )?(eingegangen|bestätigt|abgeschlossen)|gracias por (tu|su) (pedido|compra)|pedido (confirmado|realizado|recibido)|grazie per (il tuo|l'|il vostro) ?(ordine|acquisto)|ordine (confermato|ricevuto|completato)|obrigado pela sua (encomenda|compra)|encomenda confirmada|bedankt voor je (bestelling|aankoop)|bestelling (is )?(geplaatst|ontvangen|bevestigd)|dziękujemy za (zamówienie|zakup)|zamówienie (zostało )?(przyjęte|złożone|potwierdzone))`)
-	failWords    = regexp.MustCompile(`(?i)\b(declined|refused|failed|did not go through|didn't go through|unsuccessful|try again|error|refusée?|échoué|abgelehnt|fehlgeschlagen|rechazad[ao]|fallid[ao]|rifiutat[ao]|non riuscit[ao]|recusad[ao]|mislukt|geweigerd|odrzucon[ay]|nieudan[ay])\b`)
+	confirmWords = regexp.MustCompile(`(?i)\b(thank you for your (order|purchase)|order (is )?(placed|confirmed|received|complete)|order (number |no\.? |#)?[a-z0-9-]{1,32} (is |has been )?(placed|confirmed|received|complete)|your order has been (placed|received|confirmed)|merci pour votre (commande|achat)|commande (confirmée|validée|enregistrée)|vielen dank für ihre bestellung|bestellung (ist )?(eingegangen|bestätigt|abgeschlossen)|gracias por (tu|su) (pedido|compra)|pedido (confirmado|realizado|recibido)|grazie per (il tuo|l'|il vostro) ?(ordine|acquisto)|ordine (confermato|ricevuto|completato)|obrigado pela sua (encomenda|compra)|encomenda confirmada|bedankt voor je (bestelling|aankoop)|bestelling (is )?(geplaatst|ontvangen|bevestigd)|dziękujemy za (zamówienie|zakup)|zamówienie (zostało )?(przyjęte|złożone|potwierdzone))`)
+	failWords    = regexp.MustCompile(`(?i)\b(declined|refused|failed|did not go through|didn't go through|couldn't|could not|unable|not (be )?(completed|processed)|wasn't|was not|unsuccessful|try again|error|refusée?|échoué|abgelehnt|fehlgeschlagen|rechazad[ao]|fallid[ao]|rifiutat[ao]|non riuscit[ao]|recusad[ao]|mislukt|geweigerd|odrzucon[ay]|nieudan[ay])\b`)
 )
 
 // confirmed says the page after the click confirms the order in words.

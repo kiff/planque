@@ -165,12 +165,20 @@ func (s *Shop) handler() http.Handler {
 			http.Redirect(w, r, "/pay/failed", http.StatusSeeOther)
 		case "plain":
 			http.Redirect(w, r, "/pay/next", http.StatusSeeOther)
+		case "unprocessed", "refonly":
+			http.Redirect(w, r, "/pay/"+r.URL.Query().Get("end"), http.StatusSeeOther)
 		default:
 			http.Redirect(w, r, "/pay/done", http.StatusSeeOther)
 		}
 	})
 	mux.HandleFunc("/pay/failed", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, page("Payment", fmt.Sprintf(`<p>Your payment didn't go through. Order A-%d was not completed.</p>`, 1000+s.PayCalls)))
+	})
+	mux.HandleFunc("/pay/unprocessed", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Order", fmt.Sprintf(`<p>Order A-%d couldn't be processed.</p>`, 1000+s.PayCalls)))
+	})
+	mux.HandleFunc("/pay/refonly", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, page("Order", fmt.Sprintf(`<p>Order A-%d</p>`, 1000+s.PayCalls)))
 	})
 	mux.HandleFunc("/pay/next", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, page("Next steps", `<p>We'll email you shortly.</p>`))
