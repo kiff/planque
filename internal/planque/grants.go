@@ -1212,6 +1212,25 @@ func (g *Grant) signed(sum string) (lang, text string, ok bool) {
 			return lang, text, true
 		}
 	}
+	// A sign-in waiting for its confirm also takes the words as they were
+	// asked, before its callback named the account: a phone approving again
+	// with the digest it signed first. Those words name no account, so they
+	// never resume the sign-in; they get the revoke and a new link.
+	if g.Status == StatusSignedIn && g.AskedTexts != nil {
+		request, err := json.Marshal(g.Request)
+		if err != nil {
+			return "", "", false
+		}
+		for _, l := range langs {
+			asked, ok := g.AskedTexts[l]
+			if !ok {
+				l, asked = "en", g.AskedText
+			}
+			if d, err := digestV2(request, l, asked); err == nil && sum == d {
+				return l, asked, true
+			}
+		}
+	}
 	return "", "", false
 }
 
@@ -2405,6 +2424,11 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		// A new link replaces a sign-in nobody confirmed: its token goes.
 		s.revoke(r.Context(), g)
 		g.ConfirmHash, g.ConfirmBy = "", time.Time{}
+		// The words go back to the ones asked: the account they named is
+		// no longer signed in, and the next sign-in names its own.
+		if g.AskedTexts != nil {
+			g.Text, g.Texts, g.AskedText, g.AskedTexts = g.AskedText, g.AskedTexts, "", nil
+		}
 		g.event(s.now(), "an unconfirmed sign-in was revoked")
 	}
 	clientID := ""
@@ -2673,6 +2697,9 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		// is in, so an approval before the confirm (a resume, when the way
 		// back to the app was lost) covers it: never a sign-in finished with
 		// someone else's account.
+		if g.AskedTexts == nil {
+			g.AskedText, g.AskedTexts = g.Text, g.Texts
+		}
 		g.Text, g.Texts = texts(func(w words.Approval) string { return requestText(w, g.Request, true, g.Account) })
 	}
 	g.event(s.now(), "Signed in to "+vendorName(g)+accountNote(g.Account)+"; waiting for the phone to confirm")
