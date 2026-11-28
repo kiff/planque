@@ -161,7 +161,81 @@
       lines.push({item, quantity, price: price.amount});
     }
   }
-  const checkout = total ? {lines, total: total.amount, currency: total.currency} : null;
+  // Shipping and tax: the one amount, in the total's currency, on a short
+  // element that names it and isn't a total ("Total incl. VAT" isn't
+  // tax). None, or two that differ, is none read.
+  const shippingWord = /\b(shipping|delivery|livraison|frais de port|versand|envío|envio|spedizione|verzending|verzendkosten)\b/i;
+  const taxWord = /\b(tax|taxes|vat|tva|mwst|ust|iva|btw)\b/i;
+  const rowAmount = word => {
+    if (!total) return '';
+    const vals = new Set();
+    for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+      if (['SCRIPT', 'STYLE', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'LABEL'].includes(el.tagName) || !visible(el)) continue;
+      const text = clean(el.textContent);
+      if (text.length > 80 || !word.test(text) || totalWord.test(text)) continue;
+      let c = amounts(text);
+      if (c.length === 0 && el.nextElementSibling) c = amounts(clean(el.nextElementSibling.textContent).slice(0, 80));
+      c = c.filter(a => a.currency === total.currency);
+      if (c.length) vals.add(c[c.length - 1].amount);
+    }
+    return vals.size === 1 ? [...vals][0] : '';
+  };
+  const shipping = rowAmount(shippingWord);
+  const tax = rowAmount(taxWord);
+
+  // The merchant: its structured data's organization or store, else the
+  // site name it gives. The country only as a two-letter code it states.
+  const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].flatMap(el => {
+    try {
+      const j = JSON.parse(el.textContent);
+      const list = Array.isArray(j) ? j : (j && j['@graph'] ? j['@graph'] : [j]);
+      return list.filter(o => o && typeof o === 'object');
+    } catch (e) { return []; }
+  });
+  const org = ld.find(o => /\b(Organization|Corporation|Store|OnlineStore|OnlineBusiness|LocalBusiness)\b/.test([].concat(o['@type'] || []).join(' ')));
+  const og = document.querySelector('meta[property="og:site_name"]');
+  const merchantName = clean(String((org && typeof org.name === 'string' && org.name) || (og && og.getAttribute('content')) || '')).slice(0, 120);
+  let merchantCountry = '';
+  if (org && org.address) {
+    const c = typeof org.address.addressCountry === 'string' ? org.address.addressCountry : (org.address.addressCountry && org.address.addressCountry.name) || '';
+    if (/^[A-Za-z]{2}$/.test(c)) merchantCountry = c.toUpperCase();
+  }
+  const merchant = merchantName || merchantCountry ? {name: merchantName, country: merchantCountry} : null;
+
+  // The delivery address: the page's address fields by autocomplete token,
+  // billing ones left out, else its structured address (microdata). A key
+  // with two different values (a second form) reads as none.
+  const addrKey = {'name': 'name', 'address-line1': 'line1', 'street-address': 'line1', 'address-line2': 'line2', 'postal-code': 'postal_code',
+    'address-level2': 'city', 'address-level1': 'region', 'country': 'country', 'country-name': 'country'};
+  const addr = {};
+  let mixed = false;
+  const put = (k, v) => {
+    v = clean(String(v || '')).slice(0, 120);
+    if (!v) return;
+    if (addr[k] !== undefined && addr[k] !== v) mixed = true;
+    addr[k] = v;
+  };
+  for (const el of document.querySelectorAll('input, select, textarea')) {
+    const toks = (el.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/);
+    if (toks.includes('billing') || toks.some(t => t.startsWith('cc-'))) continue;
+    for (const t of toks) {
+      if (!addrKey[t]) continue;
+      if (t === 'name' && !toks.includes('shipping')) continue; // a name alone is anyone's
+      put(addrKey[t], el.tagName === 'SELECT' ? (el.selectedOptions[0] ? el.selectedOptions[0].value : '') : el.value);
+    }
+  }
+  if (!addr.line1) {
+    for (const el of document.querySelectorAll('[itemtype*="PostalAddress"]')) {
+      const prop = n => { const p = el.querySelector('[itemprop="' + n + '"]'); return p ? (p.getAttribute('content') || p.textContent) : ''; };
+      put('line1', prop('streetAddress')); put('postal_code', prop('postalCode')); put('city', prop('addressLocality'));
+      put('region', prop('addressRegion')); put('country', prop('addressCountry'));
+    }
+  }
+  const delivery = !mixed && addr.line1 && addr.postal_code && addr.city
+    ? {name: addr.name || '', line1: addr.line1, line2: addr.line2 || '', postal_code: addr.postal_code, city: addr.city, region: addr.region || '', country: addr.country || ''}
+    : null;
+
+  const checkout = total ? {lines, total: total.amount, currency: total.currency, shipping, tax, merchant, delivery} : null;
   return JSON.stringify({
     url: location.href, title: clean(document.title),
     text: (document.body ? document.body.innerText : '').slice(0, MAX_TEXT),
