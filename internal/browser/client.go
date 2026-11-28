@@ -170,3 +170,10 @@ func (r *remote) Close(ctx context.Context) ([]byte, error) {
 	err := r.c.do(ctx, http.MethodDelete, "/sessions/"+r.id, nil, &out)
 	return out.State, err
 }
+
+// Health runs one sign-in health check at the worker (POST /health).
+func (c *Client) Health(ctx context.Context, check HealthCheck) (HealthResult, error) {
+	var out HealthResult
+	err := c.do(ctx, "POST", "/health", check, &out)
+	return out, err
+}

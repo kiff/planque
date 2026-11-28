@@ -201,6 +201,10 @@ type Server struct {
 	// the owner's Card alone decides what a taf may do. "*" is every account
 	// (PLANQUE_FULL_SCOPES=tenants:a,b or all). None when unset.
 	FullScopes map[string]bool
+	// HealthPages are the reviewed fixed pages of the sign-in health check,
+	// by site (health_pages.json, ReviewedHealthPages): a site not listed
+	// has no check.
+	HealthPages map[string]HealthPage
 	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
 	// on): browse_pay is offered and runs, held for the owner each time. Off
 	// (the default), the hosted browser reads, fills and clicks, but pays
@@ -360,6 +364,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/connections", s.accountConnections)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/files/{file}", s.grantFile)
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/health", s.grantHealth)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/health", s.grantHealth)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/evidence/{ref}", s.grantEvidence)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/hands", s.accountHands)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/sessions/{session}/agents", s.sessionAgents)

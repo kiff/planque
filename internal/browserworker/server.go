@@ -62,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("POST /sessions", s.keyed(s.start))
+	mux.HandleFunc("POST /health", s.keyed(s.health))
 	mux.HandleFunc("POST /sessions/{id}/open", s.keyed(s.open))
 	mux.HandleFunc("POST /sessions/{id}/step", s.keyed(s.step))
 	mux.HandleFunc("POST /sessions/{id}/screenshot", s.keyed(s.screenshot))
@@ -365,4 +366,30 @@ func (s *Server) Shutdown(ctx context.Context) {
 		_, _ = h.sess.Close(ctx)
 		h.mu.Unlock()
 	}
+}
+
+// health runs one sign-in health check (Local.Health): no session is kept,
+// and only the verdict comes back.
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	var in browser.HealthCheck
+	if err := decode(r, &in); err != nil || in.Site == "" || in.URL == "" || strings.TrimSpace(in.Shows) == "" {
+		writeErr(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	checker, ok := s.Local.(browser.HealthChecker)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "this worker runs no health checks")
+		return
+	}
+	res, err := checker.Health(r.Context(), in)
+	if errors.Is(err, ErrBusy) {
+		writeErr(w, http.StatusServiceUnavailable, ErrBusy.Error())
+		return
+	}
+	if err != nil {
+		s.log().Warn("health check not run", slog.String("err", err.Error()))
+		writeErr(w, http.StatusServiceUnavailable, "the browser couldn't be started")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }

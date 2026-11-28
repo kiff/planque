@@ -472,7 +472,7 @@ func (s *Server) keepBrowserState(ctx context.Context, g *Grant, state []byte, f
 }
 
 // dropBrowser deletes what the browser kept for g: its sign-ins, its read
-// checkouts and its screenshots. problems names what didn't go.
+// checkouts, its sign-in checks' verdicts and its screenshots. problems names what didn't go.
 func (s *Server) dropBrowser(ctx context.Context, g *Grant) []string {
 	if g.Request.Kind != KindBrowser {
 		return nil
@@ -482,9 +482,11 @@ func (s *Server) dropBrowser(ctx context.Context, g *Grant) []string {
 	if _, _, err := s.KV.Delete(ctx, tenantPK(g.Tenant), skBrowserState(g.ID)); err != nil {
 		problems = append(problems, "the browser's sign-ins weren't deleted: "+err.Error())
 	}
-	if items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "CHECKOUT#"+g.ID+"#"); err == nil {
-		for _, it := range items {
-			_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+	for _, prefix := range []string{"CHECKOUT#" + g.ID + "#", "HEALTH#" + g.ID + "#"} {
+		if items, err := s.KV.Query(ctx, tenantPK(g.Tenant), prefix); err == nil {
+			for _, it := range items {
+				_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
+			}
 		}
 	}
 	if err := s.dropBrowserFiles(ctx, g); err != nil {
