@@ -425,6 +425,11 @@ site kept as the grant's sign-in, over the version the session opened
 with, and the taf reads `done`; `POST …/hands/{hand}/decline` (the app's
 Not now) ends it with nothing kept (`declined`). A view not finished in ten
 minutes reads `expired`. `browse_hand_result {hand}` gives the answer once.
+`GET /v1/accounts/{tenant}/hands`, with the account's key, lists the
+hand-overs still waiting (grant, agent, hand, site, words, since, expires),
+so the owner's apps can show "Your turn on <site>" and make the signed view
+ask. Typed text is checked again as it lands, and a page still loading
+isn't read, so nothing is sent to it until it settles.
 
 ### The worker
 
