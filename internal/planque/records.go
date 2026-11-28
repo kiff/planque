@@ -350,6 +350,10 @@ type Grant struct {
 	// decides the fields only one country's organisations may send
 	// (qontoDraftOnly).
 	Country string `json:"country,omitempty"`
+	// GrantedScopes are the scope names the vendor's token answer granted, as
+	// it named them (never the token): what the sign-in can do at the vendor.
+	// Empty when the answer named none, which means what was asked.
+	GrantedScopes []string `json:"granted_scopes,omitempty"`
 	// VendorName is the vendor's name for people, as its MCP server names
 	// itself (serverInfo: title, else name), once listed or connected.
 	VendorName string `json:"vendor_name,omitempty"`

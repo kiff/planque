@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -232,6 +233,21 @@ func (s *Server) refresh(ctx context.Context, g *Grant, ver int64) (string, int6
 		s.releaseLease(ctx, it, ver)
 		return "", 0, errors.New("the refreshed token is for another vendor account")
 	}
+	// A refresh answer that names no scope keeps the one granted before
+	// (RFC 6749 §6), so what the token holds stays known.
+	if next.Scope == "" {
+		next.Scope = tok.Scope
+	}
+	// A bank's token holding more than planque asked for ends the sign-in,
+	// whether the stored token or the refresh answer says so: both tokens
+	// are revoked where the vendor can, the stored one is dropped, and the
+	// owner signs in again (widerThanAsked).
+	if extra := scopeNames(strings.Join(append(widerThanAsked(g, tok.Scope), widerThanAsked(g, next.Scope)...), " ")); len(extra) > 0 {
+		s.revokeTokenPair(ctx, g, next)
+		s.revokeTokenPair(ctx, g, tok)
+		s.dropToken(ctx, g)
+		return "", 0, s.signOut(ctx, g, widerWhy(g, extra), CauseScopeWider)
+	}
 	if err := s.storeToken(ctx, g, next, &ver); err != nil {
 		return "", 0, err
 	}
@@ -301,6 +317,10 @@ const (
 	// CauseNoRefreshToken: the access ran out and the vendor gave no way to
 	// renew it: a real expiry.
 	CauseNoRefreshToken = "no_refresh_token"
+	// CauseScopeWider: a bank's token answer granted more than planque asked
+	// for, so planque revoked it and dropped it (widerThanAsked). An app
+	// that doesn't know the cause reads it plain.
+	CauseScopeWider = "scope_wider"
 )
 
 // signedOutCauseOf is g's cause for the view: only while it's signed out.
