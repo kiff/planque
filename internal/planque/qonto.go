@@ -119,8 +119,8 @@ func scopeNames(scope string) []string {
 // widerWhy is the reason a wider grant was refused, for the owner and KIFF:
 // the vendor, the names it granted beyond the list, and where to end it too.
 func widerWhy(g *Grant, extra []string) string {
-	return vendorName(g) + " granted more than tafs asked for (" + strings.Join(extra, ", ") +
-		"), so the sign-in was refused and its token not kept. Remove the connection in " + vendorName(g) + "'s settings too."
+	return vendorName(g) + " granted more than was asked for (" + strings.Join(extra, ", ") +
+		"), so the sign-in was refused and its access wasn't kept. Remove the connection in " + vendorName(g) + "'s settings too."
 }
 
 // revokeTokenPair revokes a token answer's refresh and access tokens where

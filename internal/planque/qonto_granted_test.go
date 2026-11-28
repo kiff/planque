@@ -110,7 +110,7 @@ func TestABankSignInGrantedMoreIsRefused(t *testing.T) {
 	e.vendor.Scope = strings.Join(qontoScopes, " ") + " request_transfers.write"
 	e.signInExpectingFailure(out["sign_in_url"].(string))
 	g, _ := e.s.loadGrant(context.Background(), tenant, id)
-	if g.Status != StatusFailed || !strings.Contains(g.Reason, "granted more than tafs asked for (request_transfers.write)") ||
+	if g.Status != StatusFailed || !strings.Contains(g.Reason, "granted more than was asked for (request_transfers.write)") ||
 		!strings.Contains(g.Reason, "Remove the connection in") {
 		t.Fatalf("grant: %s %q", g.Status, g.Reason)
 	}
