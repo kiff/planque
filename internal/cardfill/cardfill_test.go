@@ -133,3 +133,13 @@ func TestCardPrintsNoDigit(t *testing.T) {
 		}
 	}
 }
+
+// A card number written with dots is found too.
+func TestTheCanaryFindsDottedNumbers(t *testing.T) {
+	if hits := Canary("log", "paid with 4242.4242.4242.4242 today"); len(hits) != 1 || hits[0].What != "card number" {
+		t.Errorf("dotted: %+v", hits)
+	}
+	if hits := Canary("log", "total 1.234.56 EUR, order 2026.11.28"); len(hits) != 0 {
+		t.Errorf("not a card: %+v", hits)
+	}
+}
