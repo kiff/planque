@@ -349,6 +349,14 @@ func vendorEndedIt(g *Grant) bool {
 // didn't take is sent again by the sweep.
 func (s *Server) signOut(ctx context.Context, g *Grant, why, reason string) error {
 	now, err := s.loadGrant(ctx, g.Tenant, g.ID)
+	if err == nil && now.Status == StatusPending && now.Connected != nil {
+		// Tools added to it wait for the owner: they go, and it's signed out
+		// with what it had, so the owner reads that a sign-in is needed
+		// before any tap, never a sign-in after "no second sign-in".
+		if derr := s.dropAddition(ctx, now, "the added tools waiting for approval were dropped: its sign-in couldn't be used"); derr != nil {
+			s.log().WarnContext(ctx, "the addition wasn't dropped before signing out", slog.String("grant", g.ID), slog.String("err", derr.Error()))
+		}
+	}
 	if err == nil && now.Status == StatusConnected {
 		// A reused sign-in that's gone isn't this grant's any more: it signs
 		// in (or takes a key) on its own (kiff/planque#36).

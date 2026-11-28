@@ -23,6 +23,7 @@ import (
 	"github.com/kiff/planque/internal/connector"
 	"github.com/kiff/planque/internal/jcs"
 	"github.com/kiff/planque/internal/kiff"
+	"github.com/kiff/planque/internal/mcp"
 	"github.com/kiff/planque/internal/oauth"
 	"github.com/kiff/planque/internal/openapi"
 	"github.com/kiff/planque/internal/store"
@@ -1287,6 +1288,23 @@ func askedWordsBack(g *Grant) {
 	}
 }
 
+// signInNeed is whether approving g now takes a sign-in at its vendor:
+// "none" for a grant whose sign-in is held and usable (tools set or added
+// on it connect on the approval), "needed" for one not signed in yet or
+// signed out; "" where no vendor sign-in applies (a key, the browser).
+func signInNeed(g *Grant) string {
+	if g.Request.API != nil || g.Request.Kind == KindAPIKey || g.Request.Kind == KindBrowser {
+		return ""
+	}
+	if g.Status == StatusDisconnected || g.Status == StatusFailed {
+		return ""
+	}
+	if g.signedOut() || !g.SignedIn {
+		return "needed"
+	}
+	return "none"
+}
+
 // grantView is a grant as planque shows it: never a secret.
 type grantView struct {
 	ID string `json:"id"`
@@ -1350,8 +1368,13 @@ type grantView struct {
 	// code (refresh_refused, reused_sign_in_gone, no_refresh_token), so an app
 	// words it from the cause. Empty for a connection that isn't signed out,
 	// and for one signed out before planque kept it.
-	SignedOutCause string        `json:"signed_out_cause,omitempty"`
-	Approval       *approvalView `json:"approval,omitempty"`
+	SignedOutCause string `json:"signed_out_cause,omitempty"`
+	// SignIn says whether approving this grant now takes a sign-in at the
+	// vendor ("needed") or none ("none"): worked out from the same state its
+	// words are, and what the approve answers agrees with it ("none" never
+	// answers a sign_in_url). Left out for a key's or a browser's grant.
+	SignIn   string        `json:"sign_in,omitempty"`
+	Approval *approvalView `json:"approval,omitempty"`
 	// SignedIn: planque holds a confirmed sign-in for this grant, so
 	// approving its tools needs no second sign-in.
 	SignedIn  bool      `json:"signed_in,omitempty"`
@@ -1429,7 +1452,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	}
 	lang, text := g.shown(asked)
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), VendorRevoke: vendorRevokeOf(g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
-		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
+		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), SignIn: signInNeed(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
 		Custody: CustodyPlanque, OnDemand: g.OnDemand, GrantedScopes: g.GrantedScopes}
 	if g.registering() {
@@ -2414,15 +2437,10 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		// Tools set on a grant whose sign-in is held: approving them
 		// connects at once, with no second sign-in.
 		a := sr.approval
-		tok, _, err := s.openToken(r.Context(), g)
-		if err != nil {
-			s.fail(w, r, err)
-			return
-		}
 		if g.Connected != nil {
 			// The approval of the addition replaces the grant's only once it
 			// connects: a failed one leaves the approval of what stays.
-			if err := s.addTools(r.Context(), g, tok.Access, a); err != nil {
+			if err := s.addTools(r.Context(), g, a); err != nil {
 				s.log().WarnContext(r.Context(), "adding tools failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 				writeErr(w, http.StatusBadGateway, err.Error())
 				return
@@ -2432,7 +2450,7 @@ func (s *Server) approveGrant(w http.ResponseWriter, r *http.Request, sr signedR
 		}
 		g.Approval = &a
 		g.event(s.now(), "tools approved "+a.Who())
-		if err := s.connect(r.Context(), g, tok.Access); err != nil {
+		if err := s.connect(r.Context(), g, ""); err != nil {
 			s.log().WarnContext(r.Context(), "connect failed", slog.String("grant", g.ID), slog.String("err", err.Error()))
 			writeErr(w, http.StatusBadGateway, g.Reason)
 			return
@@ -3090,7 +3108,16 @@ func (s *Server) connect(ctx context.Context, g *Grant, access string) error {
 	if g.Declared {
 		return s.connectDeclared(ctx, g)
 	}
-	listed, server, err := s.vendorTools(ctx, g, access)
+	// With no token given (a sign-in held since an earlier confirm), the
+	// held one is used as the relay uses it: refreshed when expired.
+	var listed []mcpTool
+	var server mcp.Server
+	var err error
+	if access == "" {
+		listed, server, err = s.signedInVendorTools(ctx, g)
+	} else {
+		listed, server, err = s.vendorTools(ctx, g, access)
+	}
 	if err != nil {
 		s.revoke(ctx, g)
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
@@ -3197,7 +3224,7 @@ func granted(g *Grant, t ToolRequest, listed []mcpTool) (GrantedTool, string) {
 // credential of their own, and the tools it had stay as they were. If
 // anything fails, the grant goes back to connected with those alone, and
 // its sign-in stays: an addition never takes a taf's tools away.
-func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approval) error {
+func (s *Server) addTools(ctx context.Context, g *Grant, a Approval) error {
 	had, hadTools, hadTransports, hadApproval := g.Connected, g.Tools, g.Transports, g.Approval
 	hadProfile, hadRevision := g.ConnectedProfile, g.ProfileRevision
 	g.Approval = &a
@@ -3251,8 +3278,12 @@ func (s *Server) addTools(ctx context.Context, g *Grant, access string, a Approv
 	if err := s.undeclareAddition(ctx, g); err != nil {
 		return back(nil, err.Error())
 	}
-	listed, _, err := s.vendorTools(ctx, g, access)
-	if err != nil {
+	listed, _, err := s.signedInVendorTools(ctx, g)
+	if err != nil && g.signedOut() {
+		// Its refresh was refused: it's signed out with what it had (signOut
+		// took the addition back), so nothing here may write it back.
+		return err
+	} else if err != nil {
 		return back(nil, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	var added []GrantedTool

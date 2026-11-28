@@ -312,19 +312,40 @@ func toolNamesOf(tools []GrantedTool) []string {
 // provider's connection), to declare what g asks for; why says why they
 // couldn't be listed.
 func (s *Server) signedInTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.Server, string) {
-	access := ""
-	if g.Request.Connector == nil && g.Request.API == nil && g.Request.Kind != KindBrowser {
-		tok, _, err := s.openToken(ctx, g)
-		if err != nil {
-			return nil, mcp.Server{}, "the sign-in couldn't be opened to list the tools"
-		}
-		access = tok.Access
-	}
-	listed, server, err := s.vendorTools(ctx, g, access)
-	if err != nil {
+	listed, server, err := s.signedInVendorTools(ctx, g)
+	if errors.Is(err, errTokenUnusable) {
+		return nil, mcp.Server{}, "the sign-in couldn't be used to list the tools: " + err.Error()
+	} else if err != nil {
 		return nil, mcp.Server{}, "the tools couldn't be listed: " + err.Error()
 	}
 	return listed, server, ""
+}
+
+// errTokenUnusable wraps why a held sign-in gave no token to list with.
+var errTokenUnusable = errors.New("no usable token")
+
+// signedInVendorTools lists g's vendor tools with its held sign-in, as the
+// relay calls with it: the access token is refreshed when it has expired,
+// and once more when the vendor refuses it, so a sign-in confirmed an hour
+// ago (Qonto's access token lasts less) still lists. A refresh the vendor
+// refuses signs the grant out, as a call's would. A provider's, a key's or
+// the hosted browser's tools need no token here.
+func (s *Server) signedInVendorTools(ctx context.Context, g *Grant) ([]mcpTool, mcp.Server, error) {
+	if g.Request.Connector != nil || g.Request.API != nil || g.Request.Kind == KindBrowser {
+		return s.vendorTools(ctx, g, "")
+	}
+	access, ver, err := s.accessToken(ctx, g, 0)
+	if err != nil {
+		return nil, mcp.Server{}, fmt.Errorf("%w: %v", errTokenUnusable, err)
+	}
+	listed, server, err := s.vendorTools(ctx, g, access)
+	if errors.Is(err, mcp.ErrUnauthorized) {
+		if access, _, err = s.accessToken(ctx, g, ver); err != nil {
+			return nil, mcp.Server{}, fmt.Errorf("%w: %v", errTokenUnusable, err)
+		}
+		listed, server, err = s.vendorTools(ctx, g, access)
+	}
+	return listed, server, err
 }
 
 // declaresFirst says g's first tools are declared to KIFF while they wait:
