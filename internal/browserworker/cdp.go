@@ -122,6 +122,7 @@ func launchIn(ctx context.Context, path, proxy string, testCerts bool, root, pre
 	cmd.ExtraFiles = []*os.File{toChrome, fromChrome}
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "HOME="+dir)
+	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("start the browser: %w", err)
@@ -297,16 +298,28 @@ func (c *chrome) eventsSeen() int {
 }
 
 // stop ends the browser and deletes its profile: nothing it wrote stays.
+// The whole process group is killed after the browser closes (or is found
+// dead), so no child process is left to write to the profile once it is
+// deleted; the delete is tried again while a straggler exits.
 func (c *chrome) stop() {
-	_ = c.call(context.Background(), "", "Browser.close", nil, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	_ = c.call(ctx, "", "Browser.close", nil, nil)
+	cancel()
 	select {
 	case <-c.done:
 	case <-time.After(2 * time.Second):
-		_ = c.cmd.Process.Kill()
 	}
+	killGroup(c.cmd)
 	_ = c.cmd.Wait()
 	c.w.Close()
-	_ = os.RemoveAll(c.dir)
+	for attempt := 0; attempt < 20; attempt++ {
+		if err := os.RemoveAll(c.dir); err == nil {
+			if _, err := os.Stat(c.dir); errors.Is(err, os.ErrNotExist) {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // ChromePath is the browser the worker would run, or why none: for a test
