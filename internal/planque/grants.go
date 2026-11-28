@@ -1407,6 +1407,12 @@ type grantView struct {
 	// shows it (connection_rows.go): the tafs that use it by their names,
 	// its health in plain words, and only the actions that can work for it.
 	UsedBy []string `json:"used_by"`
+	// SharesSignIn are the account's other live grants on this connection's
+	// sign-in (pending ones included), worked out as removal works them out:
+	// removing this one keeps the sign-in while any of them is live. An empty
+	// list when none; absent when planque couldn't read the account's grants,
+	// so a reader takes the sign-in as shared.
+	SharesSignIn *[]sharedSignIn `json:"shares_sign_in,omitempty"`
 	// Reconnect, on a signed-out managed connection: "fresh" when signing in
 	// again can't work, because no name was kept for its account to hold the
 	// new sign-in to (connect-fresh instead of approve), else "same". Empty
@@ -1594,7 +1600,14 @@ func (s *Server) getGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.expire(r.Context(), g)
-	writeJSON(w, http.StatusOK, s.view(r, g))
+	v := s.view(r, g)
+	if all, err := s.accountGrants(r.Context(), tenant); err == nil {
+		shared := sharedSignInsOf(g, all)
+		v.SharesSignIn = &shared
+	} else {
+		s.log().WarnContext(r.Context(), "the account's grants couldn't be read for a shared sign-in", slog.String("grant", g.ID), slog.String("err", err.Error()))
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 // catalog is what the vendor's server lists, for the agent choosing the
@@ -3584,17 +3597,13 @@ func (s *Server) revokeTokens(ctx context.Context, g *Grant) []string {
 // those that pin the same connected account. A disconnected or failed grant
 // uses nothing.
 func (s *Server) signInUsers(ctx context.Context, g *Grant) ([]string, error) {
-	items, err := s.KV.Query(ctx, tenantPK(g.Tenant), "GRANT#")
+	all, err := s.accountGrants(ctx, g.Tenant)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for _, it := range items {
-		var o Grant
-		if json.Unmarshal(it.Doc, &o) != nil || o.ID == g.ID || o.Status == StatusDisconnected || o.Status == StatusFailed {
-			continue
-		}
-		if sameSignIn(g, &o) || mayShareVendorAccount(g, &o) {
+	for _, o := range all {
+		if sharesSignIn(g, o) {
 			out = append(out, o.ID)
 		}
 	}
@@ -3797,6 +3806,7 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 	out := []grantView{}
 	uses := s.lastUses(ctx, tenant)
 	seen := map[string]bool{}
+	var all []*Grant
 	// The Chromes a connection could move to, read once for the list, and
 	// only if a connection in the owner's Chrome asks.
 	var targets []string
@@ -3826,8 +3836,15 @@ func (s *Server) grants(r *http.Request, tenant string) ([]grantView, error) {
 		// The backfill: a grant made before its request named its app gets
 		// the entry recorded beside the request, never in it.
 		s.recordEntry(ctx, &g)
-		v := s.view(r, &g)
-		s.fillRow(r, &g, &v, uses[g.ID], true, chromes)
+		all = append(all, &g)
+	}
+	// Each row's view once every grant is read, so a row names the others on
+	// its sign-in from this one read, with no read of its own.
+	for _, g := range all {
+		v := s.view(r, g)
+		s.fillRow(r, g, &v, uses[g.ID], true, chromes)
+		shared := sharedSignInsOf(g, all)
+		v.SharesSignIn = &shared
 		out = append(out, v)
 	}
 	return out, nil
