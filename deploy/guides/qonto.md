@@ -1,6 +1,6 @@
 # Qonto
 
-Checked: 2026-11-27 · Sources: planque's reviewed entries `qonto-key@1`,
+Checked: 2026-11-28 · Sources: planque's reviewed entries `qonto-key@1`,
 `qonto-key@2` (see [the generated parts](generated/qonto-key-2.md)) and
 `qonto-sandbox@1`, Qonto's published invoicing API description, and
 Qonto's developer pages (Base URLs & environments, Testing in the Sandbox).
@@ -25,8 +25,8 @@ markup.
 4. Professional secrecy. Qonto's consent page asks you to accept the
    lifting of Qonto's professional secrecy for the tool you chose. It's your
    choice; without the tick, nothing is connected.
-5. What it can read: the account balance, IBAN, transactions, the
-   business and its team; supplier invoices; receipts and other attachments;
+5. What it can read: transactions, the business and its team; supplier
+   invoices; receipts and other attachments;
    client invoices and credit notes; products. It can draft a client invoice,
    which you send yourself, and add or update clients. It can't finalise,
    cancel, send or mark an invoice paid, or delete an invoice or a client. It
