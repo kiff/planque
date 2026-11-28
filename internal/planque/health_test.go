@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
+	"github.com/kiff/planque/internal/kiff"
 )
 
 // healthEnv is the browser env with shop.example's fixed page reviewed, and
@@ -187,5 +188,58 @@ func TestANewSignInMakesTheCheckDueAgain(t *testing.T) {
 	// The check's own reseal of the rotated sign-in doesn't make it due again.
 	if e.health(g, "POST"); len(e.b.Checks) != 1 {
 		t.Fatalf("the reseal made it due: %d checks", len(e.b.Checks))
+	}
+}
+
+// kiff/agents' scheduler runs the check at a taf's firing with the taf's own
+// KIFF key (no standing credential): a taf's key of the account is taken as
+// the account's own is; a key of another account isn't.
+func TestATafsOwnKeyRunsTheSignInCheck(t *testing.T) {
+	e, g := healthEnv(t)
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	st, out := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf")
+	if st != 200 || siteOf(t, out)["verdict"] != browser.HealthSignedIn || len(e.b.Checks) != 1 {
+		t.Fatalf("the taf's own key: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_other"); st == 200 {
+		t.Fatal("another account's key ran a check")
+	}
+}
+
+// A connection's sign-in health is for its own taf or the agent that asked
+// for it: another taf of the same account neither runs a check nor reads one.
+func TestOnlyTheConnectionsTafOrItsAskerRunsTheCheck(t *testing.T) {
+	e, g := healthEnv(t)
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	e.kiff.Keys["k_taf2"] = e.kiff.Keys["k_taf"]
+	other := e.kiff.Keys["k_taf2"]
+	other.AgentID = "agt_another_taf"
+	e.kiff.Keys["k_taf2"] = other
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf2"); st != 403 || len(e.b.Checks) != 0 {
+		t.Fatalf("another taf's key ran it: %d, %d checks", st, len(e.b.Checks))
+	}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "k_taf2"); st != 403 {
+		t.Fatalf("another taf's key read whether the sign-in holds: %d", st)
+	}
+	if st, _ := e.health(g, "POST"); st != 200 || len(e.b.Checks) != 1 {
+		t.Fatalf("the agent that asked: %d", st)
+	}
+}
+
+// A person's own session on the account (no agent) reads a connection's
+// sign-in health, for what the owner sees in the apps, and runs no check.
+func TestAPersonsSessionReadsTheSignInHealthAndRunsNone(t *testing.T) {
+	e, g := healthEnv(t)
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	e.kiff.Keys["s_owner"] = kiff.Me{TenantID: tenant, DeviceSession: true, DevicePlatform: "ios", DeviceID: "dev_phone", Capabilities: []string{"read"}}
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_owner"); st != 200 || siteOf(t, out)["site"] != "shop.example" {
+		t.Fatalf("the owner's session read: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_owner"); st != 403 || len(e.b.Checks) != 0 {
+		t.Fatalf("the owner's session ran a check: %d, %d checks", st, len(e.b.Checks))
+	}
+	e.kiff.Keys["s_elsewhere"] = kiff.Me{TenantID: "tnt_other", DeviceSession: true, DevicePlatform: "ios", DeviceID: "dev_x", Capabilities: []string{"read"}}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_elsewhere"); st == 200 {
+		t.Fatal("another account's session read it")
 	}
 }
