@@ -101,21 +101,21 @@ func TestQontoSignInServesOnlyItsReviewedTools(t *testing.T) {
 		}
 	}
 
-	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "send_client_invoice"}}, "tools"); r == nil ||
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "send_client_invoice"}}, "tools"); r == nil ||
 		r.Code != refToolNotServed || r.Tool != "send_client_invoice" || r.Field != "tools" || !strings.Contains(r.Msg, "Everything else stays with the owner in Qonto") {
 		t.Fatalf("refusal: %+v", r)
 	}
-	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_clients"}, {Tool: "create_client_invoice"}, {Tool: "update_client"}}, "tool"); r != nil {
 		t.Fatalf("served tools refused: %+v", r)
 	}
 	// The bank accounts and their balances are served by list_bank_accounts,
 	// which Qonto's live list marks read-only (28 Nov). A taf that guessed
 	// another name reads, in the refusal, that list_bank_accounts gives them,
 	// never get_organization, which gives the business's identity only.
-	if r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools"); r != nil {
+	if r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "list_bank_accounts"}}, "tools"); r != nil {
 		t.Fatalf("list_bank_accounts refused: %+v", r)
 	}
-	r := qontoToolsCheck(qontoServer, []ToolRequest{{Tool: "get_account_balance"}}, "tools")
+	r := (&Server{}).toolsCheck("tnt_any", qontoServer, []ToolRequest{{Tool: "get_account_balance"}}, "tools")
 	if r == nil || !strings.Contains(r.Msg, "(list_bank_accounts)") || !strings.Contains(r.Msg, "identity (get_organization)") ||
 		strings.Contains(r.Msg, "balances and IBANs (get_organization)") || strings.Contains(r.Msg, "aren't among them") {
 		t.Fatalf("the refusal doesn't name list_bank_accounts for balances: %+v", r)
@@ -170,7 +170,7 @@ func TestACallToAQontoToolPlanqueDoesntServeIsNotSent(t *testing.T) {
 		t.Fatalf("the vendor ran %d calls", n)
 	}
 	var listed []string
-	for _, tool := range relayTools(g) {
+	for _, tool := range (&Server{}).relayTools(g) {
 		listed = append(listed, tool.Name)
 	}
 	if !slices.Equal(listed, []string{"clients"}) {
@@ -202,7 +202,7 @@ func TestEveryVendorCallGoesThroughCallServed(t *testing.T) {
 		}
 	}
 	e := newEnv(t)
-	if _, err := e.s.callServed(context.Background(), qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
+	if _, err := e.s.callServed(context.Background(), tenant, qontoServer, "token", "send_client_invoice", json.RawMessage(`{}`)); !errors.Is(err, errNotServed) {
 		t.Fatalf("callServed sent a tool planque doesn't serve: %v", err)
 	}
 }

@@ -402,7 +402,7 @@ func (s *Server) requestGrantFrom(w http.ResponseWriter, r *http.Request, entry 
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(req.Server, *req.Tools, "tools"); r != nil {
+	if r := s.toolsCheck(tenant, req.Server, *req.Tools, "tools"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -1528,7 +1528,46 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this grant has no catalog: it is "+g.Status+", and only a grant asked for with no tools lists them, once the owner signed in")
 		return
 	}
+	if g.Request.API == nil && g.CatalogRule != s.servedRule(g.Tenant, g.Request.Server) {
+		if err := s.relistCatalog(r.Context(), g); err != nil {
+			s.log().WarnContext(r.Context(), "catalog not listed again", slog.String("grant", g.ID), slog.String("error", err.Error()))
+			writeErr(w, http.StatusServiceUnavailable, "this grant's tools couldn't be read again from "+hostOf(g.Request.Server)+" since what planque serves there changed; try again")
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
+}
+
+// catalogOf is a vendor's served tools as a grant's catalog keeps them.
+func catalogOf(listed []mcpTool) []CatalogTool {
+	var out []CatalogTool
+	for _, t := range listed {
+		out = append(out, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
+			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
+	}
+	return out
+}
+
+// relistCatalog reads g's tools again with its own sign-in, for a catalog
+// kept under an earlier served rule: a tool planque serves since is in it,
+// and one it no longer serves is out. Only the catalog the asking agent
+// chooses from changes: the tools the owner approved (Tools) don't, and a
+// newly served one still needs the owner's approval to be added. Kept when
+// the grant hasn't changed meanwhile; else this answer alone is fresh.
+func (s *Server) relistCatalog(ctx context.Context, g *Grant) error {
+	access, _, err := s.accessToken(ctx, g, 0)
+	if err != nil {
+		return err
+	}
+	listed, _, err := s.vendorTools(ctx, g, access)
+	if err != nil {
+		return err
+	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
+	if err := s.saveGrant(ctx, g); err != nil {
+		s.log().InfoContext(ctx, "catalog listed again, not kept", slog.String("grant", g.ID), slog.String("error", err.Error()))
+	}
+	return nil
 }
 
 // liveCatalog says g is a vendor's own MCP server connected with tools of
@@ -1559,7 +1598,7 @@ func (s *Server) liveCatalog(w http.ResponseWriter, r *http.Request, g *Grant) {
 		writeErr(w, http.StatusBadGateway, "couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 		return
 	}
-	listed = servedOnly(g.Request.Server, listed)
+	listed = s.servedFor(g.Tenant, g.Request.Server, listed)
 	tools := make([]CatalogTool, 0, len(listed))
 	for _, t := range listed {
 		tools = append(tools, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
@@ -1743,7 +1782,7 @@ func (s *Server) setTools(w http.ResponseWriter, r *http.Request) {
 		writeRefusal(w, r)
 		return
 	}
-	if r := qontoToolsCheck(g.Request.Server, req.Tools, "tool"); r != nil {
+	if r := s.toolsCheck(g.Tenant, g.Request.Server, req.Tools, "tool"); r != nil {
 		writeRefusal(w, r)
 		return
 	}
@@ -2864,11 +2903,7 @@ func (s *Server) list(ctx context.Context, g *Grant, access string) error {
 		return s.failGrant(ctx, g, "Couldn't list the tools at "+hostOf(g.Request.Server)+": "+err.Error())
 	}
 	g.VendorName = s.serverVendorName(g, server)
-	g.Catalog = nil
-	for _, t := range listed {
-		g.Catalog = append(g.Catalog, CatalogTool{Name: t.Name, Title: label(t.Label()), Description: t.Description,
-			InputSchema: t.InputSchema, ReadOnly: readOnlyHint(t), Returns: returnsOf(t.OutputSchema)})
-	}
+	g.Catalog, g.CatalogRule = catalogOf(listed), s.servedRule(g.Tenant, g.Request.Server)
 	g.Status, g.HeldUntil = StatusListed, s.now().Add(holdTTL).UTC()
 	g.event(s.now(), fmt.Sprintf("listed %d tools at %s; waiting for the tools the taf needs", len(g.Catalog), hostOf(g.Request.Server)))
 	return s.saveGrant(ctx, g)
