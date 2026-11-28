@@ -434,6 +434,20 @@ func (s *Server) openBrowserState(ctx context.Context, g *Grant) ([]byte, int64,
 	return state, it.Ver, err
 }
 
+// browserStateVersion is the saved sign-in's version (0 for none) without
+// opening it: a read of its record, no unsealing, for a caller that only
+// needs to know whether it changed.
+func (s *Server) browserStateVersion(ctx context.Context, g *Grant) (int64, error) {
+	var rec browserStateRecord
+	it, err := getDoc(ctx, s.KV, tenantPK(g.Tenant), skBrowserState(g.ID), &rec)
+	if errors.Is(err, errNotFound) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	return it.Ver, nil
+}
+
 // keepBrowserState seals the state a session ended with. An empty state
 // keeps nothing; one too large is dropped, said in the log, never kept
 // in part. With from, the state is kept only if the record is still the

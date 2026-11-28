@@ -9,6 +9,7 @@ import (
 
 	"github.com/kiff/planque/internal/browser"
 	"github.com/kiff/planque/internal/kiff"
+	"github.com/kiff/planque/internal/seal"
 )
 
 // healthEnv is the browser env with shop.example's fixed page reviewed, and
@@ -241,5 +242,81 @@ func TestAPersonsSessionReadsTheSignInHealthAndRunsNone(t *testing.T) {
 	e.kiff.Keys["s_elsewhere"] = kiff.Me{TenantID: "tnt_other", DeviceSession: true, DevicePlatform: "ios", DeviceID: "dev_x", Capabilities: []string{"read"}}
 	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_elsewhere"); st == 200 {
 		t.Fatal("another account's session read it")
+	}
+}
+
+// countingSealer counts what's opened, for a test that an answer from what's
+// kept opens nothing.
+type countingSealer struct {
+	seal.Sealer
+	opens *int
+}
+
+func (c countingSealer) Open(ctx context.Context, sealed []byte, binding map[string]string) ([]byte, error) {
+	*c.opens++
+	return c.Sealer.Open(ctx, sealed, binding)
+}
+
+// An answer with no check due, a scheduler's firing on most days, never
+// opens the saved sign-in: its version is read alone, and the end the site
+// set comes from the kept check. A new sign-in since still makes it due.
+func TestAnAnswerWithNoCheckDueOpensNoSignIn(t *testing.T) {
+	e, g := healthEnv(t)
+	ends := time.Now().Add(20 * 24 * time.Hour).Truncate(time.Second).UTC()
+	e.signIn(g, ends)
+	if st, out := e.health(g, "POST"); st != 200 || siteOf(t, out)["verdict"] != browser.HealthSignedIn {
+		t.Fatalf("check: %d %v", st, out)
+	}
+	opens := 0
+	e.s.Sealer = countingSealer{e.s.Sealer, &opens}
+	for _, method := range []string{"POST", "GET", "POST"} {
+		st, out := e.health(g, method)
+		site := siteOf(t, out)
+		if st != 200 || site["verdict"] != browser.HealthSignedIn || site["expires_at"] == nil {
+			t.Fatalf("%s from what's kept: %d %v", method, st, out)
+		}
+	}
+	if opens != 0 || len(e.b.Checks) != 1 {
+		t.Fatalf("opened %d times, %d checks", opens, len(e.b.Checks))
+	}
+	// The owner signs in again: due at once, and only then opened.
+	e.signIn(g, ends.Add(24*time.Hour))
+	if _, out := e.health(g, "GET"); siteOf(t, out)["expires_at"] != nil {
+		t.Fatalf("an end for a sign-in the kept check isn't about: %v", out)
+	}
+	if e.health(g, "POST"); len(e.b.Checks) != 2 || opens == 0 {
+		t.Fatalf("after a new sign-in: %d checks, %d opens", len(e.b.Checks), opens)
+	}
+}
+
+// ctxWorker is a worker whose check, like a real one, ends when its
+// context does.
+type ctxWorker struct{ browser.Worker }
+
+func (w ctxWorker) Health(ctx context.Context, c browser.HealthCheck) (browser.HealthResult, error) {
+	if err := ctx.Err(); err != nil {
+		return browser.HealthResult{}, err
+	}
+	return w.Worker.(browser.HealthChecker).Health(ctx, c)
+}
+
+// A check runs to its end and is kept even when its caller stops waiting:
+// the next ask reads it instead of running another.
+func TestACheckIsKeptWhenItsCallerStopsWaiting(t *testing.T) {
+	e, g := healthEnv(t)
+	e.s.Browser = ctxWorker{e.s.Browser}
+	e.signIn(g, time.Now().Add(20*24*time.Hour))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	state, from, err := e.s.openBrowserState(context.Background(), g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := e.s.runHealth(ctx, g, "shop.example", e.s.HealthPages["shop.example"], state, from)
+	if rec.Verdict != browser.HealthSignedIn {
+		t.Fatalf("a cancelled caller's check: %+v", rec)
+	}
+	if _, out := e.health(g, "POST"); siteOf(t, out)["verdict"] != browser.HealthSignedIn || len(e.b.Checks) != 1 {
+		t.Fatalf("not kept: %d checks, %v", len(e.b.Checks), out)
 	}
 }
