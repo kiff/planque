@@ -84,7 +84,8 @@ type healthSite struct {
 // hosted-browser connection on an account the hosted browser is offered to.
 func (s *Server) grantHealth(w http.ResponseWriter, r *http.Request) {
 	tenant := r.PathValue("tenant")
-	if _, err := s.agentKey(r, tenant); err != nil {
+	me, err := s.agentKey(r, tenant)
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
@@ -105,6 +106,14 @@ func (s *Server) grantHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run := r.Method == http.MethodPost
+	// Running a check (it opens a browser) is for the taf the connection is
+	// for, or the agent that asked for it (Setup, which tafs cloud's reads go
+	// through): another taf's key of the account reads what's kept, and runs
+	// nothing.
+	if run && me.AgentID != g.Request.Agent && me.AgentID != g.Request.AskedBy {
+		writeErr(w, http.StatusForbidden, "only the taf this connection is for, or the agent that asked for it, runs its sign-in check")
+		return
+	}
 	out := make([]healthSite, 0, len(g.Request.Browser.Sites))
 	for _, site := range g.Request.Browser.Sites {
 		out = append(out, s.siteHealth(r.Context(), g, site, run))
