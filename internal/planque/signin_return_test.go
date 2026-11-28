@@ -2,6 +2,7 @@ package planque
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/fakes"
+	"github.com/kiff/planque/internal/words"
 )
 
 // signInLink approves grant id on phone and returns the vendor sign-in link.
@@ -175,6 +177,21 @@ func TestASignInIsResumedOnlyWithItsAccountSignedByTheSameDevice(t *testing.T) {
 			t.Fatalf("request alone: %d %v", st, out)
 		}
 	})
+	t.Run("past confirm_by", func(t *testing.T) {
+		e := newEnv(t)
+		e.enrol()
+		g, _ := e.signedInGrant()
+		g.ConfirmBy = time.Now().Add(-time.Second).UTC()
+		if err := e.s.saveGrant(context.Background(), g); err != nil {
+			t.Fatal(err)
+		}
+		// Past its time the sign-in has ended (its token revoked): nothing
+		// to resume, no code, and the owner asks again.
+		st, out := e.approveAgain(g, e.phone, true)
+		if st == 200 || out["confirm"] != nil || !strings.Contains(fmt.Sprint(out["error"]), "not confirmed in time") {
+			t.Fatalf("past confirm_by: %d %v", st, out)
+		}
+	})
 	t.Run("another device", func(t *testing.T) {
 		e := newEnv(t)
 		e.enrol()
@@ -184,4 +201,27 @@ func TestASignInIsResumedOnlyWithItsAccountSignedByTheSameDevice(t *testing.T) {
 			t.Fatalf("another device: %d %v", st, out)
 		}
 	})
+}
+
+// What a resume must have signed is the account's words exactly: the
+// account's name inside other words (the request's own, written before the
+// sign-in named it) never stands for them.
+func TestOnlyTheWordsThatNameTheAccountResumeASignIn(t *testing.T) {
+	e := newEnv(t)
+	e.enrol()
+	g, _ := e.signedInGrant()
+	for _, lang := range []string{"en", "fr"} {
+		_, shown := g.shown(lang)
+		if want := namesAccount(g, lang); want == "" || want != shown {
+			t.Fatalf("%s: the words shown after sign-in aren't the account's: %q / %q", lang, shown, want)
+		}
+	}
+	before := requestText(words.Approve("en"), g.Request, false, "")
+	g.Account = strings.Fields(before)[0]
+	if !strings.Contains(before, g.Account) || namesAccount(g, "en") == before {
+		t.Fatalf("an account named inside other words stood for them: %q in %q", g.Account, before)
+	}
+	if namesAccount(&Grant{}, "en") != "" {
+		t.Fatal("words for a grant with no account")
+	}
 }
