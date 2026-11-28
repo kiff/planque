@@ -1545,6 +1545,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	if !s.currentCatalog(w, r, g) {
 		return
 	}
+	s.refreshRegistration(r.Context(), g)
 	writeJSON(w, http.StatusOK, map[string]any{"grant": g.ID, "server": g.Request.Server, "account": g.Account, "tools": g.Catalog})
 }
 
