@@ -51,6 +51,17 @@ only for reading the business, its clients, its invoices and their
 e-invoicing state, and writing clients and client invoices. It never asks
 for transfers, cards, bank accounts, direct debits, team or members.
 
+**What was granted.** A vendor's token answer may name the scope it granted.
+planque keeps those names (never the token) on the grant, as
+`granted_scopes`, read with the account's key. At Qonto, a token answer that
+grants anything beyond the reviewed list is refused, at sign-in and at every
+refresh. The token is revoked where the vendor offers revocation and never
+kept, and the owner reads why, naming what was granted. Qonto names no
+revocation endpoint, so the reason asks the owner to remove the connection in
+Qonto too. A sign-in is then failed, and a refresh signs the grant out with the
+cause `scope_wider`, for the owner to sign in again. An answer that names no
+scope grants what was asked (RFC 6749 §5.1).
+
 Reference: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
 
 ## Selecting REST operations

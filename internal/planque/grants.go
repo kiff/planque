@@ -1288,6 +1288,9 @@ type grantView struct {
 	Custody string `json:"custody"`
 	// OnDemand: the app's sign-in was set up on this owner's pick.
 	OnDemand bool `json:"on_demand,omitempty"`
+	// GrantedScopes are the scope names the vendor granted the sign-in,
+	// when its token answer named them (names only, never the token).
+	GrantedScopes []string `json:"granted_scopes,omitempty"`
 	// Unproved: a managed connection to an app no recorded run has proved
 	// on the managed route (proofOf). tafs cloud then holds every change of
 	// it for the owner, as for an app set up on demand. Never on any other
@@ -1354,7 +1357,7 @@ func (s *Server) view(r *http.Request, g *Grant) grantView {
 	v := grantView{ID: g.ID, Vendor: vendorName(g), Title: connectionTitle(g), Since: sinceOf(g), Status: g.Status, StatusWords: statusIn(words.Approve(asked), g), VendorRevoke: vendorRevokeOf(g), Text: text, Lang: lang, Terms: requestTerms(g.Request, g.Catalog...), Digest: g.Digest, Request: g.Request,
 		Account: g.Account, Audience: g.Audience, Reason: g.Reason, SignedOutCause: signedOutCauseOf(g), Events: ownerEvents(g),
 		SignedIn: g.SignedIn && g.Status != StatusDisconnected && g.Status != StatusFailed, HeldUntil: g.HeldUntil, Entry: s.appEntry(g),
-		Custody: CustodyPlanque, OnDemand: g.OnDemand}
+		Custody: CustodyPlanque, OnDemand: g.OnDemand, GrantedScopes: g.GrantedScopes}
 	if g.registering() {
 		v.Status = StatusConnecting
 	}
@@ -2550,6 +2553,24 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.endRenewal(r.Context(), g, "the new sign-in's code was not accepted: "+err.Error())
 		s.page(w, lang, http.StatusBadGateway, l.NotSignedInAgain, l.NotFinishedRenew(hostOf(g.Vendor.Issuer)))
 		return
+	}
+	// A bank granting more than planque asked for (widerThanAsked): the
+	// token is revoked where the vendor can, never kept, and the sign-in is
+	// refused, saying so.
+	if err == nil {
+		if extra := widerThanAsked(g.Request.Server, tok.Scope); len(extra) > 0 {
+			s.revokeTokenPair(r.Context(), eg, tok)
+			why := widerWhy(g, extra)
+			if renew {
+				s.endRenewal(r.Context(), g, why)
+				s.page(w, lang, http.StatusBadGateway, l.NotSignedInAgain, l.NotFinishedRenew(hostOf(g.Vendor.Issuer)))
+				return
+			}
+			s.failGrant(r.Context(), g, why)
+			s.page(w, lang, http.StatusBadGateway, l.NotConnected, l.NotFinished(hostOf(g.Vendor.Issuer)))
+			return
+		}
+		g.GrantedScopes = scopeNames(tok.Scope)
 	}
 	if renew {
 		s.renewed(w, r, g, tok)
