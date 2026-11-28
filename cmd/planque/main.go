@@ -379,6 +379,7 @@ func build(logger *slog.Logger) (*planque.Server, error) {
 		// The hand-over's tools, offered to new Chrome connections only: on
 		// unless PLANQUE_CHROME_HAND=off (chromeHandOn).
 		ChromeHand: chromeHandOn(os.Getenv("PLANQUE_CHROME_HAND")),
+		HostedHand: os.Getenv("PLANQUE_HOSTED_HAND") == "on",
 		// Paying in the hosted browser: on only when set to on.
 		BrowserPay: strings.TrimSpace(os.Getenv("PLANQUE_BROWSER_PAY")) == "on",
 		// The seller's Stripe profile read with a checkout, when on.

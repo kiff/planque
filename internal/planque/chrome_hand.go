@@ -96,7 +96,13 @@ func blankFields(p browser.Page) browser.Page {
 
 // keepHand keeps a hand-over just handed to chrome as step hand.
 func (s *Server) keepHand(ctx context.Context, chrome, hand string, h chromeHand) error {
-	it := store.Item{PK: pkChromeHand(chrome, hand), SK: "-", TTL: h.Opened.Add(handKeptFor).Unix()}
+	return s.keepHandAt(ctx, pkChromeHand(chrome, hand), h)
+}
+
+// keepHandAt keeps a hand-over under pk: the owner's Chrome's, or the
+// hosted browser's (pkHostedHand).
+func (s *Server) keepHandAt(ctx context.Context, pk string, h chromeHand) error {
+	it := store.Item{PK: pk, SK: "-", TTL: h.Opened.Add(handKeptFor).Unix()}
 	return putDoc(ctx, s.KV, it, h, store.Cond{NotExists: true})
 }
 
@@ -105,11 +111,16 @@ func (s *Server) keepHand(ctx context.Context, chrome, hand string, h chromeHand
 // only within the half hour. The page is kept with its values blanked,
 // whatever the extension sent.
 func (s *Server) answerHand(ctx context.Context, chrome, hand, outcome string, page *browser.Page) error {
+	return s.answerHandAt(ctx, pkChromeHand(chrome, hand), outcome, page)
+}
+
+// answerHandAt is answerHand for the hand-over kept under pk.
+func (s *Server) answerHandAt(ctx context.Context, pk, outcome string, page *browser.Page) error {
 	if outcome != handDone && outcome != handDeclined {
 		return errHandUnknown
 	}
 	var h chromeHand
-	it, err := getDoc(ctx, s.KV, pkChromeHand(chrome, hand), "-", &h)
+	it, err := getDoc(ctx, s.KV, pk, "-", &h)
 	if errors.Is(err, errNotFound) {
 		return errHandUnknown
 	} else if err != nil {
@@ -132,8 +143,14 @@ func (s *Server) answerHand(ctx context.Context, chrome, hand, outcome string, p
 // readHand is what the taf reads of hand, for its grant only: waiting,
 // expired, or the answer, which is then gone (read once).
 func (s *Server) readHand(ctx context.Context, chrome, hand, grant string) (chromeHand, error) {
+	return s.readHandAt(ctx, pkChromeHand(chrome, hand), grant, handOpenFor)
+}
+
+// readHandAt is readHand for the hand-over kept under pk, which waits for
+// the person for openFor.
+func (s *Server) readHandAt(ctx context.Context, pk, grant string, openFor time.Duration) (chromeHand, error) {
 	var h chromeHand
-	it, err := getDoc(ctx, s.KV, pkChromeHand(chrome, hand), "-", &h)
+	it, err := getDoc(ctx, s.KV, pk, "-", &h)
 	if errors.Is(err, errNotFound) || err == nil && h.Grant != grant {
 		return chromeHand{}, errHandUnknown
 	} else if err != nil {
@@ -143,7 +160,7 @@ func (s *Server) readHand(ctx context.Context, chrome, hand, grant string) (chro
 	case h.Outcome != "":
 		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
 		return h, nil
-	case s.now().Sub(h.Opened) >= handOpenFor:
+	case s.now().Sub(h.Opened) >= openFor:
 		_, _, _ = s.KV.Delete(ctx, it.PK, it.SK)
 		h.Outcome = handExpired
 		return h, nil
@@ -218,13 +235,16 @@ func sameHandTarget(prev *chromeRead, a browserArgs, page browser.Page) bool {
 
 // browseHandResult is the person's answer to one of this grant's hand-overs.
 func (s *Server) browseHandResult(ctx context.Context, g *Grant, a browserArgs) (string, any) {
-	if !chromeGrant(g) {
-		return OpNotSent, browserRefusal(CodeBadArguments, browseHandResult+" is the owner's Chrome's only", false)
-	}
 	if a.Hand == "" || a.URL != "" || a.Read != "" || a.Words != "" || len(a.Steps) > 0 || a.Ref != "" || a.Offset != 0 {
 		return OpNotSent, browserRefusal(CodeBadArguments, browseHandResult+" takes hand, the id browse_hand answered, and nothing else", false)
 	}
-	h, err := s.readHand(ctx, g.Request.Browser.Chrome, a.Hand, g.ID)
+	var h chromeHand
+	var err error
+	if chromeGrant(g) {
+		h, err = s.readHand(ctx, g.Request.Browser.Chrome, a.Hand, g.ID)
+	} else {
+		h, err = s.readHostedHand(ctx, g, a.Hand)
+	}
 	if errors.Is(err, errHandUnknown) {
 		return OpNotSent, browserRefusal(CodeBadArguments, "no hand-over "+a.Hand+" of this connection (or its answer was read already)", false)
 	} else if err != nil {
