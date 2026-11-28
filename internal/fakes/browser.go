@@ -268,6 +268,16 @@ func (s *browserSession) Do(_ context.Context, step browser.Step) (browser.Page,
 
 func (s *browserSession) ID() string { return s.id }
 
+// Look is the page the session shows now.
+func (s *browserSession) Look(context.Context) (browser.Page, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if s.closed {
+		return browser.Page{}, errors.New("the session is closed")
+	}
+	return browser.Mask(s.page, 0), nil
+}
+
 func (s *browserSession) Screenshot(context.Context) ([]byte, error) {
 	return []byte("\x89PNG " + s.page.URL), nil
 }

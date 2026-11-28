@@ -101,6 +101,10 @@ type Server struct {
 	// connection approved before keeps its tools. On in production unless
 	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
+	// HostedHand offers the hand-over's two tools on the hosted browser's
+	// new connections ("Your turn" through the live view, hosted_hand.go).
+	// Off unless PLANQUE_HOSTED_HAND=on (cmd/planque).
+	HostedHand bool
 	// SealedFill takes a sealed fill in the owner's Chrome: the gateway's
 	// describe of it, and its act with the phone's release (chrome_sealed.go).
 	// Off unless PLANQUE_SEALED_FILL=on (cmd/planque); off, every sealed step
@@ -318,6 +322,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/accounts/{tenant}/grants/{id}", s.signedSafe(s.disconnect))
 	// The live sign-in view of a browser grant (kiff/planque#86, step 4).
 	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/sign-in", s.signed(s.startBrowserSignIn))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/hands/{hand}/view", s.signed(s.startHandView))
+	mux.HandleFunc("POST /v1/accounts/{tenant}/grants/{id}/hands/{hand}/decline", s.signed(s.declineHand))
 	mux.HandleFunc("GET /browser/view/{token}", s.browserView)
 	mux.HandleFunc("POST /browser/view/{token}/frame", s.browserViewFrame)
 	mux.HandleFunc("POST /browser/view/{token}/input", s.browserViewInput)
