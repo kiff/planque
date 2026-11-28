@@ -77,10 +77,58 @@ type Link struct {
 
 // Checkout is a checkout page as read: the lines, the total and the
 // currency, as the page shows them. Total is a decimal string ("12.50").
+// Shipping, Tax, Merchant and Delivery are what a purchase case is built
+// from beside them, each only as the page states it: empty when it
+// doesn't, never guessed.
 type Checkout struct {
 	Lines    []Line `json:"lines"`
 	Total    string `json:"total"`
 	Currency string `json:"currency"`
+	// Shipping and Tax are decimal strings in Currency, from one row
+	// each that names them; empty when there's none, or more than one.
+	Shipping string `json:"shipping,omitempty"`
+	Tax      string `json:"tax,omitempty"`
+	// Merchant is the shop as the page names itself (its structured
+	// data, or its site name).
+	Merchant *Merchant `json:"merchant,omitempty"`
+	// Delivery is the delivery address in the page's address fields
+	// (billing ones left out) or its structured address; nil when the
+	// page has neither, or two that differ.
+	Delivery *Address `json:"delivery,omitempty"`
+	// StripeProfile is the seller's Stripe profile, as the merchant's own
+	// UCP profile on StripeProfileFrom (the checkout page's host) names
+	// it: what a shared payment token is scoped to. Set by planque, never
+	// by a page's read.
+	StripeProfile     string `json:"stripe_profile,omitempty"`
+	StripeProfileFrom string `json:"stripe_profile_from,omitempty"`
+}
+
+// Merchant is the shop as its page names itself. Country is a two-letter
+// code, only when the page's structured data gives one.
+type Merchant struct {
+	Name    string `json:"name,omitempty"`
+	Country string `json:"country,omitempty"`
+}
+
+// Address is a delivery address, in the purchase case's shape
+// (contracts/purchase.json, case.delivery).
+type Address struct {
+	Name       string `json:"name"`
+	Line1      string `json:"line1"`
+	Line2      string `json:"line2"`
+	PostalCode string `json:"postal_code"`
+	City       string `json:"city"`
+	Region     string `json:"region"`
+	Country    string `json:"country"`
+}
+
+// deref is *p, or the zero value for nil: an absent part equals an empty one.
+func deref[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
 }
 
 // Line is one item in a checkout.
@@ -90,9 +138,11 @@ type Line struct {
 	Price    string `json:"price"`
 }
 
-// Same says two checkouts show the same lines, total and currency.
+// Same says two checkouts show the same lines, total and currency, and
+// the same shipping, tax, merchant and delivery address.
 func (c Checkout) Same(o Checkout) bool {
-	if c.Total != o.Total || c.Currency != o.Currency || len(c.Lines) != len(o.Lines) {
+	if c.Total != o.Total || c.Currency != o.Currency || len(c.Lines) != len(o.Lines) ||
+		c.Shipping != o.Shipping || c.Tax != o.Tax || c.StripeProfile != o.StripeProfile || deref(c.Merchant) != deref(o.Merchant) || deref(c.Delivery) != deref(o.Delivery) {
 		return false
 	}
 	for i := range c.Lines {
