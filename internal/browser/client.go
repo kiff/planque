@@ -115,6 +115,14 @@ func (r *remote) Input(ctx context.Context, in Input) error {
 	return r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/input", map[string]any{"input": in}, nil)
 }
 
+func (r *remote) Look(ctx context.Context) (Page, error) {
+	var out struct {
+		Page Page `json:"page"`
+	}
+	err := r.c.do(ctx, http.MethodPost, "/sessions/"+r.id+"/page", nil, &out)
+	return Mask(out.Page, 0), err
+}
+
 func (r *remote) Downloads(ctx context.Context) ([]Download, error) {
 	var out struct {
 		Downloads []Download `json:"downloads"`
