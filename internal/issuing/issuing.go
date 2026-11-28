@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +40,9 @@ type Case struct {
 	MaxAmount int64  `json:"max_amount"`
 	Currency  string `json:"currency"`
 	// Categories are Stripe's merchant categories the card may be used at:
-	// the case's merchant's.
+	// the Card's allowed ones. None: the card is blocked from the high-risk
+	// categories only (HighRisk), and the live authorization's exact shop
+	// match is the fence. A high-risk category is never allowed.
 	Categories []string  `json:"categories"`
 	Expires    time.Time `json:"expires_at"`
 }
@@ -62,6 +65,18 @@ var (
 	ErrNotReady = errors.New("the purchase case is not an approved one this card can be made for")
 )
 
+// HighRisk are the merchant categories no purchase card may ever be used
+// at, whatever the Card allows: cash, quasi-cash and money transfer
+// (crypto purchases are coded as non-financial money orders), and
+// gambling. A card that leaks can't become cash. Stripe's names
+// (docs.stripe.com/api/issuing/cards/create, spending_controls).
+var HighRisk = []string{
+	"automated_cash_disburse", "manual_cash_disburse",
+	"financial_institutions", "non_fi_money_orders", "non_fi_stored_value_card_purchase_load", "wires_money_orders",
+	"betting_casino_gambling", "government_licensed_online_casions_online_gambling_us_region_only",
+	"government_licensed_horse_dog_racing_us_region_only", "government_owned_lotteries_non_us_region", "government_owned_lotteries_us_region_only",
+}
+
 var (
 	currencyCode = regexp.MustCompile(`^[a-z]{3}$`)
 	categoryName = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
@@ -79,8 +94,6 @@ func (c Case) Check(now time.Time) error {
 		return fmt.Errorf("%w: its maximum amount is not above zero", ErrNotReady)
 	case !currencyCode.MatchString(c.Currency):
 		return fmt.Errorf("%w: its currency is not a three-letter code in lower case", ErrNotReady)
-	case len(c.Categories) == 0:
-		return fmt.Errorf("%w: it names no merchant category, and a card is never left open to every one", ErrNotReady)
 	case !c.Expires.After(now):
 		return fmt.Errorf("%w: it has ended", ErrNotReady)
 	case c.Expires.Sub(now) > MaxWindow:
@@ -89,6 +102,9 @@ func (c Case) Check(now time.Time) error {
 	for _, cat := range c.Categories {
 		if !categoryName.MatchString(cat) {
 			return fmt.Errorf("%w: %q is not a merchant category name", ErrNotReady, cat)
+		}
+		if slices.Contains(HighRisk, cat) {
+			return fmt.Errorf("%w: it allows %s, and a purchase card never opens cash, money transfer or gambling", ErrNotReady, cat)
 		}
 	}
 	return nil
@@ -130,9 +146,21 @@ func (cl *Client) form(c Case, permit string) url.Values {
 	f.Set("spending_controls[spending_limits][0][interval]", "per_authorization")
 	f.Set("spending_controls[spending_limits][1][amount]", max)
 	f.Set("spending_controls[spending_limits][1][interval]", "all_time")
-	for i, cat := range c.Categories {
-		f.Set(fmt.Sprintf("spending_controls[allowed_categories][%d]", i), cat)
+	// Stripe takes allowed or blocked categories, never both: an allowed
+	// list already blocks every other category, high-risk ones included
+	// (Check refuses them in it); with none, the high-risk ones are blocked.
+	if len(c.Categories) > 0 {
+		for i, cat := range c.Categories {
+			f.Set(fmt.Sprintf("spending_controls[allowed_categories][%d]", i), cat)
+		}
+	} else {
+		for i, cat := range HighRisk {
+			f.Set(fmt.Sprintf("spending_controls[blocked_categories][%d]", i), cat)
+		}
 	}
+	// Stripe cancels the card itself after its first payment (a non-zero
+	// authorization), whatever planque does next (T2.2).
+	f.Set("lifecycle_controls[cancel_after][payment_count]", "1")
 	f.Set("metadata[case]", c.ID)
 	f.Set("metadata[case_version]", strconv.Itoa(c.Version))
 	f.Set("metadata[permit]", permit)
@@ -153,35 +181,73 @@ func (cl *Client) Create(ctx context.Context, c Case, permit string, now time.Ti
 	return raw.card(), nil
 }
 
-// Cancel cancels card id for good. A card already canceled is done.
+// Cancel cancels card id for good. A card already canceled is done: when
+// Stripe refuses the change, the card is read, and a canceled one counts
+// as canceled.
 func (cl *Client) Cancel(ctx context.Context, id string) error {
 	f := url.Values{}
 	f.Set("status", "canceled")
 	var raw stripeCard
-	return cl.do(ctx, http.MethodPost, "/v1/issuing/cards/"+url.PathEscape(id), f, "", &raw)
+	err := cl.do(ctx, http.MethodPost, "/v1/issuing/cards/"+url.PathEscape(id), f, "", &raw)
+	if err == nil {
+		return nil
+	}
+	if card, gerr := cl.Get(ctx, id); gerr == nil && card.Status == "canceled" {
+		return nil
+	}
+	return err
 }
 
-// Active lists the cardholder's active cards, newest first, up to limit
-// (at most 100): what the sweep checks against planque's records.
-func (cl *Client) Active(ctx context.Context, limit int) ([]Card, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 100
+// Get reads card id: its status, case and limit, never its number.
+func (cl *Client) Get(ctx context.Context, id string) (Card, error) {
+	var raw stripeCard
+	if err := cl.do(ctx, http.MethodGet, "/v1/issuing/cards/"+url.PathEscape(id), nil, "", &raw); err != nil {
+		return Card{}, err
 	}
-	q := url.Values{}
-	q.Set("status", "active")
-	q.Set("cardholder", cl.Cardholder)
-	q.Set("limit", strconv.Itoa(limit))
-	var page struct {
-		Data []stripeCard `json:"data"`
+	return raw.card(), nil
+}
+
+// maxPages bounds how many pages Active reads.
+const maxPages = 50
+
+// ErrTooManyCards: more active cards than Active reads; the sweep reports
+// it rather than treat a partial list as the whole.
+var ErrTooManyCards = errors.New("issuing: more active cards than one sweep reads")
+
+// Active lists every active card of the cardholder, newest first, pages of
+// pageSize (at most 100) followed to the end: what the sweep checks
+// against planque's records. The cards read before an error are returned
+// with it.
+func (cl *Client) Active(ctx context.Context, pageSize int) ([]Card, error) {
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 100
 	}
-	if err := cl.do(ctx, http.MethodGet, "/v1/issuing/cards?"+q.Encode(), nil, "", &page); err != nil {
-		return nil, err
+	var out []Card
+	after := ""
+	for range maxPages {
+		q := url.Values{}
+		q.Set("status", "active")
+		q.Set("cardholder", cl.Cardholder)
+		q.Set("limit", strconv.Itoa(pageSize))
+		if after != "" {
+			q.Set("starting_after", after)
+		}
+		var page struct {
+			Data    []stripeCard `json:"data"`
+			HasMore bool         `json:"has_more"`
+		}
+		if err := cl.do(ctx, http.MethodGet, "/v1/issuing/cards?"+q.Encode(), nil, "", &page); err != nil {
+			return out, err
+		}
+		for _, r := range page.Data {
+			out = append(out, r.card())
+		}
+		if !page.HasMore || len(page.Data) == 0 {
+			return out, nil
+		}
+		after = page.Data[len(page.Data)-1].ID
 	}
-	out := make([]Card, 0, len(page.Data))
-	for _, r := range page.Data {
-		out = append(out, r.card())
-	}
-	return out, nil
+	return out, ErrTooManyCards
 }
 
 // stripeCard is the fields of Stripe's card object planque reads. It has no
