@@ -5,6 +5,8 @@ version headings refer to releases, not merely to merged pull requests.
 
 ## Unreleased
 
+- **Qonto by key is withdrawn.** Qonto connects only through its own sign-in, so its key entries, `qonto-key@1` and `qonto-key@2`, are offered to no account, the test accounts included: not listed in the catalog, not found by the tool search, and a new grant for either is refused as an entry that doesn't exist (404). A catalog entry can now carry `withdrawn: true` for this. Both entries stay in the catalog, so a grant made by key before keeps working, with the same checks, until it's ended. The Qonto guide tells Coach never to propose a key. **Compatibility:** a request for either entry that was accepted before is now refused; existing grants are unchanged.
+
 - **A grant keeps the chat that asked for it, and a chat's delete can read which agents it asked for.** Every request (by server, key, catalog entry, managed app or browser, and a reused managed sign-in) takes an optional `session`: the chat's id as the agents runtime's runner gives it, 1 to 128 letters, digits, `-` or `_` (anything else is refused before a grant is made). planque keeps it beside the grant (`asked_in`), never in its request, so no request served and no digest signed carries it, and clears it whenever the grant is saved ended or failed. `GET /v1/accounts/{tenant}/sessions/{session}/agents` answers, for any of the account's keys or sessions, the agents of that chat's grants that haven't ended or failed, each with its status and the day it was asked: no grant id, token, tool or argument. tafs cloud reads it when a chat is deleted, to end what that chat asked for that no taf uses. **Compatibility:** a request without `session` is as before.
 
 ### Added

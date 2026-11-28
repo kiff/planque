@@ -87,6 +87,12 @@ and schema constants remain part of the fingerprint.
 
 ## Qonto by key
 
+**Withdrawn.** Qonto connects only through its own sign-in, so both key entries, `qonto-key@1`
+and `qonto-key@2`, are `withdrawn` in `deploy/catalog.json`: offered to no account, the test
+accounts included. Neither is listed, found by the tool search or accepted for a new grant (404,
+as an entry that doesn't exist). Both stay in the catalog, so a grant made before keeps working
+until it's ended, and its checks below still apply. What follows describes them for those grants.
+
 Qonto's MCP server can't take planque's callback yet, so Qonto also connects
 by key through the reviewed catalog entry `qonto-key@1` (`deploy/catalog.json`):
 

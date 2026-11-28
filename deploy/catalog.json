@@ -1322,6 +1322,7 @@
     "vendor": "Pipedrive"
   },
   "qonto-key@1": {
+    "withdrawn": true,
     "api": {
       "auth": {
         "in": "header",
@@ -1447,6 +1448,7 @@
     "vendor": "Qonto"
   },
   "qonto-key@2": {
+    "withdrawn": true,
     "api": {
       "auth": {
         "in": "header",
