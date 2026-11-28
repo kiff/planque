@@ -67,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /sessions/{id}/screenshot", s.keyed(s.screenshot))
 	mux.HandleFunc("POST /sessions/{id}/input", s.keyed(s.input))
 	mux.HandleFunc("POST /sessions/{id}/frame", s.keyed(s.frame))
+	mux.HandleFunc("POST /sessions/{id}/page", s.keyed(s.look))
 	mux.HandleFunc("DELETE /sessions/{id}", s.keyed(s.close))
 	return mux
 }
@@ -287,6 +288,26 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jpeg": jpeg})
+}
+
+// look is the page the session shows now, read without acting.
+func (s *Server) look(w http.ResponseWriter, r *http.Request) {
+	h, ok := s.take(w, r)
+	if !ok {
+		return
+	}
+	defer s.release(h)
+	l, ok := h.sess.(browser.Looker)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "this session can't read its page")
+		return
+	}
+	p, err := l.Look(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"page": p})
 }
 
 func (s *Server) close(w http.ResponseWriter, r *http.Request) {

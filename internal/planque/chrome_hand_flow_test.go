@@ -38,7 +38,9 @@ func TestTheHandOverIsOfferedOnlyWithTheOwnersChromeOnceItsOn(t *testing.T) {
 		t.Fatal("hand tools in a hosted grant")
 	}
 	st, out = c.ask(map[string]any{"browser": map[string]any{"sites": []string{"shop.example"}}, "tools": []any{map[string]any{"tool": browseHandResult}}})
-	if st != 400 || !strings.Contains(out["error"].(string), "owner's Chrome's only") {
+	// With the hosted hand-over off (PLANQUE_HOSTED_HAND), a hosted grant
+	// doesn't get them (hosted_hand_test.go has it on).
+	if st != 400 || !strings.Contains(out["error"].(string), "isn't offered in the hosted browser") {
 		t.Fatalf("asked for a hosted browser: %d %v", st, out)
 	}
 }

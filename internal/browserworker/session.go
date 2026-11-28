@@ -457,6 +457,16 @@ func (s *session) Do(ctx context.Context, step browser.Step) (browser.Page, erro
 	return s.page(ctx)
 }
 
+// Look is the page as it is now, read without acting (browser.Looker).
+func (s *session) Look(ctx context.Context) (browser.Page, error) {
+	if s.closed {
+		return browser.Page{}, errors.New("the session is closed")
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.wait)
+	defer cancel()
+	return s.page(ctx)
+}
+
 // Screenshot is the page as shown, PNG.
 func (s *session) Screenshot(ctx context.Context) ([]byte, error) {
 	if s.closed {
