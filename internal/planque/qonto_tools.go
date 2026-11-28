@@ -243,7 +243,7 @@ func (s *Server) signedInCountry(ctx context.Context, g *Grant, access string) s
 	if s.MCP == nil {
 		return ""
 	}
-	res, err := s.callServed(ctx, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
+	res, err := s.callServed(ctx, g.Tenant, g.Request.Server, access, qontoOrganizationTool, json.RawMessage(`{}`))
 	if err != nil {
 		s.log().WarnContext(ctx, "the sign-in's organisation couldn't be read", slog.String("grant", g.ID), slog.String("err", err.Error()))
 		g.event(s.now(), "couldn't read the organisation's country")
