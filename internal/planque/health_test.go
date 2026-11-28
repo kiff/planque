@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kiff/planque/internal/browser"
+	"github.com/kiff/planque/internal/kiff"
 )
 
 // healthEnv is the browser env with shop.example's fixed page reviewed, and
@@ -222,5 +223,23 @@ func TestOnlyTheConnectionsTafOrItsAskerRunsTheCheck(t *testing.T) {
 	}
 	if st, _ := e.health(g, "POST"); st != 200 || len(e.b.Checks) != 1 {
 		t.Fatalf("the agent that asked: %d", st)
+	}
+}
+
+// A person's own session on the account (no agent) reads a connection's
+// sign-in health, for what the owner sees in the apps, and runs no check.
+func TestAPersonsSessionReadsTheSignInHealthAndRunsNone(t *testing.T) {
+	e, g := healthEnv(t)
+	e.signIn(g, time.Now().Add(48*time.Hour))
+	e.kiff.Keys["s_owner"] = kiff.Me{TenantID: tenant, DeviceSession: true, DevicePlatform: "ios", DeviceID: "dev_phone", Capabilities: []string{"read"}}
+	if st, out := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_owner"); st != 200 || siteOf(t, out)["site"] != "shop.example" {
+		t.Fatalf("the owner's session read: %d %v", st, out)
+	}
+	if st, _ := e.do("POST", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_owner"); st != 403 || len(e.b.Checks) != 0 {
+		t.Fatalf("the owner's session ran a check: %d, %d checks", st, len(e.b.Checks))
+	}
+	e.kiff.Keys["s_elsewhere"] = kiff.Me{TenantID: "tnt_other", DeviceSession: true, DevicePlatform: "ios", DeviceID: "dev_x", Capabilities: []string{"read"}}
+	if st, _ := e.do("GET", "/v1/accounts/"+tenant+"/grants/"+g.ID+"/health", nil, nil, "s_elsewhere"); st == 200 {
+		t.Fatal("another account's session read it")
 	}
 }
