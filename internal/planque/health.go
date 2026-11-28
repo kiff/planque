@@ -25,11 +25,18 @@ import (
 //go:embed health_pages.json
 var healthPagesJSON []byte
 
+// HealthPage is one site's reviewed fixed page: its https URL, and words
+// only a signed-in visitor sees on it, the proof a check reads signed in by.
+type HealthPage struct {
+	URL   string `json:"url"`
+	Shows string `json:"shows"`
+}
+
 // ReviewedHealthPages is the reviewed list of each site's fixed page
 // (health_pages.json): a site not on it has no check.
-func ReviewedHealthPages() map[string]string {
+func ReviewedHealthPages() map[string]HealthPage {
 	var f struct {
-		Pages map[string]string `json:"pages"`
+		Pages map[string]HealthPage `json:"pages"`
 	}
 	if err := json.Unmarshal(healthPagesJSON, &f); err != nil {
 		panic("health_pages.json: " + err.Error())
@@ -106,7 +113,7 @@ func (s *Server) grantHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) siteHealth(ctx context.Context, g *Grant, site string, run bool) healthSite {
 	out := healthSite{Site: site, Verdict: browser.HealthUnknown}
 	page := s.HealthPages[site]
-	if page == "" {
+	if page.URL == "" || strings.TrimSpace(page.Shows) == "" {
 		out.Why = "no reviewed page for this site"
 		return out
 	}
@@ -140,7 +147,7 @@ func (s *Server) siteHealth(ctx context.Context, g *Grant, site string, run bool
 // there's nothing to open: signed out. A check that can't run or can't tell
 // keeps "unknown" and waits healthBackoff. A signed-in check's cookies are
 // sealed as a session's are, only over the state it started from.
-func (s *Server) runHealth(ctx context.Context, g *Grant, site, page string, state []byte, from int64) healthRecord {
+func (s *Server) runHealth(ctx context.Context, g *Grant, site string, page HealthPage, state []byte, from int64) healthRecord {
 	now := s.now().UTC()
 	rec := healthRecord{Verdict: browser.HealthUnknown, CheckedAt: now}
 	checker, ok := s.Browser.(browser.HealthChecker)
@@ -156,7 +163,7 @@ func (s *Server) runHealth(ctx context.Context, g *Grant, site, page string, sta
 			// the next ask runs it.
 			return healthRecord{Verdict: browser.HealthUnknown, CheckedAt: now}
 		}
-		res, err := checker.Health(ctx, browser.HealthCheck{Grant: g.ID, State: state, Site: site, URL: page})
+		res, err := checker.Health(ctx, browser.HealthCheck{Grant: g.ID, State: state, Site: site, URL: page.URL, Shows: page.Shows})
 		s.dropBrowserLease(context.WithoutCancel(ctx), lease)
 		switch {
 		case err != nil:
@@ -176,7 +183,7 @@ func (s *Server) runHealth(ctx context.Context, g *Grant, site, page string, sta
 	if err := putDoc(ctx, s.KV, store.Item{PK: tenantPK(g.Tenant), SK: skHealth(g.ID, site), TTL: now.Add(healthEvery + healthBackoff + time.Hour).Unix()}, rec, store.Cond{}); err != nil {
 		s.log().WarnContext(ctx, "sign-in check not kept", slog.String("grant", g.ID), slog.String("site", site), slog.String("err", err.Error()))
 	}
-	s.log().InfoContext(ctx, "sign-in checked", slog.String("grant", g.ID), slog.String("site", site), slog.String("page_host", hostOfURL(page)), slog.String("verdict", rec.Verdict))
+	s.log().InfoContext(ctx, "sign-in checked", slog.String("grant", g.ID), slog.String("site", site), slog.String("page_host", hostOfURL(page.URL)), slog.String("verdict", rec.Verdict))
 	return rec
 }
 

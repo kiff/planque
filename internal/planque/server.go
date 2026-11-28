@@ -204,7 +204,7 @@ type Server struct {
 	// HealthPages are the reviewed fixed pages of the sign-in health check,
 	// by site (health_pages.json, ReviewedHealthPages): a site not listed
 	// has no check.
-	HealthPages map[string]string
+	HealthPages map[string]HealthPage
 	// BrowserPay turns paying on in the hosted browser (PLANQUE_BROWSER_PAY
 	// on): browse_pay is offered and runs, held for the owner each time. Off
 	// (the default), the hosted browser reads, fills and clicks, but pays

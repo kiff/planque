@@ -86,11 +86,12 @@ func signedInState(t *testing.T, s *httptest.Server) []byte {
 	return raw
 }
 
-// A health check reads the verdict, signed in where the fixed page shows,
-// signed out where it's sent to a page asking for a password, whether by
-// redirect or by script, and never lets a request that isn't a GET or HEAD
-// leave the browser: a page that tries to post, beacon and submit on load
-// reaches the site with none of them.
+// A health check reads the verdict: signed in where the fixed page shows the
+// signed-in words, signed out where it's redirected to a page asking for a
+// password, and unknown where it can't tell. It runs no page script, and no
+// request that isn't a GET or HEAD leaves the browser: a page that tries to
+// post, beacon, open sockets, start workers and submit on load reaches the
+// site with none of them.
 func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 	w := worker(t)
 	s, writes, workers, sockets := healthSite(t)
@@ -98,7 +99,7 @@ func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 	ctx := context.Background()
 	check := func(path string, state []byte) browser.HealthResult {
 		t.Helper()
-		res, err := w.Health(ctx, browser.HealthCheck{Grant: "grt_test", State: state, Site: host, URL: s.URL + path})
+		res, err := w.Health(ctx, browser.HealthCheck{Grant: "grt_test", State: state, Site: host, URL: s.URL + path, Shows: "Your account"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,8 +116,14 @@ func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 	if r := check("/account", nil); r.Verdict != browser.HealthSignedOut || r.State != nil {
 		t.Fatalf("redirected to sign in: %+v", r)
 	}
-	if r := check("/account-js", nil); r.Verdict != browser.HealthSignedOut {
-		t.Fatalf("sent to sign in by script: %+v", r)
+	// A site that sends a signed-out visitor away only by script: the check
+	// runs no page script, so it can't follow, and without the signed-in words
+	// it reads unknown, never signed in. Signed in, the server's own page shows them.
+	if r := check("/account-js", nil); r.Verdict != browser.HealthUnknown {
+		t.Fatalf("sent away by script, which a check never runs: %+v", r)
+	}
+	if r := check("/account-js", signedInState(t, s)); r.Verdict != browser.HealthSignedIn {
+		t.Fatalf("signed in, by script-free proof: %+v", r)
 	}
 	r = check("/trap", signedInState(t, s))
 	// No worker started (a check has none: a socket in a worker isn't blocked
@@ -128,9 +135,11 @@ func TestAHealthCheckReadsTheVerdictAndNeverWrites(t *testing.T) {
 	if writes.Load() != 0 || sockets.Load() != 0 {
 		t.Fatalf("%d requests that write and %d sockets reached the site", writes.Load(), sockets.Load())
 	}
-	if r.Blocked == 0 {
-		t.Fatalf("the trap's writes weren't failed: %+v", r)
-	}
+	// With no page script, the trap's script never runs at all: nothing is
+	// even tried. The control (TestTheHealthTrapWorksOutsideACheck) shows it
+	// would, and TestAHealthChecksLowerLayersHoldWithoutItsScript that the
+	// layers under the script hold by themselves.
+	_ = r
 	if w.Open() != 0 {
 		t.Fatalf("%d sessions left open", w.Open())
 	}
@@ -156,5 +165,22 @@ func TestTheHealthTrapWorksOutsideACheck(t *testing.T) {
 	}
 	if sockets.Load() == 0 || workers.Load() == 0 {
 		t.Fatalf("outside a check, sockets %d and workers %d: the check's test would prove nothing", sockets.Load(), workers.Load())
+	}
+}
+
+// The layers under the document script hold by themselves: with the script
+// left out (so the page keeps WebSocket and Worker), the trap's socket is
+// still blocked at the network layer, and its workers are closed at the
+// target before they run. Nothing that would write reaches the site.
+func TestAHealthChecksLowerLayersHoldWithoutItsScript(t *testing.T) {
+	w := worker(t)
+	w.healthNoDocScript = true
+	s, writes, workers, sockets := healthSite(t)
+	host := func() string { u, _ := url.Parse(s.URL); return u.Hostname() }()
+	if _, err := w.Health(context.Background(), browser.HealthCheck{Grant: "grt_test", State: signedInState(t, s), Site: host, URL: s.URL + "/trap", Shows: "Your account"}); err != nil {
+		t.Fatal(err)
+	}
+	if writes.Load() != 0 || sockets.Load() != 0 || workers.Load() != 0 {
+		t.Fatalf("without the script: %d writes, %d sockets, %d workers reached the site", writes.Load(), sockets.Load(), workers.Load())
 	}
 }

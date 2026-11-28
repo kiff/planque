@@ -64,6 +64,9 @@ type Local struct {
 	mu   sync.Mutex
 	open map[string]*session
 	seq  int
+	// healthNoDocScript leaves out a health check's document script, for a
+	// test that proves the target and network layers hold by themselves.
+	healthNoDocScript bool
 }
 
 // ErrBusy: the worker runs its most sessions already.
@@ -140,7 +143,7 @@ func (l *Local) start(ctx context.Context, start browser.Start, health bool) (*s
 		l.forget(id)
 		return nil, err
 	}
-	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger, id: id, owner: l, health: health}
+	s := &session{c: c, proxy: p, wait: l.NavigateWait, logger: l.Logger, id: id, owner: l, health: health, noDocScript: l.healthNoDocScript}
 	if s.wait == 0 {
 		s.wait = 20 * time.Second
 	}
@@ -169,8 +172,9 @@ type session struct {
 	dl *downloads
 	// health: a sign-in health check's session (health.go). blocked counts
 	// the requests it failed for not being a GET or HEAD.
-	health  bool
-	blocked atomic.Int64
+	health      bool
+	noDocScript bool
+	blocked     atomic.Int64
 }
 
 // state is a session's storage state: its cookies, as the browser gives
@@ -229,13 +233,19 @@ func (s *session) attach(ctx context.Context, kept []byte, allowDownloads bool) 
 		// child target as it attaches (armChild), goes through readOnly. No
 		// service worker can be registered (the profile is fresh, so none is
 		// there to begin with), and the page's requests bypass any.
-		if err := s.c.call(ctx, s.sid, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil); err != nil {
+		// The page's own script never runs in a check: nothing on it can open
+		// a socket (whose messages no interception sees, and which no URL block
+		// stops, measured), start a worker, post or submit. planque reads the
+		// page through CDP, not the page's script.
+		if err := s.c.call(ctx, s.sid, "Emulation.setScriptExecutionDisabled", map[string]any{"value": true}, nil); err != nil {
 			return err
+		}
+		if !s.noDocScript {
+			if err := s.c.call(ctx, s.sid, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil); err != nil {
+				return err
+			}
 		}
 		if err := s.c.call(ctx, s.sid, "Network.setBypassServiceWorker", map[string]any{"bypass": true}, nil); err != nil {
-			return err
-		}
-		if err := s.blockSockets(ctx, s.sid); err != nil {
 			return err
 		}
 		s.c.handle(s.readOnly)

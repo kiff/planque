@@ -15,7 +15,7 @@ import (
 func healthEnv(t *testing.T) (*browserEnv, *Grant) {
 	t.Helper()
 	e := newBrowserEnv(t)
-	e.s.HealthPages = map[string]string{"shop.example": "https://shop.example/account"}
+	e.s.HealthPages = map[string]HealthPage{"shop.example": {URL: "https://shop.example/account", Shows: "Signed in as"}}
 	return e, e.connect()
 }
 
@@ -54,7 +54,7 @@ func TestASignInIsCheckedAtMostOnceADay(t *testing.T) {
 	if st != 200 || site["site"] != "shop.example" || site["verdict"] != browser.HealthSignedIn || site["checked_at"] == nil || site["expires_at"] != ends.Format(time.RFC3339) {
 		t.Fatalf("check: %d %v", st, out)
 	}
-	if len(e.b.Checks) != 1 || e.b.Checks[0].URL != "https://shop.example/account" || e.b.Checks[0].Site != "shop.example" {
+	if len(e.b.Checks) != 1 || e.b.Checks[0].URL != "https://shop.example/account" || e.b.Checks[0].Shows != "Signed in as" || e.b.Checks[0].Site != "shop.example" {
 		t.Fatalf("the worker was asked: %+v", e.b.Checks)
 	}
 	if state, _, _ := e.s.openBrowserState(context.Background(), g); !strings.Contains(string(state), "signed-in-rotated") {
@@ -149,8 +149,8 @@ func TestTheReviewedHealthPagesRead(t *testing.T) {
 		t.Fatal("the review rule isn't in health_pages.json")
 	}
 	for site, page := range ReviewedHealthPages() {
-		if !strings.HasPrefix(page, "https://"+site+"/") {
-			t.Fatalf("%s's page %s isn't an https page on it", site, page)
+		if !strings.HasPrefix(page.URL, "https://"+site+"/") || strings.TrimSpace(page.Shows) == "" {
+			t.Fatalf("%s's page %+v isn't an https page on it with its signed-in words", site, page)
 		}
 	}
 }

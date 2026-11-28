@@ -487,19 +487,24 @@ The check runs on its own worker route (`POST /health`), never as a taf's sessio
 - it takes no input, runs no step, fills and submits nothing;
 - every request that isn't a GET or HEAD is failed in the browser before it leaves (CDP `Fetch`), the page's own script, its frames and its workers included;
 - no service worker can be registered, and the page's requests bypass any;
-- no socket opens: `WebSocket` and `WebTransport` are taken away in its documents, socket addresses (`ws://`, `wss://`) are blocked on every target, and no worker runs: the constructors are taken away, and any worker target, however made, is closed before it runs (a socket in a worker isn't blocked by address); WebRTC is gone, as in every session;
+- **it runs no page script** (CDP `Emulation.setScriptExecutionDisabled`, on the page and every frame), so nothing on the page can open a socket, start a worker, post or submit; planque reads the page through CDP, not the page's script. As second layers, its documents have `WebSocket`, `WebTransport`, `Worker` and `SharedWorker` taken away, and any worker target is closed before it runs. A URL block doesn't stop a socket (measured), so none is relied on; WebRTC is gone, as in every session;
 - the egress holds it to the one site, and downloads are denied.
 
-It follows the site's own redirects and scripts to read where a signed-out
-visitor is sent. A page asking for a password reads `signed_out`; the fixed
-page's own address with none reads `signed_in`; anything else reads `unknown`,
-and a check that can't run or tell waits six hours. A signed-in check's cookies,
+It follows the site's own redirects to read where a signed-out visitor is sent.
+A page asking for a password reads `signed_out`. It reads `signed_in` only on the
+fixed page's own address, with no password field, showing the entry's `shows`
+words, which only a signed-in visitor sees (read there, never kept). Anything
+else reads `unknown`, so a site that sends a signed-out visitor away only by
+script reads `unknown`, never signed in. A check that can't run or tell waits
+six hours. A signed-in check's cookies,
 which many sites rotate on each visit, are sealed as a session's are, only over
 the state it started from. A signed-out verdict is for the owner's own step;
 planque never signs in for them.
 
-Each page on the list is reviewed: opening it must change nothing on the
-account, it's never a page that pays, and its own scripts don't act on load. A site not on the list has no check.
+Each page on the list (`{url, shows}`) is reviewed: opening it must change
+nothing on the account, it's never a page that pays, and its own scripts don't
+act on load. The server itself must show the `shows` words to a signed-in
+visitor and redirect a signed-out one, since a check runs no page script. A site not on the list has no check.
 
 ### "Your turn" in the hosted browser
 

@@ -372,7 +372,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 // and only the verdict comes back.
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	var in browser.HealthCheck
-	if err := decode(r, &in); err != nil || in.Site == "" || in.URL == "" {
+	if err := decode(r, &in); err != nil || in.Site == "" || in.URL == "" || strings.TrimSpace(in.Shows) == "" {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}

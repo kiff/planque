@@ -286,9 +286,12 @@ type HealthCheck struct {
 	Grant string `json:"grant"`
 	// State is the grant's sealed sign-ins, opened, as a session starts with.
 	State []byte `json:"state"`
-	// Site is the one site the check may reach; URL the fixed page on it.
-	Site string `json:"site"`
-	URL  string `json:"url"`
+	// Site is the one site the check may reach; URL the fixed page on it;
+	// Shows, words only a signed-in visitor sees on it, the proof a check
+	// needs to read signed in (read there, never kept).
+	Site  string `json:"site"`
+	URL   string `json:"url"`
+	Shows string `json:"shows"`
 }
 
 // A health check's verdicts.
@@ -315,9 +318,13 @@ type HealthChecker interface {
 }
 
 // HealthVerdict reads a check's verdict from the page it ended on: signed
-// out where the page asks for a password; signed in where it's the fixed
-// page's own address (host and path) and asks for none; otherwise unknown.
-func HealthVerdict(fixed string, p Page) string {
+// out where the page asks for a password; signed in only where it's the
+// fixed page's own address (host and path), asks for none, and shows the
+// words only a signed-in visitor sees (shows); otherwise unknown. Without
+// that proof a page never reads signed in, so a site that sends a
+// signed-out visitor away only by script (which a check never runs) reads
+// unknown, never signed in.
+func HealthVerdict(fixed, shows string, p Page) string {
 	for _, f := range p.Fields {
 		if f.Kind == "password" {
 			return HealthSignedOut
@@ -328,7 +335,8 @@ func HealthVerdict(fixed string, p Page) string {
 	if err1 != nil || err2 != nil || !strings.EqualFold(want.Hostname(), got.Hostname()) {
 		return HealthUnknown
 	}
-	if strings.TrimSuffix(want.Path, "/") == strings.TrimSuffix(got.Path, "/") {
+	if strings.TrimSuffix(want.Path, "/") == strings.TrimSuffix(got.Path, "/") && strings.TrimSpace(shows) != "" &&
+		strings.Contains(strings.ToLower(p.Title+"\n"+p.Text), strings.ToLower(strings.TrimSpace(shows))) {
 		return HealthSignedIn
 	}
 	return HealthUnknown

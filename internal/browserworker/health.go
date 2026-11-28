@@ -11,10 +11,11 @@ import (
 )
 
 // noServiceWorker takes from a health check's documents what its request
-// interception can't see: registering a service worker (whose own requests
-// are outside it), sockets (WebSocket, WebTransport), whose messages never
-// pause, and workers (Worker, SharedWorker), in which a socket isn't blocked
-// by address (measured). A check needs none of them. WebRTC is already gone (noWebRTC). Socket addresses are also
+// interception can't see: registering a service worker, sockets (WebSocket,
+// WebTransport), whose messages never pause, and workers (Worker,
+// SharedWorker). It's a second layer: a check runs no page script at all
+// (Emulation.setScriptExecutionDisabled), and closes any worker target before
+// it runs. A URL block doesn't stop a socket (measured), so none is relied on. WebRTC is already gone (noWebRTC). Socket addresses are also
 // blocked at the network layer (socketBlock), frames and workers included.
 const noServiceWorker = `(() => {
   const refuse = (what) => function () { throw new Error(what + " isn't allowed in a sign-in check"); };
@@ -23,18 +24,6 @@ const noServiceWorker = `(() => {
     try { Object.defineProperty(window, name, {value: refuse(name), configurable: false, writable: false}); } catch (e) {}
   }
 })();`
-
-// socketBlock are the addresses a health session's targets never reach:
-// every socket, whatever its host.
-var socketBlock = []string{"ws://*", "wss://*"}
-
-// blockSockets blocks socket addresses on one of a health session's targets.
-func (s *session) blockSockets(ctx context.Context, sid string) error {
-	if err := s.c.call(ctx, sid, "Network.enable", nil, nil); err != nil {
-		return err
-	}
-	return s.c.call(ctx, sid, "Network.setBlockedURLs", map[string]any{"urls": socketBlock}, nil)
-}
 
 // healthSettle is how long a health check waits, after the page loads, for
 // a site that sends a signed-out visitor to its sign-in page by script.
@@ -75,7 +64,7 @@ func (l *Local) Health(ctx context.Context, check browser.HealthCheck) (browser.
 				p = again
 			}
 		}
-		res.Verdict = browser.HealthVerdict(check.URL, p)
+		res.Verdict = browser.HealthVerdict(check.URL, check.Shows, p)
 	}
 	if res.Verdict == browser.HealthSignedIn {
 		// Only a check that found the sign-in holding gives its cookies
@@ -137,11 +126,11 @@ func (s *session) readOnlyTarget(ctx context.Context, p attachedTarget) bool {
 		return false
 	}
 	err := s.c.call(ctx, p.SessionID, "Fetch.enable", map[string]any{"patterns": []map[string]string{{"urlPattern": "*", "requestStage": "Request"}}}, nil)
-	if err == nil {
-		err = s.blockSockets(ctx, p.SessionID)
-	}
 	if err == nil && (p.TargetInfo.Type == "iframe" || p.TargetInfo.Type == "page") {
-		err = s.c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil)
+		err = s.c.call(ctx, p.SessionID, "Emulation.setScriptExecutionDisabled", map[string]any{"value": true}, nil)
+		if err == nil && !s.noDocScript {
+			err = s.c.call(ctx, p.SessionID, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": noServiceWorker}, nil)
+		}
 	}
 	if err == nil {
 		return true
