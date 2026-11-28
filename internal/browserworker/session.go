@@ -347,6 +347,12 @@ func (s *session) settle(ctx context.Context) error {
 		if err == nil && ev.Result.Value == "complete" {
 			return nil
 		}
+		select {
+		case <-s.c.done:
+			// The browser ended: no retry brings the page back.
+			return errors.New("the browser ended")
+		default:
+		}
 		if time.Now().After(deadline) {
 			if err != nil {
 				return err

@@ -77,9 +77,27 @@ func chromePath(configured string) (string, error) {
 // launch starts a Chromium that goes out only through proxy, with a fresh
 // profile directory it deletes on exit.
 func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, error) {
-	dir, err := os.MkdirTemp("", "planque-browser-")
+	return launchIn(ctx, path, proxy, testCerts, "", "planque-browser-", nil)
+}
+
+// launchIn is launch with the profile under root (empty, the system's
+// temporary directory), its directory named prefix and something random,
+// and prefs, when given, written as the profile's preferences before the
+// browser starts.
+func launchIn(ctx context.Context, path, proxy string, testCerts bool, root, prefix string, prefs []byte, extra ...string) (*chrome, error) {
+	dir, err := os.MkdirTemp(root, prefix)
 	if err != nil {
 		return nil, err
+	}
+	if prefs != nil {
+		if err := os.MkdirAll(filepath.Join(dir, "Default"), 0o700); err != nil {
+			os.RemoveAll(dir)
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "Default", "Preferences"), prefs, 0o600); err != nil {
+			os.RemoveAll(dir)
+			return nil, err
+		}
 	}
 	toChrome, w, err := os.Pipe()
 	if err != nil {
@@ -92,6 +110,10 @@ func launch(ctx context.Context, path, proxy string, testCerts bool) (*chrome, e
 		return nil, err
 	}
 	args := launchArgs(path, dir, proxy)
+	if len(extra) > 0 {
+		// Before the last argument, the first page.
+		args = append(append(args[:len(args)-1:len(args)-1], extra...), args[len(args)-1])
+	}
 	if testCerts {
 		// Tests only: the shop's certificate is a test one.
 		args = append([]string{"--ignore-certificate-errors"}, args...)

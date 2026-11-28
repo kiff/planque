@@ -2,6 +2,7 @@ package cardfill
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -79,5 +80,56 @@ func TestAResultWithACardInItIsDropped(t *testing.T) {
 	}
 	if got, err := (Result{Outcome: "done"}).Clean(); err == nil || got.Outcome != "unknown" {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// The delivery address: the page's address fields when it has them, its
+// text otherwise, folding case, accents and spacing; an empty case refused.
+func TestAddressShown(t *testing.T) {
+	a := Address{Name: "Acme SAS", Line1: "12 rue des Lilas", PostalCode: "69003", City: "Lyon", Country: "FR"}
+	ok := map[string]struct {
+		fields map[string]string
+		text   string
+	}{
+		"text":               {nil, "Deliver to: Acme SAS, 12 RUE DES LILAS, 69003 Lyon, France"},
+		"text, spaced":       {nil, "12,  rue des Lilas\n69003 — Lyon"},
+		"fields":             {map[string]string{"address-line1": "12 rue des Lilas", "postal-code": "69003", "address-level2": "LYON", "country": "fr"}, ""},
+		"fields, no country": {map[string]string{"address-line1": "12 rue des lilas", "postal-code": "69003", "address-level2": "Lyon"}, ""},
+	}
+	for name, c := range ok {
+		if err := AddressShown(a, c.fields, c.text); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	accented := Address{Line1: "3 place de l'Hôtel-de-Ville", PostalCode: "38000", City: "Grenoble"}
+	if err := AddressShown(accented, nil, "3 Place de l Hotel de Ville, 38000 GRENOBLE"); err != nil {
+		t.Errorf("accents and punctuation: %v", err)
+	}
+	bad := map[string]struct {
+		a      Address
+		fields map[string]string
+		text   string
+	}{
+		"another city":           {a, nil, "12 rue des Lilas, 69003 Villeurbanne"},
+		"another postal code":    {a, nil, "12 rue des Lilas, 69007 Lyon"},
+		"a field differs":        {a, map[string]string{"address-line1": "1 avenue Foch", "postal-code": "69003", "address-level2": "Lyon"}, "12 rue des Lilas, 69003 Lyon"},
+		"a field missing":        {a, map[string]string{"postal-code": "69003", "address-level2": "Lyon"}, "12 rue des Lilas, 69003 Lyon"},
+		"another country":        {a, map[string]string{"address-line1": "12 rue des Lilas", "postal-code": "69003", "address-level2": "Lyon", "country": "DE"}, ""},
+		"a case with no address": {Address{}, nil, "anything"},
+	}
+	for name, c := range bad {
+		if err := AddressShown(c.a, c.fields, c.text); !errors.Is(err, ErrAddressNotShown) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// A Card printed by mistake shows no digit.
+func TestCardPrintsNoDigit(t *testing.T) {
+	c := Card{Number: "4242424242424242", ExpMonth: 12, ExpYear: 2034, CVC: "123"}
+	for _, s := range []string{fmt.Sprint(c), fmt.Sprintf("%v %+v %#v %s", c, c, c, c)} {
+		if strings.ContainsAny(s, "0123456789") {
+			t.Errorf("printed: %q", s)
+		}
 	}
 }
