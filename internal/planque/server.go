@@ -105,6 +105,9 @@ type Server struct {
 	// connection approved before keeps its tools. On in production unless
 	// PLANQUE_CHROME_HAND=off (cmd/planque); false in a bare Server.
 	ChromeHand bool
+	// BrowserSessions is how many sessions one account's hosted browser
+	// runs at once (PLANQUE_BROWSER_SESSIONS, 1 to 3; 1 when unset).
+	BrowserSessions int
 	// BrowserDownloads are the accounts whose hosted browser keeps the
 	// files a page gives, in the grant's store (browser_files.go;
 	// PLANQUE_BROWSER_DOWNLOADS=tenants:a,b). None when unset.

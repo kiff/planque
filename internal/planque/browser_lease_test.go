@@ -257,3 +257,45 @@ func TestAnApprovedCallsWaitLeavesTheRunItsTime(t *testing.T) {
 		}
 	}
 }
+
+// An account may run two or three sessions at once when set
+// (PLANQUE_BROWSER_SESSIONS), never more than three, and one when unset;
+// another account's are its own.
+func TestAnAccountsBrowserRunsTheSessionsSet(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	for set, want := range map[int]int{0: 1, 1: 1, 2: 2, 3: 3, 9: 3} {
+		s := &Server{KV: &store.Memory{}, BrowserSessions: set}
+		for n := range want {
+			if _, _, err := s.takeBrowserLease(ctx, "t_a", now.Add(time.Minute)); err != nil {
+				t.Fatalf("set %d: session %d: %v", set, n+1, err)
+			}
+		}
+		if _, _, err := s.takeBrowserLease(ctx, "t_a", now.Add(time.Minute)); !errors.Is(err, errBrowserBusy) {
+			t.Errorf("set %d: session %d taken: %v", set, want+1, err)
+		}
+		if _, _, err := s.takeBrowserLease(ctx, "t_b", now.Add(time.Minute)); err != nil {
+			t.Errorf("set %d: another account: %v", set, err)
+		}
+	}
+}
+
+// Two sessions of one grant at once: the one that ends last never seals its
+// older sign-ins over the ones the first sealed.
+func TestTwoSessionsOfAGrantNeverSealOverANewerSignIn(t *testing.T) {
+	e := newBrowserEnv(t)
+	e.s.BrowserSessions = 2
+	g := e.connect()
+	ctx := context.Background()
+	_, from, err := e.s.openBrowserState(ctx, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstFrom, secondFrom := from, from
+	e.s.keepBrowserState(ctx, g, []byte(`{"cookies":[{"name":"session","value":"fresh"}]}`), &firstFrom)
+	e.s.keepBrowserState(ctx, g, []byte(`{"cookies":[{"name":"session","value":"old"}]}`), &secondFrom)
+	state, _, err := e.s.openBrowserState(ctx, g)
+	if err != nil || !strings.Contains(string(state), "fresh") {
+		t.Fatalf("the sealed sign-in: %s, %v", state, err)
+	}
+}

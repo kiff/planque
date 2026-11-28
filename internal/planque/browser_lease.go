@@ -10,9 +10,11 @@ import (
 	"github.com/kiff/planque/internal/store"
 )
 
-// An account's hosted browser runs one session at a time
-// (browserSessionsPerAccount): a taf's call, a pay, or the owner's live
-// sign-in view. The worker's own cap is shared by every account, so without
+// An account's hosted browser runs Server.BrowserSessions sessions at a
+// time (one unless set, at most maxBrowserSessions): a taf's call, a pay, or
+// the owner's live sign-in view. Two sessions of one grant at once are
+// safe: each seals its sign-ins only over the version it opened with
+// (keepBrowserState), so an older copy never overwrites a refreshed one. The worker's own cap is shared by every account, so without
 // this one account's calls could hold every session. Each session takes a
 // lease, a record under the account's own key that only planque writes,
 // from the grant's tenant and never from a call's input; it lapses by itself
@@ -26,9 +28,16 @@ import (
 // timeout (kiffForwardTimeout): past that, KIFF records a call as maybe
 // sent and never sends it again, which is worse than either.
 
-// browserSessionsPerAccount is how many sessions one account's hosted
-// browser runs at once.
-const browserSessionsPerAccount = 1
+// maxBrowserSessions is the most sessions one account's hosted browser may
+// run at once, whatever is set: the worker's own cap is shared by every
+// account.
+const maxBrowserSessions = 3
+
+// browserSessions is how many sessions one account's hosted browser runs
+// at once: BrowserSessions, 1 when unset, at most maxBrowserSessions.
+func (s *Server) browserSessions() int {
+	return min(max(s.BrowserSessions, 1), maxBrowserSessions)
+}
 
 // kiffForwardTimeout is how long KIFF's gateway waits for a tool's answer
 // (kiff/cloud's ForwardTimeout); browserCallRoom, what an approved call
@@ -73,7 +82,7 @@ func (s *Server) takeBrowserLease(ctx context.Context, tenant string, until time
 	now := s.now()
 	pk := tenantPK(tenant)
 	soonest := time.Duration(-1)
-	for n := 0; n < browserSessionsPerAccount; n++ {
+	for n := range s.browserSessions() {
 		sk := skBrowserLease(n)
 		it, found, err := s.KV.Get(ctx, pk, sk)
 		if err != nil {
