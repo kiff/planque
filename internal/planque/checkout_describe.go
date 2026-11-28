@@ -22,7 +22,7 @@ import (
 // pay's operation, under KIFF's permit for "<op>:describe". planque answers
 // the checkout it read and kept at browse_checkout (lines, total, currency,
 // shipping, tax, merchant, delivery address, and the seller's Stripe profile
-// with the host it was read on), signed with its describe key under its own
+// with the host it was read from), signed with its describe key under its own
 // label. No browser starts and nothing reaches the site; the taf is told
 // nothing. At the pay itself planque still checks the page against the same
 // record, so what runs is what was described.
