@@ -50,9 +50,14 @@ type Permit struct {
 	// Run is the kiff/agents run the call was made in, as KIFF signed it
 	// from the caller's KIFF-Run header (claim "run"); "" when it names none,
 	// or names something that isn't a run's id.
-	Run      string
-	IssuedAt time.Time
-	Expires  time.Time
+	Run string
+	// Pins are the values KIFF signed for the relay to set in the vendor's body (its claim "pins": a dotted
+	// path to a string or a boolean; a marker's value is the permit's op), and PinsSigned whether the claim
+	// was there at all: a tenant KIFF doesn't sign pins for sends none.
+	Pins       map[string]any
+	PinsSigned bool
+	IssuedAt   time.Time
+	Expires    time.Time
 }
 
 // Live reports whether the permit may start a new execution at now:
@@ -118,6 +123,8 @@ type claims struct {
 		Decision   string `json:"decision"`
 		Approval   string `json:"approval"`
 		Run        string `json:"run"`
+		// Pins KIFF signed (kiff/cloud step 3): read only as strings and booleans.
+		Pins map[string]json.RawMessage `json:"pins"`
 	} `json:"authorization_details"`
 }
 
@@ -182,7 +189,28 @@ func (v *Verifier) Verify(ctx context.Context, token string, want Want) (Permit,
 		return Permit{}, ErrLifetime
 	}
 	return Permit{ID: c.Jti, Subject: c.Sub, Tenant: d.Tenant, Tool: d.Tool, ArgsHash: d.ArgsSHA256,
-		Op: d.Op, Card: d.Card, Decision: d.Decision, Approval: d.Approval, Run: runOf(d.Run), IssuedAt: iat, Expires: exp}, nil
+		Op: d.Op, Card: d.Card, Decision: d.Decision, Approval: d.Approval, Run: runOf(d.Run),
+		Pins: pinsOf(d.Pins), PinsSigned: d.Pins != nil, IssuedAt: iat, Expires: exp}, nil
+}
+
+// pinsOf is a permit's pins as the relay compares them: each a string or a boolean, as KIFF signs them; a
+// value of any other kind is left out, so it reads as not signed.
+func pinsOf(raw map[string]json.RawMessage) map[string]any {
+	if raw == nil {
+		return nil
+	}
+	out := make(map[string]any, len(raw))
+	for path, v := range raw {
+		var s string
+		var b bool
+		switch {
+		case json.Unmarshal(v, &s) == nil:
+			out[path] = s
+		case json.Unmarshal(v, &b) == nil:
+			out[path] = b
+		}
+	}
+	return out
 }
 
 // runID is what a run's id may be: kiff/agents' ids are short and plain.
