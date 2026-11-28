@@ -611,6 +611,22 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 		}
 		return path, v
 	}
+	// The words the owner approves once the account is named in them.
+	named := func(t *testing.T, e *env, id string) string {
+		t.Helper()
+		g, err := e.s.loadGrant(context.Background(), tenant, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Status != StatusSignedIn || !strings.Contains(g.Text, "Demo Shop") || g.Text != namesAccount(g, "en") {
+			t.Fatalf("the words don't name the account: %s %q", g.Status, g.Text)
+		}
+		d, err := g.digestIn("en")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
 	t.Run("signed in at the provider, its redirect lost", func(t *testing.T) {
 		e, f := newConnectorFixture(t)
 		path, v := approve(t, e)
@@ -619,9 +635,17 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 			t.Fatalf("another device asked: %d %v", st, out)
 		}
 		anew()
+		// The approving device asks again: the sign-in is finished, its words
+		// now name the account, and nothing that confirms comes back.
 		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
-		if st != 200 || out["status"] != StatusSignedIn || out["confirm"] == nil || out["sign_in_url"] != nil || f.links != 1 {
+		if st != 409 || out["code"] != CodeWordsChanged || out["confirm"] != nil || out["sign_in_url"] != nil || f.links != 1 {
 			t.Fatalf("asked again: %d %v, %d links", st, out, f.links)
+		}
+		// Approving those words: the code, which confirms.
+		anew()
+		st, out = e.do("POST", path+"/approve", map[string]any{"digest": named(t, e, v["id"].(string))}, e.phone, "")
+		if st != 200 || out["status"] != StatusSignedIn || out["account"] != "Demo Shop" || out["confirm"] == nil || out["sign_in_url"] != nil || f.links != 1 {
+			t.Fatalf("the account's words: %d %v, %d links", st, out, f.links)
 		}
 		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": out["confirm"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusListed {
 			t.Fatalf("confirm: %d %v", st, out)
@@ -632,7 +656,7 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 		path, v := approve(t, e)
 		lost := e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
 		anew()
-		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": named(t, e, v["id"].(string))}, e.phone, "")
 		if st != 200 || out["status"] != StatusSignedIn || out["confirm"] == nil || out["confirm"] == lost {
 			t.Fatalf("asked again: %d %v", st, out)
 		}
@@ -642,6 +666,41 @@ func TestAManagedSignInThatNeverCameBackFinishesOrStartsAgain(t *testing.T) {
 		}
 		if st, out := e.do("POST", path+"/confirm", map[string]string{"confirm": out["confirm"].(string)}, e.phone, ""); st != 200 || out["status"] != StatusListed {
 			t.Fatalf("confirm: %d %v", st, out)
+		}
+	})
+	t.Run("signed in, the words as asked approved again", func(t *testing.T) {
+		// Words that don't name the account never resume: the sign-in is
+		// revoked at the provider and a new link given, with the words back
+		// to the ones asked.
+		e, f := newConnectorFixture(t)
+		f.distinct = true
+		path, v := approve(t, e)
+		e.signIn(f.callback + "&connected_account_id=untrusted&status=ACTIVE")
+		named(t, e, v["id"].(string))
+		anew()
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		if st != 200 || out["confirm"] != nil || out["sign_in_url"] == nil || f.links != 2 || !slices.Equal(f.revoked, []string{"account_demo"}) {
+			t.Fatalf("asked words again: %d %v, %d links, revoked %v", st, out, f.links, f.revoked)
+		}
+		g, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+		if g.Status != StatusApproved || strings.Contains(g.Text, "Demo Shop") || g.AskedTexts != nil {
+			t.Fatalf("after the new link: %s %q", g.Status, g.Text)
+		}
+	})
+	t.Run("signed in at the provider, with no account named", func(t *testing.T) {
+		// No account to show the owner: no resume, never signed_in with an
+		// empty account; a new link, and the unfinished sign-in revoked.
+		e, f := newConnectorFixture(t)
+		f.noName, f.distinct = true, true
+		path, v := approve(t, e)
+		anew()
+		st, out := e.do("POST", path+"/approve", map[string]any{"digest": v["digest"]}, e.phone, "")
+		if st != 200 || out["confirm"] != nil || out["sign_in_url"] == nil || f.links != 2 || !slices.Equal(f.revoked, []string{"account_demo"}) {
+			t.Fatalf("no account named: %d %v, %d links, revoked %v", st, out, f.links, f.revoked)
+		}
+		g, _ := e.s.loadGrant(context.Background(), tenant, v["id"].(string))
+		if g.Status != StatusApproved || g.ConfirmHash != "" {
+			t.Fatalf("no account named: %s, confirm hash %q", g.Status, g.ConfirmHash)
 		}
 	})
 	t.Run("not signed in at the provider", func(t *testing.T) {
