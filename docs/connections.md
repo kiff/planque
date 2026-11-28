@@ -353,6 +353,22 @@ and deleted on disconnect. planque never stores or logs a password: in the
 live view, what the owner types goes to the browser through planque's
 memory as an act, and is kept nowhere.
 
+### Downloads into the grant's store
+
+For the accounts `PLANQUE_BROWSER_DOWNLOADS=tenants:…` lists, a
+`browse_act` call's session takes the files its pages give. The browser
+saves them in the session's own profile, never opens them, and reaches them
+only through the session's egress (the grant's sites). A file past 5 MB is
+stopped as it arrives. Each file is typed by its bytes: a PDF with nothing
+that runs or opens (no script, launch action, embedded file, form submit or
+XFA), a PNG or JPEG that decodes, or CSV text. Anything else is refused. The
+check is structural, not an antivirus engine. planque checks the type, the
+cap and the digest again, then keeps the file sealed under the grant, in
+parts, for 30 days, deleted sooner with the grant or the account. The
+call's answer lists each file as data, `{file, name, type, size, sha256}`
+or `{name, refused}`. The owner's apps read a file with
+`GET /v1/accounts/{tenant}/grants/{id}/files/{file}`.
+
 ### The seller's Stripe profile
 
 With `PLANQUE_STRIPE_PROFILE=on`, a hosted `browse_checkout` also reads the

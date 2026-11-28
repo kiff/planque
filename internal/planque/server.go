@@ -108,6 +108,10 @@ type Server struct {
 	// BrowserSessions is how many sessions one account's hosted browser
 	// runs at once (PLANQUE_BROWSER_SESSIONS, 1 to 3; 1 when unset).
 	BrowserSessions int
+	// BrowserDownloads are the accounts whose hosted browser keeps the
+	// files a page gives, in the grant's store (browser_files.go;
+	// PLANQUE_BROWSER_DOWNLOADS=tenants:a,b). None when unset.
+	BrowserDownloads map[string]bool
 	// StripeProfiles reads the seller's Stripe profile with a checkout
 	// (stripe_profile.go; PLANQUE_STRIPE_PROFILE=on); UCPGet replaces its
 	// fetch in tests.
@@ -345,6 +349,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/accounts/{tenant}/agents/{agent}/end", s.endAgent)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/asked-grants", s.everyAskedGrant)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/connections", s.accountConnections)
+	mux.HandleFunc("GET /v1/accounts/{tenant}/grants/{id}/files/{file}", s.grantFile)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/hands", s.accountHands)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/sessions/{session}/agents", s.sessionAgents)
 	mux.HandleFunc("GET /v1/accounts/{tenant}/export", s.signedAs(kindSafe, capExport, s.export))
