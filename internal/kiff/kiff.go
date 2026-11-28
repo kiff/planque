@@ -275,6 +275,18 @@ type Connection struct {
 	// DestructiveHint is the vendor's own destructiveHint for the tool, as
 	// its server listed it. KIFF only ever raises a tool's class on it.
 	DestructiveHint bool `json:"destructive_hint,omitempty"`
+	// VendorPins are what planque sets in the vendor's own body after the
+	// permit (Qonto's draft status, Stripe's account, a profile's marker), so
+	// KIFF signs them into the permit. Left out when there are none.
+	VendorPins []Pin `json:"vendor_pins,omitempty"`
+}
+
+// Pin is one value planque sets in the vendor's body: a dotted path to a
+// string or a boolean, or a marker (the permit's op) with no value.
+type Pin struct {
+	Path   string `json:"path"`
+	Value  any    `json:"value,omitempty"`
+	Marker bool   `json:"marker,omitempty"`
 }
 
 // UnitLookup is the read KIFF's gateway makes before deciding a call: Tool
