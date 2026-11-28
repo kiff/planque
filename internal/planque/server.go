@@ -33,6 +33,7 @@ import (
 	"github.com/kiff/planque/internal/permit"
 	"github.com/kiff/planque/internal/rest"
 	"github.com/kiff/planque/internal/seal"
+	"github.com/kiff/planque/internal/spt"
 	"github.com/kiff/planque/internal/stepkey"
 	"github.com/kiff/planque/internal/store"
 	"github.com/kiff/planque/internal/words"
@@ -75,6 +76,9 @@ type Server struct {
 	// Issuing makes a purchase's single-use card through Stripe Issuing, in
 	// test mode only (thune_cards.go); nil, no card is made.
 	Issuing *issuing.Client
+	// Tokens issues a purchase's shared payment token (path a, B1) from its
+	// Issuing card, in test mode; nil, no token is made.
+	Tokens *spt.Client
 	// TelegramBase is the Telegram Bot API; empty, Telegram's own.
 	TelegramBase string
 	// Browser drives a browser grant's browser (kiff/planque#86); nil, no

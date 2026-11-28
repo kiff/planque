@@ -254,6 +254,12 @@ func (s *Server) sweep(w http.ResponseWriter, r *http.Request) {
 	} else if canceled > 0 {
 		s.log().InfoContext(r.Context(), "sweep canceled purchase cards", slog.Int("canceled", canceled))
 	}
+	// Purchase tokens past their case, revoked.
+	if revoked, err := s.sweepTokens(r.Context()); err != nil {
+		s.log().WarnContext(r.Context(), "sweep: purchase tokens not all revoked", slog.String("err", err.Error()))
+	} else if revoked > 0 {
+		s.log().InfoContext(r.Context(), "sweep revoked purchase tokens", slog.Int("revoked", revoked))
+	}
 	// Sign-outs KIFF didn't take when they happened, sent again.
 	if told, err := s.tellAgain(r.Context()); err != nil {
 		s.log().WarnContext(r.Context(), "sweep: sign-outs not told again", slog.String("err", err.Error()))
